@@ -14,6 +14,7 @@ test("compiles corpus facets into an editable query draft", () => {
 test("labels relay and local constraints visibly", () => {
   const chips = constraintChips({ ...emptyQueryConstraints(), kinds: [1, 30023], domain: "example.com" });
   assert.deepEqual(chips.map(({ key, scope }) => [key, scope]), [["kinds", "relay"], ["domain", "local"]]);
+  assert.match(chips[0].label, /Short notes · kind 1/);
 });
 
 test("applies relay-capable constraints without leaking local refinements", () => {

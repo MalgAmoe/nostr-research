@@ -1,4 +1,5 @@
 export const emptyQueryConstraints = () => ({ author: "", kinds: [], tag: "", tagValue: "", days: 0, domain: "", media: "", relay: "" });
+const KNOWN_KIND_NAMES = new Map([[0, "Profiles"], [1, "Short notes"], [3, "Follow lists"], [6, "Reposts"], [7, "Reactions"], [20, "Pictures"], [21, "Videos"], [22, "Short videos"], [1111, "Comments"], [9735, "Zap receipts"], [30023, "Long articles"]]);
 
 export function hasRelayConstraints(constraints = {}) {
   return Boolean(constraints.promotedTopic || constraints.author || constraints.kinds?.length || (constraints.tag && constraints.tagValue) || constraints.days > 0 || constraints.facetDay || constraints.relay);
@@ -22,7 +23,7 @@ export function constraintChips(constraints = {}) {
   const chips = [];
   if (constraints.promotedTopic) chips.push({ key: "promotedTopic", label: `topic: ${constraints.promotedTopic}`, scope: "relay" });
   if (constraints.author) chips.push({ key: "author", label: `author: ${constraints.author}`, scope: "relay" });
-  if (constraints.kinds?.length) chips.push({ key: "kinds", label: `kinds: ${constraints.kinds.join(", ")}`, scope: "relay" });
+  if (constraints.kinds?.length) chips.push({ key: "kinds", label: constraints.kinds.map((kind) => `${KNOWN_KIND_NAMES.get(kind) ?? "Event"} · kind ${kind}`).join(" + "), scope: "relay" });
   if (constraints.tag && constraints.tagValue) chips.push({ key: "tag", label: `#${constraints.tag}=${constraints.tagValue}`, scope: "relay" });
   if (constraints.days) chips.push({ key: "days", label: `last ${constraints.days}d`, scope: "relay" });
   if (constraints.facetDay) chips.push({ key: "facetDay", label: `day: ${constraints.facetDay}`, scope: "relay" });
