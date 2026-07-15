@@ -38,6 +38,8 @@ const compact = (value = "", length = 150) => {
 };
 const kindName = (kind) => ({ 0: "profile metadata", 1: "short note", 3: "follow list", 4: "legacy direct message", 5: "deletion request", 6: "repost", 7: "reaction", 13: "seal", 14: "direct message", 16: "generic repost", 20: "picture", 21: "video", 22: "short video", 40: "channel creation", 41: "channel metadata", 42: "channel message", 1059: "gift wrap", 30023: "long-form article", 30078: "app data" }[kind] ?? "event");
 const ranked = (values, limit = 10) => [...values.reduce((map, value) => value !== undefined && value !== null && value !== "" ? map.set(value, (map.get(value) ?? 0) + 1) : map, new Map()).entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
+const emptyFacets = () => ({ topic: "", author: "", kind: null, day: "", domain: "", relay: "" });
+const eventDomains = (event) => [...new Set((event?.content?.match(/https?:\/\/[^\s<>]+/gi) ?? []).flatMap((value) => { try { return [new URL(value.replace(/[),.;!?]+$/, "")).hostname.replace(/^www\./, "")]; } catch { return []; } }))];
 const NOTE_LIKE_KINDS = new Set([1, 20, 21, 22, 30023]);
 const contentFingerprint = (event) => NOTE_LIKE_KINDS.has(event.kind) ? (event.content ?? "").normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim() : "";
 const dedupeForDisplay = (events) => {
@@ -156,6 +158,8 @@ function App() {
   const [activeRecipeId, setActiveRecipeId] = createSignal("");
   const [lastRunDelta, setLastRunDelta] = createSignal(null);
   const [relayInformation, setRelayInformation] = createSignal(new Map());
+  const [activeFacets, setActiveFacets] = createSignal(emptyFacets());
+  const [comparisonBaseline, setComparisonBaseline] = createSignal([]);
   let searchToken = 0;
   const knownEvents = new Map();
   const rememberEvents = (events) => { for (const event of events) knownEvents.set(event.id, event); return events; };
@@ -234,7 +238,7 @@ function App() {
     const base = results();
     let incoming = [];
     setQuery(text); setLoading(true); setError("");
-    if (operation === "replace") setResults([]);
+    if (operation === "replace") { setResults([]); setActiveFacets(emptyFacets()); }
     if (route().kind !== "search") location.hash = "#/search";
     logUsage("search_started", { query: text });
     try {
@@ -445,19 +449,39 @@ function App() {
     finally { if (token === searchToken) setRouteLoading(false); }
   }
 
-  const filteredResults = createMemo(() => {
+  const baseFilteredResults = createMemo(() => {
     const cutoff = sinceDays() ? Math.floor(Date.now() / 1000) - sinceDays() * 86400 : 0;
-    const filtered = results().filter((event) => (!cutoff || event.created_at >= cutoff) && (kindFilter() === "all" || (kindFilter() === "notes" && event.kind === 1) || (kindFilter() === "profiles" && event.kind === 0) || (kindFilter() === "follows" && event.kind === 3) || (kindFilter() === "articles" && event.kind === 30023) || (kindFilter() === "other" && ![0, 1, 3, 30023].includes(event.kind))));
+    return results().filter((event) => (!cutoff || event.created_at >= cutoff) && (kindFilter() === "all" || (kindFilter() === "notes" && event.kind === 1) || (kindFilter() === "profiles" && event.kind === 0) || (kindFilter() === "follows" && event.kind === 3) || (kindFilter() === "articles" && event.kind === 30023) || (kindFilter() === "other" && ![0, 1, 3, 30023].includes(event.kind))));
+  });
+  const filteredResults = createMemo(() => {
+    const facets = activeFacets();
+    const filtered = baseFilteredResults().filter((event) =>
+      (!facets.topic || tags(event, "t").some((topic) => topic.toLowerCase() === facets.topic)) &&
+      (!facets.author || event.pubkey === facets.author) &&
+      (facets.kind === null || event.kind === facets.kind) &&
+      (!facets.day || new Date(event.created_at * 1000).toISOString().slice(0, 10) === facets.day) &&
+      (!facets.domain || eventDomains(event).includes(facets.domain)) &&
+      (!facets.relay || (sourceIndex.get(event.id) ?? []).includes(facets.relay))
+    );
     return dedupeEnabled() ? dedupeForDisplay(filtered) : filtered;
   });
   const corpusFacets = createMemo(() => {
-    const events = filteredResults();
+    const events = baseFilteredResults();
     return {
       topics: ranked(events.flatMap((event) => tags(event, "t").map((topic) => topic.toLowerCase())), 12),
       authors: ranked(events.map((event) => event.pubkey), 8),
       kinds: ranked(events.map((event) => event.kind), 8),
-      days: ranked(events.map((event) => new Date(event.created_at * 1000).toISOString().slice(0, 10)), 7)
+      days: ranked(events.map((event) => new Date(event.created_at * 1000).toISOString().slice(0, 10)), 7),
+      domains: ranked(events.flatMap(eventDomains), 8),
+      relays: ranked(events.flatMap((event) => sourceIndex.get(event.id) ?? []), 6)
     };
+  });
+  const toggleFacet = (type, value) => setActiveFacets((current) => ({ ...current, [type]: current[type] === value ? (type === "kind" ? null : "") : value }));
+  const activeFacetCount = createMemo(() => Object.values(activeFacets()).filter((value) => value !== "" && value !== null).length);
+  const comparison = createMemo(() => {
+    const baseline = new Set(comparisonBaseline());
+    const current = new Set(filteredResults().map((event) => event.id));
+    return { baseline: baseline.size, current: current.size, shared: [...current].filter((id) => baseline.has(id)).length, removed: [...baseline].filter((id) => !current.has(id)).length, added: [...current].filter((id) => !baseline.has(id)).length };
   });
   const pulseTopics = createMemo(() => ranked(pulseEvents().flatMap((event) => tags(event, "t").map((topic) => topic.toLowerCase())), 18));
   async function loadRelayPulse() {
@@ -517,7 +541,7 @@ function App() {
     knownEvents.clear();
     setQuery(""); setResults([]); setProfiles(new Map()); setSteps([]); setSelectedId(""); setPinned(new Set());
     setEntryReasons({}); setExpansionStatus(null); setKindFilter("all"); setSinceDays(0); setCombineMode("replace"); setView("list");
-    setRelayStates(new Map()); setError(""); setRouteData(null); setLastQueryPlan(null); setHasMore(true); setPageMessage(""); setActiveRecipeId(""); setLastRunDelta(null);
+    setRelayStates(new Map()); setError(""); setRouteData(null); setLastQueryPlan(null); setHasMore(true); setPageMessage(""); setActiveRecipeId(""); setLastRunDelta(null); setActiveFacets(emptyFacets()); setComparisonBaseline([]);
     history.replaceState(null, "", "#/search"); setRoute(parseRoute());
     logUsage("exploration_reset", { preservedSavedInvestigations: paths().length });
   };
@@ -594,13 +618,13 @@ function App() {
 
     <div class="mx-auto grid max-w-[1800px] gap-4 px-4 py-5 xl:grid-cols-[250px_minmax(0,1fr)_310px] lg:px-6">
       <aside class="hidden space-y-4 xl:sticky xl:top-20 xl:block xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
-        <Show when={results().length}><FacetPanel facets={corpusFacets()} profileFor={profileFor} onTopic={(topic) => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onKind={(kind) => setKindFilter(kind === 1 ? "notes" : kind === 0 ? "profiles" : kind === 3 ? "follows" : kind === 30023 ? "articles" : "other")}/></Show>
+        <Show when={results().length}><FacetPanel facets={corpusFacets()} active={activeFacets()} profileFor={profileFor} onFacet={toggleFacet} onOpenAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onClear={() => setActiveFacets(emptyFacets())}/></Show>
         <Panel title="RESEARCH RECIPES"><Show when={paths().length} fallback={<p class="text-emerald-900">Save a search to make it rerunnable.</p>}><For each={paths().slice(0, 8)}>{(path) => <button onClick={() => void restorePath(path)} class={`block w-full border-b border-emerald-950 py-2 text-left hover:text-lime-300 ${activeRecipeId() === path.id ? "text-lime-300" : "text-emerald-500"}`}><span class="block truncate">{activeRecipeId() === path.id ? "› " : ""}{path.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{path.eventIds?.length ?? path.snapshot?.corpus?.length ?? 0} cached nodes</span></button>}</For></Show></Panel>
-        <Show when={results().length}><Panel title="CURRENT SET"><Stat label="retrieved" value={results().length}/><Stat label="visible" value={filteredResults().length}/><Stat label="evidence" value={pinned().size}/></Panel></Show>
+        <Show when={results().length}><Panel title="CURRENT SET"><Stat label="retrieved" value={results().length}/><Stat label="visible" value={filteredResults().length}/><Stat label="active facets" value={activeFacetCount()}/><Stat label="evidence" value={pinned().size}/></Panel></Show>
       </aside>
 
       <main class="min-w-0">
-        <Show when={results().length}><details class="mb-4 rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs xl:hidden"><summary class="text-lime-300">exploration facets · {results().length} items</summary><div class="mt-3 border-t border-emerald-900 pt-3"><div class="flex flex-wrap gap-2"><For each={corpusFacets().topics.slice(0, 10)}>{([topic, count]) => <button onClick={() => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} class="rounded border border-emerald-900 px-2 py-1 text-emerald-500">#{topic} {count}</button>}</For></div></div></details></Show>
+        <Show when={results().length}><details class="mb-4 rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs xl:hidden"><summary class="text-lime-300">filter this corpus · {filteredResults().length}/{results().length} items</summary><div class="mt-3 border-t border-emerald-900 pt-3"><div class="flex flex-wrap gap-2"><For each={corpusFacets().topics.slice(0, 10)}>{([topic, count]) => <button onClick={() => toggleFacet("topic", topic)} class={`rounded border px-2 py-1 ${activeFacets().topic === topic ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-900 text-emerald-500"}`}>#{topic} {count}</button>}</For><Show when={activeFacetCount()}><button onClick={() => setActiveFacets(emptyFacets())} class="text-emerald-600">clear</button></Show></div></div></details></Show>
         <section class="mb-4 rounded border border-emerald-900 bg-emerald-950/20 p-3 shadow-[0_0_40px_rgba(16,185,129,.04)]">
           <div class="mb-3 flex flex-wrap gap-2 font-mono text-xs"><span class="mr-1 self-center text-emerald-700">START FROM</span><For each={[['topic','a topic'],['person','a person'],['note','a note'],['words','keywords']]}>{([mode,label]) => <button type="button" onClick={() => { setStartMode(mode); setQuery(""); }} class={`rounded px-3 py-1.5 ${startMode() === mode ? "bg-lime-300 text-black" : "border border-emerald-900 text-emerald-500"}`}>{label}</button>}</For></div>
           <form class="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); startSearch(); }}>
@@ -636,7 +660,7 @@ function App() {
             <Show keyed when={route()}>{(currentRoute) => <Show when={currentRoute.kind === "search"} fallback={<RouteView route={currentRoute} data={routeData()} profileFor={profileFor} openRoute={openRoute}/> }>
                 <Show when={!results().length && !query()}><HomeDiscovery topics={pulseTopics()} events={pulseEvents()} loading={pulseLoading()} profileFor={profileFor} onTopic={(topic) => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onRefresh={loadRelayPulse}/></Show>
                 <Show when={selectedEvent()}>{(event) => <ExploreFromNode event={event()} profile={profileFor(event().pubkey)} onExpand={expandSelection} openRoute={openRoute} loading={loading()} status={expansionStatus()} reason={entryReasons()[event().id]}/>}</Show>
-                <ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0}/>
+                <ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0} facets={corpusFacets()} activeFacets={activeFacets()} onFacet={toggleFacet}/>
               </Show>}</Show>
           </Show>
         </Show>
@@ -645,6 +669,7 @@ function App() {
       <Show when={results().length}><aside class="space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pl-1">
         <Panel title="RELAY PULSE · 24H"><Show when={pulseTopics().length} fallback={<p class="text-emerald-900">{pulseLoading() ? "sampling recent notes…" : "no tagged notes returned"}</p>}><div class="flex flex-wrap gap-1.5"><For each={pulseTopics().slice(0, 10)}>{([topic, count]) => <button onClick={() => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} class="rounded border border-emerald-900 px-2 py-1 text-emerald-500 hover:border-lime-700 hover:text-lime-300">#{topic} <span class="text-emerald-800">{count}</span></button>}</For></div></Show></Panel>
         <Panel title="EVIDENCE"><Show when={pinned().size} fallback={<p class="text-emerald-900">Pin nodes to build an evidence set.</p>}><For each={[...pinned()].map((id) => knownEvents.get(id)).filter(Boolean)}>{(event) => <button onClick={() => setSelectedId(event.id)} class="block w-full border-b border-emerald-950 py-2 text-left"><span class="text-lime-500">{kindName(event.kind)}</span><span class="mt-1 block truncate text-emerald-600">{compact(event.content, 60)}</span></button>}</For></Show></Panel>
+        <Panel title="COMPARE CORPUS"><Show when={comparisonBaseline().length} fallback={<><p class="text-emerald-800">Capture the visible corpus, then apply facets to measure what they remove or reveal.</p><button onClick={() => setComparisonBaseline(filteredResults().map((event) => event.id))} class="w-full rounded border border-emerald-800 px-2 py-1.5 text-emerald-400 hover:text-lime-300">capture current as baseline</button></>}><Stat label="baseline" value={comparison().baseline}/><Stat label="current" value={comparison().current}/><Stat label="shared" value={comparison().shared}/><Stat label="current only" value={`+${comparison().added}`}/><Stat label="filtered out" value={`−${comparison().removed}`}/><div class="flex gap-2 pt-1"><button onClick={() => setComparisonBaseline(filteredResults().map((event) => event.id))} class="text-emerald-500 hover:text-lime-300">replace baseline</button><button onClick={() => setComparisonBaseline([])} class="ml-auto text-emerald-700 hover:text-red-300">clear</button></div></Show></Panel>
         <Show when={lastRunDelta()}>{(delta) => <Panel title="RUN COMPARISON"><Show when={delta().previous} fallback={<p class="text-emerald-700">Baseline saved. Rerun this recipe later to measure change.</p>}><Stat label="new" value={`+${delta().added}`}/><Stat label="not returned" value={`−${delta().missing}`}/><Stat label="set overlap" value={`${Math.round((delta().overlap ?? 0) * 100)}%`}/></Show></Panel>}</Show>
         <CoveragePanel states={relayStates()} information={relayInformation()} />
       </aside></Show>
@@ -682,15 +707,19 @@ function ErrorPanel(props) { return <div class="rounded border border-red-950 bg
 
 function FacetPanel(props) {
   const hasFacets = () => props.facets.topics.length || props.facets.authors.length || props.facets.kinds.length;
-  return <Panel title="EXPLORE THIS SET"><Show when={hasFacets()} fallback={<p class="py-2 text-emerald-900">Search something to generate useful facets here.</p>}>
-    <Show when={props.facets.topics.length}><FacetGroup title="TOPICS"><For each={props.facets.topics}>{([topic, count]) => <Facet label={`#${topic}`} count={count} onClick={() => props.onTopic(topic)}/>}</For></FacetGroup></Show>
-    <Show when={props.facets.authors.length}><FacetGroup title="ACTIVE ACCOUNTS"><For each={props.facets.authors}>{([pubkey, count]) => <Facet label={props.profileFor(pubkey).name} count={count} onClick={() => props.onAuthor(pubkey)}/>}</For></FacetGroup></Show>
-    <Show when={props.facets.kinds.length}><FacetGroup title="CONTENT TYPES"><For each={props.facets.kinds}>{([kind, count]) => <Facet label={kindName(kind)} count={count} onClick={() => props.onKind(kind)}/>}</For></FacetGroup></Show>
-    <Show when={props.facets.days.length}><FacetGroup title="ACTIVE DAYS"><For each={props.facets.days}>{([day, count]) => <div class="flex justify-between py-1 text-emerald-700"><span>{day}</span><span>{count}</span></div>}</For></FacetGroup></Show>
+  const hasActive = () => Object.values(props.active).some((value) => value !== "" && value !== null);
+  return <Panel title="FILTER THIS CORPUS"><Show when={hasFacets()} fallback={<p class="py-2 text-emerald-900">Search something to generate useful facets here.</p>}>
+    <Show when={hasActive()}><button onClick={props.onClear} class="mb-1 w-full rounded border border-lime-900 px-2 py-1 text-lime-400 hover:bg-lime-950/30">clear all active facets</button></Show>
+    <Show when={props.facets.topics.length}><FacetGroup title="TOPICS"><For each={props.facets.topics}>{([topic, count]) => <Facet active={props.active.topic === topic} label={`#${topic}`} count={count} onClick={() => props.onFacet("topic", topic)}/>}</For></FacetGroup></Show>
+    <Show when={props.facets.authors.length}><FacetGroup title="ACTIVE ACCOUNTS"><For each={props.facets.authors}>{([pubkey, count]) => <div class="flex items-center"><Facet active={props.active.author === pubkey} label={props.profileFor(pubkey).name} count={count} onClick={() => props.onFacet("author", pubkey)}/><button title="Open account" onClick={() => props.onOpenAuthor(pubkey)} class="px-1 text-emerald-800 hover:text-lime-300">↗</button></div>}</For></FacetGroup></Show>
+    <Show when={props.facets.kinds.length}><FacetGroup title="CONTENT TYPES"><For each={props.facets.kinds}>{([kind, count]) => <Facet active={props.active.kind === kind} label={`${kindName(kind)} · ${kind}`} count={count} onClick={() => props.onFacet("kind", kind)}/>}</For></FacetGroup></Show>
+    <Show when={props.facets.domains.length}><FacetGroup title="SOURCES / DOMAINS"><For each={props.facets.domains}>{([domain, count]) => <Facet active={props.active.domain === domain} label={domain} count={count} onClick={() => props.onFacet("domain", domain)}/>}</For></FacetGroup></Show>
+    <Show when={props.facets.relays.length}><FacetGroup title="FOUND ON RELAYS"><For each={props.facets.relays}>{([relay, count]) => <Facet active={props.active.relay === relay} label={new URL(relay).hostname} count={count} onClick={() => props.onFacet("relay", relay)}/>}</For></FacetGroup></Show>
+    <Show when={props.facets.days.length}><FacetGroup title="ACTIVE DAYS"><For each={props.facets.days}>{([day, count]) => <Facet active={props.active.day === day} label={day} count={count} onClick={() => props.onFacet("day", day)}/>}</For></FacetGroup></Show>
   </Show></Panel>;
 }
 function FacetGroup(props) { return <div class="border-b border-emerald-950 pb-2"><div class="mb-1 text-[9px] tracking-[.14em] text-emerald-800">{props.title}</div><div class="space-y-0.5">{props.children}</div></div>; }
-function Facet(props) { return <button onClick={props.onClick} class="flex w-full items-center justify-between rounded px-1 py-1 text-left text-emerald-500 hover:bg-emerald-950 hover:text-lime-300"><span class="truncate">{props.label}</span><span class="ml-2 text-emerald-800">{props.count}</span></button>; }
+function Facet(props) { return <button onClick={props.onClick} class={`flex min-w-0 flex-1 items-center justify-between rounded px-1 py-1 text-left hover:bg-emerald-950 hover:text-lime-300 ${props.active ? "bg-lime-950/40 text-lime-300" : "text-emerald-500"}`}><span class="truncate">{props.active ? "× " : ""}{props.label}</span><span class="ml-2 text-emerald-800">{props.count}</span></button>; }
 
 function HomeDiscovery(props) {
   const activeAuthors = createMemo(() => ranked(props.events.map((event) => event.pubkey), 8));
@@ -714,7 +743,7 @@ function ExploreFromNode(props) {
 
 function Direction(props) { return <button disabled={props.loading} onClick={props.onClick} class="rounded border border-emerald-900 bg-black/10 p-3 text-left hover:border-lime-700 hover:bg-emerald-950/50 disabled:cursor-wait disabled:opacity-40"><span class="block text-sm text-lime-200">{props.title} →</span><span class="mt-1 block text-[11px] text-emerald-700">{props.loading ? "Checking relays…" : props.detail}</span></button>; }
 
-const LENSES = ["list", "thread", "timeline", "graph", "matrix"];
+const LENSES = ["list", "map", "thread", "timeline", "graph", "matrix"];
 
 function ResearchWorkspace(props) {
   return <section class="overflow-hidden rounded border border-emerald-900 bg-emerald-950/10">
@@ -723,6 +752,7 @@ function ResearchWorkspace(props) {
       <span class="ml-auto font-mono text-[10px] text-emerald-800">{props.events.length} visible nodes</span>
     </div>
     <Show when={props.view === "list"}><SearchView {...props}/></Show>
+    <Show when={props.view === "map"}><CorpusMap {...props}/></Show>
     <Show when={props.view === "thread"}><ThreadLens {...props}/></Show>
     <Show when={props.view === "timeline"}><TimelineLens {...props}/></Show>
     <Show when={props.view === "graph"}><GraphLens {...props}/></Show>
@@ -730,6 +760,37 @@ function ResearchWorkspace(props) {
     <Show when={props.canLoadMore}><div class="border-t border-emerald-900 bg-black/10 p-4 text-center"><button disabled={props.paging || !props.hasMore} onClick={props.onLoadMore} class="rounded border border-lime-800 px-6 py-2 font-mono text-xs text-lime-300 hover:bg-lime-300 hover:text-black disabled:cursor-not-allowed disabled:border-emerald-950 disabled:text-emerald-800">{props.paging ? "CHECKING RELAYS…" : props.hasMore ? "LOAD OLDER RESULTS" : "END OF RELAY RESULTS"}</button><Show when={props.pageMessage}><p class="mt-2 font-mono text-[10px] text-emerald-700">{props.pageMessage}</p></Show></div></Show>
   </section>;
 }
+
+function CorpusMap(props) {
+  const model = createMemo(() => {
+    const events = props.events;
+    const referenced = events.filter((event) => ["e", "E", "a", "A", "q"].some((type) => tags(event, type).length));
+    return {
+      topics: ranked(events.flatMap((event) => tags(event, "t").map((topic) => topic.toLowerCase())), 16),
+      authors: ranked(events.map((event) => event.pubkey), 12),
+      domains: ranked(events.flatMap(eventDomains), 12),
+      relays: ranked(events.flatMap((event) => sourceIndex.get(event.id) ?? []), 8),
+      kinds: ranked(events.map((event) => event.kind), 10),
+      days: ranked(events.map((event) => new Date(event.created_at * 1000).toISOString().slice(0, 10)), 10),
+      referenced: referenced.length,
+      rootLike: events.filter((event) => !tags(event, "e").length && !tags(event, "E").length && !tags(event, "a").length && !tags(event, "A").length).length,
+    };
+  });
+  return <div><LensHeader title="CORPUS MAP" detail={`${props.events.length} nodes · click anything to filter the corpus`}/>
+    <Show when={props.events.length} fallback={<EmptyLens text="No visible events to map."/>}><div class="grid gap-px bg-emerald-950 lg:grid-cols-2">
+      <MapSection title="TOPIC CLUSTERS" detail="Tags that organize this corpus"><For each={model().topics}>{([topic, count]) => <MapItem label={`#${topic}`} count={count} active={props.activeFacets.topic === topic} onClick={() => props.onFacet("topic", topic)}/>}</For></MapSection>
+      <MapSection title="PARTICIPATING ACCOUNTS" detail="Who contributes most here"><For each={model().authors}>{([pubkey, count]) => <MapItem label={props.profileFor(pubkey).name} count={count} active={props.activeFacets.author === pubkey} onClick={() => props.onFacet("author", pubkey)} secondary="open" onSecondary={() => props.openRoute(`#/account/${pubkey}`)}/>}</For></MapSection>
+      <MapSection title="EXTERNAL SOURCES" detail="Domains referenced in event content"><Show when={model().domains.length} fallback={<p class="text-emerald-900">No external domains in this corpus.</p>}><For each={model().domains}>{([domain, count]) => <MapItem label={domain} count={count} active={props.activeFacets.domain === domain} onClick={() => props.onFacet("domain", domain)}/>}</For></Show></MapSection>
+      <MapSection title="DATA SHAPE" detail="Protocol types and conversation structure"><For each={model().kinds}>{([kind, count]) => <MapItem label={`${kindName(kind)} · ${kind}`} count={count} active={props.activeFacets.kind === kind} onClick={() => props.onFacet("kind", kind)}/>}</For><div class="mt-3 grid grid-cols-2 gap-2"><MapStat label="with references" value={model().referenced}/><MapStat label="root-like" value={model().rootLike}/></div></MapSection>
+      <MapSection title="RELAY DISTRIBUTION" detail="Where visible events were observed"><Show when={model().relays.length} fallback={<p class="text-emerald-900">Relay provenance is unavailable for restored cached events.</p>}><For each={model().relays}>{([relay, count]) => <MapItem label={new URL(relay).hostname} count={count} active={props.activeFacets.relay === relay} onClick={() => props.onFacet("relay", relay)}/>}</For></Show></MapSection>
+      <MapSection title="ACTIVITY WINDOWS" detail="Days represented in this corpus"><For each={model().days}>{([day, count]) => <MapItem label={day} count={count} active={props.activeFacets.day === day} onClick={() => props.onFacet("day", day)}/>}</For></MapSection>
+    </div></Show>
+  </div>;
+}
+
+function MapSection(props) { return <section class="bg-[#050b08] p-4"><div class="mb-3"><h3 class="font-mono text-[10px] tracking-[.14em] text-lime-300">{props.title}</h3><p class="mt-1 text-xs text-emerald-800">{props.detail}</p></div><div class="space-y-1">{props.children}</div></section>; }
+function MapItem(props) { return <div class={`flex items-center rounded border ${props.active ? "border-lime-600 bg-lime-950/30" : "border-emerald-950 hover:border-emerald-800"}`}><button onClick={props.onClick} class="flex min-w-0 flex-1 items-center justify-between px-2 py-1.5 text-left text-sm text-emerald-400"><span class="truncate">{props.active ? "× " : ""}{props.label}</span><span class="ml-2 font-mono text-[10px] text-emerald-800">{props.count}</span></button><Show when={props.secondary}><button onClick={props.onSecondary} class="border-l border-emerald-950 px-2 py-1.5 font-mono text-[9px] text-emerald-700 hover:text-lime-300">{props.secondary} ↗</button></Show></div>; }
+function MapStat(props) { return <div class="rounded border border-emerald-950 p-2"><span class="block font-mono text-lg text-emerald-300">{props.value}</span><span class="text-[10px] text-emerald-800">{props.label}</span></div>; }
 
 function SearchView(props) {
   return <section>
