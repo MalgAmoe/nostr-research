@@ -6,7 +6,7 @@ An early, local SolidJS and Tailwind client for Nostr discovery and research rat
 
 - Topic, account, event, NIP-05, and NIP-50 keyword discovery using real relay data.
 - Relationship traversal from a selected event: replies, quotes, references, author activity, mentions, shared topics, reactions, reposts, and zaps.
-- Corpus facets for topics, accounts, event kinds, domains, relays, and activity dates, plus a sampled 24-hour relay pulse on the home screen.
+- Corpus facets for topics, accounts, event kinds, domains, relays, and activity dates, plus a configurable comparative Relay Pulse for rising topics, accounts, domains, media, relay overlap, and sample coverage.
 - Explore, Analyze, and Map workspaces with list, thread, timeline, table, comparison, matrix, corpus-map, and relationship-graph views.
 - Rich note rendering for images, video, audio, links, Nostr references, hashtags, and lightweight Markdown.
 - Configurable per-relay research depth, cursor-based retrieval of older results, and optional display-time duplicate collapsing.
