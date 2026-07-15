@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, parseKindList, ranked, tags } from "./event-analysis.js";
+import { buildFacetResearchFilter, buildGraphModel, dedupeForDisplay, eventDomains, kindName, parseKindList, ranked, tags } from "./event-analysis.js";
 import { indexTerms } from "./research-store.js";
 
 const event = (overrides = {}) => ({ id: "a", pubkey: "p1", kind: 1, content: "A sufficiently long repeated piece of content", tags: [], created_at: 1, ...overrides });
@@ -52,4 +52,14 @@ test("builds a bounded multi-entity graph and keeps in-corpus references", () =>
   assert.deepEqual(model.events.map((item) => item.id), ["reply", "root"]);
   assert.ok(model.edges.some((edge) => edge.type === "reference" && edge.from === "reply" && edge.to === "root"));
   assert.deepEqual(model.domains, [{ value: "example.com", count: 2 }]);
+});
+
+test("promotes topic facets to broad text research instead of repeating the exact tag filter", () => {
+  const filter = buildFacetResearchFilter({ topic: "fiatnews", domain: "example.com", author: "alice", kind: 1, day: "2026-07-15" }, 250);
+  assert.equal(filter.search, "fiatnews example.com");
+  assert.equal(filter["#t"], undefined);
+  assert.deepEqual(filter.authors, ["alice"]);
+  assert.deepEqual(filter.kinds, [1]);
+  assert.equal(filter.limit, 250);
+  assert.equal(filter.until - filter.since, 86_399);
 });

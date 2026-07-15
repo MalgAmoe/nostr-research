@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import { SimplePool, nip19 } from "nostr-tools";
-import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, parseKindList, ranked, tags } from "./event-analysis.js";
+import { buildFacetResearchFilter, buildGraphModel, dedupeForDisplay, eventDomains, kindName, parseKindList, ranked, tags } from "./event-analysis.js";
 import { latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, searchStoredEvents, storeEvents } from "./research-store.js";
 import { loadRelayInformationSet } from "./relay-info.js";
 import "./styles.css";
@@ -315,7 +315,7 @@ function App() {
       if (!incoming.length && operation === "replace") {
         setResults(base); setHasMore(false); setPageMessage("The queried relays returned no events for these filters. Your previous corpus was kept.");
         logUsage("filter_query", { label, filter, operation, returned: 0, resultCount: base.length, preservedCorpus: true, durationMs: Math.round(performance.now() - started) });
-        return;
+        return 0;
       }
       const next = mergeIncoming(incoming, base, operation).sort((a, b) => b.created_at - a.created_at);
       setResults(next);
@@ -323,6 +323,7 @@ function App() {
       logUsage("filter_query", { label, filter, operation, returned: incoming.length, resultCount: next.length, durationMs: Math.round(performance.now() - started) });
       void recordResearchRun({ label, filter, relays, operation }, next);
       hydrateProfiles(next, token);
+      return incoming.length;
     } catch (cause) { setError(cause.message); }
     finally { if (token === searchToken) setLoading(false); }
   }
@@ -495,19 +496,19 @@ function App() {
   const researchActiveFacets = async () => {
     const facets = activeFacets();
     if (!activeFacetCount()) return;
-    const filter = { limit: queryLimit() };
+    const filter = buildFacetResearchFilter(facets, queryLimit());
     const parts = [];
-    if (facets.topic) { filter["#t"] = [facets.topic]; parts.push(`#${facets.topic}`); }
-    if (facets.author) { filter.authors = [facets.author]; parts.push(`author ${profileFor(facets.author).name}`); }
-    if (facets.kind !== null) { filter.kinds = [facets.kind]; parts.push(`${kindName(facets.kind)} · ${facets.kind}`); }
-    if (facets.day) { const since = Math.floor(new Date(`${facets.day}T00:00:00Z`).getTime() / 1000); filter.since = since; filter.until = since + 86_399; parts.push(facets.day); }
+    if (facets.topic) parts.push(`topic ${facets.topic}`);
+    if (facets.author) parts.push(`author ${profileFor(facets.author).name}`);
+    if (facets.kind !== null) parts.push(`${kindName(facets.kind)} · ${facets.kind}`);
+    if (facets.day) parts.push(facets.day);
     if (facets.domain) parts.push(`domain ${facets.domain}`);
     if (facets.media) parts.push(`${facets.media} media`);
     let relays = facets.relay ? [facets.relay] : READ_RELAYS;
     if (facets.relay) parts.push(`on ${new URL(facets.relay).hostname}`);
-    const hasIndexedConstraint = Boolean(filter["#t"] || filter.authors || filter.kinds || filter.since);
-    if (!hasIndexedConstraint && facets.domain) { filter.search = facets.domain; relays = facets.relay ? [facets.relay] : searchRelays(); }
-    await executeFilter(filter, `active facets · ${parts.join(" · ")}`, combineMode(), relays, `relay research from active filters: ${parts.join(" · ")}`);
+    if (filter.search && !facets.relay) relays = searchRelays();
+    const returned = await executeFilter(filter, `active facets · ${parts.join(" · ")}`, combineMode(), relays, `relay research from active filters: ${parts.join(" · ")}`);
+    if (returned > 0) setActiveFacets(emptyFacets());
   };
   const pulseTopics = createMemo(() => ranked(pulseEvents().flatMap((event) => tags(event, "t").map((topic) => topic.toLowerCase())), 18));
   async function loadRelayPulse() {
