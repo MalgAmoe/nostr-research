@@ -8,19 +8,6 @@ export const parseKindList = (value = "") => [...new Set(value.split(/[\s,]+/).f
 
 export const eventDomains = (event) => [...new Set((event?.content?.match(/https?:\/\/[^\s<>]+/gi) ?? []).flatMap((value) => { try { return [new URL(value.replace(/[),.;!?]+$/, "")).hostname.replace(/^www\./, "")]; } catch { return []; } }))];
 
-export function buildFacetResearchFilter(facets, limit = 100) {
-  const filter = { limit };
-  const searchTerms = [facets.topic, facets.domain].filter(Boolean);
-  if (searchTerms.length) filter.search = searchTerms.join(" ");
-  if (facets.author) filter.authors = [facets.author];
-  if (facets.kind !== null && facets.kind !== undefined) filter.kinds = [facets.kind];
-  if (facets.day) {
-    const since = Math.floor(new Date(`${facets.day}T00:00:00Z`).getTime() / 1000);
-    filter.since = since; filter.until = since + 86_399;
-  }
-  return filter;
-}
-
 const NOTE_LIKE_KINDS = new Set([1, 20, 21, 22, 30023]);
 const contentFingerprint = (event) => NOTE_LIKE_KINDS.has(event.kind) ? (event.content ?? "").normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim() : "";
 

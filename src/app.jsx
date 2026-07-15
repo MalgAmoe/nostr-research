@@ -1,7 +1,8 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import { SimplePool, nip19 } from "nostr-tools";
-import { buildFacetResearchFilter, buildGraphModel, dedupeForDisplay, eventDomains, kindName, parseKindList, ranked, tags } from "./event-analysis.js";
+import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, parseKindList, ranked, tags } from "./event-analysis.js";
+import { applyRelayConstraints, constraintChips, constraintsFromFacets, emptyQueryConstraints, removeConstraint } from "./query-spec.js";
 import { latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, searchStoredEvents, storeEvents } from "./research-store.js";
 import { loadRelayInformationSet } from "./relay-info.js";
 import "./styles.css";
@@ -121,14 +122,9 @@ function App() {
   const [pinned, setPinned] = createSignal(new Set(restored.pinned ?? []));
   const [selectedId, setSelectedId] = createSignal(restored.selectedId ?? "");
   const [paths, setPaths] = createSignal(load(PATHS_KEY, []));
-  const [builderAuthor, setBuilderAuthor] = createSignal("");
-  const [builderKinds, setBuilderKinds] = createSignal("");
-  const [builderTag, setBuilderTag] = createSignal("");
-  const [builderTagValue, setBuilderTagValue] = createSignal("");
-  const [builderDays, setBuilderDays] = createSignal("");
-  const [builderDomain, setBuilderDomain] = createSignal("");
-  const [builderMedia, setBuilderMedia] = createSignal("");
-  const [startMode, setStartMode] = createSignal("topic");
+  const [queryConstraints, setQueryConstraints] = createSignal(restored.queryConstraints ?? emptyQueryConstraints());
+  const [startMode, setStartMode] = createSignal(restored.startMode ?? "topic");
+  const [executedQuery, setExecutedQuery] = createSignal(restored.executedQuery ?? null);
   const [entryReasons, setEntryReasons] = createSignal(restored.entryReasons ?? {});
   const [expansionStatus, setExpansionStatus] = createSignal(null);
   const [expansionOperation, setExpansionOperation] = createSignal("union");
@@ -205,11 +201,13 @@ function App() {
     if (token === searchToken) rememberProfiles(metadata);
   };
 
-  async function resolveSearch(value) {
+  async function resolveSearch(value, forcedMode = "") {
     const text = value.trim();
-    if (/^[0-9a-f]{64}$/i.test(text)) return { filter: { ids: [text] }, relays: READ_RELAYS, mode: "event id" };
-    if (text.startsWith("#")) return { filter: { "#t": [text.slice(1).toLowerCase()], limit: queryLimit() }, relays: READ_RELAYS, mode: "topic" };
-    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text)) {
+    if (forcedMode === "topic") return { filter: { "#t": [text.replace(/^#/, "").toLowerCase()], limit: queryLimit() }, relays: READ_RELAYS, mode: "topic" };
+    if (forcedMode === "words") return { filter: { search: text, limit: queryLimit() }, relays: searchRelays(), mode: "NIP-50" };
+    if (/^[0-9a-f]{64}$/i.test(text)) return { filter: { [forcedMode === "person" ? "authors" : "ids"]: [text], limit: queryLimit() }, relays: READ_RELAYS, mode: forcedMode === "person" ? "author" : "event id" };
+    if (!forcedMode && text.startsWith("#")) return { filter: { "#t": [text.slice(1).toLowerCase()], limit: queryLimit() }, relays: READ_RELAYS, mode: "topic" };
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text) && forcedMode !== "note") {
       const [name, domain] = text.split("@");
       const response = await fetch(`https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name)}`);
       const pubkey = (await response.json()).names?.[name];
@@ -218,29 +216,40 @@ function App() {
     }
     if (/^(npub|nprofile|note|nevent|naddr)1/i.test(text)) {
       const decoded = nip19.decode(text);
+      if (forcedMode === "person" && !["npub", "nprofile"].includes(decoded.type)) throw new Error("This value identifies a note, not a person.");
+      if (forcedMode === "note" && ["npub", "nprofile"].includes(decoded.type)) throw new Error("This value identifies a person, not a note.");
       if (decoded.type === "npub") return { filter: { authors: [decoded.data], limit: queryLimit() }, relays: READ_RELAYS, mode: "npub" };
       if (decoded.type === "nprofile") return { filter: { authors: [decoded.data.pubkey], limit: queryLimit() }, relays: decoded.data.relays?.length ? decoded.data.relays : READ_RELAYS, mode: "nprofile" };
       if (decoded.type === "note") return { filter: { ids: [decoded.data] }, relays: READ_RELAYS, mode: "note" };
       if (decoded.type === "nevent") return { filter: { ids: [decoded.data.id] }, relays: decoded.data.relays?.length ? decoded.data.relays : READ_RELAYS, mode: "nevent" };
       if (decoded.type === "naddr") return { filter: { authors: [decoded.data.pubkey], kinds: [decoded.data.kind], "#d": [decoded.data.identifier] }, relays: decoded.data.relays?.length ? decoded.data.relays : READ_RELAYS, mode: "naddr" };
     }
+    if (forcedMode === "person") throw new Error("Enter a name@domain, npub, nprofile, or 64-character public key.");
+    if (forcedMode === "note") throw new Error("Enter a note, nevent, naddr, or 64-character event ID.");
     return { filter: { search: text, limit: queryLimit() }, relays: searchRelays(), mode: "NIP-50" };
   }
 
-  async function runSearch(value = query(), operation = combineMode()) {
+  async function runSearch(value = query(), operation = combineMode(), forcedMode = "", constraints = emptyQueryConstraints()) {
     const text = value.trim();
     if (!text) return;
     checkpointCorpus(`before ${operation} search · ${text}`);
     const token = ++searchToken;
     const started = performance.now();
     const base = results();
+    const baseFacets = activeFacets();
     let incoming = [];
     setQuery(text); setLoading(true); setError("");
     if (operation === "replace") { setResults([]); setActiveFacets(emptyFacets()); }
     if (route().kind !== "search") location.hash = "#/search";
     logUsage("search_started", { query: text });
     try {
-      const plan = await resolveSearch(text);
+      const basePlan = await resolveSearch(text, forcedMode);
+      let compiledConstraints = constraints;
+      if (constraints.author) compiledConstraints = { ...constraints, author: await resolvePubkey(constraints.author) };
+      let filter = applyRelayConstraints(basePlan.filter, compiledConstraints);
+      if (compiledConstraints.promotedTopic) filter = { ...filter, search: [filter.search, compiledConstraints.promotedTopic].filter(Boolean).join(" ") };
+      const relays = compiledConstraints.relay ? [compiledConstraints.relay] : filter.search ? searchRelays() : basePlan.relays;
+      const plan = { ...basePlan, filter, relays };
       setLastQueryPlan(plan); setHasMore(true); setPageMessage("");
       void inspectRelays(plan.relays);
       const states = new Map(plan.relays.map((relay) => [relay, { state: "searching", count: 0 }]));
@@ -256,10 +265,18 @@ function App() {
         setRelayStates((current) => new Map(current).set(relay, { state: "ok", count: events.length, ids: events.map((event) => event.id), duration: Math.round(performance.now() - relayStarted) }));
       }));
       if (token !== searchToken) return;
+      if (!incoming.length && operation === "replace" && base.length) {
+        setResults(base); setActiveFacets(baseFacets); setHasMore(false);
+        setPageMessage("The queried relays returned no events. Your previous corpus was kept.");
+        return;
+      }
       logUsage("search_completed", { query: text, mode: plan.mode, resultCount: results().length, durationMs: Math.round(performance.now() - started) });
+      setExecutedQuery({ value: text, mode: forcedMode || plan.mode, constraints: compiledConstraints, operation, completedAt: Date.now() });
+      setActiveFacets({ ...emptyFacets(), domain: compiledConstraints.domain || "", media: compiledConstraints.media || "" });
       void recordResearchRun({ query: text, mode: plan.mode, filter: plan.filter, relays: plan.relays, operation }, results());
       hydrateProfiles(results(), token);
     } catch (cause) {
+      if (operation === "replace") { setResults(base); setActiveFacets(baseFacets); }
       setError(cause.message);
       logUsage("search_failed", { query: text, error: cause.message });
     } finally { if (token === searchToken) setLoading(false); }
@@ -342,28 +359,6 @@ function App() {
       return (await response.json()).names?.[name] ?? "";
     }
     throw new Error("Author must be a hex pubkey, npub, nprofile, or NIP-05 identifier");
-  }
-
-  async function runStructuredQuery() {
-    try {
-      logUsage("structured_query_started", { author: builderAuthor(), kinds: builderKinds(), tag: builderTag(), tagValue: builderTagValue(), days: builderDays(), domain: builderDomain(), media: builderMedia() });
-      const filter = { limit: queryLimit() };
-      const parts = [];
-      const author = await resolvePubkey(builderAuthor());
-      const kinds = parseKindList(builderKinds());
-      if (author) { filter.authors = [author]; parts.push(`author ${short(author)}`); }
-      if (kinds.length) { filter.kinds = kinds; parts.push(`kinds ${kinds.join(",")}`); }
-      if (builderTag() && builderTagValue()) { filter[`#${builderTag().replace(/^#/, "").slice(0, 1)}`] = [builderTagValue().replace(/^#/, "")]; parts.push(`#${builderTag()}=${builderTagValue()}`); }
-      if (Number(builderDays()) > 0) { filter.since = Math.floor(Date.now() / 1000) - Number(builderDays()) * 86400; parts.push(`last ${builderDays()}d`); }
-      const domain = builderDomain().trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
-      if (domain) parts.push(`domain ${domain}`);
-      if (builderMedia()) parts.push(builderMedia());
-      if (parts.length === 0) throw new Error("Add at least one query constraint");
-      const hasRelayConstraint = Boolean(author || kinds.length || (builderTag() && builderTagValue()) || Number(builderDays()) > 0);
-      if (hasRelayConstraint) await executeFilter(filter, parts.join(" · "), combineMode());
-      else if (!results().length) throw new Error("Domain and media are local refinements. Retrieve a corpus first, or combine them with an author, kind, tag, or date constraint.");
-      setActiveFacets((current) => ({ ...current, domain, media: builderMedia() }));
-    } catch (cause) { setError(cause.message); }
   }
 
   async function expandSelection(relation) {
@@ -493,22 +488,14 @@ function App() {
   });
   const toggleFacet = (type, value) => setActiveFacets((current) => ({ ...current, [type]: current[type] === value ? (type === "kind" ? null : "") : value }));
   const activeFacetCount = createMemo(() => Object.values(activeFacets()).filter((value) => value !== "" && value !== null).length);
-  const researchActiveFacets = async () => {
+  const composerChips = createMemo(() => constraintChips(queryConstraints()));
+  const compileActiveFacets = () => {
     const facets = activeFacets();
     if (!activeFacetCount()) return;
-    const filter = buildFacetResearchFilter(facets, queryLimit());
-    const parts = [];
-    if (facets.topic) parts.push(`topic ${facets.topic}`);
-    if (facets.author) parts.push(`author ${profileFor(facets.author).name}`);
-    if (facets.kind !== null) parts.push(`${kindName(facets.kind)} · ${facets.kind}`);
-    if (facets.day) parts.push(facets.day);
-    if (facets.domain) parts.push(`domain ${facets.domain}`);
-    if (facets.media) parts.push(`${facets.media} media`);
-    let relays = facets.relay ? [facets.relay] : READ_RELAYS;
-    if (facets.relay) parts.push(`on ${new URL(facets.relay).hostname}`);
-    if (filter.search && !facets.relay) relays = searchRelays();
-    const returned = await executeFilter(filter, `active facets · ${parts.join(" · ")}`, combineMode(), relays, `relay research from active filters: ${parts.join(" · ")}`);
-    if (returned > 0) setActiveFacets(emptyFacets());
+    setQueryConstraints((current) => constraintsFromFacets(facets, current));
+    setActiveFacets(emptyFacets());
+    queueMicrotask(() => document.getElementById("research-composer")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    logUsage("facets_compiled", { facets });
   };
   const pulseTopics = createMemo(() => ranked(pulseEvents().flatMap((event) => tags(event, "t").map((topic) => topic.toLowerCase())), 18));
   async function loadRelayPulse() {
@@ -528,6 +515,7 @@ function App() {
       id,
       title: query() || "Untitled investigation",
       query: query(),
+      queryDraft: { mode: startMode(), value: query(), constraints: queryConstraints() },
       plan: lastQueryPlan(),
       operation: combineMode(),
       eventIds: results().map((event) => event.id),
@@ -549,7 +537,8 @@ function App() {
     const storedEvents = path.eventIds ? await loadEvents(path.eventIds, sourceIndex) : legacy?.corpus ?? [];
     void storeEvents(storedEvents, sourceIndex);
     setActiveRecipeId(path.id); setLastRunDelta(null);
-    setQuery(path.query ?? legacy?.query ?? ""); setResults(storedEvents); rememberEvents(storedEvents);
+    const draft = path.queryDraft ?? { mode: "words", value: path.query ?? legacy?.query ?? "", constraints: emptyQueryConstraints() };
+    setQuery(draft.value); setStartMode(draft.mode); setQueryConstraints(draft.constraints ?? emptyQueryConstraints()); setResults(storedEvents); rememberEvents(storedEvents);
     setPinned(new Set(path.pinned ?? legacy?.pinned ?? [])); setView(path.settings?.view ?? legacy?.view ?? "list");
     setKindFilter(path.settings?.kindFilter ?? legacy?.kindFilter ?? "all"); setSinceDays(path.settings?.sinceDays ?? legacy?.sinceDays ?? 0);
     setDedupeEnabled(path.settings?.dedupeEnabled ?? true); setQueryLimit(path.settings?.queryLimit ?? queryLimit()); setLastQueryPlan(path.plan ?? null);
@@ -560,14 +549,16 @@ function App() {
     const recipe = paths().find((path) => path.id === activeRecipeId());
     if (!recipe?.query) return;
     setCombineMode("replace");
-    void runSearch(recipe.query, "replace");
+    const draft = recipe.queryDraft ?? { mode: "words", value: recipe.query, constraints: emptyQueryConstraints() };
+    setStartMode(draft.mode); setQueryConstraints(draft.constraints ?? emptyQueryConstraints());
+    void runSearch(draft.value, "replace", draft.mode, draft.constraints);
   };
   const newExploration = () => {
     if (results().length && !window.confirm("Start a new exploration? The current corpus will be cleared. Saved recipes and collections will remain.")) return;
     searchToken += 1;
     localStorage.removeItem(SESSION_KEY);
     knownEvents.clear();
-    setQuery(""); setResults([]); setProfiles(new Map()); setSelectedId(""); setPinned(new Set());
+    setQuery(""); setQueryConstraints(emptyQueryConstraints()); setExecutedQuery(null); setStartMode("topic"); setResults([]); setProfiles(new Map()); setSelectedId(""); setPinned(new Set());
     setEntryReasons({}); setExpansionStatus(null); setKindFilter("all"); setSinceDays(0); setCombineMode("replace"); setView("list");
     setRelayStates(new Map()); setError(""); setRouteData(null); setLastQueryPlan(null); setHasMore(true); setPageMessage(""); setActiveRecipeId(""); setLastRunDelta(null); setActiveFacets(emptyFacets()); setCorpusHistory([]);
     history.replaceState(null, "", "#/search"); setRoute(parseRoute());
@@ -598,7 +589,7 @@ function App() {
   const toggleSet = (setter, id) => setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   createEffect(() => save(SESSION_KEY, {
-    query: query(), eventIds: results().slice(0, SESSION_EVENT_LIMIT).map((event) => event.id), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory(), queryLimit: queryLimit()
+    query: query(), queryConstraints: queryConstraints(), startMode: startMode(), executedQuery: executedQuery(), eventIds: results().slice(0, SESSION_EVENT_LIMIT).map((event) => event.id), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory(), queryLimit: queryLimit()
   }));
 
   onMount(async () => {
@@ -646,7 +637,7 @@ function App() {
   const startSearch = () => {
     const value = query().trim();
     if (!value) return;
-    runSearch(startMode() === "topic" && !value.startsWith("#") ? `#${value}` : value, combineMode());
+    runSearch(value, combineMode(), startMode(), queryConstraints());
   };
   const searchLocalArchive = async () => {
     const value = query().trim();
@@ -661,8 +652,20 @@ function App() {
   const selectEvent = (id) => {
     setSelectedId(id); setExpansionStatus(null);
   };
+  const composeAuthorSearch = (pubkey) => {
+    setQueryConstraints((current) => ({ ...current, author: pubkey }));
+    openRoute("#/search");
+    queueMicrotask(() => document.getElementById("research-composer")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   const navigateFromEvent = (id, relation) => {
     setSelectedId(id); setExpansionStatus(null);
+    if (relation === "author") {
+      const event = knownEvents.get(id);
+      if (event) {
+        composeAuthorSearch(event.pubkey);
+      }
+      return;
+    }
     void expandSelection(relation);
   };
 
@@ -677,7 +680,7 @@ function App() {
 
     <div class={`mx-auto grid gap-4 px-4 py-5 lg:px-6 ${route().kind === "help" ? "max-w-[1100px]" : "max-w-[1800px] xl:grid-cols-[250px_minmax(0,1fr)_310px]"}`}>
       <Show when={route().kind !== "help"}><aside class="hidden space-y-4 xl:sticky xl:top-20 xl:block xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
-        <Show when={results().length}><FacetPanel facets={corpusFacets()} active={activeFacets()} profileFor={profileFor} onFacet={toggleFacet} onOpenAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onClear={() => setActiveFacets(emptyFacets())} onResearch={() => void researchActiveFacets()} loading={loading()} operation={combineMode()}/></Show>
+        <Show when={results().length}><FacetPanel facets={corpusFacets()} active={activeFacets()} profileFor={profileFor} onFacet={toggleFacet} onOpenAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onClear={() => setActiveFacets(emptyFacets())} onCompile={compileActiveFacets}/></Show>
         <Panel title="RESEARCH RECIPES"><Show when={paths().length} fallback={<p class="text-emerald-900">Save a search to make it rerunnable.</p>}><For each={paths().slice(0, 8)}>{(path) => <button onClick={() => void restorePath(path)} class={`block w-full border-b border-emerald-950 py-2 text-left hover:text-lime-300 ${activeRecipeId() === path.id ? "text-lime-300" : "text-emerald-500"}`}><span class="block truncate">{activeRecipeId() === path.id ? "› " : ""}{path.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{path.eventIds?.length ?? path.snapshot?.corpus?.length ?? 0} cached nodes</span></button>}</For></Show></Panel>
         <Show when={collections().length}><Panel title="COLLECTIONS"><For each={collections().slice(0, 8)}>{(collection) => <button onClick={() => void openCollection(collection)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">{collection.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{collection.eventIds.length} evidence items</span></button>}</For></Panel></Show>
         <Show when={corpusHistory().length}><Panel title="RETURN TO"><For each={corpusHistory()}>{(checkpoint) => <button onClick={() => void restoreCorpusCheckpoint(checkpoint)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">↶ {checkpoint.label}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{checkpoint.eventIds.length} events · {new Date(checkpoint.at).toLocaleTimeString()}</span></button>}</For></Panel></Show>
@@ -685,14 +688,16 @@ function App() {
       </aside></Show>
 
       <main class="min-w-0">
-        <Show when={route().kind !== "help"}><Show when={results().length}><details class="mb-4 rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs xl:hidden"><summary class="text-lime-300">filter this corpus · {filteredResults().length}/{results().length} items</summary><div class="mt-3 border-t border-emerald-900 pt-3"><div class="flex flex-wrap gap-2"><For each={corpusFacets().topics.slice(0, 10)}>{([topic, count]) => <button onClick={() => toggleFacet("topic", topic)} class={`rounded border px-2 py-1 ${activeFacets().topic === topic ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-900 text-emerald-500"}`}>#{topic} {count}</button>}</For><Show when={activeFacetCount()}><button disabled={loading()} onClick={() => void researchActiveFacets()} class="rounded border border-lime-700 px-2 py-1 text-lime-300">research active filters ↗</button><button onClick={() => setActiveFacets(emptyFacets())} class="text-emerald-600">clear</button></Show></div></div></details></Show>
-        <section class="mb-4 rounded border border-emerald-900 bg-emerald-950/20 p-3 shadow-[0_0_40px_rgba(16,185,129,.04)]">
+        <Show when={route().kind !== "help"}><Show when={results().length}><details class="mb-4 rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs xl:hidden"><summary class="text-lime-300">filter this corpus · {filteredResults().length}/{results().length} items</summary><div class="mt-3 border-t border-emerald-900 pt-3"><div class="flex flex-wrap gap-2"><For each={corpusFacets().topics.slice(0, 10)}>{([topic, count]) => <button onClick={() => toggleFacet("topic", topic)} class={`rounded border px-2 py-1 ${activeFacets().topic === topic ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-900 text-emerald-500"}`}>#{topic} {count}</button>}</For><Show when={activeFacetCount()}><button onClick={compileActiveFacets} class="rounded border border-lime-700 px-2 py-1 text-lime-300">use in a new search ↗</button><button onClick={() => setActiveFacets(emptyFacets())} class="text-emerald-600">clear</button></Show></div></div></details></Show>
+        <section id="research-composer" class="mb-4 scroll-mt-20 rounded border border-emerald-900 bg-emerald-950/20 p-3 shadow-[0_0_40px_rgba(16,185,129,.04)]">
           <div class="mb-3 flex flex-wrap gap-2 font-mono text-xs"><span class="mr-1 self-center text-emerald-700">START FROM</span><For each={[['topic','a topic'],['person','a person'],['note','a note'],['words','keywords']]}>{([mode,label]) => <button type="button" onClick={() => setStartMode(mode)} class={`rounded px-3 py-1.5 ${startMode() === mode ? "bg-lime-300 text-black" : "border border-emerald-900 text-emerald-500"}`}>{label}</button>}</For></div>
           <form class="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); startSearch(); }}>
             <span class="font-mono text-lime-300">→</span>
             <input value={query()} onInput={(event) => setQuery(event.currentTarget.value)} class="min-w-0 flex-1 bg-transparent px-1 py-2 font-mono text-sm text-emerald-50 outline-none placeholder:text-emerald-900" placeholder={{topic:"topic, for example bitcoin",person:"name@domain, npub, or public key",note:"note, nevent, or event ID",words:"words contained in notes"}[startMode()]} autofocus />
             <button disabled={loading()} class="rounded border border-lime-700 px-4 py-2 font-mono text-xs text-lime-200 transition hover:bg-lime-300 hover:text-black disabled:opacity-40">{loading() ? "SEARCHING…" : "SEARCH RELAYS"}</button><button type="button" disabled={loading()} onClick={() => void searchLocalArchive()} class="rounded border border-emerald-800 px-3 py-2 font-mono text-[10px] text-emerald-400 hover:text-lime-300">SEARCH LOCAL</button>
           </form>
+          <Show when={composerChips().length}><div class="mt-3 flex flex-wrap gap-2 font-mono text-[10px]"><For each={composerChips()}>{(chip) => <button type="button" title="Remove constraint" onClick={() => setQueryConstraints((current) => removeConstraint(current, chip.key))} class={`rounded border px-2 py-1 ${chip.scope === "relay" ? "border-lime-800 text-lime-300" : "border-cyan-900 text-cyan-400"}`}>{chip.label} <span class="ml-1 opacity-50">{chip.scope.toUpperCase()} ×</span></button>}</For></div></Show>
+          <Show when={executedQuery()}>{(run) => <div class="mt-2 font-mono text-[9px] text-emerald-800">CURRENT CORPUS ← {run().mode}: {run().value} · {run().operation}</div>}</Show>
           <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-emerald-900/70 pt-3 text-xs">
             <select aria-label="How to use these results" value={combineMode()} onChange={(event) => setCombineMode(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-lime-300"><option value="replace">replace current results</option><option value="union">add to current results</option><option value="intersect">keep only matches</option></select>
             <select aria-label="Content type" value={kindFilter()} onChange={(event) => setKindFilter(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="all">all content</option><option value="notes">short notes</option><option value="profiles">profiles</option><option value="follows">follow lists</option><option value="articles">long articles</option><option value="other">other data</option></select>
@@ -702,26 +707,13 @@ function App() {
             <Show when={activeRecipeId()}><button type="button" disabled={loading()} onClick={rerunRecipe} class="rounded border border-lime-800 px-2 py-1.5 text-lime-300 disabled:opacity-40">rerun + compare</button></Show>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">depth · {queryLimit()}/relay</summary><div class="absolute right-0 top-9 z-40 w-72 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="text-[10px] tracking-wider text-lime-300">RESEARCH DEPTH · PER RELAY</div><div class="mt-3 grid grid-cols-2 gap-1"><For each={[[50,"quick"],[100,"standard"],[250,"deep"],[500,"exhaustive"]]}>{([limit,label]) => <button type="button" onClick={() => setQueryLimit(limit)} class={`rounded border px-2 py-2 text-left ${queryLimit() === limit ? "border-lime-500 bg-lime-950/40 text-lime-300" : "border-emerald-900 text-emerald-600"}`}><span class="block">{label}</span><span class="font-mono text-[9px] text-emerald-800">{limit} events</span></button>}</For></div><label class="mt-3 block text-[10px] text-emerald-700">CUSTOM · 10–1000<input aria-label="Custom events per relay" type="number" min="10" max="1000" value={queryLimit()} onChange={(event) => setQueryLimit(Math.min(1000, Math.max(10, Number(event.currentTarget.value) || 100)))} class="mt-1 w-full rounded border border-emerald-900 bg-black/30 px-2 py-2 font-mono text-emerald-300 outline-none"/></label><p class="mt-2 text-[9px] leading-4 text-emerald-800">This is a requested maximum. Relays may return fewer. Exact note and profile lookups ignore this setting.</p></div></details>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">relays · {READ_RELAYS.length + searchRelays().length}</summary><div class="absolute right-0 top-9 z-40 w-80 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="mb-3 text-[10px] tracking-wider text-lime-300">DEFAULT READ RELAYS</div><For each={READ_RELAYS}>{(relay) => <div class="mb-1 flex items-center gap-2 text-emerald-500"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"/>{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">KEYWORD SEARCH RELAYS</div><textarea aria-label="Keyword search relays" value={relayDraft()} onInput={(event) => setRelayDraft(event.currentTarget.value)} class="h-24 w-full resize-none bg-black/30 p-2 font-mono text-xs outline-none"/><button type="button" onClick={applyRelays} class="mt-2 border border-lime-700 px-3 py-1 text-lime-300">apply search relays</button><p class="mt-2 text-[10px] text-emerald-800">Topic, account, note, and relationship queries use the default read relays. Keyword searches use the editable NIP-50 list.</p></div></details>
-          </div>
-          <div class="mt-3 border-t border-emerald-900/70 pt-3 font-mono text-xs">
-            <div><span class="text-lime-300">BUILD A QUERY</span><span class="ml-2 text-emerald-800">combine relay constraints with local corpus refinements</span></div>
-            <form onSubmit={(event) => { event.preventDefault(); void runStructuredQuery(); }} class="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              <input aria-label="author constraint" value={builderAuthor()} onInput={(event) => setBuilderAuthor(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="author: npub / hex / NIP-05"/>
-              <input aria-label="kind constraints" value={builderKinds()} onInput={(event) => setBuilderKinds(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="kinds: 1,30023"/>
-              <input aria-label="tag name" value={builderTag()} onInput={(event) => setBuilderTag(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="tag: t" maxlength="2"/>
-              <input aria-label="tag value" value={builderTagValue()} onInput={(event) => setBuilderTagValue(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="tag value: nostr"/>
-              <input aria-label="days constraint" value={builderDays()} onInput={(event) => setBuilderDays(event.currentTarget.value)} type="number" min="1" class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="days"/>
-              <input aria-label="domain constraint" value={builderDomain()} onInput={(event) => setBuilderDomain(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="domain: example.com"/>
-              <select aria-label="media constraint" value={builderMedia()} onChange={(event) => setBuilderMedia(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 text-emerald-400"><option value="">any attachment</option><option value="link">contains a link</option><option value="image">contains an image</option><option value="video">contains a video</option></select>
-              <button type="submit" disabled={loading()} class="rounded border border-lime-700 px-3 py-2 text-lime-200 hover:bg-lime-300 hover:text-black">RUN COMPOSED QUERY</button>
-            </form>
-            <p class="mt-2 text-[10px] text-emerald-800">Author, kind, tag, and date retrieve events from relays. Domain and media refine those results locally. The result operation above controls replace, add, or intersect.</p>
+            <details class="relative"><summary class="cursor-pointer rounded border border-lime-900 px-2 py-1.5 text-lime-400">＋ add constraints</summary><div class="absolute right-0 top-9 z-40 grid w-[min(38rem,90vw)] gap-2 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl sm:grid-cols-2"><input aria-label="author constraint" value={queryConstraints().author} onInput={(event) => setQueryConstraints((current) => ({ ...current, author: event.currentTarget.value }))} class="rounded border border-emerald-900 bg-black/30 px-2 py-2 outline-none" placeholder="author: npub / hex / NIP-05"/><input aria-label="kind constraints" value={queryConstraints().kinds.join(",")} onChange={(event) => setQueryConstraints((current) => ({ ...current, kinds: parseKindList(event.currentTarget.value) }))} class="rounded border border-emerald-900 bg-black/30 px-2 py-2 outline-none" placeholder="kinds: 1,30023"/><input aria-label="tag name" value={queryConstraints().tag} onInput={(event) => setQueryConstraints((current) => ({ ...current, tag: event.currentTarget.value.replace(/^#/, "").slice(0, 1) }))} class="rounded border border-emerald-900 bg-black/30 px-2 py-2 outline-none" placeholder="tag: t"/><input aria-label="tag value" value={queryConstraints().tagValue} onInput={(event) => setQueryConstraints((current) => ({ ...current, tagValue: event.currentTarget.value }))} class="rounded border border-emerald-900 bg-black/30 px-2 py-2 outline-none" placeholder="tag value: nostr"/><input aria-label="days constraint" value={queryConstraints().days || ""} onInput={(event) => setQueryConstraints((current) => ({ ...current, days: Math.max(0, Number(event.currentTarget.value) || 0) }))} type="number" min="1" class="rounded border border-emerald-900 bg-black/30 px-2 py-2 outline-none" placeholder="last N days"/><input aria-label="domain constraint" value={queryConstraints().domain} onInput={(event) => setQueryConstraints((current) => ({ ...current, domain: event.currentTarget.value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "") }))} class="rounded border border-emerald-900 bg-black/30 px-2 py-2 outline-none" placeholder="domain: example.com"/><input aria-label="relay constraint" value={queryConstraints().relay} onInput={(event) => setQueryConstraints((current) => ({ ...current, relay: event.currentTarget.value.trim().replace(/\/$/, "") }))} class="rounded border border-emerald-900 bg-black/30 px-2 py-2 outline-none" placeholder="relay: wss://nos.lol"/><select aria-label="media constraint" value={queryConstraints().media} onChange={(event) => setQueryConstraints((current) => ({ ...current, media: event.currentTarget.value }))} class="rounded border border-emerald-900 bg-black/30 px-2 py-2 text-emerald-400"><option value="">any media</option><option value="link">contains a link</option><option value="image">contains an image</option><option value="video">contains a video</option></select><p class="self-center text-[9px] leading-4 text-emerald-700">Lime constraints go to relays. Cyan domain/media constraints refine the returned corpus locally.</p></div></details>
           </div>
         </section></Show>
 
         <Show when={!routeLoading()} fallback={<LoadingPanel label="reading relay graph"/>}>
           <Show when={!error()} fallback={<ErrorPanel message={error()}/>}>
-            <Show keyed when={route()}>{(currentRoute) => <Show when={currentRoute.kind === "help"} fallback={<Show when={currentRoute.kind === "search"} fallback={<RouteView route={currentRoute} data={routeData()} profileFor={profileFor} openRoute={openRoute}/> }>
+            <Show keyed when={route()}>{(currentRoute) => <Show when={currentRoute.kind === "help"} fallback={<Show when={currentRoute.kind === "search"} fallback={<RouteView route={currentRoute} data={routeData()} profileFor={profileFor} openRoute={openRoute} onComposeAuthor={composeAuthorSearch}/> }>
                 <Show when={!results().length && !query()}><HomeDiscovery topics={pulseTopics()} events={pulseEvents()} loading={pulseLoading()} profileFor={profileFor} onTopic={(topic) => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onRefresh={loadRelayPulse}/></Show>
                 <ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onNavigate={navigateFromEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0} activeFacets={activeFacets()} onFacet={toggleFacet} entryReasons={entryReasons()}/>
               </Show>}><HelpPage onClose={() => openRoute("#/search")}/></Show>}</Show>
@@ -744,7 +736,7 @@ function HelpPage(props) {
   const regions = [
     ["1", "Start here", "Choose topic, person, note, or keywords. Search relays finds new Nostr events; Search local only searches events this browser already collected."],
     ["2", "Control the next result", "Replace starts a new corpus, Add expands it, and Keep matches narrows it. Depth is the requested number of events per relay."],
-    ["3", "Filter or launch new research", "Facet clicks filter the current corpus locally. “Research active filters” turns those selections into a new query against the broader relay space. Recipes, collections, and return points live here too."],
+    ["3", "Filter or prepare new research", "Facet clicks filter the current corpus locally. “Use in a new search” copies those selections into the visible composer, where you can edit them before searching relays."],
     ["4", "Change how you look", "Explore is for reading, Analyze is for tables and comparisons, and Map reveals aggregate and relationship structure. They are views of the same corpus."],
     ["5", "Work with the corpus", "The middle is your current set of real events. Select a note to research from it, open it fully, follow its author, or pin it as evidence."],
     ["6", "Navigate from a note", "The right side answers “where next?” Follow conversations, references, mentions, reactions, topics, or an author’s network. Choose whether those results add to or replace the corpus."],
@@ -760,7 +752,7 @@ function HelpPage(props) {
       <div class="flex items-center gap-2 border-b border-emerald-900 px-3 py-2 font-mono text-[9px] text-emerald-700"><span class="text-lime-300">NOSTR_RESEARCH://LIVE</span><span class="ml-auto">?　＋ NEW　● LIVE</span></div>
       <div class="border-b border-emerald-900 p-3"><div class="flex items-center gap-2"><HelpMarker number="1"/><span class="rounded border border-lime-700 px-2 py-1 text-[10px] text-lime-200">a topic</span><div class="min-w-0 flex-1 border-b border-emerald-800 px-2 py-1 font-mono text-[10px] text-emerald-600">→ what are you researching?</div><span class="rounded border border-lime-700 px-2 py-1 font-mono text-[9px] text-lime-300">SEARCH RELAYS</span><span class="hidden rounded border border-emerald-800 px-2 py-1 font-mono text-[9px] text-emerald-500 sm:block">SEARCH LOCAL</span></div><div class="mt-2 flex flex-wrap items-center gap-1 font-mono text-[8px] text-emerald-600"><HelpMarker number="2"/><span class="rounded border border-emerald-900 px-2 py-1">replace results</span><span class="rounded border border-emerald-900 px-2 py-1">all content</span><span class="rounded border border-emerald-900 px-2 py-1">depth · 100/relay</span><span class="rounded border border-emerald-900 px-2 py-1">relays · 3</span></div></div>
       <div class="grid min-h-[430px] lg:grid-cols-[170px_minmax(0,1fr)_210px]">
-        <aside class="border-b border-emerald-900 p-3 lg:border-b-0 lg:border-r"><div class="mb-2 flex items-center gap-2"><HelpMarker number="3"/><span class="font-mono text-[9px] tracking-wider text-lime-300">FILTER THIS CORPUS</span></div><div class="mb-2 rounded bg-lime-300 px-2 py-1.5 font-mono text-[8px] font-bold text-black">RESEARCH ACTIVE FILTERS ↗</div><MockGroup title="TOPICS" values={["#nostr 42","#bitcoin 21","#research 9"]}/><MockGroup title="ACCOUNTS" values={["alice 18","bob 11"]}/><MockGroup title="SAVED" values={["recipes","collections","return to"]}/></aside>
+        <aside class="border-b border-emerald-900 p-3 lg:border-b-0 lg:border-r"><div class="mb-2 flex items-center gap-2"><HelpMarker number="3"/><span class="font-mono text-[9px] tracking-wider text-lime-300">FILTER THIS CORPUS</span></div><div class="mb-2 rounded bg-lime-300 px-2 py-1.5 font-mono text-[8px] font-bold text-black">USE IN A NEW SEARCH ↗</div><MockGroup title="TOPICS" values={["#nostr 42","#bitcoin 21","#research 9"]}/><MockGroup title="ACCOUNTS" values={["alice 18","bob 11"]}/><MockGroup title="SAVED" values={["recipes","collections","return to"]}/></aside>
         <main class="min-w-0"><div class="grid grid-cols-3 border-b border-emerald-900 font-mono text-[9px]"><div class="border-r border-emerald-900 bg-lime-950/30 p-3 text-lime-300"><HelpMarker number="4"/> EXPLORE<span class="mt-1 block text-[8px] text-emerald-800">read evidence</span></div><div class="border-r border-emerald-900 p-3 text-emerald-600">ANALYZE<span class="mt-1 block text-[8px] text-emerald-800">sort + compare</span></div><div class="p-3 text-emerald-600">MAP<span class="mt-1 block text-[8px] text-emerald-800">see structure</span></div></div><div class="p-3"><div class="mb-2 flex items-center gap-2 font-mono text-[9px] text-emerald-700"><HelpMarker number="5"/><span>CURRENT CORPUS · 112 EVENTS</span></div><For each={["A note with a linked image and a topic tag…","A reply that points to another event…","A long-form article from an account…"]}>{(text,index) => <div class="mb-2 rounded border border-emerald-950 p-3"><div class="font-mono text-[8px] text-emerald-800">[{index()+1}] account · short note · 2 relays</div><p class="mt-1 text-[10px] text-emerald-400">{text}</p><div class="mt-2 font-mono text-[8px] text-lime-400">research　 read　 conversation　 pin</div></div>}</For></div><div class="flex items-center justify-center gap-2 border-t border-emerald-900 p-3 font-mono text-[9px] text-lime-300"><HelpMarker number="8"/> LOAD OLDER RESULTS</div></main>
         <aside class="border-t border-emerald-900 p-3 lg:border-l lg:border-t-0"><div class="mb-2 flex items-center gap-2"><HelpMarker number="6"/><span class="font-mono text-[9px] tracking-wider text-lime-300">RESEARCH FROM THIS NOTE</span></div><For each={["Conversation →","What it points to →","More from this person →","Related topics →"]}>{(label) => <div class="mb-1 rounded border border-emerald-950 p-2 text-[9px] text-emerald-500">{label}</div>}</For><div class="mb-2 mt-4 flex items-center gap-2"><HelpMarker number="7"/><span class="font-mono text-[9px] tracking-wider text-lime-300">EVIDENCE + COVERAGE</span></div><div class="rounded border border-emerald-950 p-2 font-mono text-[8px] leading-5 text-emerald-700">◆ 3 pinned notes<br/>2/2 relays responded<br/>112 unique events</div></aside>
       </div>
@@ -809,7 +801,7 @@ function FacetPanel(props) {
   const hasFacets = () => props.facets.topics.length || props.facets.authors.length || props.facets.kinds.length;
   const hasActive = () => Object.values(props.active).some((value) => value !== "" && value !== null);
   return <Panel title="FILTER THIS CORPUS"><Show when={hasFacets()} fallback={<p class="py-2 text-emerald-900">Search something to generate useful facets here.</p>}>
-    <Show when={hasActive()}><div class="mb-2 rounded border border-lime-900/70 bg-lime-950/10 p-2"><button disabled={props.loading} onClick={props.onResearch} class="w-full rounded bg-lime-300 px-2 py-2 text-left font-bold text-black hover:bg-lime-200 disabled:opacity-40">RESEARCH {props.operation === "union" ? "+ ADD" : props.operation === "intersect" ? "∩ KEEP MATCHES" : "AS NEW CORPUS"} ↗</button><p class="mt-2 text-[9px] leading-4 text-emerald-700">Run the active facets against the broader relay space. The controls above the search box choose how results affect this corpus.</p><button onClick={props.onClear} class="mt-1 text-[9px] text-emerald-600 hover:text-emerald-300">clear active filters</button></div></Show>
+    <Show when={hasActive()}><div class="mb-2 rounded border border-lime-900/70 bg-lime-950/10 p-2"><div class="mb-2 text-[9px] leading-4 text-emerald-600">These selections only filter the current corpus.</div><button onClick={props.onCompile} class="w-full rounded bg-lime-300 px-2 py-2 text-left font-bold text-black hover:bg-lime-200">USE IN A NEW SEARCH ↗</button><p class="mt-2 text-[9px] leading-4 text-emerald-700">Copy them into the search composer, review or edit them, then choose when to search.</p><button onClick={props.onClear} class="mt-1 text-[9px] text-emerald-600 hover:text-emerald-300">clear active filters</button></div></Show>
     <Show when={props.facets.topics.length}><FacetGroup title="TOPICS"><For each={props.facets.topics}>{([topic, count]) => <Facet active={props.active.topic === topic} label={`#${topic}`} count={count} onClick={() => props.onFacet("topic", topic)}/>}</For></FacetGroup></Show>
     <Show when={props.facets.authors.length}><FacetGroup title="ACTIVE ACCOUNTS"><For each={props.facets.authors}>{([pubkey, count]) => <div class="flex items-center"><Facet active={props.active.author === pubkey} label={props.profileFor(pubkey).name} count={count} onClick={() => props.onFacet("author", pubkey)}/><button title="Open account" onClick={() => props.onOpenAuthor(pubkey)} class="px-1 text-emerald-800 hover:text-lime-300">↗</button></div>}</For></FacetGroup></Show>
     <Show when={props.facets.kinds.length}><FacetGroup title="CONTENT TYPES"><For each={props.facets.kinds}>{([kind, count]) => <Facet active={props.active.kind === kind} label={`${kindName(kind)} · ${kind}`} count={count} onClick={() => props.onFacet("kind", kind)}/>}</For></FacetGroup></Show>
@@ -1054,8 +1046,8 @@ function Action(props) { return <button onClick={props.onClick} class={`rounded 
 
 function RouteView(props) {
   return <Show when={props.data} fallback={<LoadingPanel label="assembling node"/>}>
-    <Show when={props.route.kind === "account" || props.route.kind === "follows"} fallback={<EventView route={props.route} data={props.data} profileFor={props.profileFor} openRoute={props.openRoute}/> }>
-      <AccountView route={props.route} data={props.data} profileFor={props.profileFor} openRoute={props.openRoute}/>
+    <Show when={props.route.kind === "account" || props.route.kind === "follows"} fallback={<EventView route={props.route} data={props.data} profileFor={props.profileFor} openRoute={props.openRoute} onComposeAuthor={props.onComposeAuthor}/> }>
+      <AccountView route={props.route} data={props.data} profileFor={props.profileFor} openRoute={props.openRoute} onComposeAuthor={props.onComposeAuthor}/>
     </Show>
   </Show>;
 }
@@ -1063,7 +1055,7 @@ function RouteView(props) {
 function EventView(props) {
   const event = () => props.data.event;
   return <section class="rounded border border-emerald-900 bg-emerald-950/10 p-4">
-    <div class="mb-4 flex flex-wrap gap-2"><Action onClick={() => props.openRoute("#/search")}>← search</Action><Action onClick={() => props.openRoute(`#/account/${event().pubkey}`)}>author</Action><Action onClick={() => props.openRoute(`#/raw/${event().id}`)}>raw</Action></div>
+    <div class="mb-4 flex flex-wrap gap-2"><Action onClick={() => props.openRoute("#/search")}>← search</Action><Action onClick={() => props.openRoute(`#/account/${event().pubkey}`)}>author</Action><Action onClick={() => props.onComposeAuthor(event().pubkey)}>use author in search</Action><Action onClick={() => props.openRoute(`#/raw/${event().id}`)}>raw</Action></div>
     <Show when={props.route.kind === "raw"} fallback={<>
       <div class="border-y border-emerald-900 py-3 font-mono text-xs text-emerald-700"><div>kind <span class="text-lime-300">{event().kind} · {kindName(event().kind)}</span></div><div class="mt-1 break-all">event {event().id}</div><button onClick={() => props.openRoute(`#/account/${event().pubkey}`)} class="mt-1 break-all text-left hover:text-emerald-300">author {event().pubkey}</button></div>
       <div class="py-6 text-emerald-50"><RichContent value={event().content} openRoute={props.openRoute}/></div>
@@ -1126,7 +1118,7 @@ function AccountView(props) {
     relays: new Set(props.data.authored.flatMap((event) => sourceIndex.get(event.id) ?? [])).size
   }));
   return <section class="overflow-hidden rounded border border-emerald-900 bg-emerald-950/10">
-    <div class="flex flex-wrap gap-2 border-b border-emerald-900 p-4"><Action onClick={() => props.openRoute("#/search")}>← search</Action><Action onClick={() => props.openRoute(`#/account/${props.data.pubkey}`)}>account</Action><Action onClick={() => props.openRoute(`#/follows/${props.data.pubkey}`)}>follows · {props.data.follows.length}</Action></div>
+    <div class="flex flex-wrap gap-2 border-b border-emerald-900 p-4"><Action onClick={() => props.openRoute("#/search")}>← search</Action><Action onClick={() => props.openRoute(`#/account/${props.data.pubkey}`)}>account</Action><Action onClick={() => props.onComposeAuthor(props.data.pubkey)}>use account in search</Action><Action onClick={() => props.openRoute(`#/follows/${props.data.pubkey}`)}>follows · {props.data.follows.length}</Action></div>
     <div class="p-5"><h1 class="text-xl text-lime-100">{profile().name}</h1><div class="mt-1 break-all font-mono text-xs text-emerald-800">{props.data.pubkey}</div><div class="mt-1 font-mono text-xs text-emerald-500">{profile().handle}</div><p class="mt-4 max-w-3xl whitespace-pre-wrap leading-7 text-emerald-300">{profile().about || "No profile description returned."}</p></div>
     <Show when={props.route.kind !== "follows"}><div class="grid border-y border-emerald-900 lg:grid-cols-3"><MapSection title="POSTING THEMES" detail="Topic tags in the retrieved account sample"><For each={intelligence().topics}>{([topic, count]) => <MapItem label={`#${topic}`} count={count} onClick={() => props.openRoute(`#/topic/${topic}`)}/>}</For></MapSection><MapSection title="REFERENCED SOURCES" detail="Domains linked by this account"><Show when={intelligence().domains.length} fallback={<p class="text-emerald-900">No external domains in this sample.</p>}><For each={intelligence().domains}>{([domain, count]) => <MapItem label={domain} count={count}/>}</For></Show></MapSection><MapSection title="ACCOUNT CONTEXT" detail="Inspectable facts from retrieved events"><div class="grid grid-cols-2 gap-2"><MapStat label="events" value={props.data.authored.length}/><MapStat label="active days" value={intelligence().days}/><MapStat label="follows" value={props.data.follows.length}/><MapStat label="observed relays" value={intelligence().relays || "cache"}/></div><div class="mt-3 text-[9px] tracking-wider text-emerald-800">FREQUENTLY REFERENCED ACCOUNTS</div><For each={intelligence().mentions}>{([pubkey, count]) => <MapItem label={props.profileFor(pubkey).name} count={count} onClick={() => props.openRoute(`#/account/${pubkey}`)}/>}</For></MapSection></div></Show>
     <Show when={props.route.kind === "follows"} fallback={<>
