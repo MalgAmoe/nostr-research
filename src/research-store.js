@@ -1,5 +1,5 @@
 const DATABASE_NAME = "nostr-research";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 
 let databasePromise;
 
@@ -13,6 +13,7 @@ function openDatabase() {
       const database = request.result;
       if (!database.objectStoreNames.contains("events")) database.createObjectStore("events", { keyPath: "id" });
       if (!database.objectStoreNames.contains("recipes")) database.createObjectStore("recipes", { keyPath: "id" });
+      if (!database.objectStoreNames.contains("collections")) database.createObjectStore("collections", { keyPath: "id" });
       if (!database.objectStoreNames.contains("runs")) {
         const runs = database.createObjectStore("runs", { keyPath: "id" });
         runs.createIndex("recipeId", "recipeId");
@@ -53,14 +54,30 @@ export async function storeEvents(events, sourceIndex = new Map()) {
   });
 }
 
-export async function loadEvents(ids = []) {
+export async function loadEvents(ids = [], sourceIndex) {
   if (!ids.length) return [];
   const database = await openDatabase();
   if (!database) return [];
   const transaction = database.transaction("events", "readonly");
   const store = transaction.objectStore("events");
   const events = await Promise.all(ids.map((id) => requestResult(store.get(id)).catch(() => null)));
-  return events.filter(Boolean).map(({ _research, ...event }) => event);
+  return events.filter(Boolean).map(({ _research, ...event }) => {
+    if (sourceIndex && _research?.relays?.length) sourceIndex.set(event.id, _research.relays);
+    return event;
+  });
+}
+
+export async function saveCollection(collection) {
+  await transact("collections", "readwrite", (store) => store.put(collection));
+  return collection;
+}
+
+export async function listCollections() {
+  const database = await openDatabase();
+  if (!database) return [];
+  const transaction = database.transaction("collections", "readonly");
+  return (await requestResult(transaction.objectStore("collections").getAll()).catch(() => []))
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 }
 
 export async function saveRecipe(recipe) {
@@ -90,4 +107,3 @@ export async function latestRun(recipeId) {
   const runs = await requestResult(request).catch(() => []);
   return runs.sort((a, b) => b.completedAt - a.completedAt)[0] ?? null;
 }
-

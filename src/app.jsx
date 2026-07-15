@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import { SimplePool, nip19 } from "nostr-tools";
-import { latestRun, listRecipes, loadEvents, saveRecipe, saveRun, storeEvents } from "./research-store.js";
+import { latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, storeEvents } from "./research-store.js";
 import { loadRelayInformationSet } from "./relay-info.js";
 import "./styles.css";
 
@@ -148,6 +148,7 @@ function App() {
   const [startMode, setStartMode] = createSignal("topic");
   const [entryReasons, setEntryReasons] = createSignal(restored.entryReasons ?? {});
   const [expansionStatus, setExpansionStatus] = createSignal(null);
+  const [expansionOperation, setExpansionOperation] = createSignal("union");
   const [pulseEvents, setPulseEvents] = createSignal([]);
   const [pulseLoading, setPulseLoading] = createSignal(false);
   const [dedupeEnabled, setDedupeEnabled] = createSignal(restored.dedupeEnabled ?? true);
@@ -156,6 +157,8 @@ function App() {
   const [hasMore, setHasMore] = createSignal(true);
   const [pageMessage, setPageMessage] = createSignal("");
   const [activeRecipeId, setActiveRecipeId] = createSignal("");
+  const [collections, setCollections] = createSignal([]);
+  const [collectionDraft, setCollectionDraft] = createSignal("");
   const [lastRunDelta, setLastRunDelta] = createSignal(null);
   const [relayInformation, setRelayInformation] = createSignal(new Map());
   const [activeFacets, setActiveFacets] = createSignal(emptyFacets());
@@ -389,17 +392,17 @@ function App() {
         logUsage("graph_expansion", { relation, from: event.id, returned: 0, added: 0, resultCount: base.length });
         return;
       }
-      if (!added.length) {
+      if (!added.length && expansionOperation() === "union") {
         setExpansionStatus({ state: "known", relation, label: definition.label, message: `${incoming.length} related ${incoming.length === 1 ? "note is" : "notes are"} already in this exploration.` });
         return;
       }
-      const next = unique([...base, ...incoming]).sort((a, b) => b.created_at - a.created_at);
+      const next = (expansionOperation() === "replace" ? incoming : expansionOperation() === "intersect" ? base.filter((item) => incoming.some((candidate) => candidate.id === item.id)) : unique([...base, ...incoming])).sort((a, b) => b.created_at - a.created_at);
       setResults(next);
       const reason = `${definition.label} from ${short(event.id)}`;
       setEntryReasons((current) => ({ ...current, ...Object.fromEntries(incoming.map((item) => [item.id, reason])) }));
-      addStep({ type: "expand", label: reason, inputCount: base.length, outputCount: next.length, returned: incoming.length, added: added.length });
-      setExpansionStatus({ state: "added", relation, label: definition.label, message: `Added ${added.length} new ${added.length === 1 ? "note" : "notes"} below.` });
-      logUsage("graph_expansion", { relation, from: event.id, returned: incoming.length, added: added.length, resultCount: next.length });
+      addStep({ type: "expand", label: `${expansionOperation()} · ${reason}`, inputCount: base.length, outputCount: next.length, returned: incoming.length, added: added.length });
+      setExpansionStatus({ state: "added", relation, label: definition.label, message: expansionOperation() === "replace" ? `Opened ${incoming.length} connected ${incoming.length === 1 ? "event" : "events"} as the corpus.` : expansionOperation() === "intersect" ? `Kept ${next.length} current ${next.length === 1 ? "event" : "events"} that match this relationship.` : `Added ${added.length} new ${added.length === 1 ? "event" : "events"} to the corpus.` });
+      logUsage("graph_expansion", { relation, operation: expansionOperation(), from: event.id, returned: incoming.length, added: added.length, resultCount: next.length });
       hydrateProfiles(incoming, token);
     } catch (cause) { setError(cause.message); setExpansionStatus({ state: "error", relation, label: definition.label, message: `Could not retrieve ${definition.label}: ${cause.message}` }); }
     finally { if (token === searchToken) setLoading(false); }
@@ -518,7 +521,7 @@ function App() {
   };
   const restorePath = async (path) => {
     const legacy = path.snapshot;
-    const storedEvents = path.eventIds ? await loadEvents(path.eventIds) : legacy?.corpus ?? [];
+    const storedEvents = path.eventIds ? await loadEvents(path.eventIds, sourceIndex) : legacy?.corpus ?? [];
     setActiveRecipeId(path.id); setLastRunDelta(null);
     setQuery(path.query ?? legacy?.query ?? ""); setResults(storedEvents); rememberEvents(storedEvents); setSteps(legacy?.steps ?? []);
     setPinned(new Set(path.pinned ?? legacy?.pinned ?? [])); setView(path.settings?.view ?? legacy?.view ?? "list");
@@ -549,6 +552,23 @@ function App() {
     if (!next.length) return;
     setSearchRelays(next); save(SEARCH_RELAYS_KEY, next); setRelayDraft(next.join("\n"));
   };
+  const savePinnedAsCollection = async () => {
+    const eventIds = [...pinned()];
+    if (!eventIds.length) return;
+    const now = Date.now();
+    const collection = { id: crypto.randomUUID(), title: collectionDraft().trim() || `Evidence · ${new Date(now).toLocaleDateString()}`, eventIds, createdAt: now, updatedAt: now };
+    await storeEvents(eventIds.map((id) => knownEvents.get(id)).filter(Boolean), sourceIndex);
+    await saveCollection(collection);
+    setCollections((current) => [collection, ...current]); setCollectionDraft("");
+    logUsage("collection_saved", { collectionId: collection.id, eventCount: eventIds.length });
+  };
+  const openCollection = async (collection) => {
+    const events = await loadEvents(collection.eventIds, sourceIndex);
+    rememberEvents(events); setResults(events.sort((a, b) => b.created_at - a.created_at)); setPinned(new Set(collection.eventIds));
+    setQuery(collection.title); setView("table"); setSelectedId(""); setActiveFacets(emptyFacets());
+    history.replaceState(null, "", "#/search"); setRoute(parseRoute());
+    logUsage("collection_opened", { collectionId: collection.id, cachedEvents: events.length });
+  };
   const toggleSet = (setter, id) => setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   createEffect(() => save(SESSION_KEY, {
@@ -560,7 +580,8 @@ function App() {
     window.addEventListener("hashchange", handler);
     onCleanup(() => { window.removeEventListener("hashchange", handler); pool.destroy(); });
     logUsage("client_opened", { framework: "solid", searchRelays: searchRelays() });
-    const recipes = await listRecipes();
+    const [recipes, storedCollections] = await Promise.all([listRecipes(), listCollections()]);
+    if (storedCollections.length) setCollections(storedCollections);
     const legacyRecipes = load(PATHS_KEY, []);
     const knownRecipeIds = new Set(recipes.map((recipe) => recipe.id));
     const migrated = [];
@@ -582,7 +603,7 @@ function App() {
     }
     if (recipes.length || migrated.length) setPaths([...recipes, ...migrated].sort((a, b) => b.updatedAt - a.updatedAt));
     if (restored.eventIds?.length) {
-      const stored = await loadEvents(restored.eventIds);
+      const stored = await loadEvents(restored.eventIds, sourceIndex);
       if (stored.length && !results().length) { setResults(stored); rememberEvents(stored); }
     }
     if (restored.activeRecipeId) setActiveRecipeId(restored.activeRecipeId);
@@ -622,6 +643,7 @@ function App() {
       <aside class="hidden space-y-4 xl:sticky xl:top-20 xl:block xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
         <Show when={results().length}><FacetPanel facets={corpusFacets()} active={activeFacets()} profileFor={profileFor} onFacet={toggleFacet} onOpenAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onClear={() => setActiveFacets(emptyFacets())}/></Show>
         <Panel title="RESEARCH RECIPES"><Show when={paths().length} fallback={<p class="text-emerald-900">Save a search to make it rerunnable.</p>}><For each={paths().slice(0, 8)}>{(path) => <button onClick={() => void restorePath(path)} class={`block w-full border-b border-emerald-950 py-2 text-left hover:text-lime-300 ${activeRecipeId() === path.id ? "text-lime-300" : "text-emerald-500"}`}><span class="block truncate">{activeRecipeId() === path.id ? "› " : ""}{path.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{path.eventIds?.length ?? path.snapshot?.corpus?.length ?? 0} cached nodes</span></button>}</For></Show></Panel>
+        <Show when={collections().length}><Panel title="COLLECTIONS"><For each={collections().slice(0, 8)}>{(collection) => <button onClick={() => void openCollection(collection)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">{collection.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{collection.eventIds.length} evidence items</span></button>}</For></Panel></Show>
         <Show when={results().length}><Panel title="CURRENT SET"><Stat label="retrieved" value={results().length}/><Stat label="visible" value={filteredResults().length}/><Stat label="active facets" value={activeFacetCount()}/><Stat label="evidence" value={pinned().size}/></Panel></Show>
       </aside>
 
@@ -668,9 +690,9 @@ function App() {
       </main>
 
       <Show when={results().length}><aside class="space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pl-1">
-        <Show when={selectedEvent()}>{(event) => <ExploreFromNode compact event={event()} corpus={results()} profile={profileFor(event().pubkey)} onExpand={expandSelection} openRoute={openRoute} loading={loading()} status={expansionStatus()} reason={entryReasons()[event().id]}/>}</Show>
+        <Show when={selectedEvent()}>{(event) => <ExploreFromNode compact event={event()} corpus={results()} profile={profileFor(event().pubkey)} onExpand={expandSelection} operation={expansionOperation()} onOperation={setExpansionOperation} openRoute={openRoute} loading={loading()} status={expansionStatus()} reason={entryReasons()[event().id]}/>}</Show>
         <Panel title="RELAY PULSE · 24H"><Show when={pulseTopics().length} fallback={<p class="text-emerald-900">{pulseLoading() ? "sampling recent notes…" : "no tagged notes returned"}</p>}><div class="flex flex-wrap gap-1.5"><For each={pulseTopics().slice(0, 10)}>{([topic, count]) => <button onClick={() => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} class="rounded border border-emerald-900 px-2 py-1 text-emerald-500 hover:border-lime-700 hover:text-lime-300">#{topic} <span class="text-emerald-800">{count}</span></button>}</For></div></Show></Panel>
-        <Panel title="EVIDENCE"><Show when={pinned().size} fallback={<p class="text-emerald-900">Pin nodes to build an evidence set.</p>}><For each={[...pinned()].map((id) => knownEvents.get(id)).filter(Boolean)}>{(event) => <button onClick={() => setSelectedId(event.id)} class="block w-full border-b border-emerald-950 py-2 text-left"><span class="text-lime-500">{kindName(event.kind)}</span><span class="mt-1 block truncate text-emerald-600">{compact(event.content, 60)}</span></button>}</For></Show></Panel>
+        <Panel title="EVIDENCE"><Show when={pinned().size} fallback={<p class="text-emerald-900">Pin nodes to build a lightweight evidence collection.</p>}><For each={[...pinned()].map((id) => knownEvents.get(id)).filter(Boolean)}>{(event) => <button onClick={() => setSelectedId(event.id)} class="block w-full border-b border-emerald-950 py-2 text-left"><span class="text-lime-500">{kindName(event.kind)}</span><span class="mt-1 block truncate text-emerald-600">{compact(event.content, 60)}</span></button>}</For><div class="flex gap-1 pt-2"><input aria-label="Collection name" value={collectionDraft()} onInput={(event) => setCollectionDraft(event.currentTarget.value)} placeholder="collection name" class="min-w-0 flex-1 rounded border border-emerald-900 bg-black/20 px-2 py-1 text-emerald-300 outline-none"/><button onClick={() => void savePinnedAsCollection()} class="rounded border border-lime-800 px-2 text-lime-300">save</button></div></Show></Panel>
         <Show when={lastRunDelta()}>{(delta) => <Panel title="RUN COMPARISON"><Show when={delta().previous} fallback={<p class="text-emerald-700">Baseline saved. Rerun this recipe later to measure change.</p>}><Stat label="new" value={`+${delta().added}`}/><Stat label="not returned" value={`−${delta().missing}`}/><Stat label="set overlap" value={`${Math.round((delta().overlap ?? 0) * 100)}%`}/></Show></Panel>}</Show>
         <CoveragePanel states={relayStates()} information={relayInformation()} />
       </aside></Show>
@@ -739,7 +761,7 @@ function ExploreFromNode(props) {
   const known = (count) => count ? `${count} already in this corpus` : "query connected relays";
   return <section id="selected-note-navigation" class={`${props.compact ? "" : "mb-4 scroll-mt-20"} rounded border border-lime-800/70 bg-lime-950/10 p-4`}>
     <div class="flex flex-wrap items-start gap-3"><div class="min-w-0 flex-1"><div class="font-mono text-[10px] tracking-[.14em] text-lime-300">RESEARCH FROM THIS NOTE</div><div class="mt-1 text-xs text-emerald-600">by {props.profile.name}<Show when={props.reason}> · found via {props.reason}</Show></div><div class="mt-1 font-mono text-[9px] text-emerald-800">seen on {(sourceIndex.get(props.event.id) ?? []).map((relay) => new URL(relay).hostname).join(", ") || "restored cache"}</div><p class="mt-2 text-sm text-emerald-100">{compact(props.event.content, 220)}</p></div><div class="flex gap-2"><Action onClick={() => props.openRoute(`#/event/${props.event.id}`)}>read note</Action><Action onClick={() => props.openRoute(`#/raw/${props.event.id}`)}>raw event</Action></div></div>
-    <div class="mt-4 border-t border-emerald-900 pt-3"><div class="mb-2 font-mono text-[11px] text-emerald-500">Where do you want to go from here?</div><div class={`grid gap-2 ${props.compact ? "" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
+    <div class="mt-4 border-t border-emerald-900 pt-3"><div class="mb-2 flex items-center gap-2 font-mono text-[11px] text-emerald-500"><span>Where do you want to go?</span><select aria-label="Relationship result behavior" value={props.operation} onChange={(event) => props.onOperation(event.currentTarget.value)} class="ml-auto max-w-32 rounded border border-emerald-900 bg-[#07110c] px-1 py-1 text-[9px] text-lime-300"><option value="union">add to corpus</option><option value="replace">open as corpus</option></select></div><div class={`grid gap-2 ${props.compact ? "" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
       <Direction title="Conversation" detail={known(localCounts().replies)} loading={props.loading} onClick={() => props.onExpand("replies")}/>
       <Direction title="People discussing it" detail={known(localCounts().quotes)} loading={props.loading} onClick={() => props.onExpand("quotes")}/>
       <Direction title="What it points to" detail={localCounts().references ? `${localCounts().references} references in this event` : "no declared references"} loading={props.loading} onClick={() => props.onExpand("references")}/>
@@ -784,17 +806,19 @@ function ResearchWorkspace(props) {
 function ResearchTable(props) {
   const [sortKey, setSortKey] = createSignal("date");
   const [sortDirection, setSortDirection] = createSignal("desc");
+  const [localQuery, setLocalQuery] = createSignal("");
   const mediaCount = (event) => (event.content?.match(/https?:\/\/[^\s<>]+/gi) ?? []).map(cleanUrl).filter((url) => IMAGE_URL.test(url) || VIDEO_URL.test(url) || AUDIO_URL.test(url)).length;
   const referenceCount = (event) => ["e", "E", "a", "A", "q", "p"].reduce((count, type) => count + tags(event, type).length, 0);
   const valueFor = (event, key) => ({ date: event.created_at, author: props.profileFor(event.pubkey).name.toLowerCase(), kind: event.kind, topics: tags(event, "t").length, references: referenceCount(event), relays: (sourceIndex.get(event.id) ?? []).length, domains: eventDomains(event).length, media: mediaCount(event) }[key]);
-  const rows = createMemo(() => [...props.events].sort((left, right) => {
+  const matchingEvents = createMemo(() => { const needle = localQuery().trim().toLowerCase(); return needle ? props.events.filter((event) => [event.content, props.profileFor(event.pubkey).name, event.pubkey, ...tags(event, "t"), ...eventDomains(event), kindName(event.kind), String(event.kind)].join(" ").toLowerCase().includes(needle)) : props.events; });
+  const rows = createMemo(() => [...matchingEvents()].sort((left, right) => {
     const a = valueFor(left, sortKey()); const b = valueFor(right, sortKey());
     const order = typeof a === "string" ? a.localeCompare(b) : a - b;
     return sortDirection() === "asc" ? order : -order;
   }));
   const sortBy = (key) => { if (sortKey() === key) setSortDirection((direction) => direction === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDirection(key === "author" ? "asc" : "desc"); } };
   const heading = (label, key) => <button onClick={() => sortBy(key)} class={`whitespace-nowrap text-left hover:text-lime-200 ${sortKey() === key ? "text-lime-300" : "text-emerald-700"}`}>{label}{sortKey() === key ? (sortDirection() === "asc" ? " ↑" : " ↓") : ""}</button>;
-  return <div><LensHeader title="RESEARCH TABLE" detail={`${rows().length} events · sortable evidence inventory`}/><Show when={rows().length} fallback={<EmptyLens text="No visible events to compare."/>}>
+  return <div><LensHeader title="RESEARCH TABLE" detail={`${rows().length}/${props.events.length} events · sortable evidence inventory`}/><div class="border-b border-emerald-950 p-3"><input aria-label="Search within current corpus" value={localQuery()} onInput={(event) => setLocalQuery(event.currentTarget.value)} placeholder="Search inside this corpus: text, account, topic, domain, or kind…" class="w-full rounded border border-emerald-900 bg-black/30 px-3 py-2 font-mono text-xs text-emerald-200 outline-none placeholder:text-emerald-900 focus:border-lime-700"/></div><Show when={rows().length} fallback={<EmptyLens text="No events match this local corpus search."/>}>
     <div class="max-h-[72vh] overflow-auto"><table class="min-w-[1280px] border-collapse text-xs"><thead class="sticky top-0 z-10 bg-[#07110c] font-mono text-[10px] uppercase tracking-wider"><tr class="border-b border-emerald-800"><th class="p-2 text-emerald-800">#</th><th class="p-2">{heading("date", "date")}</th><th class="p-2">{heading("author", "author")}</th><th class="p-2">{heading("type", "kind")}</th><th class="p-2">{heading("topics", "topics")}</th><th class="p-2">{heading("edges", "references")}</th><th class="p-2">{heading("media", "media")}</th><th class="p-2">{heading("domains", "domains")}</th><th class="p-2">{heading("relays", "relays")}</th><th class="p-2 text-left text-emerald-700">why here / content</th><th class="p-2 text-emerald-700">actions</th></tr></thead>
     <tbody><For each={rows()}>{(event, index) => { const topics = () => tags(event, "t"); const domains = () => eventDomains(event); const relayCount = () => (sourceIndex.get(event.id) ?? []).length; return <tr class={`border-b border-emerald-950 align-top hover:bg-emerald-950/30 ${props.selectedId === event.id ? "bg-lime-950/20" : ""}`}><td class="p-2 font-mono text-emerald-900">{index() + 1}</td><td class="whitespace-nowrap p-2 font-mono text-emerald-600">{new Date(event.created_at * 1000).toISOString().slice(0, 10)}</td><td class="max-w-40 p-2"><button onClick={() => props.openRoute(`#/account/${event.pubkey}`)} class="block max-w-40 truncate text-emerald-300 hover:text-lime-300">{props.profileFor(event.pubkey).name}</button><span class="font-mono text-[9px] text-emerald-900">{short(event.pubkey)}</span></td><td class="whitespace-nowrap p-2"><span class="text-emerald-300">{kindName(event.kind)}</span><span class="ml-1 font-mono text-emerald-800">{event.kind}</span></td><td class="max-w-44 p-2"><div class="flex max-w-44 flex-wrap gap-1"><For each={topics().slice(0, 3)}>{(topic) => <button onClick={() => props.onFacet("topic", topic.toLowerCase())} class="rounded bg-emerald-950 px-1 text-lime-400">#{topic}</button>}</For><Show when={topics().length > 3}><span class="text-emerald-800">+{topics().length - 3}</span></Show></div></td><td class="p-2 text-center font-mono text-emerald-400">{referenceCount(event) || "·"}</td><td class="p-2 text-center font-mono text-emerald-400">{mediaCount(event) || "·"}</td><td class="max-w-32 p-2"><span class="block truncate text-emerald-500" title={domains().join(", ")}>{domains().join(", ") || "·"}</span></td><td class="p-2 text-center font-mono text-emerald-400" title={(sourceIndex.get(event.id) ?? []).join("\n")}>{relayCount() || "cache"}</td><td class="max-w-md p-2"><Show when={props.entryReasons[event.id]}><span class="mb-1 block font-mono text-[9px] text-amber-500">↳ {props.entryReasons[event.id]}</span></Show><span class="line-clamp-2 text-emerald-200">{compact(event.content, 180)}</span><Show when={event.duplicateCount > 1}><span class="mt-1 block text-[9px] text-amber-700">{event.duplicateCount} similar events</span></Show></td><td class="p-2"><div class="flex gap-1"><button title="Research from here" onClick={() => props.onSelect(event.id)} class="rounded border border-emerald-900 px-2 py-1 text-lime-300 hover:border-lime-600">→</button><button title="Read note" onClick={() => props.openRoute(`#/event/${event.id}`)} class="rounded border border-emerald-900 px-2 py-1 text-emerald-500 hover:text-lime-300">↗</button><button title="Pin evidence" onClick={() => props.onPin(event.id)} class={`rounded border px-2 py-1 ${props.pinned.has(event.id) ? "border-lime-500 bg-lime-300 text-black" : "border-emerald-900 text-emerald-500"}`}>◆</button></div></td></tr>; }}</For></tbody></table></div>
     <p class="border-t border-emerald-950 px-4 py-2 font-mono text-[9px] text-emerald-900">edges count event, address, quote, and account references · relay count reflects this session; “cache” means provenance was not restored</p>
