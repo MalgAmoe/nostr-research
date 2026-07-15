@@ -1,5 +1,5 @@
 const DATABASE_NAME = "nostr-research";
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
 
 let databasePromise;
 
@@ -14,6 +14,13 @@ function openDatabase() {
       if (!database.objectStoreNames.contains("events")) database.createObjectStore("events", { keyPath: "id" });
       if (!database.objectStoreNames.contains("recipes")) database.createObjectStore("recipes", { keyPath: "id" });
       if (!database.objectStoreNames.contains("collections")) database.createObjectStore("collections", { keyPath: "id" });
+      if (!database.objectStoreNames.contains("eventSearch")) {
+        const search = database.createObjectStore("eventSearch", { keyPath: "id" });
+        search.createIndex("terms", "terms", { multiEntry: true });
+        search.createIndex("pubkey", "pubkey");
+        search.createIndex("kind", "kind");
+        search.createIndex("createdAt", "createdAt");
+      }
       if (!database.objectStoreNames.contains("runs")) {
         const runs = database.createObjectStore("runs", { keyPath: "id" });
         runs.createIndex("recipeId", "recipeId");
@@ -52,6 +59,17 @@ export async function storeEvents(events, sourceIndex = new Map()) {
     const storedAt = Date.now();
     for (const event of events) store.put({ ...event, _research: { storedAt, relays: sourceIndex.get(event.id) ?? [] } });
   });
+  await transact("eventSearch", "readwrite", (store) => {
+    for (const event of events) store.put({ id: event.id, pubkey: event.pubkey, kind: event.kind, createdAt: event.created_at, terms: indexTerms(event) });
+  });
+}
+
+export function indexTerms(event) {
+  const content = event.content ?? "";
+  const words = content.toLowerCase().match(/[\p{L}\p{N}_-]{3,}/gu) ?? [];
+  const tagValues = (event.tags ?? []).filter((tag) => ["t", "d", "r"].includes(tag[0])).map((tag) => String(tag[1] ?? "").toLowerCase());
+  const domains = (content.match(/https?:\/\/[^\s<>]+/gi) ?? []).flatMap((value) => { try { return [new URL(value).hostname.replace(/^www\./, "")]; } catch { return []; } });
+  return [...new Set([...words, ...tagValues, ...domains])].slice(0, 400);
 }
 
 export async function loadEvents(ids = [], sourceIndex) {
@@ -78,6 +96,18 @@ export async function listCollections() {
   const transaction = database.transaction("collections", "readonly");
   return (await requestResult(transaction.objectStore("collections").getAll()).catch(() => []))
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+}
+
+export async function searchStoredEvents(query, limit = 250, sourceIndex) {
+  const terms = [...new Set((query.toLowerCase().match(/[\p{L}\p{N}_.-]{3,}/gu) ?? []))];
+  if (!terms.length) return [];
+  const database = await openDatabase();
+  if (!database) return [];
+  const transaction = database.transaction("eventSearch", "readonly");
+  const index = transaction.objectStore("eventSearch").index("terms");
+  const matches = await Promise.all(terms.map((term) => requestResult(index.getAll(term)).catch(() => [])));
+  const ids = matches[0].filter((record) => matches.every((set) => set.some((candidate) => candidate.id === record.id))).sort((a, b) => b.createdAt - a.createdAt).slice(0, limit).map((record) => record.id);
+  return loadEvents(ids, sourceIndex);
 }
 
 export async function saveRecipe(recipe) {

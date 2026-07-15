@@ -2,7 +2,7 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount }
 import { render } from "solid-js/web";
 import { SimplePool, nip19 } from "nostr-tools";
 import { dedupeForDisplay, eventDomains, kindName, ranked, tags } from "./event-analysis.js";
-import { latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, storeEvents } from "./research-store.js";
+import { latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, searchStoredEvents, storeEvents } from "./research-store.js";
 import { loadRelayInformationSet } from "./relay-info.js";
 import "./styles.css";
 
@@ -507,6 +507,7 @@ function App() {
   const restorePath = async (path) => {
     const legacy = path.snapshot;
     const storedEvents = path.eventIds ? await loadEvents(path.eventIds, sourceIndex) : legacy?.corpus ?? [];
+    void storeEvents(storedEvents, sourceIndex);
     setActiveRecipeId(path.id); setLastRunDelta(null);
     setQuery(path.query ?? legacy?.query ?? ""); setResults(storedEvents); rememberEvents(storedEvents); setSteps(legacy?.steps ?? []);
     setPinned(new Set(path.pinned ?? legacy?.pinned ?? [])); setView(path.settings?.view ?? legacy?.view ?? "list");
@@ -589,7 +590,7 @@ function App() {
     if (recipes.length || migrated.length) setPaths([...recipes, ...migrated].sort((a, b) => b.updatedAt - a.updatedAt));
     if (restored.eventIds?.length) {
       const stored = await loadEvents(restored.eventIds, sourceIndex);
-      if (stored.length && !results().length) { setResults(stored); rememberEvents(stored); }
+      if (stored.length) { void storeEvents(stored, sourceIndex); if (!results().length) { setResults(stored); rememberEvents(stored); } }
     }
     if (restored.activeRecipeId) setActiveRecipeId(restored.activeRecipeId);
     loadRelayPulse();
@@ -606,6 +607,15 @@ function App() {
     const value = query().trim();
     if (!value) return;
     runSearch(startMode() === "topic" && !value.startsWith("#") ? `#${value}` : value, combineMode());
+  };
+  const searchLocalArchive = async () => {
+    const value = query().trim();
+    if (!value) return;
+    setLoading(true); setError("");
+    const events = await searchStoredEvents(value.replace(/^#/, ""), 250, sourceIndex);
+    rememberEvents(events); setResults(events); setEntryReasons(Object.fromEntries(events.map((event) => [event.id, `local archive search: ${value}`]))); setActiveFacets(emptyFacets()); setView("table");
+    if (!events.length) setError("No cached events matched this local archive search. Retrieve data from relays first to grow the archive.");
+    logUsage("local_archive_search", { query: value, resultCount: events.length }); setLoading(false);
   };
   const selectEvent = (id) => {
     setSelectedId(id); setExpansionStatus(null);
@@ -639,7 +649,7 @@ function App() {
           <form class="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); startSearch(); }}>
             <span class="font-mono text-lime-300">→</span>
             <input value={query()} onInput={(event) => setQuery(event.currentTarget.value)} class="min-w-0 flex-1 bg-transparent px-1 py-2 font-mono text-sm text-emerald-50 outline-none placeholder:text-emerald-900" placeholder={{topic:"topic, for example bitcoin",person:"name@domain, npub, or public key",note:"note, nevent, or event ID",words:"words contained in notes"}[startMode()]} autofocus />
-            <button disabled={loading()} class="rounded border border-lime-700 px-4 py-2 font-mono text-xs text-lime-200 transition hover:bg-lime-300 hover:text-black disabled:opacity-40">{loading() ? "SEARCHING…" : "EXPLORE"}</button>
+            <button disabled={loading()} class="rounded border border-lime-700 px-4 py-2 font-mono text-xs text-lime-200 transition hover:bg-lime-300 hover:text-black disabled:opacity-40">{loading() ? "SEARCHING…" : "SEARCH RELAYS"}</button><button type="button" disabled={loading()} onClick={() => void searchLocalArchive()} class="rounded border border-emerald-800 px-3 py-2 font-mono text-[10px] text-emerald-400 hover:text-lime-300">SEARCH LOCAL</button>
           </form>
           <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-emerald-900/70 pt-3 text-xs">
             <select aria-label="How to use these results" value={combineMode()} onChange={(event) => setCombineMode(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-lime-300"><option value="replace">replace current results</option><option value="union">add to current results</option><option value="intersect">keep only matches</option></select>

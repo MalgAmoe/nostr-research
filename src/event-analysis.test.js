@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { dedupeForDisplay, eventDomains, kindName, ranked, tags } from "./event-analysis.js";
+import { indexTerms } from "./research-store.js";
 
 const event = (overrides = {}) => ({ id: "a", pubkey: "p1", kind: 1, content: "A sufficiently long repeated piece of content", tags: [], created_at: 1, ...overrides });
 
@@ -29,4 +30,12 @@ test("ranks values and reads typed tags", () => {
 test("names known and unknown event kinds", () => {
   assert.equal(kindName(1111), "comment");
   assert.equal(kindName(999999), "event");
+});
+
+test("builds searchable terms from content, tags, and domains", () => {
+  const terms = indexTerms(event({ content: "Researching Nostr through https://www.example.com/article", tags: [["t", "Discovery"]] }));
+  assert.ok(terms.includes("researching"));
+  assert.ok(terms.includes("nostr"));
+  assert.ok(terms.includes("discovery"));
+  assert.ok(terms.includes("example.com"));
 });
