@@ -140,12 +140,25 @@ function App() {
   const [lastRunDelta, setLastRunDelta] = createSignal(null);
   const [relayInformation, setRelayInformation] = createSignal(new Map());
   const [activeFacets, setActiveFacets] = createSignal(emptyFacets());
+  const [corpusHistory, setCorpusHistory] = createSignal(restored.corpusHistory ?? []);
   let searchToken = 0;
   const knownEvents = new Map();
   const rememberEvents = (events) => { for (const event of events) knownEvents.set(event.id, event); return events; };
   rememberEvents(results());
   const selectedEvent = createMemo(() => knownEvents.get(selectedId()) ?? results().find((event) => event.id === selectedId()));
   const addStep = (step) => setSteps((current) => [...current, { id: crypto.randomUUID(), at: Date.now(), ...step }].slice(-30));
+  const checkpointCorpus = (label) => {
+    if (!results().length) return;
+    const checkpoint = { id: crypto.randomUUID(), label, at: Date.now(), query: query(), eventIds: results().map((event) => event.id), view: view(), facets: activeFacets() };
+    setCorpusHistory((current) => [checkpoint, ...current.filter((item) => item.eventIds.join() !== checkpoint.eventIds.join())].slice(0, 8));
+    void storeEvents(results(), sourceIndex);
+  };
+  const restoreCorpusCheckpoint = async (checkpoint) => {
+    const events = await loadEvents(checkpoint.eventIds, sourceIndex);
+    rememberEvents(events); setResults(events); setQuery(checkpoint.query); setView(checkpoint.view); setActiveFacets(checkpoint.facets ?? emptyFacets()); setSelectedId(""); setExpansionStatus(null);
+    history.replaceState(null, "", "#/search"); setRoute(parseRoute());
+    logUsage("corpus_checkpoint_restored", { checkpointId: checkpoint.id, eventCount: events.length });
+  };
 
   const inspectRelays = async (relays) => {
     const information = await loadRelayInformationSet(relays);
@@ -213,6 +226,7 @@ function App() {
   async function runSearch(value = query(), operation = combineMode()) {
     const text = value.trim();
     if (!text) return;
+    checkpointCorpus(`before ${operation} search · ${text}`);
     const token = ++searchToken;
     const started = performance.now();
     const base = results();
@@ -277,6 +291,7 @@ function App() {
   const mergeIncoming = (incoming, base, operation) => operation === "union" ? unique([...base, ...incoming]) : operation === "intersect" ? base.filter((event) => incoming.some((candidate) => candidate.id === event.id)) : incoming;
 
   async function executeFilter(filter, label, operation = combineMode(), relays = READ_RELAYS, reason = label) {
+    checkpointCorpus(`before ${operation} query · ${label}`);
     const token = ++searchToken;
     const base = results();
     const started = performance.now();
@@ -358,6 +373,7 @@ function App() {
     };
     const definition = definitions[relation];
     if (!definition?.filters.length) { setExpansionStatus({ state: "empty", relation, label: definition?.label ?? relation, message: `This note contains no ${definition?.label ?? relation} to follow.` }); return; }
+    checkpointCorpus(`before ${expansionOperation()} expansion · ${definition.label}`);
     const token = ++searchToken;
     const base = results();
     setLoading(true); setError(""); setExpansionStatus({ state: "loading", relation, label: definition.label, message: `Looking for ${definition.label} across ${READ_RELAYS.length} relays…` });
@@ -529,7 +545,7 @@ function App() {
     knownEvents.clear();
     setQuery(""); setResults([]); setProfiles(new Map()); setSteps([]); setSelectedId(""); setPinned(new Set());
     setEntryReasons({}); setExpansionStatus(null); setKindFilter("all"); setSinceDays(0); setCombineMode("replace"); setView("list");
-    setRelayStates(new Map()); setError(""); setRouteData(null); setLastQueryPlan(null); setHasMore(true); setPageMessage(""); setActiveRecipeId(""); setLastRunDelta(null); setActiveFacets(emptyFacets());
+    setRelayStates(new Map()); setError(""); setRouteData(null); setLastQueryPlan(null); setHasMore(true); setPageMessage(""); setActiveRecipeId(""); setLastRunDelta(null); setActiveFacets(emptyFacets()); setCorpusHistory([]);
     history.replaceState(null, "", "#/search"); setRoute(parseRoute());
     logUsage("exploration_reset", { preservedSavedInvestigations: paths().length });
   };
@@ -558,7 +574,7 @@ function App() {
   const toggleSet = (setter, id) => setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   createEffect(() => save(SESSION_KEY, {
-    query: query(), eventIds: results().map((event) => event.id).slice(0, 1000), steps: steps().slice(-30), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId()
+    query: query(), eventIds: results().map((event) => event.id).slice(0, 1000), steps: steps().slice(-30), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory()
   }));
 
   onMount(async () => {
@@ -611,6 +627,7 @@ function App() {
   const searchLocalArchive = async () => {
     const value = query().trim();
     if (!value) return;
+    checkpointCorpus(`before local archive search · ${value}`);
     setLoading(true); setError("");
     const events = await searchStoredEvents(value.replace(/^#/, ""), 250, sourceIndex);
     rememberEvents(events); setResults(events); setEntryReasons(Object.fromEntries(events.map((event) => [event.id, `local archive search: ${value}`]))); setActiveFacets(emptyFacets()); setView("table");
@@ -639,6 +656,7 @@ function App() {
         <Show when={results().length}><FacetPanel facets={corpusFacets()} active={activeFacets()} profileFor={profileFor} onFacet={toggleFacet} onOpenAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onClear={() => setActiveFacets(emptyFacets())}/></Show>
         <Panel title="RESEARCH RECIPES"><Show when={paths().length} fallback={<p class="text-emerald-900">Save a search to make it rerunnable.</p>}><For each={paths().slice(0, 8)}>{(path) => <button onClick={() => void restorePath(path)} class={`block w-full border-b border-emerald-950 py-2 text-left hover:text-lime-300 ${activeRecipeId() === path.id ? "text-lime-300" : "text-emerald-500"}`}><span class="block truncate">{activeRecipeId() === path.id ? "› " : ""}{path.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{path.eventIds?.length ?? path.snapshot?.corpus?.length ?? 0} cached nodes</span></button>}</For></Show></Panel>
         <Show when={collections().length}><Panel title="COLLECTIONS"><For each={collections().slice(0, 8)}>{(collection) => <button onClick={() => void openCollection(collection)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">{collection.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{collection.eventIds.length} evidence items</span></button>}</For></Panel></Show>
+        <Show when={corpusHistory().length}><Panel title="RETURN TO"><For each={corpusHistory()}>{(checkpoint) => <button onClick={() => void restoreCorpusCheckpoint(checkpoint)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">↶ {checkpoint.label}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{checkpoint.eventIds.length} events · {new Date(checkpoint.at).toLocaleTimeString()}</span></button>}</For></Panel></Show>
         <Show when={results().length}><Panel title="CURRENT SET"><Stat label="retrieved" value={results().length}/><Stat label="visible" value={filteredResults().length}/><Stat label="active facets" value={activeFacetCount()}/><Stat label="evidence" value={pinned().size}/></Panel></Show>
       </aside>
 
