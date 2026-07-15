@@ -2,7 +2,7 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount }
 import { render } from "solid-js/web";
 import { SimplePool, nip19 } from "nostr-tools";
 import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, parseKindList, ranked, tags } from "./event-analysis.js";
-import { applyRelayConstraints, constraintChips, constraintsFromFacets, emptyQueryConstraints, removeConstraint } from "./query-spec.js";
+import { applyRelayConstraints, constraintChips, constraintsFromFacets, emptyQueryConstraints, hasRelayConstraints, removeConstraint } from "./query-spec.js";
 import { latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, searchStoredEvents, storeEvents } from "./research-store.js";
 import { loadRelayInformationSet } from "./relay-info.js";
 import "./styles.css";
@@ -231,8 +231,9 @@ function App() {
 
   async function runSearch(value = query(), operation = combineMode(), forcedMode = "", constraints = emptyQueryConstraints()) {
     const text = value.trim();
-    if (!text) return;
-    checkpointCorpus(`before ${operation} search · ${text}`);
+    if (!text && !hasRelayConstraints(constraints)) return;
+    const searchLabel = text || constraintChips(constraints).map((chip) => chip.label).join(" · ") || "constraints";
+    checkpointCorpus(`before ${operation} search · ${searchLabel}`);
     const token = ++searchToken;
     const started = performance.now();
     const base = results();
@@ -243,7 +244,7 @@ function App() {
     if (route().kind !== "search") location.hash = "#/search";
     logUsage("search_started", { query: text });
     try {
-      const basePlan = await resolveSearch(text, forcedMode);
+      const basePlan = text ? await resolveSearch(text, forcedMode) : { filter: { limit: queryLimit() }, relays: READ_RELAYS, mode: "constraints" };
       let compiledConstraints = constraints;
       if (constraints.author) compiledConstraints = { ...constraints, author: await resolvePubkey(constraints.author) };
       let filter = applyRelayConstraints(basePlan.filter, compiledConstraints);
@@ -270,7 +271,7 @@ function App() {
         setPageMessage("The queried relays returned no events. Your previous corpus was kept.");
         return;
       }
-      logUsage("search_completed", { query: text, mode: plan.mode, resultCount: results().length, durationMs: Math.round(performance.now() - started) });
+      logUsage("search_completed", { query: searchLabel, mode: plan.mode, resultCount: results().length, durationMs: Math.round(performance.now() - started) });
       setExecutedQuery({ value: text, mode: forcedMode || plan.mode, constraints: compiledConstraints, operation, completedAt: Date.now() });
       setActiveFacets({ ...emptyFacets(), domain: compiledConstraints.domain || "", media: compiledConstraints.media || "" });
       void recordResearchRun({ query: text, mode: plan.mode, filter: plan.filter, relays: plan.relays, operation }, results());
@@ -636,7 +637,10 @@ function App() {
 
   const startSearch = () => {
     const value = query().trim();
-    if (!value) return;
+    if (!value && !hasRelayConstraints(queryConstraints())) {
+      setError(composerChips().length ? "Domain and media refine retrieved events locally. Add a relay constraint such as a topic, author, kind, tag, date, or relay." : "Enter something to research or add at least one relay constraint.");
+      return;
+    }
     runSearch(value, combineMode(), startMode(), queryConstraints());
   };
   const searchLocalArchive = async () => {

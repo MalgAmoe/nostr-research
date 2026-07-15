@@ -1,5 +1,9 @@
 export const emptyQueryConstraints = () => ({ author: "", kinds: [], tag: "", tagValue: "", days: 0, domain: "", media: "", relay: "" });
 
+export function hasRelayConstraints(constraints = {}) {
+  return Boolean(constraints.promotedTopic || constraints.author || constraints.kinds?.length || (constraints.tag && constraints.tagValue) || constraints.days > 0 || constraints.facetDay || constraints.relay);
+}
+
 export function constraintsFromFacets(facets = {}, current = emptyQueryConstraints()) {
   return {
     ...current,

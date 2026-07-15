@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyRelayConstraints, constraintChips, constraintsFromFacets, emptyQueryConstraints, removeConstraint } from "./query-spec.js";
+import { applyRelayConstraints, constraintChips, constraintsFromFacets, emptyQueryConstraints, hasRelayConstraints, removeConstraint } from "./query-spec.js";
 
 test("compiles corpus facets into an editable query draft", () => {
   const draft = constraintsFromFacets({ topic: "nostr", author: "alice", kind: 1, day: "2026-07-15", domain: "example.com", relay: "wss://nos.lol", media: "image" });
@@ -26,4 +26,10 @@ test("applies relay-capable constraints without leaking local refinements", () =
 
 test("removes composite constraints as a whole", () => {
   assert.deepEqual(removeConstraint({ ...emptyQueryConstraints(), tag: "t", tagValue: "nostr" }, "tag"), { ...emptyQueryConstraints(), tag: "", tagValue: "" });
+});
+
+test("allows a search with relay constraints and no primary text", () => {
+  assert.equal(hasRelayConstraints({ ...emptyQueryConstraints(), kinds: [1] }), true);
+  assert.equal(hasRelayConstraints({ ...emptyQueryConstraints(), promotedTopic: "nostr" }), true);
+  assert.equal(hasRelayConstraints({ ...emptyQueryConstraints(), domain: "example.com", media: "image" }), false);
 });
