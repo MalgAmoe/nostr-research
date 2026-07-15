@@ -38,7 +38,7 @@ const compact = (value = "", length = 150) => {
 };
 const kindName = (kind) => ({ 0: "profile metadata", 1: "short note", 3: "follow list", 4: "legacy direct message", 5: "deletion request", 6: "repost", 7: "reaction", 13: "seal", 14: "direct message", 16: "generic repost", 20: "picture", 21: "video", 22: "short video", 40: "channel creation", 41: "channel metadata", 42: "channel message", 1059: "gift wrap", 30023: "long-form article", 30078: "app data" }[kind] ?? "event");
 const ranked = (values, limit = 10) => [...values.reduce((map, value) => value !== undefined && value !== null && value !== "" ? map.set(value, (map.get(value) ?? 0) + 1) : map, new Map()).entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
-const emptyFacets = () => ({ topic: "", author: "", kind: null, day: "", domain: "", relay: "" });
+const emptyFacets = () => ({ topic: "", author: "", kind: null, day: "", domain: "", relay: "", media: "" });
 const eventDomains = (event) => [...new Set((event?.content?.match(/https?:\/\/[^\s<>]+/gi) ?? []).flatMap((value) => { try { return [new URL(value.replace(/[),.;!?]+$/, "")).hostname.replace(/^www\./, "")]; } catch { return []; } }))];
 const NOTE_LIKE_KINDS = new Set([1, 20, 21, 22, 30023]);
 const contentFingerprint = (event) => NOTE_LIKE_KINDS.has(event.kind) ? (event.content ?? "").normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim() : "";
@@ -145,6 +145,8 @@ function App() {
   const [builderTag, setBuilderTag] = createSignal("");
   const [builderTagValue, setBuilderTagValue] = createSignal("");
   const [builderDays, setBuilderDays] = createSignal("");
+  const [builderDomain, setBuilderDomain] = createSignal("");
+  const [builderMedia, setBuilderMedia] = createSignal("");
   const [startMode, setStartMode] = createSignal("topic");
   const [entryReasons, setEntryReasons] = createSignal(restored.entryReasons ?? {});
   const [expansionStatus, setExpansionStatus] = createSignal(null);
@@ -345,7 +347,7 @@ function App() {
 
   async function runStructuredQuery() {
     try {
-      logUsage("structured_query_started", { author: builderAuthor(), kinds: builderKinds(), tag: builderTag(), tagValue: builderTagValue(), days: builderDays() });
+      logUsage("structured_query_started", { author: builderAuthor(), kinds: builderKinds(), tag: builderTag(), tagValue: builderTagValue(), days: builderDays(), domain: builderDomain(), media: builderMedia() });
       const filter = { limit: 100 };
       const parts = [];
       const author = await resolvePubkey(builderAuthor());
@@ -354,8 +356,14 @@ function App() {
       if (kinds.length) { filter.kinds = kinds; parts.push(`kinds ${kinds.join(",")}`); }
       if (builderTag() && builderTagValue()) { filter[`#${builderTag().replace(/^#/, "").slice(0, 1)}`] = [builderTagValue().replace(/^#/, "")]; parts.push(`#${builderTag()}=${builderTagValue()}`); }
       if (Number(builderDays()) > 0) { filter.since = Math.floor(Date.now() / 1000) - Number(builderDays()) * 86400; parts.push(`last ${builderDays()}d`); }
-      if (parts.length === 0) throw new Error("Add at least one structured constraint");
-      await executeFilter(filter, parts.join(" · "), combineMode());
+      const domain = builderDomain().trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+      if (domain) parts.push(`domain ${domain}`);
+      if (builderMedia()) parts.push(builderMedia());
+      if (parts.length === 0) throw new Error("Add at least one query constraint");
+      const hasRelayConstraint = Boolean(author || kinds.length || (builderTag() && builderTagValue()) || Number(builderDays()) > 0);
+      if (hasRelayConstraint) await executeFilter(filter, parts.join(" · "), combineMode());
+      else if (!results().length) throw new Error("Domain and media are local refinements. Retrieve a corpus first, or combine them with an author, kind, tag, or date constraint.");
+      setActiveFacets((current) => ({ ...current, domain, media: builderMedia() }));
     } catch (cause) { setError(cause.message); }
   }
 
@@ -468,7 +476,8 @@ function App() {
       (facets.kind === null || event.kind === facets.kind) &&
       (!facets.day || new Date(event.created_at * 1000).toISOString().slice(0, 10) === facets.day) &&
       (!facets.domain || eventDomains(event).includes(facets.domain)) &&
-      (!facets.relay || (sourceIndex.get(event.id) ?? []).includes(facets.relay))
+      (!facets.relay || (sourceIndex.get(event.id) ?? []).includes(facets.relay)) &&
+      (!facets.media || (facets.media === "link" ? /https?:\/\//i.test(event.content) : facets.media === "image" ? (event.content?.match(/https?:\/\/[^\s<>]+/gi) ?? []).some((url) => IMAGE_URL.test(cleanUrl(url))) : facets.media === "video" ? (event.content?.match(/https?:\/\/[^\s<>]+/gi) ?? []).some((url) => VIDEO_URL.test(cleanUrl(url))) : true))
     );
     return dedupeEnabled() ? dedupeForDisplay(filtered) : filtered;
   });
@@ -665,18 +674,20 @@ function App() {
             <Show when={activeRecipeId()}><button type="button" disabled={loading()} onClick={rerunRecipe} class="rounded border border-lime-800 px-2 py-1.5 text-lime-300 disabled:opacity-40">rerun + compare</button></Show>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">relays · {READ_RELAYS.length + searchRelays().length}</summary><div class="absolute right-0 top-9 z-40 w-80 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="mb-3 text-[10px] tracking-wider text-lime-300">DEFAULT READ RELAYS</div><For each={READ_RELAYS}>{(relay) => <div class="mb-1 flex items-center gap-2 text-emerald-500"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"/>{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">KEYWORD SEARCH RELAYS</div><textarea aria-label="Keyword search relays" value={relayDraft()} onInput={(event) => setRelayDraft(event.currentTarget.value)} class="h-24 w-full resize-none bg-black/30 p-2 font-mono text-xs outline-none"/><button type="button" onClick={applyRelays} class="mt-2 border border-lime-700 px-3 py-1 text-lime-300">apply search relays</button><p class="mt-2 text-[10px] text-emerald-800">Topic, account, note, and relationship queries use the three read relays. Keyword searches use the editable NIP-50 list.</p></div></details>
           </div>
-          <details class="mt-3 border-t border-emerald-900/70 pt-3 font-mono text-xs">
-            <summary class="cursor-pointer text-emerald-700">Advanced: search protocol fields directly</summary>
-            <form onSubmit={(event) => { event.preventDefault(); void runStructuredQuery(); }} class="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-[1.7fr_1fr_.45fr_1fr_.55fr_auto]">
+          <div class="mt-3 border-t border-emerald-900/70 pt-3 font-mono text-xs">
+            <div><span class="text-lime-300">BUILD A QUERY</span><span class="ml-2 text-emerald-800">combine relay constraints with local corpus refinements</span></div>
+            <form onSubmit={(event) => { event.preventDefault(); void runStructuredQuery(); }} class="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
               <input aria-label="author constraint" value={builderAuthor()} onInput={(event) => setBuilderAuthor(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="author: npub / hex / NIP-05"/>
               <input aria-label="kind constraints" value={builderKinds()} onInput={(event) => setBuilderKinds(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="kinds: 1,30023"/>
               <input aria-label="tag name" value={builderTag()} onInput={(event) => setBuilderTag(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="tag: t" maxlength="2"/>
               <input aria-label="tag value" value={builderTagValue()} onInput={(event) => setBuilderTagValue(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="tag value: nostr"/>
               <input aria-label="days constraint" value={builderDays()} onInput={(event) => setBuilderDays(event.currentTarget.value)} type="number" min="1" class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="days"/>
-              <button type="submit" disabled={loading()} class="rounded border border-lime-700 px-3 py-2 text-lime-200 hover:bg-lime-300 hover:text-black">APPLY FILTER</button>
+              <input aria-label="domain constraint" value={builderDomain()} onInput={(event) => setBuilderDomain(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 outline-none placeholder:text-emerald-900" placeholder="domain: example.com"/>
+              <select aria-label="media constraint" value={builderMedia()} onChange={(event) => setBuilderMedia(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-2 text-emerald-400"><option value="">any attachment</option><option value="link">contains a link</option><option value="image">contains an image</option><option value="video">contains a video</option></select>
+              <button type="submit" disabled={loading()} class="rounded border border-lime-700 px-3 py-2 text-lime-200 hover:bg-lime-300 hover:text-black">RUN COMPOSED QUERY</button>
             </form>
-            <p class="mt-2 text-[10px] text-emerald-800">Empty fields are omitted. The corpus operation above still applies, so filters can replace, union, or intersect.</p>
-          </details>
+            <p class="mt-2 text-[10px] text-emerald-800">Author, kind, tag, and date retrieve events from relays. Domain and media refine those results locally. The result operation above controls replace, add, or intersect.</p>
+          </div>
         </section>
 
         <Show when={!routeLoading()} fallback={<LoadingPanel label="reading relay graph"/>}>
