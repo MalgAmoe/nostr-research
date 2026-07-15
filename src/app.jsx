@@ -298,7 +298,7 @@ function App() {
     const token = ++searchToken;
     const base = results();
     const started = performance.now();
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setLastQueryPlan({ filter, relays, mode: label }); setHasMore(true); setPageMessage("");
     if (route().kind !== "search") location.hash = "#/search";
     try {
       const states = new Map(relays.map((relay) => [relay, { state: "searching", count: 0 }]));
@@ -312,6 +312,11 @@ function App() {
       }));
       if (token !== searchToken) return;
       const incoming = rememberEvents(unique(batches.flat()));
+      if (!incoming.length && operation === "replace") {
+        setResults(base); setHasMore(false); setPageMessage("The queried relays returned no events for these filters. Your previous corpus was kept.");
+        logUsage("filter_query", { label, filter, operation, returned: 0, resultCount: base.length, preservedCorpus: true, durationMs: Math.round(performance.now() - started) });
+        return;
+      }
       const next = mergeIncoming(incoming, base, operation).sort((a, b) => b.created_at - a.created_at);
       setResults(next);
       setEntryReasons((current) => ({ ...current, ...Object.fromEntries(incoming.map((event) => [event.id, reason])) }));
@@ -487,6 +492,23 @@ function App() {
   });
   const toggleFacet = (type, value) => setActiveFacets((current) => ({ ...current, [type]: current[type] === value ? (type === "kind" ? null : "") : value }));
   const activeFacetCount = createMemo(() => Object.values(activeFacets()).filter((value) => value !== "" && value !== null).length);
+  const researchActiveFacets = async () => {
+    const facets = activeFacets();
+    if (!activeFacetCount()) return;
+    const filter = { limit: queryLimit() };
+    const parts = [];
+    if (facets.topic) { filter["#t"] = [facets.topic]; parts.push(`#${facets.topic}`); }
+    if (facets.author) { filter.authors = [facets.author]; parts.push(`author ${profileFor(facets.author).name}`); }
+    if (facets.kind !== null) { filter.kinds = [facets.kind]; parts.push(`${kindName(facets.kind)} · ${facets.kind}`); }
+    if (facets.day) { const since = Math.floor(new Date(`${facets.day}T00:00:00Z`).getTime() / 1000); filter.since = since; filter.until = since + 86_399; parts.push(facets.day); }
+    if (facets.domain) parts.push(`domain ${facets.domain}`);
+    if (facets.media) parts.push(`${facets.media} media`);
+    let relays = facets.relay ? [facets.relay] : READ_RELAYS;
+    if (facets.relay) parts.push(`on ${new URL(facets.relay).hostname}`);
+    const hasIndexedConstraint = Boolean(filter["#t"] || filter.authors || filter.kinds || filter.since);
+    if (!hasIndexedConstraint && facets.domain) { filter.search = facets.domain; relays = facets.relay ? [facets.relay] : searchRelays(); }
+    await executeFilter(filter, `active facets · ${parts.join(" · ")}`, combineMode(), relays, `relay research from active filters: ${parts.join(" · ")}`);
+  };
   const pulseTopics = createMemo(() => ranked(pulseEvents().flatMap((event) => tags(event, "t").map((topic) => topic.toLowerCase())), 18));
   async function loadRelayPulse() {
     setPulseLoading(true);
@@ -654,7 +676,7 @@ function App() {
 
     <div class={`mx-auto grid gap-4 px-4 py-5 lg:px-6 ${route().kind === "help" ? "max-w-[1100px]" : "max-w-[1800px] xl:grid-cols-[250px_minmax(0,1fr)_310px]"}`}>
       <Show when={route().kind !== "help"}><aside class="hidden space-y-4 xl:sticky xl:top-20 xl:block xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
-        <Show when={results().length}><FacetPanel facets={corpusFacets()} active={activeFacets()} profileFor={profileFor} onFacet={toggleFacet} onOpenAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onClear={() => setActiveFacets(emptyFacets())}/></Show>
+        <Show when={results().length}><FacetPanel facets={corpusFacets()} active={activeFacets()} profileFor={profileFor} onFacet={toggleFacet} onOpenAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onClear={() => setActiveFacets(emptyFacets())} onResearch={() => void researchActiveFacets()} loading={loading()} operation={combineMode()}/></Show>
         <Panel title="RESEARCH RECIPES"><Show when={paths().length} fallback={<p class="text-emerald-900">Save a search to make it rerunnable.</p>}><For each={paths().slice(0, 8)}>{(path) => <button onClick={() => void restorePath(path)} class={`block w-full border-b border-emerald-950 py-2 text-left hover:text-lime-300 ${activeRecipeId() === path.id ? "text-lime-300" : "text-emerald-500"}`}><span class="block truncate">{activeRecipeId() === path.id ? "› " : ""}{path.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{path.eventIds?.length ?? path.snapshot?.corpus?.length ?? 0} cached nodes</span></button>}</For></Show></Panel>
         <Show when={collections().length}><Panel title="COLLECTIONS"><For each={collections().slice(0, 8)}>{(collection) => <button onClick={() => void openCollection(collection)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">{collection.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{collection.eventIds.length} evidence items</span></button>}</For></Panel></Show>
         <Show when={corpusHistory().length}><Panel title="RETURN TO"><For each={corpusHistory()}>{(checkpoint) => <button onClick={() => void restoreCorpusCheckpoint(checkpoint)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">↶ {checkpoint.label}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{checkpoint.eventIds.length} events · {new Date(checkpoint.at).toLocaleTimeString()}</span></button>}</For></Panel></Show>
@@ -662,7 +684,7 @@ function App() {
       </aside></Show>
 
       <main class="min-w-0">
-        <Show when={route().kind !== "help"}><Show when={results().length}><details class="mb-4 rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs xl:hidden"><summary class="text-lime-300">filter this corpus · {filteredResults().length}/{results().length} items</summary><div class="mt-3 border-t border-emerald-900 pt-3"><div class="flex flex-wrap gap-2"><For each={corpusFacets().topics.slice(0, 10)}>{([topic, count]) => <button onClick={() => toggleFacet("topic", topic)} class={`rounded border px-2 py-1 ${activeFacets().topic === topic ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-900 text-emerald-500"}`}>#{topic} {count}</button>}</For><Show when={activeFacetCount()}><button onClick={() => setActiveFacets(emptyFacets())} class="text-emerald-600">clear</button></Show></div></div></details></Show>
+        <Show when={route().kind !== "help"}><Show when={results().length}><details class="mb-4 rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs xl:hidden"><summary class="text-lime-300">filter this corpus · {filteredResults().length}/{results().length} items</summary><div class="mt-3 border-t border-emerald-900 pt-3"><div class="flex flex-wrap gap-2"><For each={corpusFacets().topics.slice(0, 10)}>{([topic, count]) => <button onClick={() => toggleFacet("topic", topic)} class={`rounded border px-2 py-1 ${activeFacets().topic === topic ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-900 text-emerald-500"}`}>#{topic} {count}</button>}</For><Show when={activeFacetCount()}><button disabled={loading()} onClick={() => void researchActiveFacets()} class="rounded border border-lime-700 px-2 py-1 text-lime-300">research active filters ↗</button><button onClick={() => setActiveFacets(emptyFacets())} class="text-emerald-600">clear</button></Show></div></div></details></Show>
         <section class="mb-4 rounded border border-emerald-900 bg-emerald-950/20 p-3 shadow-[0_0_40px_rgba(16,185,129,.04)]">
           <div class="mb-3 flex flex-wrap gap-2 font-mono text-xs"><span class="mr-1 self-center text-emerald-700">START FROM</span><For each={[['topic','a topic'],['person','a person'],['note','a note'],['words','keywords']]}>{([mode,label]) => <button type="button" onClick={() => { setStartMode(mode); setQuery(""); }} class={`rounded px-3 py-1.5 ${startMode() === mode ? "bg-lime-300 text-black" : "border border-emerald-900 text-emerald-500"}`}>{label}</button>}</For></div>
           <form class="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); startSearch(); }}>
@@ -721,7 +743,7 @@ function HelpPage(props) {
   const regions = [
     ["1", "Start here", "Choose topic, person, note, or keywords. Search relays finds new Nostr events; Search local only searches events this browser already collected."],
     ["2", "Control the next result", "Replace starts a new corpus, Add expands it, and Keep matches narrows it. Depth is the requested number of events per relay."],
-    ["3", "Filter and return", "The left side summarizes the current corpus. Facets hide or show existing events without another relay query. Recipes, collections, and return points live here too."],
+    ["3", "Filter or launch new research", "Facet clicks filter the current corpus locally. “Research active filters” turns those selections into a new query against the broader relay space. Recipes, collections, and return points live here too."],
     ["4", "Change how you look", "Explore is for reading, Analyze is for tables and comparisons, and Map reveals aggregate and relationship structure. They are views of the same corpus."],
     ["5", "Work with the corpus", "The middle is your current set of real events. Select a note to research from it, open it fully, follow its author, or pin it as evidence."],
     ["6", "Navigate from a note", "The right side answers “where next?” Follow conversations, references, mentions, reactions, topics, or an author’s network. Choose whether those results add to or replace the corpus."],
@@ -737,7 +759,7 @@ function HelpPage(props) {
       <div class="flex items-center gap-2 border-b border-emerald-900 px-3 py-2 font-mono text-[9px] text-emerald-700"><span class="text-lime-300">NOSTR_RESEARCH://LIVE</span><span class="ml-auto">?　＋ NEW　● LIVE</span></div>
       <div class="border-b border-emerald-900 p-3"><div class="flex items-center gap-2"><HelpMarker number="1"/><span class="rounded border border-lime-700 px-2 py-1 text-[10px] text-lime-200">a topic</span><div class="min-w-0 flex-1 border-b border-emerald-800 px-2 py-1 font-mono text-[10px] text-emerald-600">→ what are you researching?</div><span class="rounded border border-lime-700 px-2 py-1 font-mono text-[9px] text-lime-300">SEARCH RELAYS</span><span class="hidden rounded border border-emerald-800 px-2 py-1 font-mono text-[9px] text-emerald-500 sm:block">SEARCH LOCAL</span></div><div class="mt-2 flex flex-wrap items-center gap-1 font-mono text-[8px] text-emerald-600"><HelpMarker number="2"/><span class="rounded border border-emerald-900 px-2 py-1">replace results</span><span class="rounded border border-emerald-900 px-2 py-1">all content</span><span class="rounded border border-emerald-900 px-2 py-1">depth · 100/relay</span><span class="rounded border border-emerald-900 px-2 py-1">relays · 3</span></div></div>
       <div class="grid min-h-[430px] lg:grid-cols-[170px_minmax(0,1fr)_210px]">
-        <aside class="border-b border-emerald-900 p-3 lg:border-b-0 lg:border-r"><div class="mb-2 flex items-center gap-2"><HelpMarker number="3"/><span class="font-mono text-[9px] tracking-wider text-lime-300">FILTER THIS CORPUS</span></div><MockGroup title="TOPICS" values={["#nostr 42","#bitcoin 21","#research 9"]}/><MockGroup title="ACCOUNTS" values={["alice 18","bob 11"]}/><MockGroup title="SAVED" values={["recipes","collections","return to"]}/></aside>
+        <aside class="border-b border-emerald-900 p-3 lg:border-b-0 lg:border-r"><div class="mb-2 flex items-center gap-2"><HelpMarker number="3"/><span class="font-mono text-[9px] tracking-wider text-lime-300">FILTER THIS CORPUS</span></div><div class="mb-2 rounded bg-lime-300 px-2 py-1.5 font-mono text-[8px] font-bold text-black">RESEARCH ACTIVE FILTERS ↗</div><MockGroup title="TOPICS" values={["#nostr 42","#bitcoin 21","#research 9"]}/><MockGroup title="ACCOUNTS" values={["alice 18","bob 11"]}/><MockGroup title="SAVED" values={["recipes","collections","return to"]}/></aside>
         <main class="min-w-0"><div class="grid grid-cols-3 border-b border-emerald-900 font-mono text-[9px]"><div class="border-r border-emerald-900 bg-lime-950/30 p-3 text-lime-300"><HelpMarker number="4"/> EXPLORE<span class="mt-1 block text-[8px] text-emerald-800">read evidence</span></div><div class="border-r border-emerald-900 p-3 text-emerald-600">ANALYZE<span class="mt-1 block text-[8px] text-emerald-800">sort + compare</span></div><div class="p-3 text-emerald-600">MAP<span class="mt-1 block text-[8px] text-emerald-800">see structure</span></div></div><div class="p-3"><div class="mb-2 flex items-center gap-2 font-mono text-[9px] text-emerald-700"><HelpMarker number="5"/><span>CURRENT CORPUS · 112 EVENTS</span></div><For each={["A note with a linked image and a topic tag…","A reply that points to another event…","A long-form article from an account…"]}>{(text,index) => <div class="mb-2 rounded border border-emerald-950 p-3"><div class="font-mono text-[8px] text-emerald-800">[{index()+1}] account · short note · 2 relays</div><p class="mt-1 text-[10px] text-emerald-400">{text}</p><div class="mt-2 font-mono text-[8px] text-lime-400">research　 read　 conversation　 pin</div></div>}</For></div><div class="flex items-center justify-center gap-2 border-t border-emerald-900 p-3 font-mono text-[9px] text-lime-300"><HelpMarker number="8"/> LOAD OLDER RESULTS</div></main>
         <aside class="border-t border-emerald-900 p-3 lg:border-l lg:border-t-0"><div class="mb-2 flex items-center gap-2"><HelpMarker number="6"/><span class="font-mono text-[9px] tracking-wider text-lime-300">RESEARCH FROM THIS NOTE</span></div><For each={["Conversation →","What it points to →","More from this person →","Related topics →"]}>{(label) => <div class="mb-1 rounded border border-emerald-950 p-2 text-[9px] text-emerald-500">{label}</div>}</For><div class="mb-2 mt-4 flex items-center gap-2"><HelpMarker number="7"/><span class="font-mono text-[9px] tracking-wider text-lime-300">EVIDENCE + COVERAGE</span></div><div class="rounded border border-emerald-950 p-2 font-mono text-[8px] leading-5 text-emerald-700">◆ 3 pinned notes<br/>2/2 relays responded<br/>112 unique events</div></aside>
       </div>
@@ -786,7 +808,7 @@ function FacetPanel(props) {
   const hasFacets = () => props.facets.topics.length || props.facets.authors.length || props.facets.kinds.length;
   const hasActive = () => Object.values(props.active).some((value) => value !== "" && value !== null);
   return <Panel title="FILTER THIS CORPUS"><Show when={hasFacets()} fallback={<p class="py-2 text-emerald-900">Search something to generate useful facets here.</p>}>
-    <Show when={hasActive()}><button onClick={props.onClear} class="mb-1 w-full rounded border border-lime-900 px-2 py-1 text-lime-400 hover:bg-lime-950/30">clear all active facets</button></Show>
+    <Show when={hasActive()}><div class="mb-2 rounded border border-lime-900/70 bg-lime-950/10 p-2"><button disabled={props.loading} onClick={props.onResearch} class="w-full rounded bg-lime-300 px-2 py-2 text-left font-bold text-black hover:bg-lime-200 disabled:opacity-40">RESEARCH {props.operation === "union" ? "+ ADD" : props.operation === "intersect" ? "∩ KEEP MATCHES" : "AS NEW CORPUS"} ↗</button><p class="mt-2 text-[9px] leading-4 text-emerald-700">Run the active facets against the broader relay space. The controls above the search box choose how results affect this corpus.</p><button onClick={props.onClear} class="mt-1 text-[9px] text-emerald-600 hover:text-emerald-300">clear active filters</button></div></Show>
     <Show when={props.facets.topics.length}><FacetGroup title="TOPICS"><For each={props.facets.topics}>{([topic, count]) => <Facet active={props.active.topic === topic} label={`#${topic}`} count={count} onClick={() => props.onFacet("topic", topic)}/>}</For></FacetGroup></Show>
     <Show when={props.facets.authors.length}><FacetGroup title="ACTIVE ACCOUNTS"><For each={props.facets.authors}>{([pubkey, count]) => <div class="flex items-center"><Facet active={props.active.author === pubkey} label={props.profileFor(pubkey).name} count={count} onClick={() => props.onFacet("author", pubkey)}/><button title="Open account" onClick={() => props.onOpenAuthor(pubkey)} class="px-1 text-emerald-800 hover:text-lime-300">↗</button></div>}</For></FacetGroup></Show>
     <Show when={props.facets.kinds.length}><FacetGroup title="CONTENT TYPES"><For each={props.facets.kinds}>{([kind, count]) => <Facet active={props.active.kind === kind} label={`${kindName(kind)} · ${kind}`} count={count} onClick={() => props.onFacet("kind", kind)}/>}</For></FacetGroup></Show>
