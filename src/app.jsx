@@ -14,6 +14,9 @@ const READ_RELAYS = ["wss://nos.lol", "wss://relay.primal.net"];
 const FALLBACK_READ_RELAYS = ["wss://relay.damus.io", "wss://purplepag.es"];
 const PAGE_SIZE = 40;
 const MAX_WAIT = 4500;
+const CACHE_TTL = 60_000;
+const CACHE_LIMIT = 200;
+const SESSION_EVENT_LIMIT = 1000;
 const pool = new SimplePool({ enableReconnect: true });
 const cache = new Map();
 const sourceIndex = new Map();
@@ -84,8 +87,10 @@ async function queryRelay(relay, filter, label) {
 async function readEvents(filter, label, relays = READ_RELAYS) {
   const key = `${relays.join(",")}:${JSON.stringify(filter)}`;
   const cached = cache.get(key);
-  if (cached && Date.now() - cached.at < 60_000) return cached.events;
+  if (cached?.events && Date.now() - cached.at < CACHE_TTL) return cached.events;
   if (cached?.promise) return cached.promise;
+  for (const [cachedKey, value] of cache) if (value.events && Date.now() - value.at >= CACHE_TTL) cache.delete(cachedKey);
+  while (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value);
   const promise = Promise.all(relays.map((relay) => queryRelay(relay, filter, label))).then((batches) => {
     const events = unique(batches.flat());
     cache.set(key, { at: Date.now(), events });
@@ -148,7 +153,7 @@ function App() {
   const selectedEvent = createMemo(() => knownEvents.get(selectedId()) ?? results().find((event) => event.id === selectedId()));
   const checkpointCorpus = (label) => {
     if (!results().length) return;
-    const checkpoint = { id: crypto.randomUUID(), label, at: Date.now(), query: query(), eventIds: results().map((event) => event.id), view: view(), facets: activeFacets() };
+    const checkpoint = { id: crypto.randomUUID(), label, at: Date.now(), query: query(), eventIds: results().slice(0, SESSION_EVENT_LIMIT).map((event) => event.id), view: view(), facets: activeFacets() };
     setCorpusHistory((current) => [checkpoint, ...current.filter((item) => item.eventIds.join() !== checkpoint.eventIds.join())].slice(0, 8));
     void storeEvents(results(), sourceIndex);
   };
@@ -570,7 +575,7 @@ function App() {
   const toggleSet = (setter, id) => setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   createEffect(() => save(SESSION_KEY, {
-    query: query(), eventIds: results().map((event) => event.id).slice(0, 1000), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory(), queryLimit: queryLimit()
+    query: query(), eventIds: results().slice(0, SESSION_EVENT_LIMIT).map((event) => event.id), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory(), queryLimit: queryLimit()
   }));
 
   onMount(async () => {
@@ -695,7 +700,7 @@ function App() {
           <Show when={!error()} fallback={<ErrorPanel message={error()}/>}>
             <Show keyed when={route()}>{(currentRoute) => <Show when={currentRoute.kind === "help"} fallback={<Show when={currentRoute.kind === "search"} fallback={<RouteView route={currentRoute} data={routeData()} profileFor={profileFor} openRoute={openRoute}/> }>
                 <Show when={!results().length && !query()}><HomeDiscovery topics={pulseTopics()} events={pulseEvents()} loading={pulseLoading()} profileFor={profileFor} onTopic={(topic) => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onRefresh={loadRelayPulse}/></Show>
-                <ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onNavigate={navigateFromEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0} facets={corpusFacets()} activeFacets={activeFacets()} onFacet={toggleFacet} entryReasons={entryReasons()}/>
+                <ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onNavigate={navigateFromEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0} activeFacets={activeFacets()} onFacet={toggleFacet} entryReasons={entryReasons()}/>
               </Show>}><HelpPage onClose={() => openRoute("#/search")}/></Show>}</Show>
           </Show>
         </Show>

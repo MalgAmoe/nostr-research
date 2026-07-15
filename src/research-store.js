@@ -1,3 +1,5 @@
+import { eventDomains } from "./event-analysis.js";
+
 const DATABASE_NAME = "nostr-research";
 const DATABASE_VERSION = 3;
 
@@ -68,7 +70,7 @@ export function indexTerms(event) {
   const content = event.content ?? "";
   const words = content.toLowerCase().match(/[\p{L}\p{N}_-]{3,}/gu) ?? [];
   const tagValues = (event.tags ?? []).filter((tag) => ["t", "d", "r"].includes(tag[0])).map((tag) => String(tag[1] ?? "").toLowerCase());
-  const domains = (content.match(/https?:\/\/[^\s<>]+/gi) ?? []).flatMap((value) => { try { return [new URL(value).hostname.replace(/^www\./, "")]; } catch { return []; } });
+  const domains = eventDomains(event);
   return [...new Set([...words, ...tagValues, ...domains])].slice(0, 400);
 }
 

@@ -15,7 +15,6 @@ export async function loadRelayInformation(relay) {
       return {
         state: "available",
         name: document.name || new URL(relay).hostname,
-        software: document.software || "",
         version: document.version || "",
         supportedNips: document.supported_nips ?? [],
         limitations: document.limitation ?? {},

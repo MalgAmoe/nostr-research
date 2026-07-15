@@ -6,15 +6,16 @@ An early, local SolidJS and Tailwind client for Nostr discovery and research rat
 
 - Topic, account, event, NIP-05, and NIP-50 keyword discovery using real relay data.
 - Relationship traversal from a selected event: replies, quotes, references, author activity, mentions, shared topics, reactions, reposts, and zaps.
-- Corpus facets for topics, accounts, event kinds, and activity dates, plus a sampled 24-hour relay pulse on the home screen.
-- Synchronized list, thread, timeline, relation-map, and account-by-kind matrix views.
+- Corpus facets for topics, accounts, event kinds, domains, relays, and activity dates, plus a sampled 24-hour relay pulse on the home screen.
+- Explore, Analyze, and Map workspaces with list, thread, timeline, table, comparison, matrix, corpus-map, and relationship-graph views.
 - Rich note rendering for images, video, audio, links, Nostr references, hashtags, and lightweight Markdown.
-- Cursor-based retrieval of older results and optional display-time duplicate collapsing.
-- A central selected-note research panel, evidence basket, relay provenance, bounded recovery state, and explicitly saved investigations.
+- Configurable per-relay research depth, cursor-based retrieval of older results, and optional display-time duplicate collapsing.
+- A central selected-note research panel, evidence collections, relay provenance, restorable corpus checkpoints, reusable recipes, and run comparisons.
+- Durable IndexedDB event storage and indexed local search across previously retrieved real events.
 
 There is no sample or fake corpus. The home screen samples recent public events from the configured read relays to derive navigable topics and accounts. The client does not sign events, publish content, or alter relays.
 
-The default search relay set is editable in the interface. Searches use NIP-50 where the selected relay supports it. General event reads use separate read relays, short-lived caching, background profile hydration, and paginated account collections. A relay's state, event count, and response time are shown after every query.
+The default search relay set is editable in the interface. Searches use NIP-50 where the selected relay supports it. General event reads use separate read relays, bounded short-lived caching, background profile hydration, and paginated account collections. A relay's state, event count, response time, advertised query limit, and contribution are shown after every query.
 
 ## Local usage logging
 
@@ -38,10 +39,8 @@ For Tailwind/Solid development with hot reload, keep the local API server runnin
 
 Open http://localhost:4173.
 
-## Next milestones
+## Project shape
 
-1. Split relay access, research state, and rendering components out of the current single application module.
-2. Add relay discovery using NIP-11 and NIP-65.
-3. Add a local event cache and richer provenance records.
-4. Add optional encrypted cross-device sync for saved investigations.
-5. Add explicit sharing as NIP-51 curation sets, separately from private research paths.
+The project intentionally stays small: one Solid application module, one event-analysis module, one IndexedDB storage module, and one relay-information module. New seams should only be introduced when they improve locality or make independently testable domain logic clearer.
+
+Potential future work includes NIP-65 relay discovery, optional encrypted cross-device sync, and explicit NIP-51 sharing for selected collections. Private local research state should remain separate from anything published to Nostr.
