@@ -108,6 +108,7 @@ function App() {
   const [relayStates, setRelayStates] = createSignal(new Map());
   const [searchRelays, setSearchRelays] = createSignal(load(SEARCH_RELAYS_KEY, DEFAULT_SEARCH_RELAYS));
   const [relayDraft, setRelayDraft] = createSignal(searchRelays().join("\n"));
+  const [queryLimit, setQueryLimit] = createSignal(Math.min(1000, Math.max(10, restored.queryLimit ?? 100)));
   const [kindFilter, setKindFilter] = createSignal(restored.kindFilter ?? "all");
   const [sinceDays, setSinceDays] = createSignal(restored.sinceDays ?? 0);
   const [combineMode, setCombineMode] = createSignal("replace");
@@ -202,23 +203,23 @@ function App() {
   async function resolveSearch(value) {
     const text = value.trim();
     if (/^[0-9a-f]{64}$/i.test(text)) return { filter: { ids: [text] }, relays: READ_RELAYS, mode: "event id" };
-    if (text.startsWith("#")) return { filter: { "#t": [text.slice(1).toLowerCase()], limit: 50 }, relays: READ_RELAYS, mode: "topic" };
+    if (text.startsWith("#")) return { filter: { "#t": [text.slice(1).toLowerCase()], limit: queryLimit() }, relays: READ_RELAYS, mode: "topic" };
     if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text)) {
       const [name, domain] = text.split("@");
       const response = await fetch(`https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name)}`);
       const pubkey = (await response.json()).names?.[name];
       if (!pubkey) throw new Error("NIP-05 identifier did not resolve");
-      return { filter: { authors: [pubkey], limit: 50 }, relays: READ_RELAYS, mode: "NIP-05" };
+      return { filter: { authors: [pubkey], limit: queryLimit() }, relays: READ_RELAYS, mode: "NIP-05" };
     }
     if (/^(npub|nprofile|note|nevent|naddr)1/i.test(text)) {
       const decoded = nip19.decode(text);
-      if (decoded.type === "npub") return { filter: { authors: [decoded.data], limit: 50 }, relays: READ_RELAYS, mode: "npub" };
-      if (decoded.type === "nprofile") return { filter: { authors: [decoded.data.pubkey], limit: 50 }, relays: decoded.data.relays?.length ? decoded.data.relays : READ_RELAYS, mode: "nprofile" };
+      if (decoded.type === "npub") return { filter: { authors: [decoded.data], limit: queryLimit() }, relays: READ_RELAYS, mode: "npub" };
+      if (decoded.type === "nprofile") return { filter: { authors: [decoded.data.pubkey], limit: queryLimit() }, relays: decoded.data.relays?.length ? decoded.data.relays : READ_RELAYS, mode: "nprofile" };
       if (decoded.type === "note") return { filter: { ids: [decoded.data] }, relays: READ_RELAYS, mode: "note" };
       if (decoded.type === "nevent") return { filter: { ids: [decoded.data.id] }, relays: decoded.data.relays?.length ? decoded.data.relays : READ_RELAYS, mode: "nevent" };
       if (decoded.type === "naddr") return { filter: { authors: [decoded.data.pubkey], kinds: [decoded.data.kind], "#d": [decoded.data.identifier] }, relays: decoded.data.relays?.length ? decoded.data.relays : READ_RELAYS, mode: "naddr" };
     }
-    return { filter: { search: text, limit: 50 }, relays: searchRelays(), mode: "NIP-50" };
+    return { filter: { search: text, limit: queryLimit() }, relays: searchRelays(), mode: "NIP-50" };
   }
 
   async function runSearch(value = query(), operation = combineMode()) {
@@ -267,7 +268,7 @@ function App() {
       setLastQueryPlan(plan);
       if (plan.filter.ids || (plan.filter["#d"] && plan.filter.authors)) { setHasMore(false); setPageMessage("This lookup identifies a specific event; there are no additional pages."); return; }
       const oldest = Math.min(...results().map((event) => event.created_at));
-      const filter = { ...plan.filter, until: oldest - 1, limit: 100 };
+      const filter = { ...plan.filter, until: oldest - 1, limit: queryLimit() };
       const batches = await Promise.all(plan.relays.map((relay) => queryRelay(relay, filter, `${plan.mode}-older`)));
       const incoming = rememberEvents(unique(batches.flat()));
       const existing = new Set(results().map((event) => event.id));
@@ -335,7 +336,7 @@ function App() {
   async function runStructuredQuery() {
     try {
       logUsage("structured_query_started", { author: builderAuthor(), kinds: builderKinds(), tag: builderTag(), tagValue: builderTagValue(), days: builderDays(), domain: builderDomain(), media: builderMedia() });
-      const filter = { limit: 100 };
+      const filter = { limit: queryLimit() };
       const parts = [];
       const author = await resolvePubkey(builderAuthor());
       const kinds = parseKindList(builderKinds());
@@ -358,13 +359,13 @@ function App() {
     const event = selectedEvent();
     if (!event) return;
     const definitions = {
-      replies: { filters: [{ "#e": [event.id], kinds: [1, 1111], limit: 100 }], label: "replies" },
-      quotes: { filters: [{ "#q": [event.id], limit: 100 }], label: "quotes" },
-      responses: { filters: [{ "#e": [event.id], kinds: [6, 7, 16, 9735], limit: 100 }], label: "reactions / reposts / zaps" },
-      author: { filters: [{ authors: [event.pubkey], limit: 100 }], label: "author activity" },
-      mentions: { filters: [{ "#p": [event.pubkey], limit: 100 }], label: "author mentions" },
-      topics: { filters: tags(event, "t").slice(0, 4).map((topic) => ({ "#t": [topic], limit: 100 })), label: "shared topics" },
-      references: { filters: [...tags(event, "e"), ...tags(event, "q")].slice(0, 100).length ? [{ ids: [...tags(event, "e"), ...tags(event, "q")].slice(0, 100) }] : [], label: "conversation ancestry / references" },
+      replies: { filters: [{ "#e": [event.id], kinds: [1, 1111], limit: queryLimit() }], label: "replies" },
+      quotes: { filters: [{ "#q": [event.id], limit: queryLimit() }], label: "quotes" },
+      responses: { filters: [{ "#e": [event.id], kinds: [6, 7, 16, 9735], limit: queryLimit() }], label: "reactions / reposts / zaps" },
+      author: { filters: [{ authors: [event.pubkey], limit: queryLimit() }], label: "author activity" },
+      mentions: { filters: [{ "#p": [event.pubkey], limit: queryLimit() }], label: "author mentions" },
+      topics: { filters: tags(event, "t").slice(0, 4).map((topic) => ({ "#t": [topic], limit: queryLimit() })), label: "shared topics" },
+      references: { filters: [...tags(event, "e"), ...tags(event, "q")].slice(0, queryLimit()).length ? [{ ids: [...tags(event, "e"), ...tags(event, "q")].slice(0, queryLimit()) }] : [], label: "conversation ancestry / references" },
       network: { filters: [{ authors: [event.pubkey], kinds: [3], limit: 1 }], label: "author follow network" }
     };
     const definition = definitions[relation];
@@ -379,7 +380,7 @@ function App() {
       let incoming = rememberEvents(unique(batches.flat()));
       if (relation === "network" && incoming.length) {
         const followed = tags(incoming.sort((a, b) => b.created_at - a.created_at)[0], "p").slice(0, 80);
-        if (followed.length) incoming = rememberEvents(unique([...incoming, ...await readEvents({ authors: followed, kinds: [1, 20, 21, 22, 30023], limit: 100 }, "expand-network", READ_RELAYS)]));
+        if (followed.length) incoming = rememberEvents(unique([...incoming, ...await readEvents({ authors: followed, kinds: [1, 20, 21, 22, 30023], limit: queryLimit() }, "expand-network", READ_RELAYS)]));
       }
       const existingIds = new Set(base.map((item) => item.id));
       const added = incoming.filter((item) => !existingIds.has(item.id));
@@ -418,7 +419,7 @@ function App() {
         setRouteData({ event, replies: [] });
         setRouteLoading(false);
         hydrateProfiles([event], token);
-        const replies = await readEvents({ "#e": [event.id], kinds: [1, 1111], limit: 40 }, "event-context");
+        const replies = await readEvents({ "#e": [event.id], kinds: [1, 1111], limit: queryLimit() }, "event-context");
         if (token !== searchToken) return;
         rememberEvents(replies);
         setRouteData({ event, replies });
@@ -436,8 +437,8 @@ function App() {
         const [metadata, contacts, authored, mentions] = await Promise.all([
           readEvents({ authors: [pubkey], kinds: [0], limit: 1 }, "account-metadata"),
           readEvents({ authors: [pubkey], kinds: [3], limit: 1 }, "account-follows"),
-          followOnly ? [] : readEvents({ authors: [pubkey], limit: 100 }, "account-events"),
-          followOnly ? [] : readEvents({ "#p": [pubkey], limit: 30 }, "account-mentions")
+          followOnly ? [] : readEvents({ authors: [pubkey], limit: queryLimit() }, "account-events"),
+          followOnly ? [] : readEvents({ "#p": [pubkey], limit: queryLimit() }, "account-mentions")
         ]);
         if (token !== searchToken) return;
         rememberEvents([...metadata, ...contacts, ...authored, ...mentions]);
@@ -502,7 +503,7 @@ function App() {
       plan: lastQueryPlan(),
       operation: combineMode(),
       eventIds: results().map((event) => event.id),
-      settings: { view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), dedupeEnabled: dedupeEnabled() },
+      settings: { view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), dedupeEnabled: dedupeEnabled(), queryLimit: queryLimit() },
       pinned: [...pinned()],
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -523,7 +524,7 @@ function App() {
     setQuery(path.query ?? legacy?.query ?? ""); setResults(storedEvents); rememberEvents(storedEvents);
     setPinned(new Set(path.pinned ?? legacy?.pinned ?? [])); setView(path.settings?.view ?? legacy?.view ?? "list");
     setKindFilter(path.settings?.kindFilter ?? legacy?.kindFilter ?? "all"); setSinceDays(path.settings?.sinceDays ?? legacy?.sinceDays ?? 0);
-    setDedupeEnabled(path.settings?.dedupeEnabled ?? true); setLastQueryPlan(path.plan ?? null);
+    setDedupeEnabled(path.settings?.dedupeEnabled ?? true); setQueryLimit(path.settings?.queryLimit ?? queryLimit()); setLastQueryPlan(path.plan ?? null);
     history.replaceState(null, "", "#/search"); setRoute(parseRoute());
     logUsage("recipe_opened", { recipeId: path.id, cachedEvents: storedEvents.length });
   };
@@ -569,7 +570,7 @@ function App() {
   const toggleSet = (setter, id) => setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   createEffect(() => save(SESSION_KEY, {
-    query: query(), eventIds: results().map((event) => event.id).slice(0, 1000), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory()
+    query: query(), eventIds: results().map((event) => event.id).slice(0, 1000), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory(), queryLimit: queryLimit()
   }));
 
   onMount(async () => {
@@ -591,7 +592,7 @@ function App() {
         plan: null,
         operation: "replace",
         eventIds: corpus.map((event) => event.id),
-        settings: { view: legacy.snapshot?.view ?? "list", kindFilter: legacy.snapshot?.kindFilter ?? "all", sinceDays: legacy.snapshot?.sinceDays ?? 0, dedupeEnabled: true },
+        settings: { view: legacy.snapshot?.view ?? "list", kindFilter: legacy.snapshot?.kindFilter ?? "all", sinceDays: legacy.snapshot?.sinceDays ?? 0, dedupeEnabled: true, queryLimit: 100 },
         pinned: legacy.snapshot?.pinned ?? [],
         createdAt: legacy.savedAt ?? Date.now(),
         updatedAt: legacy.savedAt ?? Date.now(),
@@ -671,6 +672,7 @@ function App() {
             <select value={sinceDays()} onChange={(event) => setSinceDays(Number(event.currentTarget.value))} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="0">all time</option><option value="1">last day</option><option value="7">last 7 days</option><option value="30">last 30 days</option><option value="90">last 90 days</option><option value="365">last year</option></select>
             <button type="button" onClick={() => void savePath()} class="rounded border border-emerald-900 px-2 py-1.5 text-emerald-500 hover:text-emerald-200">{activeRecipeId() ? "update recipe" : "save as recipe"}</button>
             <Show when={activeRecipeId()}><button type="button" disabled={loading()} onClick={rerunRecipe} class="rounded border border-lime-800 px-2 py-1.5 text-lime-300 disabled:opacity-40">rerun + compare</button></Show>
+            <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">depth · {queryLimit()}/relay</summary><div class="absolute right-0 top-9 z-40 w-72 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="text-[10px] tracking-wider text-lime-300">RESEARCH DEPTH · PER RELAY</div><div class="mt-3 grid grid-cols-2 gap-1"><For each={[[50,"quick"],[100,"standard"],[250,"deep"],[500,"exhaustive"]]}>{([limit,label]) => <button type="button" onClick={() => setQueryLimit(limit)} class={`rounded border px-2 py-2 text-left ${queryLimit() === limit ? "border-lime-500 bg-lime-950/40 text-lime-300" : "border-emerald-900 text-emerald-600"}`}><span class="block">{label}</span><span class="font-mono text-[9px] text-emerald-800">{limit} events</span></button>}</For></div><label class="mt-3 block text-[10px] text-emerald-700">CUSTOM · 10–1000<input aria-label="Custom events per relay" type="number" min="10" max="1000" value={queryLimit()} onChange={(event) => setQueryLimit(Math.min(1000, Math.max(10, Number(event.currentTarget.value) || 100)))} class="mt-1 w-full rounded border border-emerald-900 bg-black/30 px-2 py-2 font-mono text-emerald-300 outline-none"/></label><p class="mt-2 text-[9px] leading-4 text-emerald-800">This is a requested maximum. Relays may return fewer. Exact note and profile lookups ignore this setting.</p></div></details>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">relays · {READ_RELAYS.length + searchRelays().length}</summary><div class="absolute right-0 top-9 z-40 w-80 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="mb-3 text-[10px] tracking-wider text-lime-300">DEFAULT READ RELAYS</div><For each={READ_RELAYS}>{(relay) => <div class="mb-1 flex items-center gap-2 text-emerald-500"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"/>{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">KEYWORD SEARCH RELAYS</div><textarea aria-label="Keyword search relays" value={relayDraft()} onInput={(event) => setRelayDraft(event.currentTarget.value)} class="h-24 w-full resize-none bg-black/30 p-2 font-mono text-xs outline-none"/><button type="button" onClick={applyRelays} class="mt-2 border border-lime-700 px-3 py-1 text-lime-300">apply search relays</button><p class="mt-2 text-[10px] text-emerald-800">Topic, account, note, and relationship queries use the default read relays. Keyword searches use the editable NIP-50 list.</p></div></details>
           </div>
           <div class="mt-3 border-t border-emerald-900/70 pt-3 font-mono text-xs">
@@ -704,7 +706,7 @@ function App() {
         <Panel title="RELAY PULSE · 24H"><Show when={pulseTopics().length} fallback={<p class="text-emerald-900">{pulseLoading() ? "sampling recent notes…" : "no tagged notes returned"}</p>}><div class="flex flex-wrap gap-1.5"><For each={pulseTopics().slice(0, 10)}>{([topic, count]) => <button onClick={() => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} class="rounded border border-emerald-900 px-2 py-1 text-emerald-500 hover:border-lime-700 hover:text-lime-300">#{topic} <span class="text-emerald-800">{count}</span></button>}</For></div></Show></Panel>
         <Panel title="EVIDENCE"><Show when={pinned().size} fallback={<p class="text-emerald-900">Pin nodes to build a lightweight evidence collection.</p>}><For each={[...pinned()].map((id) => knownEvents.get(id)).filter(Boolean)}>{(event) => <button onClick={() => setSelectedId(event.id)} class="block w-full border-b border-emerald-950 py-2 text-left"><span class="text-lime-500">{kindName(event.kind)}</span><span class="mt-1 block truncate text-emerald-600">{compact(event.content, 60)}</span></button>}</For><div class="flex gap-1 pt-2"><input aria-label="Collection name" value={collectionDraft()} onInput={(event) => setCollectionDraft(event.currentTarget.value)} placeholder="collection name" class="min-w-0 flex-1 rounded border border-emerald-900 bg-black/20 px-2 py-1 text-emerald-300 outline-none"/><button onClick={() => void savePinnedAsCollection()} class="rounded border border-lime-800 px-2 text-lime-300">save</button></div></Show></Panel>
         <Show when={lastRunDelta()}>{(delta) => <Panel title="RUN COMPARISON"><Show when={delta().previous} fallback={<p class="text-emerald-700">Baseline saved. Rerun this recipe later to measure change.</p>}><Stat label="new" value={`+${delta().added}`}/><Stat label="not returned" value={`−${delta().missing}`}/><Stat label="set overlap" value={`${Math.round((delta().overlap ?? 0) * 100)}%`}/></Show></Panel>}</Show>
-        <CoveragePanel states={relayStates()} information={relayInformation()} />
+        <CoveragePanel states={relayStates()} information={relayInformation()} requestedLimit={queryLimit()} uniqueCount={results().length} visibleCount={filteredResults().length}/>
       </aside></Show>
     </div>
   </div>;
@@ -726,7 +728,7 @@ function HelpPage(props) {
 
     <section class="border-b border-emerald-900 p-6 sm:p-9"><HelpTitle index="01" title="The basic workflow"/><div class="mt-5 grid gap-3"><For each={workflow}>{([number, title, detail]) => <div class="grid gap-3 rounded border border-emerald-950 bg-black/10 p-4 sm:grid-cols-[36px_150px_1fr]"><span class="font-mono text-lime-400">{number}</span><strong class="font-normal text-emerald-200">{title}</strong><p class="text-sm leading-6 text-emerald-600">{detail}</p></div>}</For></div></section>
 
-    <section class="border-b border-emerald-900 p-6 sm:p-9"><HelpTitle index="02" title="Relay search and local search"/><div class="mt-5 grid gap-4 md:grid-cols-2"><HelpCard title="SEARCH RELAYS" accent="live network"><p>Asks connected Nostr relays for matching events. Use it to discover material the app has never seen.</p><ul><li>Finds new events</li><li>Depends on relay coverage and availability</li><li>Automatically grows your local archive</li></ul></HelpCard><HelpCard title="SEARCH LOCAL" accent="your archive"><p>Searches events already cached by this browser. Use it to revisit and cross-search previously gathered material.</p><ul><li>Fast and repeatable</li><li>Searches content, tags, domains, and accounts</li><li>Cannot find events that were never retrieved</li></ul></HelpCard></div><p class="mt-4 rounded border border-amber-900/40 bg-amber-950/10 p-3 text-sm text-amber-500">A relay returning nothing does not prove that no matching Nostr event exists. It only describes what the queried relays returned.</p></section>
+    <section class="border-b border-emerald-900 p-6 sm:p-9"><HelpTitle index="02" title="Relay search and local search"/><div class="mt-5 grid gap-4 md:grid-cols-2"><HelpCard title="SEARCH RELAYS" accent="live network"><p>Asks connected Nostr relays for matching events. Use it to discover material the app has never seen.</p><ul><li>Finds new events</li><li>Depends on relay coverage and availability</li><li>Automatically grows your local archive</li></ul></HelpCard><HelpCard title="SEARCH LOCAL" accent="your archive"><p>Searches events already cached by this browser. Use it to revisit and cross-search previously gathered material.</p><ul><li>Fast and repeatable</li><li>Searches content, tags, domains, and accounts</li><li>Cannot find events that were never retrieved</li></ul></HelpCard></div><p class="mt-4 text-sm leading-6 text-emerald-600">The depth control sets the requested batch per relay: Quick 50, Standard 100, Deep 250, Exhaustive 500, or a custom 10–1000. Relays may enforce a smaller maximum. Use “Load older results” to continue from the oldest event returned.</p><p class="mt-4 rounded border border-amber-900/40 bg-amber-950/10 p-3 text-sm text-amber-500">A relay returning nothing does not prove that no matching Nostr event exists. It only describes what the queried relays returned.</p></section>
 
     <section class="border-b border-emerald-900 p-6 sm:p-9"><HelpTitle index="03" title="The three workspaces"/><div class="mt-5 grid gap-4 lg:grid-cols-3"><HelpCard title="EXPLORE" accent="read"><p>Read rendered notes and media, inspect thread structure, or see activity over time. Select any note to open research directions in the right panel.</p></HelpCard><HelpCard title="ANALYZE" accent="compare"><p>Use the sortable evidence table, account-by-type matrix, and comparisons between accounts, topics, or relays.</p></HelpCard><HelpCard title="MAP" accent="structure"><p>See aggregated facets or a relationship graph connecting accounts, events, topics, domains, and event references.</p></HelpCard></div></section>
 
@@ -751,8 +753,9 @@ function CoveragePanel(props) {
     return { relay, state, exclusive, information: props.information.get(relay) };
   });
   const responding = () => rows().filter((row) => row.state.state === "ok").length;
+  const returned = () => rows().reduce((total, row) => total + (row.state.count ?? 0), 0);
   return <Panel title="SEARCH COVERAGE"><Show when={rows().length} fallback={<p class="text-emerald-900">Run a search to see which relays contributed and what they support.</p>}>
-    <div class="mb-2 flex justify-between text-emerald-700"><span>responded</span><span class="text-emerald-300">{responding()}/{rows().length}</span></div>
+    <div class="mb-3 grid grid-cols-2 gap-x-4 gap-y-1 border-b border-emerald-950 pb-3"><Stat label="requested" value={`${props.requestedLimit} × ${rows().length}`}/><Stat label="responses" value={returned()}/><Stat label="unique corpus" value={props.uniqueCount}/><Stat label="visible" value={props.visibleCount}/><Stat label="responded" value={`${responding()}/${rows().length}`}/></div>
     <For each={rows()}>{(row) => <details class="border-b border-emerald-950 py-2">
       <summary class="flex items-center gap-2"><span class={`h-1.5 w-1.5 rounded-full ${row.state.state === "ok" ? "bg-emerald-400" : row.state.state === "searching" ? "animate-pulse bg-lime-300" : "bg-red-500"}`}/><span class="min-w-0 flex-1 truncate text-emerald-400">{new URL(row.relay).hostname}</span><span class="text-emerald-800">{row.state.state === "searching" ? "…" : row.state.count}</span></summary>
       <div class="mt-2 space-y-1 pl-3 text-[10px] text-emerald-800">
