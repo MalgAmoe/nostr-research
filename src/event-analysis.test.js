@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dedupeForDisplay, eventDomains, kindName, ranked, tags } from "./event-analysis.js";
+import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, ranked, tags } from "./event-analysis.js";
 import { indexTerms } from "./research-store.js";
 
 const event = (overrides = {}) => ({ id: "a", pubkey: "p1", kind: 1, content: "A sufficiently long repeated piece of content", tags: [], created_at: 1, ...overrides });
@@ -38,4 +38,13 @@ test("builds searchable terms from content, tags, and domains", () => {
   assert.ok(terms.includes("nostr"));
   assert.ok(terms.includes("discovery"));
   assert.ok(terms.includes("example.com"));
+});
+
+test("builds a bounded multi-entity graph and keeps in-corpus references", () => {
+  const root = event({ id: "root", pubkey: "alice", content: "See https://example.com/root", tags: [["t", "Nostr"]], created_at: 2 });
+  const reply = event({ id: "reply", pubkey: "bob", content: "Reply via https://example.com/reply", tags: [["e", "root", "", "reply"], ["t", "Research"]], created_at: 3 });
+  const model = buildGraphModel([root, reply], { selectedId: "reply" });
+  assert.deepEqual(model.events.map((item) => item.id), ["reply", "root"]);
+  assert.ok(model.edges.some((edge) => edge.type === "reference" && edge.from === "reply" && edge.to === "root"));
+  assert.deepEqual(model.domains, [{ value: "example.com", count: 2 }]);
 });

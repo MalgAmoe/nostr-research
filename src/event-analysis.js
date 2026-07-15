@@ -28,3 +28,22 @@ export function dedupeForDisplay(events) {
   }
   return output;
 }
+
+export function buildGraphModel(events, { selectedId = "", eventLimit = 30, entityLimit = 10 } = {}) {
+  const corpusIds = new Set(events.map((event) => event.id));
+  const referenceIds = (event) => [...new Set(["e", "E", "q"].flatMap((type) => tags(event, type)).filter((id) => corpusIds.has(id)))];
+  const score = (event) => (event.id === selectedId ? 1_000_000 : 0) + referenceIds(event).length * 10_000 + tags(event, "t").length * 100 + event.created_at;
+  const chosen = [...events].sort((left, right) => score(right) - score(left)).slice(0, eventLimit);
+  const chosenIds = new Set(chosen.map((event) => event.id));
+  const authors = ranked(chosen.map((event) => event.pubkey), entityLimit).map(([value, count]) => ({ value, count }));
+  const topics = ranked(chosen.flatMap((event) => tags(event, "t").map((value) => value.toLowerCase())), entityLimit).map(([value, count]) => ({ value, count }));
+  const domains = ranked(chosen.flatMap(eventDomains), entityLimit).map(([value, count]) => ({ value, count }));
+  const edges = [];
+  for (const event of chosen) {
+    edges.push({ type: "authored", from: event.pubkey, to: event.id });
+    for (const topic of [...new Set(tags(event, "t").map((value) => value.toLowerCase()))]) if (topics.some((item) => item.value === topic)) edges.push({ type: "topic", from: event.id, to: topic });
+    for (const domain of eventDomains(event)) if (domains.some((item) => item.value === domain)) edges.push({ type: "domain", from: event.id, to: domain });
+    for (const id of referenceIds(event)) if (chosenIds.has(id)) edges.push({ type: "reference", from: event.id, to: id });
+  }
+  return { events: chosen, authors, topics, domains, edges, omitted: Math.max(0, events.length - chosen.length) };
+}

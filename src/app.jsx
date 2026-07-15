@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import { SimplePool, nip19 } from "nostr-tools";
-import { dedupeForDisplay, eventDomains, kindName, ranked, tags } from "./event-analysis.js";
+import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, ranked, tags } from "./event-analysis.js";
 import { latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, searchStoredEvents, storeEvents } from "./research-store.js";
 import { loadRelayInformationSet } from "./relay-info.js";
 import "./styles.css";
@@ -920,23 +920,27 @@ function TimelineLens(props) {
 }
 
 function GraphLens(props) {
-  const graph = createMemo(() => {
-    const events = props.events.slice(0, 18);
-    const authors = [...new Set(events.map((event) => event.pubkey))].slice(0, 10);
-    const topics = [...new Set(events.flatMap((event) => tags(event, "t")))].slice(0, 8);
-    return { events, authors, topics };
-  });
-  const height = createMemo(() => Math.max(420, graph().events.length * 34 + 50));
-  const authorY = (pubkey) => 38 + graph().authors.indexOf(pubkey) * 52;
-  const eventY = (id) => 35 + graph().events.findIndex((event) => event.id === id) * 34;
-  const topicY = (topic) => 45 + graph().topics.indexOf(topic) * 58;
-  return <div><LensHeader title="RELATION MAP" detail={`${graph().authors.length} accounts · ${graph().events.length} events · ${graph().topics.length} topics`}/><Show when={graph().events.length} fallback={<EmptyLens text="Add nodes to the corpus before opening the graph."/>}><div class="overflow-auto bg-[radial-gradient(circle_at_center,rgba(16,185,129,.05),transparent_65%)]"><svg viewBox={`0 0 900 ${height()}`} class="min-w-[760px]" style={{ height: `${height()}px` }}>
-    <For each={graph().events}>{(event) => <line x1="155" y1={authorY(event.pubkey)} x2="410" y2={eventY(event.id)} stroke="#123c29" stroke-width="1"/>}</For>
-    <For each={graph().events}>{(event) => <For each={tags(event, "t").filter((topic) => graph().topics.includes(topic))}>{(topic) => <line x1="510" y1={eventY(event.id)} x2="740" y2={topicY(topic)} stroke="#183c25" stroke-width="1"/>}</For>}</For>
-    <For each={graph().authors}>{(pubkey) => <g onClick={() => props.openRoute(`#/account/${pubkey}`)} class="cursor-pointer"><rect x="20" y={authorY(pubkey) - 15} width="135" height="30" rx="4" fill="#07170e" stroke="#1c5433"/><text x="30" y={authorY(pubkey) + 4} fill="#74a77e" font-size="11">{compact(props.profileFor(pubkey).name, 18)}</text></g>}</For>
-    <For each={graph().events}>{(event) => <g onClick={() => props.onSelect(event.id)} class="cursor-pointer"><circle cx="460" cy={eventY(event.id)} r={props.selectedId === event.id ? 9 : 6} fill={props.selectedId === event.id ? "#bef264" : "#34d399"}/><text x="476" y={eventY(event.id) + 4} fill="#9bc5a3" font-size="10">{kindName(event.kind)} · {short(event.id)}</text></g>}</For>
-    <For each={graph().topics}>{(topic) => <g><rect x="740" y={topicY(topic) - 14} width="135" height="28" rx="14" fill="#101b0a" stroke="#52791d"/><text x="754" y={topicY(topic) + 4} fill="#bef264" font-size="11">#{compact(topic, 16)}</text></g>}</For>
-  </svg></div><p class="border-t border-emerald-950 px-4 py-2 font-mono text-[9px] text-emerald-900">bounded to the first 18 visible events · click a node to research from it</p></Show></div>;
+  const graph = createMemo(() => buildGraphModel(props.events, { selectedId: props.selectedId }));
+  const height = createMemo(() => Math.max(500, graph().events.length * 32 + 70));
+  const spacedY = (items, value, available = height() - 80) => 55 + Math.max(0, items.findIndex((item) => (item.value ?? item.id) === value)) * (available / Math.max(1, items.length - 1));
+  const authorY = (value) => spacedY(graph().authors, value);
+  const eventY = (value) => spacedY(graph().events, value);
+  const topicY = (value) => spacedY(graph().topics, value);
+  const domainY = (value) => spacedY(graph().domains, value);
+  return <div><LensHeader title="RELATION MAP" detail={`${graph().authors.length} accounts · ${graph().events.length} representative events · ${graph().topics.length} topics · ${graph().domains.length} domains`}/><Show when={graph().events.length} fallback={<EmptyLens text="Add nodes to the corpus before opening the graph."/>}>
+    <div class="flex flex-wrap gap-4 border-b border-emerald-950 px-4 py-2 font-mono text-[9px] text-emerald-700"><span><b class="text-emerald-400">—</b> authored</span><span><b class="text-lime-500">—</b> tagged</span><span><b class="text-cyan-600">—</b> links</span><span><b class="text-amber-500">↝</b> event reference</span><Show when={graph().omitted}><span class="ml-auto text-emerald-800">{graph().omitted} lower-signal events omitted for readability</span></Show></div>
+    <div class="overflow-auto bg-[radial-gradient(circle_at_center,rgba(16,185,129,.05),transparent_65%)]"><svg viewBox={`0 0 1160 ${height()}`} class="min-w-[980px]" style={{ height: `${height()}px` }}>
+      <text x="20" y="22" fill="#31644a" font-size="10">ACCOUNTS</text><text x="285" y="22" fill="#31644a" font-size="10">EVENTS</text><text x="755" y="22" fill="#52791d" font-size="10">TOPICS</text><text x="980" y="22" fill="#166978" font-size="10">DOMAINS</text>
+      <For each={graph().edges.filter((edge) => edge.type === "authored")}>{(edge) => <line x1="175" y1={authorY(edge.from)} x2="285" y2={eventY(edge.to)} stroke="#123c29"/>}</For>
+      <For each={graph().edges.filter((edge) => edge.type === "topic")}>{(edge) => <line x1="630" y1={eventY(edge.from)} x2="755" y2={topicY(edge.to)} stroke="#365314"/>}</For>
+      <For each={graph().edges.filter((edge) => edge.type === "domain")}>{(edge) => <line x1="630" y1={eventY(edge.from)} x2="980" y2={domainY(edge.to)} stroke="#155e75" stroke-opacity=".45"/>}</For>
+      <For each={graph().edges.filter((edge) => edge.type === "reference")}>{(edge) => <path d={`M 303 ${eventY(edge.from)} C 245 ${eventY(edge.from)}, 245 ${eventY(edge.to)}, 303 ${eventY(edge.to)}`} fill="none" stroke="#b45309" stroke-width="1.5" stroke-dasharray="3 3"/>}</For>
+      <For each={graph().authors}>{(item) => <g onClick={() => props.openRoute(`#/account/${item.value}`)} class="cursor-pointer"><rect x="20" y={authorY(item.value) - 14} width="155" height="28" rx="4" fill="#07170e" stroke="#1c5433"/><text x="29" y={authorY(item.value) + 4} fill="#74a77e" font-size="10">{compact(props.profileFor(item.value).name, 18)} · {item.count}</text></g>}</For>
+      <For each={graph().events}>{(event) => <g onClick={() => props.onSelect(event.id)} class="cursor-pointer"><rect x="285" y={eventY(event.id) - 12} width="345" height="24" rx="4" fill={props.selectedId === event.id ? "#20370f" : "#07170e"} stroke={props.selectedId === event.id ? "#bef264" : "#166534"}/><text x="296" y={eventY(event.id) + 4} fill={props.selectedId === event.id ? "#d9f99d" : "#9bc5a3"} font-size="10">{kindName(event.kind)} · {compact(event.content, 38)}</text></g>}</For>
+      <For each={graph().topics}>{(item) => <g onClick={() => props.onFacet("topic", item.value)} class="cursor-pointer"><rect x="755" y={topicY(item.value) - 13} width="170" height="26" rx="13" fill="#101b0a" stroke="#52791d"/><text x="768" y={topicY(item.value) + 4} fill="#bef264" font-size="10">#{compact(item.value, 18)} · {item.count}</text></g>}</For>
+      <For each={graph().domains}>{(item) => <g onClick={() => props.onFacet("domain", item.value)} class="cursor-pointer"><rect x="980" y={domainY(item.value) - 13} width="165" height="26" rx="4" fill="#07151a" stroke="#155e75"/><text x="991" y={domainY(item.value) + 4} fill="#67e8f9" font-size="10">{compact(item.value, 19)} · {item.count}</text></g>}</For>
+    </svg></div><p class="border-t border-emerald-950 px-4 py-2 font-mono text-[9px] text-emerald-900">representative nodes are ranked by selection, in-corpus references, tags, and recency · click any entity to navigate or filter</p>
+  </Show></div>;
 }
 
 function MatrixLens(props) {
