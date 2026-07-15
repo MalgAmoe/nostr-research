@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import { SimplePool, nip19 } from "nostr-tools";
+import { dedupeForDisplay, eventDomains, kindName, ranked, tags } from "./event-analysis.js";
 import { latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, storeEvents } from "./research-store.js";
 import { loadRelayInformationSet } from "./relay-info.js";
 import "./styles.css";
@@ -31,36 +32,11 @@ const save = (key, value) => {
 };
 const unique = (events) => [...new Map(events.filter((event) => event?.id).map((event) => [event.id, event])).values()];
 const short = (value = "") => value.length > 18 ? `${value.slice(0, 9)}…${value.slice(-7)}` : value;
-const tags = (event, type) => event?.tags?.filter((tag) => tag[0] === type).map((tag) => tag[1]).filter(Boolean) ?? [];
 const compact = (value = "", length = 150) => {
   const text = value.replace(/\s+/g, " ").trim();
   return text.length > length ? `${text.slice(0, length - 1)}…` : text || "Untitled event";
 };
-const kindName = (kind) => ({ 0: "profile metadata", 1: "short note", 3: "follow list", 4: "legacy direct message", 5: "deletion request", 6: "repost", 7: "reaction", 13: "seal", 14: "direct message", 16: "generic repost", 20: "picture", 21: "video", 22: "short video", 40: "channel creation", 41: "channel metadata", 42: "channel message", 1059: "gift wrap", 30023: "long-form article", 30078: "app data" }[kind] ?? "event");
-const ranked = (values, limit = 10) => [...values.reduce((map, value) => value !== undefined && value !== null && value !== "" ? map.set(value, (map.get(value) ?? 0) + 1) : map, new Map()).entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
 const emptyFacets = () => ({ topic: "", author: "", kind: null, day: "", domain: "", relay: "", media: "" });
-const eventDomains = (event) => [...new Set((event?.content?.match(/https?:\/\/[^\s<>]+/gi) ?? []).flatMap((value) => { try { return [new URL(value.replace(/[),.;!?]+$/, "")).hostname.replace(/^www\./, "")]; } catch { return []; } }))];
-const NOTE_LIKE_KINDS = new Set([1, 20, 21, 22, 30023]);
-const contentFingerprint = (event) => NOTE_LIKE_KINDS.has(event.kind) ? (event.content ?? "").normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim() : "";
-const dedupeForDisplay = (events) => {
-  const groups = new Map();
-  const output = [];
-  for (const event of events) {
-    const fingerprint = contentFingerprint(event);
-    if (fingerprint.length < 24) { output.push(event); continue; }
-    const key = `${event.kind}:${fingerprint}`;
-    const group = groups.get(key);
-    if (!group) {
-      const representative = { ...event, duplicateCount: 1, duplicateAuthors: [event.pubkey], duplicateIds: [event.id] };
-      groups.set(key, representative); output.push(representative);
-    } else {
-      group.duplicateCount += 1;
-      if (!group.duplicateAuthors.includes(event.pubkey)) group.duplicateAuthors.push(event.pubkey);
-      group.duplicateIds.push(event.id);
-    }
-  }
-  return output;
-};
 
 function logUsage(type, detail = {}) {
   fetch("/api/log", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type, ...detail }) }).catch(() => {});
