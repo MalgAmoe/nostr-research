@@ -159,7 +159,6 @@ function App() {
   const [lastRunDelta, setLastRunDelta] = createSignal(null);
   const [relayInformation, setRelayInformation] = createSignal(new Map());
   const [activeFacets, setActiveFacets] = createSignal(emptyFacets());
-  const [comparisonBaseline, setComparisonBaseline] = createSignal([]);
   let searchToken = 0;
   const knownEvents = new Map();
   const rememberEvents = (events) => { for (const event of events) knownEvents.set(event.id, event); return events; };
@@ -483,11 +482,6 @@ function App() {
   });
   const toggleFacet = (type, value) => setActiveFacets((current) => ({ ...current, [type]: current[type] === value ? (type === "kind" ? null : "") : value }));
   const activeFacetCount = createMemo(() => Object.values(activeFacets()).filter((value) => value !== "" && value !== null).length);
-  const comparison = createMemo(() => {
-    const baseline = new Set(comparisonBaseline());
-    const current = new Set(filteredResults().map((event) => event.id));
-    return { baseline: baseline.size, current: current.size, shared: [...current].filter((id) => baseline.has(id)).length, removed: [...baseline].filter((id) => !current.has(id)).length, added: [...current].filter((id) => !baseline.has(id)).length };
-  });
   const pulseTopics = createMemo(() => ranked(pulseEvents().flatMap((event) => tags(event, "t").map((topic) => topic.toLowerCase())), 18));
   async function loadRelayPulse() {
     setPulseLoading(true);
@@ -546,7 +540,7 @@ function App() {
     knownEvents.clear();
     setQuery(""); setResults([]); setProfiles(new Map()); setSteps([]); setSelectedId(""); setPinned(new Set());
     setEntryReasons({}); setExpansionStatus(null); setKindFilter("all"); setSinceDays(0); setCombineMode("replace"); setView("list");
-    setRelayStates(new Map()); setError(""); setRouteData(null); setLastQueryPlan(null); setHasMore(true); setPageMessage(""); setActiveRecipeId(""); setLastRunDelta(null); setActiveFacets(emptyFacets()); setComparisonBaseline([]);
+    setRelayStates(new Map()); setError(""); setRouteData(null); setLastQueryPlan(null); setHasMore(true); setPageMessage(""); setActiveRecipeId(""); setLastRunDelta(null); setActiveFacets(emptyFacets());
     history.replaceState(null, "", "#/search"); setRoute(parseRoute());
     logUsage("exploration_reset", { preservedSavedInvestigations: paths().length });
   };
@@ -609,7 +603,10 @@ function App() {
   };
   const selectEvent = (id) => {
     setSelectedId(id); setExpansionStatus(null);
-    requestAnimationFrame(() => document.getElementById("selected-note-navigation")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const navigateFromEvent = (id, relation) => {
+    setSelectedId(id); setExpansionStatus(null);
+    void expandSelection(relation);
   };
 
   return <div class="min-h-screen bg-[#050b08] text-emerald-100 selection:bg-lime-300 selection:text-black">
@@ -664,17 +661,16 @@ function App() {
           <Show when={!error()} fallback={<ErrorPanel message={error()}/>}>
             <Show keyed when={route()}>{(currentRoute) => <Show when={currentRoute.kind === "search"} fallback={<RouteView route={currentRoute} data={routeData()} profileFor={profileFor} openRoute={openRoute}/> }>
                 <Show when={!results().length && !query()}><HomeDiscovery topics={pulseTopics()} events={pulseEvents()} loading={pulseLoading()} profileFor={profileFor} onTopic={(topic) => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onRefresh={loadRelayPulse}/></Show>
-                <Show when={selectedEvent()}>{(event) => <ExploreFromNode event={event()} profile={profileFor(event().pubkey)} onExpand={expandSelection} openRoute={openRoute} loading={loading()} status={expansionStatus()} reason={entryReasons()[event().id]}/>}</Show>
-                <ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0} facets={corpusFacets()} activeFacets={activeFacets()} onFacet={toggleFacet} entryReasons={entryReasons()}/>
+                <ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onNavigate={navigateFromEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0} facets={corpusFacets()} activeFacets={activeFacets()} onFacet={toggleFacet} entryReasons={entryReasons()}/>
               </Show>}</Show>
           </Show>
         </Show>
       </main>
 
       <Show when={results().length}><aside class="space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pl-1">
+        <Show when={selectedEvent()}>{(event) => <ExploreFromNode compact event={event()} corpus={results()} profile={profileFor(event().pubkey)} onExpand={expandSelection} openRoute={openRoute} loading={loading()} status={expansionStatus()} reason={entryReasons()[event().id]}/>}</Show>
         <Panel title="RELAY PULSE · 24H"><Show when={pulseTopics().length} fallback={<p class="text-emerald-900">{pulseLoading() ? "sampling recent notes…" : "no tagged notes returned"}</p>}><div class="flex flex-wrap gap-1.5"><For each={pulseTopics().slice(0, 10)}>{([topic, count]) => <button onClick={() => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} class="rounded border border-emerald-900 px-2 py-1 text-emerald-500 hover:border-lime-700 hover:text-lime-300">#{topic} <span class="text-emerald-800">{count}</span></button>}</For></div></Show></Panel>
         <Panel title="EVIDENCE"><Show when={pinned().size} fallback={<p class="text-emerald-900">Pin nodes to build an evidence set.</p>}><For each={[...pinned()].map((id) => knownEvents.get(id)).filter(Boolean)}>{(event) => <button onClick={() => setSelectedId(event.id)} class="block w-full border-b border-emerald-950 py-2 text-left"><span class="text-lime-500">{kindName(event.kind)}</span><span class="mt-1 block truncate text-emerald-600">{compact(event.content, 60)}</span></button>}</For></Show></Panel>
-        <Panel title="COMPARE CORPUS"><Show when={comparisonBaseline().length} fallback={<><p class="text-emerald-800">Capture the visible corpus, then apply facets to measure what they remove or reveal.</p><button onClick={() => setComparisonBaseline(filteredResults().map((event) => event.id))} class="w-full rounded border border-emerald-800 px-2 py-1.5 text-emerald-400 hover:text-lime-300">capture current as baseline</button></>}><Stat label="baseline" value={comparison().baseline}/><Stat label="current" value={comparison().current}/><Stat label="shared" value={comparison().shared}/><Stat label="current only" value={`+${comparison().added}`}/><Stat label="filtered out" value={`−${comparison().removed}`}/><div class="flex gap-2 pt-1"><button onClick={() => setComparisonBaseline(filteredResults().map((event) => event.id))} class="text-emerald-500 hover:text-lime-300">replace baseline</button><button onClick={() => setComparisonBaseline([])} class="ml-auto text-emerald-700 hover:text-red-300">clear</button></div></Show></Panel>
         <Show when={lastRunDelta()}>{(delta) => <Panel title="RUN COMPARISON"><Show when={delta().previous} fallback={<p class="text-emerald-700">Baseline saved. Rerun this recipe later to measure change.</p>}><Stat label="new" value={`+${delta().added}`}/><Stat label="not returned" value={`−${delta().missing}`}/><Stat label="set overlap" value={`${Math.round((delta().overlap ?? 0) * 100)}%`}/></Show></Panel>}</Show>
         <CoveragePanel states={relayStates()} information={relayInformation()} />
       </aside></Show>
@@ -732,16 +728,25 @@ function HomeDiscovery(props) {
 }
 
 function ExploreFromNode(props) {
-  return <section id="selected-note-navigation" class="mb-4 scroll-mt-20 rounded border border-lime-800/70 bg-lime-950/10 p-4">
+  const localCounts = createMemo(() => ({
+    replies: props.corpus?.filter((event) => tags(event, "e").includes(props.event.id) && [1, 1111].includes(event.kind)).length ?? 0,
+    quotes: props.corpus?.filter((event) => tags(event, "q").includes(props.event.id)).length ?? 0,
+    responses: props.corpus?.filter((event) => tags(event, "e").includes(props.event.id) && [6, 7, 16, 9735].includes(event.kind)).length ?? 0,
+    author: props.corpus?.filter((event) => event.pubkey === props.event.pubkey).length ?? 0,
+    references: [...tags(props.event, "e"), ...tags(props.event, "q")].length,
+    topics: tags(props.event, "t").length
+  }));
+  const known = (count) => count ? `${count} already in this corpus` : "query connected relays";
+  return <section id="selected-note-navigation" class={`${props.compact ? "" : "mb-4 scroll-mt-20"} rounded border border-lime-800/70 bg-lime-950/10 p-4`}>
     <div class="flex flex-wrap items-start gap-3"><div class="min-w-0 flex-1"><div class="font-mono text-[10px] tracking-[.14em] text-lime-300">RESEARCH FROM THIS NOTE</div><div class="mt-1 text-xs text-emerald-600">by {props.profile.name}<Show when={props.reason}> · found via {props.reason}</Show></div><div class="mt-1 font-mono text-[9px] text-emerald-800">seen on {(sourceIndex.get(props.event.id) ?? []).map((relay) => new URL(relay).hostname).join(", ") || "restored cache"}</div><p class="mt-2 text-sm text-emerald-100">{compact(props.event.content, 220)}</p></div><div class="flex gap-2"><Action onClick={() => props.openRoute(`#/event/${props.event.id}`)}>read note</Action><Action onClick={() => props.openRoute(`#/raw/${props.event.id}`)}>raw event</Action></div></div>
-    <div class="mt-4 border-t border-emerald-900 pt-3"><div class="mb-2 font-mono text-[11px] text-emerald-500">Where do you want to go from here?</div><div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-      <Direction title="Conversation" detail="Replies to this note" loading={props.loading} onClick={() => props.onExpand("replies")}/>
-      <Direction title="People discussing it" detail="Quotes and reactions" loading={props.loading} onClick={() => props.onExpand("quotes")}/>
-      <Direction title="What it points to" detail="Referenced notes" loading={props.loading} onClick={() => props.onExpand("references")}/>
-      <Direction title="More from this person" detail="Author's recent activity" loading={props.loading} onClick={() => props.onExpand("author")}/>
+    <div class="mt-4 border-t border-emerald-900 pt-3"><div class="mb-2 font-mono text-[11px] text-emerald-500">Where do you want to go from here?</div><div class={`grid gap-2 ${props.compact ? "" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
+      <Direction title="Conversation" detail={known(localCounts().replies)} loading={props.loading} onClick={() => props.onExpand("replies")}/>
+      <Direction title="People discussing it" detail={known(localCounts().quotes)} loading={props.loading} onClick={() => props.onExpand("quotes")}/>
+      <Direction title="What it points to" detail={localCounts().references ? `${localCounts().references} references in this event` : "no declared references"} loading={props.loading} onClick={() => props.onExpand("references")}/>
+      <Direction title="More from this person" detail={known(localCounts().author)} loading={props.loading} onClick={() => props.onExpand("author")}/>
       <Direction title="Who mentions this person" detail="Inbound account mentions" loading={props.loading} onClick={() => props.onExpand("mentions")}/>
-      <Direction title="Related topics" detail="Notes sharing its topics" loading={props.loading} onClick={() => props.onExpand("topics")}/>
-      <Direction title="Reactions and reposts" detail="Responses attached to this note" loading={props.loading} onClick={() => props.onExpand("responses")}/>
+      <Direction title="Related topics" detail={localCounts().topics ? `${localCounts().topics} topic tags to follow` : "no topic tags"} loading={props.loading} onClick={() => props.onExpand("topics")}/>
+      <Direction title="Reactions and reposts" detail={known(localCounts().responses)} loading={props.loading} onClick={() => props.onExpand("responses")}/>
       <Direction title="Author's network" detail="Follow list and recent notes from followed accounts" loading={props.loading} onClick={() => props.onExpand("network")}/>
     </div><Show when={props.status}><div class={`mt-3 rounded border p-3 font-mono text-xs ${props.status.state === "added" ? "border-lime-700 bg-lime-950/30 text-lime-200" : props.status.state === "loading" ? "border-emerald-700 text-emerald-300" : props.status.state === "error" ? "border-red-900 text-red-300" : "border-amber-900/70 bg-amber-950/10 text-amber-300"}`}>{props.status.message}<Show when={props.status.state === "empty"}><span class="mt-1 block text-[10px] text-amber-700">Nothing was added and no investigation step was created. Try another direction or select another note.</span></Show></div></Show><p class="mt-2 font-mono text-[10px] text-emerald-800">Only directions that add new notes become investigation steps. Select any new note to continue.</p></div>
   </section>;
@@ -749,12 +754,20 @@ function ExploreFromNode(props) {
 
 function Direction(props) { return <button disabled={props.loading} onClick={props.onClick} class="rounded border border-emerald-900 bg-black/10 p-3 text-left hover:border-lime-700 hover:bg-emerald-950/50 disabled:cursor-wait disabled:opacity-40"><span class="block text-sm text-lime-200">{props.title} →</span><span class="mt-1 block text-[11px] text-emerald-700">{props.loading ? "Checking relays…" : props.detail}</span></button>; }
 
-const LENSES = ["list", "table", "map", "thread", "timeline", "graph", "matrix"];
-
 function ResearchWorkspace(props) {
+  const workspace = () => ["table", "matrix"].includes(props.view) ? "analyze" : ["map", "graph"].includes(props.view) ? "map" : "explore";
+  const modes = [
+    { id: "explore", label: "EXPLORE", detail: "read and follow evidence", defaultView: "list", views: ["list", "thread", "timeline"] },
+    { id: "analyze", label: "ANALYZE", detail: "sort and compare the corpus", defaultView: "table", views: ["table", "matrix"] },
+    { id: "map", label: "MAP", detail: "see relationships and structure", defaultView: "map", views: ["map", "graph"] }
+  ];
+  const activeMode = () => modes.find((mode) => mode.id === workspace());
   return <section class="overflow-hidden rounded border border-emerald-900 bg-emerald-950/10">
+    <div class="grid border-b border-emerald-900 bg-black/20 sm:grid-cols-3">
+      <For each={modes}>{(mode) => <button onClick={() => props.setView(mode.defaultView)} class={`border-b border-emerald-900 px-4 py-3 text-left sm:border-b-0 sm:border-r ${workspace() === mode.id ? "bg-lime-950/40" : "hover:bg-emerald-950/30"}`}><span class={`block font-mono text-xs tracking-[.14em] ${workspace() === mode.id ? "text-lime-300" : "text-emerald-600"}`}>{mode.label}</span><span class="mt-1 block text-[11px] text-emerald-800">{mode.detail}</span></button>}</For>
+    </div>
     <div class="flex flex-wrap items-center gap-1 border-b border-emerald-900 bg-black/10 px-3 py-2">
-      <For each={LENSES}>{(lens) => <button onClick={() => props.setView(lens)} class={`rounded px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider ${props.view === lens ? "bg-lime-300 text-black" : "text-emerald-700 hover:bg-emerald-950 hover:text-emerald-300"}`}>{lens}</button>}</For>
+      <For each={activeMode().views}>{(lens) => <button onClick={() => props.setView(lens)} class={`rounded px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider ${props.view === lens ? "bg-lime-300 text-black" : "text-emerald-700 hover:bg-emerald-950 hover:text-emerald-300"}`}>{lens === "list" ? "notes" : lens}</button>}</For>
       <span class="ml-auto font-mono text-[10px] text-emerald-800">{props.events.length} visible nodes</span>
     </div>
     <Show when={props.view === "list"}><SearchView {...props}/></Show>
@@ -822,7 +835,7 @@ function MapStat(props) { return <div class="rounded border border-emerald-950 p
 function SearchView(props) {
   return <section>
     <Show when={props.events.length} fallback={<div class="p-8 text-sm text-emerald-800">{props.query ? (props.loading ? "Waiting for the first relay response…" : "No events returned.") : "No default feed. Start with a question, account, note, or topic."}</div>}>
-      <For each={props.events}>{(event, index) => <EventRow event={event} index={index() + 1} profile={props.profileFor(event.pubkey)} pinned={props.pinned.has(event.id)} selected={props.selectedId === event.id} openRoute={props.openRoute} onSelect={props.onSelect} onPin={props.onPin}/>}</For>
+      <For each={props.events}>{(event, index) => <EventRow event={event} index={index() + 1} profile={props.profileFor(event.pubkey)} pinned={props.pinned.has(event.id)} selected={props.selectedId === event.id} openRoute={props.openRoute} onSelect={props.onSelect} onNavigate={props.onNavigate} onPin={props.onPin}/>}</For>
     </Show>
   </section>;
 }
@@ -893,7 +906,7 @@ function EventRow(props) {
     <div class="flex flex-wrap items-center gap-2 font-mono text-[10px] text-emerald-800"><span class="text-lime-500">[{props.index}]</span><span>{kindName(props.event.kind)} · {props.event.kind}</span><span>{new Date(props.event.created_at * 1000).toLocaleDateString()}</span><span>{short(props.event.id)}</span><Show when={props.event.duplicateCount > 1}><span class="rounded bg-amber-950/40 px-1.5 py-0.5 text-amber-400">{props.event.duplicateCount} similar notes · {props.event.duplicateAuthors.length} accounts</span></Show></div>
     <div class="mt-2 text-[15px] leading-6 text-emerald-50"><RichContent value={props.event.content} openRoute={props.openRoute} preview/></div>
     <button onClick={() => props.openRoute(`#/account/${props.event.pubkey}`)} class="mt-1 font-mono text-xs text-emerald-600 hover:text-emerald-300">{props.profile.name} <span class="text-emerald-900">{props.profile.handle}</span></button>
-    <div class="mt-3 flex flex-wrap gap-2 font-mono text-[11px]"><Action active={props.selected} onClick={() => props.onSelect?.(props.event.id)}>research from here</Action><Action onClick={() => props.openRoute(`#/event/${props.event.id}`)}>read</Action><Action onClick={() => props.openRoute(`#/raw/${props.event.id}`)}>raw</Action><Action active={props.pinned} onClick={() => props.onPin(props.event.id)}>pin</Action></div>
+    <div class="mt-3 flex flex-wrap gap-2 font-mono text-[11px]"><Action active={props.selected} onClick={() => props.onSelect?.(props.event.id)}>research from here</Action><Action onClick={() => props.openRoute(`#/event/${props.event.id}`)}>read</Action><Show when={props.onNavigate}><Action onClick={() => props.onNavigate(props.event.id, "replies")}>conversation</Action><Show when={[...tags(props.event, "e"), ...tags(props.event, "q")].length}><Action onClick={() => props.onNavigate(props.event.id, "references")}>references · {[...tags(props.event, "e"), ...tags(props.event, "q")].length}</Action></Show><Action onClick={() => props.onNavigate(props.event.id, "author")}>more by author</Action></Show><Action onClick={() => props.openRoute(`#/raw/${props.event.id}`)}>raw</Action><Action active={props.pinned} onClick={() => props.onPin(props.event.id)}>pin</Action></div>
   </article>;
 }
 
