@@ -367,7 +367,8 @@ function App() {
       author: { filters: [{ authors: [event.pubkey], limit: 100 }], label: "author activity" },
       mentions: { filters: [{ "#p": [event.pubkey], limit: 100 }], label: "author mentions" },
       topics: { filters: tags(event, "t").slice(0, 4).map((topic) => ({ "#t": [topic], limit: 100 })), label: "shared topics" },
-      references: { filters: [...tags(event, "e"), ...tags(event, "q")].slice(0, 100).length ? [{ ids: [...tags(event, "e"), ...tags(event, "q")].slice(0, 100) }] : [], label: "outbound references" }
+      references: { filters: [...tags(event, "e"), ...tags(event, "q")].slice(0, 100).length ? [{ ids: [...tags(event, "e"), ...tags(event, "q")].slice(0, 100) }] : [], label: "conversation ancestry / references" },
+      network: { filters: [{ authors: [event.pubkey], kinds: [3], limit: 1 }], label: "author follow network" }
     };
     const definition = definitions[relation];
     if (!definition?.filters.length) { setExpansionStatus({ state: "empty", relation, label: definition?.label ?? relation, message: `This note contains no ${definition?.label ?? relation} to follow.` }); return; }
@@ -377,7 +378,11 @@ function App() {
     try {
       const batches = await Promise.all(definition.filters.map((filter) => readEvents(filter, `expand-${relation}`, READ_RELAYS)));
       if (token !== searchToken) return;
-      const incoming = rememberEvents(unique(batches.flat()));
+      let incoming = rememberEvents(unique(batches.flat()));
+      if (relation === "network" && incoming.length) {
+        const followed = tags(incoming.sort((a, b) => b.created_at - a.created_at)[0], "p").slice(0, 80);
+        if (followed.length) incoming = rememberEvents(unique([...incoming, ...await readEvents({ authors: followed, kinds: [1, 20, 21, 22, 30023], limit: 100 }, "expand-network", READ_RELAYS)]));
+      }
       const existingIds = new Set(base.map((item) => item.id));
       const added = incoming.filter((item) => !existingIds.has(item.id));
       if (!incoming.length) {
@@ -660,7 +665,7 @@ function App() {
             <Show keyed when={route()}>{(currentRoute) => <Show when={currentRoute.kind === "search"} fallback={<RouteView route={currentRoute} data={routeData()} profileFor={profileFor} openRoute={openRoute}/> }>
                 <Show when={!results().length && !query()}><HomeDiscovery topics={pulseTopics()} events={pulseEvents()} loading={pulseLoading()} profileFor={profileFor} onTopic={(topic) => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onRefresh={loadRelayPulse}/></Show>
                 <Show when={selectedEvent()}>{(event) => <ExploreFromNode event={event()} profile={profileFor(event().pubkey)} onExpand={expandSelection} openRoute={openRoute} loading={loading()} status={expansionStatus()} reason={entryReasons()[event().id]}/>}</Show>
-                <ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0} facets={corpusFacets()} activeFacets={activeFacets()} onFacet={toggleFacet}/>
+                <ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0} facets={corpusFacets()} activeFacets={activeFacets()} onFacet={toggleFacet} entryReasons={entryReasons()}/>
               </Show>}</Show>
           </Show>
         </Show>
@@ -737,13 +742,14 @@ function ExploreFromNode(props) {
       <Direction title="Who mentions this person" detail="Inbound account mentions" loading={props.loading} onClick={() => props.onExpand("mentions")}/>
       <Direction title="Related topics" detail="Notes sharing its topics" loading={props.loading} onClick={() => props.onExpand("topics")}/>
       <Direction title="Reactions and reposts" detail="Responses attached to this note" loading={props.loading} onClick={() => props.onExpand("responses")}/>
+      <Direction title="Author's network" detail="Follow list and recent notes from followed accounts" loading={props.loading} onClick={() => props.onExpand("network")}/>
     </div><Show when={props.status}><div class={`mt-3 rounded border p-3 font-mono text-xs ${props.status.state === "added" ? "border-lime-700 bg-lime-950/30 text-lime-200" : props.status.state === "loading" ? "border-emerald-700 text-emerald-300" : props.status.state === "error" ? "border-red-900 text-red-300" : "border-amber-900/70 bg-amber-950/10 text-amber-300"}`}>{props.status.message}<Show when={props.status.state === "empty"}><span class="mt-1 block text-[10px] text-amber-700">Nothing was added and no investigation step was created. Try another direction or select another note.</span></Show></div></Show><p class="mt-2 font-mono text-[10px] text-emerald-800">Only directions that add new notes become investigation steps. Select any new note to continue.</p></div>
   </section>;
 }
 
 function Direction(props) { return <button disabled={props.loading} onClick={props.onClick} class="rounded border border-emerald-900 bg-black/10 p-3 text-left hover:border-lime-700 hover:bg-emerald-950/50 disabled:cursor-wait disabled:opacity-40"><span class="block text-sm text-lime-200">{props.title} →</span><span class="mt-1 block text-[11px] text-emerald-700">{props.loading ? "Checking relays…" : props.detail}</span></button>; }
 
-const LENSES = ["list", "map", "thread", "timeline", "graph", "matrix"];
+const LENSES = ["list", "table", "map", "thread", "timeline", "graph", "matrix"];
 
 function ResearchWorkspace(props) {
   return <section class="overflow-hidden rounded border border-emerald-900 bg-emerald-950/10">
@@ -752,6 +758,7 @@ function ResearchWorkspace(props) {
       <span class="ml-auto font-mono text-[10px] text-emerald-800">{props.events.length} visible nodes</span>
     </div>
     <Show when={props.view === "list"}><SearchView {...props}/></Show>
+    <Show when={props.view === "table"}><ResearchTable {...props}/></Show>
     <Show when={props.view === "map"}><CorpusMap {...props}/></Show>
     <Show when={props.view === "thread"}><ThreadLens {...props}/></Show>
     <Show when={props.view === "timeline"}><TimelineLens {...props}/></Show>
@@ -759,6 +766,26 @@ function ResearchWorkspace(props) {
     <Show when={props.view === "matrix"}><MatrixLens {...props}/></Show>
     <Show when={props.canLoadMore}><div class="border-t border-emerald-900 bg-black/10 p-4 text-center"><button disabled={props.paging || !props.hasMore} onClick={props.onLoadMore} class="rounded border border-lime-800 px-6 py-2 font-mono text-xs text-lime-300 hover:bg-lime-300 hover:text-black disabled:cursor-not-allowed disabled:border-emerald-950 disabled:text-emerald-800">{props.paging ? "CHECKING RELAYS…" : props.hasMore ? "LOAD OLDER RESULTS" : "END OF RELAY RESULTS"}</button><Show when={props.pageMessage}><p class="mt-2 font-mono text-[10px] text-emerald-700">{props.pageMessage}</p></Show></div></Show>
   </section>;
+}
+
+function ResearchTable(props) {
+  const [sortKey, setSortKey] = createSignal("date");
+  const [sortDirection, setSortDirection] = createSignal("desc");
+  const mediaCount = (event) => (event.content?.match(/https?:\/\/[^\s<>]+/gi) ?? []).map(cleanUrl).filter((url) => IMAGE_URL.test(url) || VIDEO_URL.test(url) || AUDIO_URL.test(url)).length;
+  const referenceCount = (event) => ["e", "E", "a", "A", "q", "p"].reduce((count, type) => count + tags(event, type).length, 0);
+  const valueFor = (event, key) => ({ date: event.created_at, author: props.profileFor(event.pubkey).name.toLowerCase(), kind: event.kind, topics: tags(event, "t").length, references: referenceCount(event), relays: (sourceIndex.get(event.id) ?? []).length, domains: eventDomains(event).length, media: mediaCount(event) }[key]);
+  const rows = createMemo(() => [...props.events].sort((left, right) => {
+    const a = valueFor(left, sortKey()); const b = valueFor(right, sortKey());
+    const order = typeof a === "string" ? a.localeCompare(b) : a - b;
+    return sortDirection() === "asc" ? order : -order;
+  }));
+  const sortBy = (key) => { if (sortKey() === key) setSortDirection((direction) => direction === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDirection(key === "author" ? "asc" : "desc"); } };
+  const heading = (label, key) => <button onClick={() => sortBy(key)} class={`whitespace-nowrap text-left hover:text-lime-200 ${sortKey() === key ? "text-lime-300" : "text-emerald-700"}`}>{label}{sortKey() === key ? (sortDirection() === "asc" ? " ↑" : " ↓") : ""}</button>;
+  return <div><LensHeader title="RESEARCH TABLE" detail={`${rows().length} events · sortable evidence inventory`}/><Show when={rows().length} fallback={<EmptyLens text="No visible events to compare."/>}>
+    <div class="max-h-[72vh] overflow-auto"><table class="min-w-[1280px] border-collapse text-xs"><thead class="sticky top-0 z-10 bg-[#07110c] font-mono text-[10px] uppercase tracking-wider"><tr class="border-b border-emerald-800"><th class="p-2 text-emerald-800">#</th><th class="p-2">{heading("date", "date")}</th><th class="p-2">{heading("author", "author")}</th><th class="p-2">{heading("type", "kind")}</th><th class="p-2">{heading("topics", "topics")}</th><th class="p-2">{heading("edges", "references")}</th><th class="p-2">{heading("media", "media")}</th><th class="p-2">{heading("domains", "domains")}</th><th class="p-2">{heading("relays", "relays")}</th><th class="p-2 text-left text-emerald-700">why here / content</th><th class="p-2 text-emerald-700">actions</th></tr></thead>
+    <tbody><For each={rows()}>{(event, index) => { const topics = () => tags(event, "t"); const domains = () => eventDomains(event); const relayCount = () => (sourceIndex.get(event.id) ?? []).length; return <tr class={`border-b border-emerald-950 align-top hover:bg-emerald-950/30 ${props.selectedId === event.id ? "bg-lime-950/20" : ""}`}><td class="p-2 font-mono text-emerald-900">{index() + 1}</td><td class="whitespace-nowrap p-2 font-mono text-emerald-600">{new Date(event.created_at * 1000).toISOString().slice(0, 10)}</td><td class="max-w-40 p-2"><button onClick={() => props.openRoute(`#/account/${event.pubkey}`)} class="block max-w-40 truncate text-emerald-300 hover:text-lime-300">{props.profileFor(event.pubkey).name}</button><span class="font-mono text-[9px] text-emerald-900">{short(event.pubkey)}</span></td><td class="whitespace-nowrap p-2"><span class="text-emerald-300">{kindName(event.kind)}</span><span class="ml-1 font-mono text-emerald-800">{event.kind}</span></td><td class="max-w-44 p-2"><div class="flex max-w-44 flex-wrap gap-1"><For each={topics().slice(0, 3)}>{(topic) => <button onClick={() => props.onFacet("topic", topic.toLowerCase())} class="rounded bg-emerald-950 px-1 text-lime-400">#{topic}</button>}</For><Show when={topics().length > 3}><span class="text-emerald-800">+{topics().length - 3}</span></Show></div></td><td class="p-2 text-center font-mono text-emerald-400">{referenceCount(event) || "·"}</td><td class="p-2 text-center font-mono text-emerald-400">{mediaCount(event) || "·"}</td><td class="max-w-32 p-2"><span class="block truncate text-emerald-500" title={domains().join(", ")}>{domains().join(", ") || "·"}</span></td><td class="p-2 text-center font-mono text-emerald-400" title={(sourceIndex.get(event.id) ?? []).join("\n")}>{relayCount() || "cache"}</td><td class="max-w-md p-2"><Show when={props.entryReasons[event.id]}><span class="mb-1 block font-mono text-[9px] text-amber-500">↳ {props.entryReasons[event.id]}</span></Show><span class="line-clamp-2 text-emerald-200">{compact(event.content, 180)}</span><Show when={event.duplicateCount > 1}><span class="mt-1 block text-[9px] text-amber-700">{event.duplicateCount} similar events</span></Show></td><td class="p-2"><div class="flex gap-1"><button title="Research from here" onClick={() => props.onSelect(event.id)} class="rounded border border-emerald-900 px-2 py-1 text-lime-300 hover:border-lime-600">→</button><button title="Read note" onClick={() => props.openRoute(`#/event/${event.id}`)} class="rounded border border-emerald-900 px-2 py-1 text-emerald-500 hover:text-lime-300">↗</button><button title="Pin evidence" onClick={() => props.onPin(event.id)} class={`rounded border px-2 py-1 ${props.pinned.has(event.id) ? "border-lime-500 bg-lime-300 text-black" : "border-emerald-900 text-emerald-500"}`}>◆</button></div></td></tr>; }}</For></tbody></table></div>
+    <p class="border-t border-emerald-950 px-4 py-2 font-mono text-[9px] text-emerald-900">edges count event, address, quote, and account references · relay count reflects this session; “cache” means provenance was not restored</p>
+  </Show></div>;
 }
 
 function CorpusMap(props) {
