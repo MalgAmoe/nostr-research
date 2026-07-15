@@ -1,6 +1,8 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import { SimplePool, nip19 } from "nostr-tools";
+import { latestRun, listRecipes, loadEvents, saveRecipe, saveRun, storeEvents } from "./research-store.js";
+import { loadRelayInformationSet } from "./relay-info.js";
 import "./styles.css";
 
 const SEARCH_RELAYS_KEY = "nostr-research-relays-v2";
@@ -35,8 +37,6 @@ const compact = (value = "", length = 150) => {
   return text.length > length ? `${text.slice(0, length - 1)}…` : text || "Untitled event";
 };
 const kindName = (kind) => ({ 0: "profile metadata", 1: "short note", 3: "follow list", 4: "legacy direct message", 5: "deletion request", 6: "repost", 7: "reaction", 13: "seal", 14: "direct message", 16: "generic repost", 20: "picture", 21: "video", 22: "short video", 40: "channel creation", 41: "channel metadata", 42: "channel message", 1059: "gift wrap", 30023: "long-form article", 30078: "app data" }[kind] ?? "event");
-const compactEventForStorage = (event) => ({ ...event, content: (event.content ?? "").slice(0, 4000), tags: (event.tags ?? []).slice(0, 80) });
-const compactCorpusForStorage = (events, limit = 80) => events.slice(0, limit).map(compactEventForStorage);
 const ranked = (values, limit = 10) => [...values.reduce((map, value) => value !== undefined && value !== null && value !== "" ? map.set(value, (map.get(value) ?? 0) + 1) : map, new Map()).entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
 const NOTE_LIKE_KINDS = new Set([1, 20, 21, 22, 30023]);
 const contentFingerprint = (event) => NOTE_LIKE_KINDS.has(event.kind) ? (event.content ?? "").normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim() : "";
@@ -94,6 +94,7 @@ async function queryRelay(relay, filter, label) {
       sources.add(relay);
       sourceIndex.set(event.id, [...sources]);
     }
+    void storeEvents(events, sourceIndex);
     logUsage("relay_query", { relay, label, state: "ok", count: events.length, durationMs: Math.round(performance.now() - started) });
     return events;
   } catch (error) {
@@ -152,12 +153,35 @@ function App() {
   const [paging, setPaging] = createSignal(false);
   const [hasMore, setHasMore] = createSignal(true);
   const [pageMessage, setPageMessage] = createSignal("");
+  const [activeRecipeId, setActiveRecipeId] = createSignal("");
+  const [lastRunDelta, setLastRunDelta] = createSignal(null);
+  const [relayInformation, setRelayInformation] = createSignal(new Map());
   let searchToken = 0;
   const knownEvents = new Map();
   const rememberEvents = (events) => { for (const event of events) knownEvents.set(event.id, event); return events; };
   rememberEvents(results());
   const selectedEvent = createMemo(() => knownEvents.get(selectedId()) ?? results().find((event) => event.id === selectedId()));
   const addStep = (step) => setSteps((current) => [...current, { id: crypto.randomUUID(), at: Date.now(), ...step }].slice(-30));
+
+  const inspectRelays = async (relays) => {
+    const information = await loadRelayInformationSet(relays);
+    setRelayInformation((current) => new Map([...current, ...information]));
+  };
+
+  async function recordResearchRun(details, events) {
+    const recipeId = activeRecipeId();
+    if (!recipeId) return;
+    const previous = await latestRun(recipeId);
+    const eventIds = events.map((event) => event.id);
+    const previousIds = new Set(previous?.eventIds ?? []);
+    const currentIds = new Set(eventIds);
+    const added = eventIds.filter((id) => !previousIds.has(id));
+    const missing = [...previousIds].filter((id) => !currentIds.has(id));
+    const overlap = previousIds.size ? [...currentIds].filter((id) => previousIds.has(id)).length / new Set([...previousIds, ...currentIds]).size : null;
+    const run = { id: crypto.randomUUID(), recipeId, completedAt: Date.now(), eventIds, details, relayStates: Object.fromEntries(relayStates()) };
+    await saveRun(run);
+    setLastRunDelta({ previous: Boolean(previous), added: added.length, missing: missing.length, overlap });
+  }
 
   const profileFor = (pubkey) => profiles().get(pubkey) ?? { name: short(pubkey), handle: "unresolved", about: "" };
   const rememberProfiles = (events) => {
@@ -216,6 +240,7 @@ function App() {
     try {
       const plan = await resolveSearch(text);
       setLastQueryPlan(plan); setHasMore(true); setPageMessage("");
+      void inspectRelays(plan.relays);
       const states = new Map(plan.relays.map((relay) => [relay, { state: "searching", count: 0 }]));
       setRelayStates(states);
       await Promise.all(plan.relays.map(async (relay) => {
@@ -226,11 +251,12 @@ function App() {
         incoming = unique([...incoming, ...events]);
         const next = operation === "union" ? unique([...base, ...incoming]) : operation === "intersect" ? base.filter((event) => incoming.some((candidate) => candidate.id === event.id)) : incoming;
         setResults(next.sort((a, b) => b.created_at - a.created_at));
-        setRelayStates((current) => new Map(current).set(relay, { state: "ok", count: events.length, duration: Math.round(performance.now() - relayStarted) }));
+        setRelayStates((current) => new Map(current).set(relay, { state: "ok", count: events.length, ids: events.map((event) => event.id), duration: Math.round(performance.now() - relayStarted) }));
       }));
       if (token !== searchToken) return;
       addStep({ type: "seed", label: `${operation} · ${text}`, inputCount: base.length, outputCount: results().length, query: text, operation });
       logUsage("search_completed", { query: text, mode: plan.mode, resultCount: results().length, durationMs: Math.round(performance.now() - started) });
+      void recordResearchRun({ query: text, mode: plan.mode, filter: plan.filter, relays: plan.relays, operation }, results());
       hydrateProfiles(results(), token);
     } catch (cause) {
       setError(cause.message);
@@ -275,10 +301,11 @@ function App() {
     try {
       const states = new Map(relays.map((relay) => [relay, { state: "searching", count: 0 }]));
       setRelayStates(states);
+      void inspectRelays(relays);
       const batches = await Promise.all(relays.map(async (relay) => {
         const relayStarted = performance.now();
         const events = await queryRelay(relay, filter, label);
-        setRelayStates((current) => new Map(current).set(relay, { state: "ok", count: events.length, duration: Math.round(performance.now() - relayStarted) }));
+        setRelayStates((current) => new Map(current).set(relay, { state: "ok", count: events.length, ids: events.map((event) => event.id), duration: Math.round(performance.now() - relayStarted) }));
         return events;
       }));
       if (token !== searchToken) return;
@@ -288,6 +315,7 @@ function App() {
       setEntryReasons((current) => ({ ...current, ...Object.fromEntries(incoming.map((event) => [event.id, reason])) }));
       addStep({ type: "query", label: `${operation} · ${label}`, inputCount: base.length, outputCount: next.length, filter });
       logUsage("filter_query", { label, filter, operation, returned: incoming.length, resultCount: next.length, durationMs: Math.round(performance.now() - started) });
+      void recordResearchRun({ label, filter, relays, operation }, next);
       hydrateProfiles(next, token);
     } catch (cause) { setError(cause.message); }
     finally { if (token === searchToken) setLoading(false); }
@@ -441,17 +469,46 @@ function App() {
       logUsage("relay_pulse", { count: events.length, topics: ranked(events.flatMap((event) => tags(event, "t"))).length });
     } finally { setPulseLoading(false); }
   }
-  const savePath = () => {
-    const snapshot = { query: query(), corpus: compactCorpusForStorage(results(), 60), steps: steps().slice(-20), pinned: [...pinned()].slice(0, 100), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays() };
-    const previous = paths().slice(0, 9).map((path) => ({ ...path, snapshot: { ...path.snapshot, corpus: compactCorpusForStorage(path.snapshot?.corpus ?? [], 60), steps: (path.snapshot?.steps ?? []).slice(-20) } }));
-    const next = [{ id: crypto.randomUUID(), title: query() || "Untitled investigation", snapshot, savedAt: Date.now() }, ...previous];
-    setPaths(next);
-    if (!save(PATHS_KEY, next)) setError("Could not persist the investigation because browser storage is full");
+  const savePath = async () => {
+    const existing = paths().find((path) => path.id === activeRecipeId());
+    const id = existing?.id ?? crypto.randomUUID();
+    const now = Date.now();
+    const recipe = {
+      id,
+      title: query() || "Untitled investigation",
+      query: query(),
+      plan: lastQueryPlan(),
+      operation: combineMode(),
+      eventIds: results().map((event) => event.id),
+      settings: { view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), dedupeEnabled: dedupeEnabled() },
+      pinned: [...pinned()],
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    await storeEvents(results(), sourceIndex);
+    await saveRecipe(recipe);
+    setActiveRecipeId(id);
+    setPaths((current) => [recipe, ...current.filter((path) => path.id !== id)].sort((a, b) => b.updatedAt - a.updatedAt));
+    if (!(await latestRun(id))) await saveRun({ id: crypto.randomUUID(), recipeId: id, completedAt: now, eventIds: recipe.eventIds, details: { baseline: true, query: recipe.query }, relayStates: Object.fromEntries(relayStates()) });
+    setLastRunDelta({ previous: false, added: 0, missing: 0, overlap: null });
+    logUsage("recipe_saved", { recipeId: id, resultCount: recipe.eventIds.length });
   };
-  const restorePath = (path) => {
-    const snapshot = path.snapshot ?? { query: path.query, corpus: [], steps: [] };
-    setQuery(snapshot.query ?? ""); setResults(snapshot.corpus ?? []); rememberEvents(snapshot.corpus ?? []); setSteps(snapshot.steps ?? []);
-    setPinned(new Set(snapshot.pinned ?? [])); setView(snapshot.view ?? "list"); setKindFilter(snapshot.kindFilter ?? "all"); setSinceDays(snapshot.sinceDays ?? 0);
+  const restorePath = async (path) => {
+    const legacy = path.snapshot;
+    const storedEvents = path.eventIds ? await loadEvents(path.eventIds) : legacy?.corpus ?? [];
+    setActiveRecipeId(path.id); setLastRunDelta(null);
+    setQuery(path.query ?? legacy?.query ?? ""); setResults(storedEvents); rememberEvents(storedEvents); setSteps(legacy?.steps ?? []);
+    setPinned(new Set(path.pinned ?? legacy?.pinned ?? [])); setView(path.settings?.view ?? legacy?.view ?? "list");
+    setKindFilter(path.settings?.kindFilter ?? legacy?.kindFilter ?? "all"); setSinceDays(path.settings?.sinceDays ?? legacy?.sinceDays ?? 0);
+    setDedupeEnabled(path.settings?.dedupeEnabled ?? true); setLastQueryPlan(path.plan ?? null);
+    history.replaceState(null, "", "#/search"); setRoute(parseRoute());
+    logUsage("recipe_opened", { recipeId: path.id, cachedEvents: storedEvents.length });
+  };
+  const rerunRecipe = () => {
+    const recipe = paths().find((path) => path.id === activeRecipeId());
+    if (!recipe?.query) return;
+    setCombineMode("replace");
+    void runSearch(recipe.query, "replace");
   };
   const newExploration = () => {
     if ((results().length || steps().length) && !window.confirm("Start a new exploration? Unsaved current results and steps will be cleared. Saved investigations will remain.")) return;
@@ -460,7 +517,7 @@ function App() {
     knownEvents.clear();
     setQuery(""); setResults([]); setProfiles(new Map()); setSteps([]); setSelectedId(""); setPinned(new Set());
     setEntryReasons({}); setExpansionStatus(null); setKindFilter("all"); setSinceDays(0); setCombineMode("replace"); setView("list");
-    setRelayStates(new Map()); setError(""); setRouteData(null); setLastQueryPlan(null); setHasMore(true); setPageMessage("");
+    setRelayStates(new Map()); setError(""); setRouteData(null); setLastQueryPlan(null); setHasMore(true); setPageMessage(""); setActiveRecipeId(""); setLastRunDelta(null);
     history.replaceState(null, "", "#/search"); setRoute(parseRoute());
     logUsage("exploration_reset", { preservedSavedInvestigations: paths().length });
   };
@@ -472,14 +529,40 @@ function App() {
   const toggleSet = (setter, id) => setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   createEffect(() => save(SESSION_KEY, {
-    query: query(), corpus: compactCorpusForStorage(results()), steps: steps().slice(-30), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled()
+    query: query(), eventIds: results().map((event) => event.id).slice(0, 1000), steps: steps().slice(-30), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId()
   }));
 
-  onMount(() => {
+  onMount(async () => {
     const handler = () => loadRoute(parseRoute());
     window.addEventListener("hashchange", handler);
     onCleanup(() => { window.removeEventListener("hashchange", handler); pool.destroy(); });
     logUsage("client_opened", { framework: "solid", searchRelays: searchRelays() });
+    const recipes = await listRecipes();
+    const legacyRecipes = load(PATHS_KEY, []);
+    const knownRecipeIds = new Set(recipes.map((recipe) => recipe.id));
+    const migrated = [];
+    for (const legacy of legacyRecipes.filter((recipe) => !knownRecipeIds.has(recipe.id))) {
+      const corpus = legacy.snapshot?.corpus ?? [];
+      const recipe = {
+        id: legacy.id,
+        title: legacy.title || legacy.snapshot?.query || "Untitled investigation",
+        query: legacy.snapshot?.query ?? legacy.query ?? "",
+        plan: null,
+        operation: "replace",
+        eventIds: corpus.map((event) => event.id),
+        settings: { view: legacy.snapshot?.view ?? "list", kindFilter: legacy.snapshot?.kindFilter ?? "all", sinceDays: legacy.snapshot?.sinceDays ?? 0, dedupeEnabled: true },
+        pinned: legacy.snapshot?.pinned ?? [],
+        createdAt: legacy.savedAt ?? Date.now(),
+        updatedAt: legacy.savedAt ?? Date.now(),
+      };
+      await storeEvents(corpus, sourceIndex); await saveRecipe(recipe); migrated.push(recipe);
+    }
+    if (recipes.length || migrated.length) setPaths([...recipes, ...migrated].sort((a, b) => b.updatedAt - a.updatedAt));
+    if (restored.eventIds?.length) {
+      const stored = await loadEvents(restored.eventIds);
+      if (stored.length && !results().length) { setResults(stored); rememberEvents(stored); }
+    }
+    if (restored.activeRecipeId) setActiveRecipeId(restored.activeRecipeId);
     loadRelayPulse();
     loadRoute();
   });
@@ -512,7 +595,7 @@ function App() {
     <div class="mx-auto grid max-w-[1800px] gap-4 px-4 py-5 xl:grid-cols-[250px_minmax(0,1fr)_310px] lg:px-6">
       <aside class="hidden space-y-4 xl:sticky xl:top-20 xl:block xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
         <Show when={results().length}><FacetPanel facets={corpusFacets()} profileFor={profileFor} onTopic={(topic) => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onKind={(kind) => setKindFilter(kind === 1 ? "notes" : kind === 0 ? "profiles" : kind === 3 ? "follows" : kind === 30023 ? "articles" : "other")}/></Show>
-        <Panel title="SAVED INVESTIGATIONS"><Show when={paths().length} fallback={<p class="text-emerald-900">none saved yet</p>}><For each={paths().slice(0, 8)}>{(path) => <button onClick={() => restorePath(path)} class="block w-full truncate border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300">{path.title}</button>}</For></Show></Panel>
+        <Panel title="RESEARCH RECIPES"><Show when={paths().length} fallback={<p class="text-emerald-900">Save a search to make it rerunnable.</p>}><For each={paths().slice(0, 8)}>{(path) => <button onClick={() => void restorePath(path)} class={`block w-full border-b border-emerald-950 py-2 text-left hover:text-lime-300 ${activeRecipeId() === path.id ? "text-lime-300" : "text-emerald-500"}`}><span class="block truncate">{activeRecipeId() === path.id ? "› " : ""}{path.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{path.eventIds?.length ?? path.snapshot?.corpus?.length ?? 0} cached nodes</span></button>}</For></Show></Panel>
         <Show when={results().length}><Panel title="CURRENT SET"><Stat label="retrieved" value={results().length}/><Stat label="visible" value={filteredResults().length}/><Stat label="evidence" value={pinned().size}/></Panel></Show>
       </aside>
 
@@ -530,7 +613,8 @@ function App() {
             <select aria-label="Content type" value={kindFilter()} onChange={(event) => setKindFilter(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="all">all content</option><option value="notes">short notes</option><option value="profiles">profiles</option><option value="follows">follow lists</option><option value="articles">long articles</option><option value="other">other data</option></select>
             <button type="button" aria-pressed={dedupeEnabled()} onClick={() => setDedupeEnabled((value) => !value)} class={`rounded border px-2 py-1.5 ${dedupeEnabled() ? "border-lime-800 bg-lime-950/30 text-lime-300" : "border-emerald-900 text-emerald-600"}`}>{dedupeEnabled() ? "duplicates collapsed" : "showing duplicates"}</button>
             <select value={sinceDays()} onChange={(event) => { const days = Number(event.currentTarget.value); setSinceDays(days); addStep({ type: "filter", label: days ? `last ${days} days` : "all time", inputCount: results().length, outputCount: filteredResults().length }); }} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="0">all time</option><option value="1">last day</option><option value="7">last 7 days</option><option value="30">last 30 days</option><option value="90">last 90 days</option><option value="365">last year</option></select>
-            <button type="button" onClick={savePath} class="rounded border border-emerald-900 px-2 py-1.5 text-emerald-500 hover:text-emerald-200">save investigation</button>
+            <button type="button" onClick={() => void savePath()} class="rounded border border-emerald-900 px-2 py-1.5 text-emerald-500 hover:text-emerald-200">{activeRecipeId() ? "update recipe" : "save as recipe"}</button>
+            <Show when={activeRecipeId()}><button type="button" disabled={loading()} onClick={rerunRecipe} class="rounded border border-lime-800 px-2 py-1.5 text-lime-300 disabled:opacity-40">rerun + compare</button></Show>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">relays · {READ_RELAYS.length + searchRelays().length}</summary><div class="absolute right-0 top-9 z-40 w-80 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="mb-3 text-[10px] tracking-wider text-lime-300">DEFAULT READ RELAYS</div><For each={READ_RELAYS}>{(relay) => <div class="mb-1 flex items-center gap-2 text-emerald-500"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"/>{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">KEYWORD SEARCH RELAYS</div><textarea aria-label="Keyword search relays" value={relayDraft()} onInput={(event) => setRelayDraft(event.currentTarget.value)} class="h-24 w-full resize-none bg-black/30 p-2 font-mono text-xs outline-none"/><button type="button" onClick={applyRelays} class="mt-2 border border-lime-700 px-3 py-1 text-lime-300">apply search relays</button><p class="mt-2 text-[10px] text-emerald-800">Topic, account, note, and relationship queries use the three read relays. Keyword searches use the editable NIP-50 list.</p></div></details>
           </div>
           <details class="mt-3 border-t border-emerald-900/70 pt-3 font-mono text-xs">
@@ -561,7 +645,8 @@ function App() {
       <Show when={results().length}><aside class="space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pl-1">
         <Panel title="RELAY PULSE · 24H"><Show when={pulseTopics().length} fallback={<p class="text-emerald-900">{pulseLoading() ? "sampling recent notes…" : "no tagged notes returned"}</p>}><div class="flex flex-wrap gap-1.5"><For each={pulseTopics().slice(0, 10)}>{([topic, count]) => <button onClick={() => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} class="rounded border border-emerald-900 px-2 py-1 text-emerald-500 hover:border-lime-700 hover:text-lime-300">#{topic} <span class="text-emerald-800">{count}</span></button>}</For></div></Show></Panel>
         <Panel title="EVIDENCE"><Show when={pinned().size} fallback={<p class="text-emerald-900">Pin nodes to build an evidence set.</p>}><For each={[...pinned()].map((id) => knownEvents.get(id)).filter(Boolean)}>{(event) => <button onClick={() => setSelectedId(event.id)} class="block w-full border-b border-emerald-950 py-2 text-left"><span class="text-lime-500">{kindName(event.kind)}</span><span class="mt-1 block truncate text-emerald-600">{compact(event.content, 60)}</span></button>}</For></Show></Panel>
-        <Panel title="RELAY OUTPUT"><Show when={relayStates().size} fallback={<p class="text-emerald-900">no search query yet</p>}><For each={[...relayStates().entries()]}>{([relay, state]) => <div class="border-b border-emerald-950 py-2"><div class="truncate text-emerald-400">{new URL(relay).hostname}</div><div class="text-emerald-800">{state.state === "searching" ? "querying…" : `${state.count} events · ${state.duration}ms`}</div></div>}</For></Show></Panel>
+        <Show when={lastRunDelta()}>{(delta) => <Panel title="RUN COMPARISON"><Show when={delta().previous} fallback={<p class="text-emerald-700">Baseline saved. Rerun this recipe later to measure change.</p>}><Stat label="new" value={`+${delta().added}`}/><Stat label="not returned" value={`−${delta().missing}`}/><Stat label="set overlap" value={`${Math.round((delta().overlap ?? 0) * 100)}%`}/></Show></Panel>}</Show>
+        <CoveragePanel states={relayStates()} information={relayInformation()} />
       </aside></Show>
     </div>
   </div>;
@@ -569,6 +654,29 @@ function App() {
 
 function Panel(props) { return <section class="rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs"><h2 class="mb-3 border-b border-emerald-900 pb-2 text-[10px] tracking-[.16em] text-lime-300">{props.title}</h2><div class="space-y-2">{props.children}</div></section>; }
 function Stat(props) { return <div class="flex justify-between text-emerald-700"><span>{props.label}</span><span class="text-emerald-300">{props.value}</span></div>; }
+function CoveragePanel(props) {
+  const rows = () => [...props.states.entries()].map(([relay, state]) => {
+    const ids = state.ids ?? [];
+    const exclusive = ids.filter((id) => (sourceIndex.get(id) ?? []).length === 1).length;
+    return { relay, state, exclusive, information: props.information.get(relay) };
+  });
+  const responding = () => rows().filter((row) => row.state.state === "ok").length;
+  return <Panel title="SEARCH COVERAGE"><Show when={rows().length} fallback={<p class="text-emerald-900">Run a search to see which relays contributed and what they support.</p>}>
+    <div class="mb-2 flex justify-between text-emerald-700"><span>responded</span><span class="text-emerald-300">{responding()}/{rows().length}</span></div>
+    <For each={rows()}>{(row) => <details class="border-b border-emerald-950 py-2">
+      <summary class="flex items-center gap-2"><span class={`h-1.5 w-1.5 rounded-full ${row.state.state === "ok" ? "bg-emerald-400" : row.state.state === "searching" ? "animate-pulse bg-lime-300" : "bg-red-500"}`}/><span class="min-w-0 flex-1 truncate text-emerald-400">{new URL(row.relay).hostname}</span><span class="text-emerald-800">{row.state.state === "searching" ? "…" : row.state.count}</span></summary>
+      <div class="mt-2 space-y-1 pl-3 text-[10px] text-emerald-800">
+        <Show when={row.state.state === "ok"}><div>{row.exclusive} unique here · {row.state.duration}ms</div></Show>
+        <Show when={row.information?.state === "available"} fallback={<div>capabilities unavailable</div>}>
+          <div>{row.information.name}{row.information.version ? ` · ${row.information.version}` : ""}</div>
+          <div>NIP-50 search: {row.information.supportedNips.includes(50) ? "advertised" : "not advertised"}</div>
+          <Show when={row.information.limitations?.max_limit}><div>max query limit: {row.information.limitations.max_limit}</div></Show>
+        </Show>
+      </div>
+    </details>}</For>
+    <p class="pt-1 text-[9px] leading-4 text-emerald-900">Coverage describes only the relays queried. An empty result does not establish that no matching Nostr event exists.</p>
+  </Show></Panel>;
+}
 function LoadingPanel(props) { return <div class="rounded border border-emerald-900 p-8 font-mono text-sm text-emerald-600"><span class="mr-3 inline-block animate-spin text-lime-300">◌</span>{props.label}…</div>; }
 function ErrorPanel(props) { return <div class="rounded border border-red-950 bg-red-950/10 p-6 font-mono text-sm text-red-300">error: {props.message}</div>; }
 
