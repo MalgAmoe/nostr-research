@@ -4,6 +4,8 @@ export const tags = (event, type) => event?.tags?.filter((tag) => tag[0] === typ
 
 export const ranked = (values, limit = 10) => [...values.reduce((map, value) => value !== undefined && value !== null && value !== "" ? map.set(value, (map.get(value) ?? 0) + 1) : map, new Map()).entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
 
+export const parseKindList = (value = "") => [...new Set(value.split(/[\s,]+/).filter(Boolean).map(Number).filter((kind) => Number.isInteger(kind) && kind >= 0))];
+
 export const eventDomains = (event) => [...new Set((event?.content?.match(/https?:\/\/[^\s<>]+/gi) ?? []).flatMap((value) => { try { return [new URL(value.replace(/[),.;!?]+$/, "")).hostname.replace(/^www\./, "")]; } catch { return []; } }))];
 
 const NOTE_LIKE_KINDS = new Set([1, 20, 21, 22, 30023]);

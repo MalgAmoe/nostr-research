@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import { SimplePool, nip19 } from "nostr-tools";
-import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, ranked, tags } from "./event-analysis.js";
+import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, parseKindList, ranked, tags } from "./event-analysis.js";
 import { latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, searchStoredEvents, storeEvents } from "./research-store.js";
 import { loadRelayInformationSet } from "./relay-info.js";
 import "./styles.css";
@@ -10,8 +10,8 @@ const SEARCH_RELAYS_KEY = "nostr-research-relays-v2";
 const PATHS_KEY = "nostr-research-paths-v3";
 const SESSION_KEY = "nostr-research-session-v1";
 const DEFAULT_SEARCH_RELAYS = ["wss://search.nos.today"];
-const READ_RELAYS = ["wss://nos.lol", "wss://relay.damus.io", "wss://relay.primal.net"];
-const FALLBACK_READ_RELAYS = ["wss://purplepag.es"];
+const READ_RELAYS = ["wss://nos.lol", "wss://relay.primal.net"];
+const FALLBACK_READ_RELAYS = ["wss://relay.damus.io", "wss://purplepag.es"];
 const PAGE_SIZE = 40;
 const MAX_WAIT = 4500;
 const pool = new SimplePool({ enableReconnect: true });
@@ -114,7 +114,6 @@ function App() {
   const [view, setView] = createSignal(restored.view ?? "list");
   const [pinned, setPinned] = createSignal(new Set(restored.pinned ?? []));
   const [selectedId, setSelectedId] = createSignal(restored.selectedId ?? "");
-  const [steps, setSteps] = createSignal(restored.steps ?? []);
   const [paths, setPaths] = createSignal(load(PATHS_KEY, []));
   const [builderAuthor, setBuilderAuthor] = createSignal("");
   const [builderKinds, setBuilderKinds] = createSignal("");
@@ -146,7 +145,6 @@ function App() {
   const rememberEvents = (events) => { for (const event of events) knownEvents.set(event.id, event); return events; };
   rememberEvents(results());
   const selectedEvent = createMemo(() => knownEvents.get(selectedId()) ?? results().find((event) => event.id === selectedId()));
-  const addStep = (step) => setSteps((current) => [...current, { id: crypto.randomUUID(), at: Date.now(), ...step }].slice(-30));
   const checkpointCorpus = (label) => {
     if (!results().length) return;
     const checkpoint = { id: crypto.randomUUID(), label, at: Date.now(), query: query(), eventIds: results().map((event) => event.id), view: view(), facets: activeFacets() };
@@ -252,7 +250,6 @@ function App() {
         setRelayStates((current) => new Map(current).set(relay, { state: "ok", count: events.length, ids: events.map((event) => event.id), duration: Math.round(performance.now() - relayStarted) }));
       }));
       if (token !== searchToken) return;
-      addStep({ type: "seed", label: `${operation} · ${text}`, inputCount: base.length, outputCount: results().length, query: text, operation });
       logUsage("search_completed", { query: text, mode: plan.mode, resultCount: results().length, durationMs: Math.round(performance.now() - started) });
       void recordResearchRun({ query: text, mode: plan.mode, filter: plan.filter, relays: plan.relays, operation }, results());
       hydrateProfiles(results(), token);
@@ -312,7 +309,6 @@ function App() {
       const next = mergeIncoming(incoming, base, operation).sort((a, b) => b.created_at - a.created_at);
       setResults(next);
       setEntryReasons((current) => ({ ...current, ...Object.fromEntries(incoming.map((event) => [event.id, reason])) }));
-      addStep({ type: "query", label: `${operation} · ${label}`, inputCount: base.length, outputCount: next.length, filter });
       logUsage("filter_query", { label, filter, operation, returned: incoming.length, resultCount: next.length, durationMs: Math.round(performance.now() - started) });
       void recordResearchRun({ label, filter, relays, operation }, next);
       hydrateProfiles(next, token);
@@ -342,7 +338,7 @@ function App() {
       const filter = { limit: 100 };
       const parts = [];
       const author = await resolvePubkey(builderAuthor());
-      const kinds = builderKinds().split(/[\s,]+/).map(Number).filter(Number.isInteger);
+      const kinds = parseKindList(builderKinds());
       if (author) { filter.authors = [author]; parts.push(`author ${short(author)}`); }
       if (kinds.length) { filter.kinds = kinds; parts.push(`kinds ${kinds.join(",")}`); }
       if (builderTag() && builderTagValue()) { filter[`#${builderTag().replace(/^#/, "").slice(0, 1)}`] = [builderTagValue().replace(/^#/, "")]; parts.push(`#${builderTag()}=${builderTagValue()}`); }
@@ -400,7 +396,6 @@ function App() {
       setResults(next);
       const reason = `${definition.label} from ${short(event.id)}`;
       setEntryReasons((current) => ({ ...current, ...Object.fromEntries(incoming.map((item) => [item.id, reason])) }));
-      addStep({ type: "expand", label: `${expansionOperation()} · ${reason}`, inputCount: base.length, outputCount: next.length, returned: incoming.length, added: added.length });
       setExpansionStatus({ state: "added", relation, label: definition.label, message: expansionOperation() === "replace" ? `Opened ${incoming.length} connected ${incoming.length === 1 ? "event" : "events"} as the corpus.` : expansionOperation() === "intersect" ? `Kept ${next.length} current ${next.length === 1 ? "event" : "events"} that match this relationship.` : `Added ${added.length} new ${added.length === 1 ? "event" : "events"} to the corpus.` });
       logUsage("graph_expansion", { relation, operation: expansionOperation(), from: event.id, returned: incoming.length, added: added.length, resultCount: next.length });
       hydrateProfiles(incoming, token);
@@ -525,7 +520,7 @@ function App() {
     const storedEvents = path.eventIds ? await loadEvents(path.eventIds, sourceIndex) : legacy?.corpus ?? [];
     void storeEvents(storedEvents, sourceIndex);
     setActiveRecipeId(path.id); setLastRunDelta(null);
-    setQuery(path.query ?? legacy?.query ?? ""); setResults(storedEvents); rememberEvents(storedEvents); setSteps(legacy?.steps ?? []);
+    setQuery(path.query ?? legacy?.query ?? ""); setResults(storedEvents); rememberEvents(storedEvents);
     setPinned(new Set(path.pinned ?? legacy?.pinned ?? [])); setView(path.settings?.view ?? legacy?.view ?? "list");
     setKindFilter(path.settings?.kindFilter ?? legacy?.kindFilter ?? "all"); setSinceDays(path.settings?.sinceDays ?? legacy?.sinceDays ?? 0);
     setDedupeEnabled(path.settings?.dedupeEnabled ?? true); setLastQueryPlan(path.plan ?? null);
@@ -539,11 +534,11 @@ function App() {
     void runSearch(recipe.query, "replace");
   };
   const newExploration = () => {
-    if ((results().length || steps().length) && !window.confirm("Start a new exploration? Unsaved current results and steps will be cleared. Saved investigations will remain.")) return;
+    if (results().length && !window.confirm("Start a new exploration? The current corpus will be cleared. Saved recipes and collections will remain.")) return;
     searchToken += 1;
     localStorage.removeItem(SESSION_KEY);
     knownEvents.clear();
-    setQuery(""); setResults([]); setProfiles(new Map()); setSteps([]); setSelectedId(""); setPinned(new Set());
+    setQuery(""); setResults([]); setProfiles(new Map()); setSelectedId(""); setPinned(new Set());
     setEntryReasons({}); setExpansionStatus(null); setKindFilter("all"); setSinceDays(0); setCombineMode("replace"); setView("list");
     setRelayStates(new Map()); setError(""); setRouteData(null); setLastQueryPlan(null); setHasMore(true); setPageMessage(""); setActiveRecipeId(""); setLastRunDelta(null); setActiveFacets(emptyFacets()); setCorpusHistory([]);
     history.replaceState(null, "", "#/search"); setRoute(parseRoute());
@@ -574,7 +569,7 @@ function App() {
   const toggleSet = (setter, id) => setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   createEffect(() => save(SESSION_KEY, {
-    query: query(), eventIds: results().map((event) => event.id).slice(0, 1000), steps: steps().slice(-30), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory()
+    query: query(), eventIds: results().map((event) => event.id).slice(0, 1000), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory()
   }));
 
   onMount(async () => {
@@ -673,7 +668,7 @@ function App() {
             <select aria-label="How to use these results" value={combineMode()} onChange={(event) => setCombineMode(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-lime-300"><option value="replace">replace current results</option><option value="union">add to current results</option><option value="intersect">keep only matches</option></select>
             <select aria-label="Content type" value={kindFilter()} onChange={(event) => setKindFilter(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="all">all content</option><option value="notes">short notes</option><option value="profiles">profiles</option><option value="follows">follow lists</option><option value="articles">long articles</option><option value="other">other data</option></select>
             <button type="button" aria-pressed={dedupeEnabled()} onClick={() => setDedupeEnabled((value) => !value)} class={`rounded border px-2 py-1.5 ${dedupeEnabled() ? "border-lime-800 bg-lime-950/30 text-lime-300" : "border-emerald-900 text-emerald-600"}`}>{dedupeEnabled() ? "duplicates collapsed" : "showing duplicates"}</button>
-            <select value={sinceDays()} onChange={(event) => { const days = Number(event.currentTarget.value); setSinceDays(days); addStep({ type: "filter", label: days ? `last ${days} days` : "all time", inputCount: results().length, outputCount: filteredResults().length }); }} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="0">all time</option><option value="1">last day</option><option value="7">last 7 days</option><option value="30">last 30 days</option><option value="90">last 90 days</option><option value="365">last year</option></select>
+            <select value={sinceDays()} onChange={(event) => setSinceDays(Number(event.currentTarget.value))} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="0">all time</option><option value="1">last day</option><option value="7">last 7 days</option><option value="30">last 30 days</option><option value="90">last 90 days</option><option value="365">last year</option></select>
             <button type="button" onClick={() => void savePath()} class="rounded border border-emerald-900 px-2 py-1.5 text-emerald-500 hover:text-emerald-200">{activeRecipeId() ? "update recipe" : "save as recipe"}</button>
             <Show when={activeRecipeId()}><button type="button" disabled={loading()} onClick={rerunRecipe} class="rounded border border-lime-800 px-2 py-1.5 text-lime-300 disabled:opacity-40">rerun + compare</button></Show>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">relays · {READ_RELAYS.length + searchRelays().length}</summary><div class="absolute right-0 top-9 z-40 w-80 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="mb-3 text-[10px] tracking-wider text-lime-300">DEFAULT READ RELAYS</div><For each={READ_RELAYS}>{(relay) => <div class="mb-1 flex items-center gap-2 text-emerald-500"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"/>{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">KEYWORD SEARCH RELAYS</div><textarea aria-label="Keyword search relays" value={relayDraft()} onInput={(event) => setRelayDraft(event.currentTarget.value)} class="h-24 w-full resize-none bg-black/30 p-2 font-mono text-xs outline-none"/><button type="button" onClick={applyRelays} class="mt-2 border border-lime-700 px-3 py-1 text-lime-300">apply search relays</button><p class="mt-2 text-[10px] text-emerald-800">Topic, account, note, and relationship queries use the three read relays. Keyword searches use the editable NIP-50 list.</p></div></details>

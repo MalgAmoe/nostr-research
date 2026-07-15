@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, ranked, tags } from "./event-analysis.js";
+import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, parseKindList, ranked, tags } from "./event-analysis.js";
 import { indexTerms } from "./research-store.js";
 
 const event = (overrides = {}) => ({ id: "a", pubkey: "p1", kind: 1, content: "A sufficiently long repeated piece of content", tags: [], created_at: 1, ...overrides });
@@ -30,6 +30,11 @@ test("ranks values and reads typed tags", () => {
 test("names known and unknown event kinds", () => {
   assert.equal(kindName(1111), "comment");
   assert.equal(kindName(999999), "event");
+});
+
+test("parses explicit kind constraints without turning an empty field into kind zero", () => {
+  assert.deepEqual(parseKindList(""), []);
+  assert.deepEqual(parseKindList("1, 30023 1"), [1, 30023]);
 });
 
 test("builds searchable terms from content, tags, and domains", () => {
