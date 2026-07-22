@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+@media (min-width: 640px) and (max-width: 950px) {
+  .pulse-settings-popover {
+    left: 0;
+    right: auto;
+  }
+}
+
 @theme {
   --font-mono: "SFMono-Regular", "Cascadia Code", "Liberation Mono", monospace;
 }

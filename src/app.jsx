@@ -2,24 +2,32 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount }
 import { render } from "solid-js/web";
 import { SimplePool, nip19 } from "nostr-tools";
 import { buildGraphModel, dedupeForDisplay, eventDomains, kindName, parseKindList, ranked, tags } from "./event-analysis.js";
+import { findBlockedNamePattern, normalizeNamePattern } from "./block-rules.js";
 import { applyRelayConstraints, constraintChips, constraintsFromFacets, emptyQueryConstraints, hasRelayConstraints, removeConstraint } from "./query-spec.js";
-import { latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, searchStoredEvents, storeEvents } from "./research-store.js";
+import { deleteEventsByAuthors, latestRun, listCollections, listRecipes, loadEvents, saveCollection, saveRecipe, saveRun, searchStoredEvents, storeEvents } from "./research-store.js";
 import { loadRelayInformationSet } from "./relay-info.js";
-import { PULSE_DEPTHS, PULSE_SCOPES, PULSE_WINDOWS, analyzePulse, defaultPulseSettings, pulseKinds } from "./pulse-analysis.js";
+import { PULSE_DEPTHS, PULSE_SCOPES, PULSE_WINDOWS, analyzePulse, defaultPulseSettings, pulseKinds, pulseTimeSlices } from "./pulse-analysis.js";
 import "./styles.css";
 
 const SEARCH_RELAYS_KEY = "nostr-research-relays-v2";
 const PATHS_KEY = "nostr-research-paths-v3";
 const SESSION_KEY = "nostr-research-session-v1";
-const PULSE_SETTINGS_KEY = "nostr-research-pulse-v1";
+const PULSE_SETTINGS_KEY = "nostr-research-pulse-v3";
+const BLOCKED_ACCOUNTS_KEY = "nostr-research-blocked-accounts-v1";
+const BLOCKED_NAMES_KEY = "nostr-research-blocked-names-v1";
+const FOLLOW_DRAFT_KEY = "nostr-research-follow-draft-v1";
+const SCAN_DIRECTION_KEY = "nostr-research-scan-direction-v1";
 const DEFAULT_SEARCH_RELAYS = ["wss://search.nos.today"];
-const READ_RELAYS = ["wss://nos.lol", "wss://relay.primal.net"];
-const FALLBACK_READ_RELAYS = ["wss://relay.damus.io", "wss://purplepag.es"];
+const READ_RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://nostr.mom"];
+const INDEXER_RELAYS = ["wss://purplepag.es"];
+const OPTIONAL_READ_RELAYS = ["wss://relay.snort.social"];
+const FALLBACK_READ_RELAYS = OPTIONAL_READ_RELAYS;
 const PAGE_SIZE = 40;
 const MAX_WAIT = 4500;
 const CACHE_TTL = 60_000;
 const CACHE_LIMIT = 200;
 const SESSION_EVENT_LIMIT = 1000;
+const PULSE_QUERY_LIMIT = 500;
 const pool = new SimplePool({ enableReconnect: true });
 const cache = new Map();
 const sourceIndex = new Map();
@@ -38,6 +46,17 @@ const save = (key, value) => {
     catch { return false; }
   }
 };
+const initialBlockedAccounts = load(BLOCKED_ACCOUNTS_KEY, []).map((entry) => typeof entry === "string" ? { pubkey: entry, name: "", blockedAt: 0 } : entry).filter((entry) => /^[0-9a-f]{64}$/i.test(entry.pubkey));
+const blockedPubkeys = new Set(initialBlockedAccounts.map((entry) => entry.pubkey.toLowerCase()));
+const initialBlockedNames = load(BLOCKED_NAMES_KEY, []).map(normalizeNamePattern).filter(Boolean);
+const initialFollowDraft = load(FOLLOW_DRAFT_KEY, []).map((entry) => typeof entry === "string" ? { pubkey: entry, name: "", addedAt: 0 } : entry).filter((entry) => /^[0-9a-f]{64}$/i.test(entry.pubkey));
+let blockedNamePatterns = [...new Set(initialBlockedNames)];
+const nameBlockedPubkeys = new Set();
+const knownProfileNames = new Map();
+const allowedEvents = (events = []) => events.filter((event) => {
+  const pubkey = event?.pubkey?.toLowerCase();
+  return !blockedPubkeys.has(pubkey) && !nameBlockedPubkeys.has(pubkey);
+});
 const unique = (events) => [...new Map(events.filter((event) => event?.id).map((event) => [event.id, event])).values()];
 const short = (value = "") => value.length > 18 ? `${value.slice(0, 9)}…${value.slice(-7)}` : value;
 const compact = (value = "", length = 150) => {
@@ -45,6 +64,7 @@ const compact = (value = "", length = 150) => {
   return text.length > length ? `${text.slice(0, length - 1)}…` : text || "Untitled event";
 };
 const emptyFacets = () => ({ topic: "", author: "", kind: null, day: "", domain: "", relay: "", media: "" });
+const emptyScanDirection = () => ({ topics: [], authors: [], domains: [], events: [] });
 
 function logUsage(type, detail = {}) {
   fetch("/api/log", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type, ...detail }) }).catch(() => {});
@@ -70,18 +90,19 @@ async function queryRelay(relay, filter, label) {
   const started = performance.now();
   try {
     let timer;
-    const events = await Promise.race([
+    const received = await Promise.race([
       pool.querySync([relay], filter, { maxWait: MAX_WAIT, label }),
       new Promise((resolve) => { timer = setTimeout(() => resolve([]), MAX_WAIT); })
     ]);
     clearTimeout(timer);
+    const events = allowedEvents(received);
     for (const event of events) {
       const sources = new Set(sourceIndex.get(event.id) ?? []);
       sources.add(relay);
       sourceIndex.set(event.id, [...sources]);
     }
     void storeEvents(events, sourceIndex);
-    logUsage("relay_query", { relay, label, state: "ok", count: events.length, durationMs: Math.round(performance.now() - started) });
+    logUsage("relay_query", { relay, label, state: "ok", count: events.length, blocked: received.length - events.length, durationMs: Math.round(performance.now() - started) });
     return events;
   } catch (error) {
     logUsage("relay_query", { relay, label, state: "error", detail: error.message, count: 0, durationMs: Math.round(performance.now() - started) });
@@ -92,12 +113,12 @@ async function queryRelay(relay, filter, label) {
 async function readEvents(filter, label, relays = READ_RELAYS) {
   const key = `${relays.join(",")}:${JSON.stringify(filter)}`;
   const cached = cache.get(key);
-  if (cached?.events && Date.now() - cached.at < CACHE_TTL) return cached.events;
+  if (cached?.events && Date.now() - cached.at < CACHE_TTL) return allowedEvents(cached.events);
   if (cached?.promise) return cached.promise;
   for (const [cachedKey, value] of cache) if (value.events && Date.now() - value.at >= CACHE_TTL) cache.delete(cachedKey);
   while (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value);
   const promise = Promise.all(relays.map((relay) => queryRelay(relay, filter, label))).then((batches) => {
-    const events = unique(batches.flat());
+    const events = allowedEvents(unique(batches.flat()));
     cache.set(key, { at: Date.now(), events });
     return events;
   });
@@ -109,7 +130,7 @@ function App() {
   const restored = load(SESSION_KEY, {});
   const [route, setRoute] = createSignal(parseRoute());
   const [query, setQuery] = createSignal(restored.query ?? "");
-  const [results, setResults] = createSignal(restored.corpus ?? []);
+  const [results, setResults] = createSignal(allowedEvents(restored.corpus ?? []));
   const [profiles, setProfiles] = createSignal(new Map());
   const [loading, setLoading] = createSignal(false);
   const [routeLoading, setRouteLoading] = createSignal(false);
@@ -123,7 +144,7 @@ function App() {
   const [sinceDays, setSinceDays] = createSignal(restored.sinceDays ?? 0);
   const [combineMode, setCombineMode] = createSignal("replace");
   const [view, setView] = createSignal(restored.view ?? "list");
-  const [pinned, setPinned] = createSignal(new Set(restored.pinned ?? []));
+  const [pinned, setPinned] = createSignal(new Set((restored.pinned ?? []).filter((id) => results().some((event) => event.id === id))));
   const [selectedId, setSelectedId] = createSignal(restored.selectedId ?? "");
   const [paths, setPaths] = createSignal(load(PATHS_KEY, []));
   const [queryConstraints, setQueryConstraints] = createSignal(restored.queryConstraints ?? emptyQueryConstraints());
@@ -138,7 +159,11 @@ function App() {
   const [pulseLoading, setPulseLoading] = createSignal(false);
   const [pulseSettings, setPulseSettings] = createSignal(load(PULSE_SETTINGS_KEY, defaultPulseSettings(READ_RELAYS)));
   const [pulseMeta, setPulseMeta] = createSignal(null);
+  const [pulseProgress, setPulseProgress] = createSignal(null);
   const [pulseView, setPulseView] = createSignal("overview");
+  const [scanDirection, setScanDirection] = createSignal(load(SCAN_DIRECTION_KEY, emptyScanDirection()));
+  const [scanRound, setScanRound] = createSignal(0);
+  const [scanReasons, setScanReasons] = createSignal({});
   const [dedupeEnabled, setDedupeEnabled] = createSignal(restored.dedupeEnabled ?? true);
   const [lastQueryPlan, setLastQueryPlan] = createSignal(null);
   const [paging, setPaging] = createSignal(false);
@@ -151,9 +176,18 @@ function App() {
   const [relayInformation, setRelayInformation] = createSignal(new Map());
   const [activeFacets, setActiveFacets] = createSignal(emptyFacets());
   const [corpusHistory, setCorpusHistory] = createSignal(restored.corpusHistory ?? []);
+  const [blockedAccounts, setBlockedAccounts] = createSignal(initialBlockedAccounts);
+  const [blockDraft, setBlockDraft] = createSignal("");
+  const [blockedNames, setBlockedNames] = createSignal(initialBlockedNames);
+  const [nameBlockDraft, setNameBlockDraft] = createSignal("");
+  const [nameBlockRevision, setNameBlockRevision] = createSignal(0);
+  const [followDraft, setFollowDraft] = createSignal(initialFollowDraft);
+  const [followDraftInput, setFollowDraftInput] = createSignal("");
+  const [blockNotice, setBlockNotice] = createSignal("");
   let searchToken = 0;
+  let pulseRunToken = 0;
   const knownEvents = new Map();
-  const rememberEvents = (events) => { for (const event of events) knownEvents.set(event.id, event); return events; };
+  const rememberEvents = (events) => { const allowed = allowedEvents(events); for (const event of allowed) knownEvents.set(event.id, event); return allowed; };
   rememberEvents(results());
   const selectedEvent = createMemo(() => knownEvents.get(selectedId()) ?? results().find((event) => event.id === selectedId()));
   const checkpointCorpus = (label) => {
@@ -163,7 +197,7 @@ function App() {
     void storeEvents(results(), sourceIndex);
   };
   const restoreCorpusCheckpoint = async (checkpoint) => {
-    const events = await loadEvents(checkpoint.eventIds, sourceIndex);
+    const events = allowedEvents(await loadEvents(checkpoint.eventIds, sourceIndex));
     rememberEvents(events); setResults(events); setQuery(checkpoint.query); setView(checkpoint.view); setActiveFacets(checkpoint.facets ?? emptyFacets()); setSelectedId(""); setExpansionStatus(null);
     history.replaceState(null, "", "#/search"); setRoute(parseRoute());
     logUsage("corpus_checkpoint_restored", { checkpointId: checkpoint.id, eventCount: events.length });
@@ -192,22 +226,36 @@ function App() {
   const profileFor = (pubkey) => profiles().get(pubkey) ?? { name: short(pubkey), handle: "unresolved", about: "" };
   const rememberProfiles = (events) => {
     if (!events.length) return;
+    const discovered = [];
     setProfiles((previous) => {
       const next = new Map(previous);
       for (const event of events.sort((a, b) => a.created_at - b.created_at)) {
         try {
           const metadata = JSON.parse(event.content);
+          knownProfileNames.set(event.pubkey.toLowerCase(), [metadata.display_name, metadata.name].filter(Boolean).map((value) => String(value).toLowerCase()));
+          discovered.push(event.pubkey.toLowerCase());
           next.set(event.pubkey, { name: metadata.display_name || metadata.name || short(event.pubkey), handle: metadata.nip05 || short(event.pubkey), about: metadata.about || "" });
         } catch {}
       }
       return next;
     });
+    queueMicrotask(() => reconcileNameBlocks(discovered));
   };
   const hydrateProfiles = async (events, token = searchToken) => {
-    const authors = [...new Set(events.map((event) => event.pubkey).filter((pubkey) => !profiles().has(pubkey)))].slice(0, 100);
+    const authors = [...new Set(events.map((event) => event.pubkey).filter((pubkey) => !profiles().has(pubkey)))];
     if (!authors.length) return;
-    const metadata = await readEvents({ authors, kinds: [0], limit: authors.length }, "profiles");
+    const visibleAuthors = authors.slice(0, 100);
+    const metadata = await readEvents({ authors: visibleAuthors, kinds: [0], limit: visibleAuthors.length }, "profiles", [...READ_RELAYS, ...INDEXER_RELAYS]);
     if (token === searchToken) rememberProfiles(metadata);
+    if (blockedNames().length && authors.length > visibleAuthors.length) {
+      const remaining = authors.slice(visibleAuthors.length);
+      for (let index = 0; index < remaining.length; index += 500) {
+        const batch = remaining.slice(index, index + 500);
+        const indexed = await readEvents({ authors: batch, kinds: [0], limit: batch.length }, `profiles-for-name-rules-${index / 500 + 1}`, INDEXER_RELAYS);
+        if (token !== searchToken) return;
+        rememberProfiles(indexed);
+      }
+    }
   };
 
   async function resolveSearch(value, forcedMode = "") {
@@ -283,6 +331,7 @@ function App() {
       logUsage("search_completed", { query: searchLabel, mode: plan.mode, resultCount: results().length, durationMs: Math.round(performance.now() - started) });
       setExecutedQuery({ value: text, mode: forcedMode || plan.mode, constraints: compiledConstraints, operation, completedAt: Date.now() });
       setActiveFacets({ ...emptyFacets(), domain: compiledConstraints.domain || "", media: compiledConstraints.media || "" });
+      if (operation === "replace") queueMicrotask(() => document.getElementById("research-query-input")?.select());
       void recordResearchRun({ query: text, mode: plan.mode, filter: plan.filter, relays: plan.relays, operation }, results());
       hydrateProfiles(results(), token);
     } catch (cause) {
@@ -421,7 +470,7 @@ function App() {
   }
 
   async function loadRoute(next = parseRoute()) {
-    if (next.kind === "search" || next.kind === "help") { setRoute(next); setRouteLoading(false); setRouteData(null); return; }
+    if (next.kind === "search" || next.kind === "relays" || next.kind === "settings" || next.kind === "help") { setRoute(next); setRouteLoading(false); setRouteData(null); return; }
     const token = ++searchToken;
     const started = performance.now();
     setRouteLoading(true); setError(""); setRouteData(null); setRoute(next);
@@ -451,7 +500,7 @@ function App() {
         if (!/^[0-9a-f]{64}$/i.test(pubkey)) throw new Error("Invalid account public key");
         const followOnly = next.kind === "follows";
         const [metadata, contacts, authored, mentions] = await Promise.all([
-          readEvents({ authors: [pubkey], kinds: [0], limit: 1 }, "account-metadata"),
+          readEvents({ authors: [pubkey], kinds: [0], limit: 1 }, "account-metadata", [...READ_RELAYS, ...INDEXER_RELAYS]),
           readEvents({ authors: [pubkey], kinds: [3], limit: 1 }, "account-follows"),
           followOnly ? [] : readEvents({ authors: [pubkey], limit: queryLimit() }, "account-events"),
           followOnly ? [] : readEvents({ "#p": [pubkey], limit: queryLimit() }, "account-mentions")
@@ -509,27 +558,210 @@ function App() {
   };
   const pulseAnalysis = createMemo(() => analyzePulse(pulseEvents(), pulsePreviousEvents(), pulseSettings().relays, (event) => sourceIndex.get(event.id) ?? []));
   async function loadRelayPulse() {
+    const token = ++pulseRunToken;
     setPulseLoading(true);
     const started = performance.now();
     try {
+      setScanRound(0); setScanReasons({});
       const settings = pulseSettings();
       const now = Math.floor(Date.now() / 60_000) * 60;
       const seconds = settings.windowHours * 3600;
       const relays = settings.relays.length ? settings.relays.slice(0, 4) : READ_RELAYS;
-      const filter = { kinds: pulseKinds(settings.scope), limit: settings.depth };
-      const [events, previous] = await Promise.all([
-        readEvents({ ...filter, since: now - seconds, until: now }, "relay-pulse-current", relays),
-        readEvents({ ...filter, since: now - seconds * 2, until: now - seconds - 1 }, "relay-pulse-previous", relays),
-      ]);
-      setPulseEvents(events); setPulsePreviousEvents(previous);
-      setPulseMeta({ collectedAt: Date.now(), durationMs: Math.round(performance.now() - started), requested: settings.depth * relays.length, relays: relays.length });
-      void hydrateProfiles(ranked(events.map((event) => event.pubkey), 20).map(([pubkey]) => ({ pubkey })));
-      logUsage("relay_pulse", { current: events.length, previous: previous.length, relays: relays.length, depth: settings.depth, windowHours: settings.windowHours, scope: settings.scope, durationMs: Math.round(performance.now() - started) });
-    } finally { setPulseLoading(false); }
+      const slices = pulseTimeSlices(now, seconds, settings.depth, PULSE_QUERY_LIMIT);
+      let events = [];
+      let previous = [];
+      setPulseProgress({ state: "collecting", completed: 0, total: slices.length, received: 0, unique: 0 });
+      for (let index = 0; index < slices.length; index += 1) {
+        if (token !== pulseRunToken) return;
+        const slice = slices[index];
+        const filter = { kinds: pulseKinds(settings.scope), limit: slice.limit };
+        const [currentBatch, previousBatch] = await Promise.all([
+          readEvents({ ...filter, since: slice.since, until: slice.until }, `relay-pulse-current-${index + 1}`, relays),
+          readEvents({ ...filter, since: slice.since - seconds, until: slice.until - seconds }, `relay-pulse-previous-${index + 1}`, relays),
+        ]);
+        if (token !== pulseRunToken) return;
+        events = unique([...events, ...currentBatch]);
+        previous = unique([...previous, ...previousBatch]);
+        setPulseEvents(events); setPulsePreviousEvents(previous);
+        setPulseProgress({ state: "collecting", completed: index + 1, total: slices.length, received: events.length + previous.length, unique: events.length });
+      }
+      const durationMs = Math.round(performance.now() - started);
+      setPulseMeta({ collectedAt: Date.now(), durationMs, requested: settings.depth * relays.length, relays: relays.length, slices: slices.length, mode: "baseline", round: 0 });
+      setPulseProgress({ state: "complete", completed: slices.length, total: slices.length, received: events.length + previous.length, unique: events.length });
+      void hydrateProfiles(blockedNames().length ? events : ranked(events.map((event) => event.pubkey), 20).map(([pubkey]) => ({ pubkey })));
+      logUsage("relay_pulse", { current: events.length, previous: previous.length, relays: relays.length, depth: settings.depth, slices: slices.length, windowHours: settings.windowHours, scope: settings.scope, durationMs });
+    } finally { if (token === pulseRunToken) setPulseLoading(false); }
   }
+  const cancelRelayPulse = () => {
+    pulseRunToken += 1;
+    setPulseLoading(false);
+    setPulseProgress((current) => current ? { ...current, state: "cancelled" } : null);
+    logUsage("relay_pulse_cancelled", { completed: pulseProgress()?.completed ?? 0, total: pulseProgress()?.total ?? 0, unique: pulseEvents().length });
+  };
+  const directionCount = createMemo(() => Object.values(scanDirection()).reduce((sum, values) => sum + values.length, 0));
+  const pursueDirection = (type, value) => {
+    const key = `${type}s`;
+    setScanDirection((current) => {
+      if (!current[key] || current[key].includes(value) || current[key].length >= 8) return current;
+      const next = { ...current, [key]: [...current[key], value] };
+      save(SCAN_DIRECTION_KEY, next); return next;
+    });
+    logUsage("scan_direction_added", { type, value });
+  };
+  const removeDirection = (type, value) => setScanDirection((current) => {
+    const next = { ...current, [type]: current[type].filter((item) => item !== value) };
+    save(SCAN_DIRECTION_KEY, next); return next;
+  });
+  const clearDirection = () => { const next = emptyScanDirection(); setScanDirection(next); save(SCAN_DIRECTION_KEY, next); };
+  async function continueDirectedScan() {
+    if (!directionCount()) { setBlockNotice("Pursue at least one topic, account, domain, or conversation first."); return; }
+    const token = ++pulseRunToken;
+    const started = performance.now();
+    const settings = pulseSettings();
+    const relays = settings.relays.length ? settings.relays.slice(0, 4) : READ_RELAYS;
+    const direction = scanDirection();
+    const since = Math.floor(Date.now() / 1000) - settings.windowHours * 3600;
+    const directedLimit = Math.min(500, Math.max(100, Math.ceil(settings.depth * 0.4)));
+    const broadLimit = Math.min(500, Math.max(50, Math.ceil(settings.depth * 0.15)));
+    const kinds = pulseKinds(settings.scope);
+    const plans = [
+      { label: "scan-broad", reason: "broad exploration sample", relays, filter: { kinds, since, limit: broadLimit } },
+      ...direction.topics.flatMap((topic) => [
+        { label: `scan-topic-${topic}`, reason: `pursued topic #${topic}`, relays, filter: { kinds, "#t": [topic], since, limit: directedLimit } },
+        { label: `scan-words-${topic}`, reason: `pursued terminology: ${topic}`, relays: searchRelays(), filter: { kinds, search: topic, since, limit: directedLimit } },
+      ]),
+      ...(direction.authors.length ? [{ label: "scan-authors", reason: "pursued account", relays, filter: { authors: direction.authors, kinds, since, limit: directedLimit } }] : []),
+      ...direction.domains.map((domain) => ({ label: `scan-domain-${domain}`, reason: `pursued linked domain: ${domain}`, relays: searchRelays(), filter: { kinds, search: domain, since, limit: directedLimit } })),
+      ...direction.events.map((id) => ({ label: `scan-conversation-${id.slice(0, 8)}`, reason: `pursued conversation: ${short(id)}`, relays, filter: { kinds: [1, 6, 7, 16, 1111, 9735], "#e": [id], since, limit: directedLimit } })),
+    ];
+    const previousRound = pulseEvents();
+    let incoming = [];
+    const reasons = {};
+    setPulseLoading(true); setPulseProgress({ state: "collecting", completed: 0, total: plans.length, received: 0, unique: 0 });
+    try {
+      await Promise.all(plans.map(async (plan) => {
+        const events = await readEvents(plan.filter, plan.label, plan.relays);
+        if (token !== pulseRunToken) return;
+        for (const event of events) reasons[event.id] = reasons[event.id] ? `${reasons[event.id]} · ${plan.reason}` : plan.reason;
+        incoming = unique([...incoming, ...events]);
+        setPulseEvents(incoming);
+        setPulseProgress((current) => ({ state: "collecting", completed: (current?.completed ?? 0) + 1, total: plans.length, received: incoming.length, unique: incoming.length }));
+      }));
+      if (token !== pulseRunToken) return;
+      setPulsePreviousEvents(previousRound); setScanReasons(reasons);
+      const round = scanRound() + 1; setScanRound(round);
+      const durationMs = Math.round(performance.now() - started);
+      setPulseMeta({ collectedAt: Date.now(), durationMs, requested: plans.reduce((sum, plan) => sum + plan.filter.limit * plan.relays.length, 0), relays: relays.length, slices: plans.length, mode: "directed", round });
+      setPulseProgress({ state: "complete", completed: plans.length, total: plans.length, received: incoming.length, unique: incoming.length });
+      void hydrateProfiles(incoming);
+      logUsage("directed_scan", { round, directions: directionCount(), plans: plans.length, previous: previousRound.length, current: incoming.length, durationMs });
+    } finally { if (token === pulseRunToken) setPulseLoading(false); }
+  }
+  const openScanInSearch = () => {
+    const events = pulseEvents();
+    if (!events.length) { setBlockNotice("Run a scan before opening its corpus in Search."); return; }
+    rememberEvents(events); setResults(events); setQuery(""); setSelectedId(""); setActiveFacets(emptyFacets()); setView("table");
+    setExecutedQuery({ mode: "directed scan", value: `${directionCount()} pursued signals · round ${scanRound()}`, operation: "replace" });
+    setEntryReasons(Object.fromEntries(events.map((event) => [event.id, scanReasons()[event.id] ?? `Relay Explorer round ${scanRound()}`])));
+    openRoute("#/search");
+    logUsage("scan_opened_in_search", { round: scanRound(), events: events.length, directions: directionCount() });
+  };
+  const parseAccountKey = (value) => {
+    const text = value.trim();
+    if (/^[0-9a-f]{64}$/i.test(text)) return text.toLowerCase();
+    try {
+      const decoded = nip19.decode(text);
+      if (decoded.type === "npub") return decoded.data.toLowerCase();
+      if (decoded.type === "nprofile") return decoded.data.pubkey.toLowerCase();
+    } catch {}
+    return "";
+  };
+  const removeAuthorsFromResearch = async (pubkeys) => {
+    const authors = new Set(pubkeys.map((value) => value.toLowerCase()));
+    cache.clear();
+    const blockedIds = new Set([...knownEvents.values()].filter((event) => authors.has(event.pubkey?.toLowerCase())).map((event) => event.id));
+    for (const id of blockedIds) { knownEvents.delete(id); sourceIndex.delete(id); }
+    setResults((events) => allowedEvents(events));
+    setPulseEvents((events) => allowedEvents(events)); setPulsePreviousEvents((events) => allowedEvents(events));
+    setPinned((ids) => new Set([...ids].filter((id) => !blockedIds.has(id))));
+    if (blockedIds.has(selectedId())) setSelectedId("");
+    setRouteData((data) => data?.pubkey && authors.has(data.pubkey.toLowerCase()) ? { ...data, follows: [], authored: [], mentions: [] } : data?.event && authors.has(data.event.pubkey?.toLowerCase()) ? null : data);
+    return deleteEventsByAuthors([...authors]);
+  };
+  const matchingNamePattern = (pubkey) => {
+    nameBlockRevision();
+    const names = knownProfileNames.get(pubkey?.toLowerCase()) ?? [];
+    return findBlockedNamePattern(names, blockedNames());
+  };
+  const reconcileNameBlocks = (pubkeys = [...knownProfileNames.keys()]) => {
+    const newlyBlocked = [];
+    for (const pubkey of new Set(pubkeys)) {
+      if (matchingNamePattern(pubkey)) {
+        if (!nameBlockedPubkeys.has(pubkey)) { nameBlockedPubkeys.add(pubkey); newlyBlocked.push(pubkey); }
+      } else nameBlockedPubkeys.delete(pubkey);
+    }
+    setNameBlockRevision((value) => value + 1);
+    if (newlyBlocked.length) void removeAuthorsFromResearch(newlyBlocked).then((deleted) => logUsage("name_rule_matched", { accounts: newlyBlocked.length, deleted }));
+  };
+  const blockAccount = async (value, name = "") => {
+    const pubkey = parseAccountKey(value);
+    if (!pubkey) { setBlockNotice("Could not recognize that account key."); return false; }
+    if (blockedPubkeys.has(pubkey)) { setBlockNotice("This account is already blocked globally."); return false; }
+    const entry = { pubkey, name: name || profileFor(pubkey).name, blockedAt: Date.now() };
+    blockedPubkeys.add(pubkey);
+    const next = [entry, ...blockedAccounts()];
+    setBlockedAccounts(next); save(BLOCKED_ACCOUNTS_KEY, next); setBlockDraft("");
+    const deleted = await removeAuthorsFromResearch([pubkey]);
+    setBlockNotice(`${entry.name || short(pubkey)} is now blocked globally. ${deleted} locally stored event${deleted === 1 ? "" : "s"} removed.`);
+    logUsage("account_blocked", { pubkey, deleted });
+    return true;
+  };
+  const unblockAccount = (pubkey) => {
+    blockedPubkeys.delete(pubkey);
+    const next = blockedAccounts().filter((entry) => entry.pubkey !== pubkey);
+    setBlockedAccounts(next); save(BLOCKED_ACCOUNTS_KEY, next); cache.clear();
+    setBlockNotice(`${short(pubkey)} is no longer blocked.`);
+    logUsage("account_unblocked", { pubkey });
+  };
+  const addBlockedName = () => {
+    const pattern = normalizeNamePattern(nameBlockDraft());
+    if (!pattern || blockedNames().includes(pattern)) { setBlockNotice(pattern ? "That name pattern is already blocked." : "Enter text to block in account names."); return; }
+    blockedNamePatterns = [...blockedNames(), pattern];
+    setBlockedNames(blockedNamePatterns); save(BLOCKED_NAMES_KEY, blockedNamePatterns); setNameBlockDraft("");
+    reconcileNameBlocks();
+    setBlockNotice(`Account names containing “${pattern}” are now blocked.`);
+    logUsage("name_rule_added", { pattern });
+  };
+  const removeBlockedName = (pattern) => {
+    blockedNamePatterns = blockedNames().filter((value) => value !== pattern);
+    setBlockedNames(blockedNamePatterns); save(BLOCKED_NAMES_KEY, blockedNamePatterns); reconcileNameBlocks(); cache.clear();
+    setBlockNotice(`Name rule “${pattern}” removed. Rerun research to retrieve previously filtered accounts.`);
+    logUsage("name_rule_removed", { pattern });
+  };
+  const blockReason = (pubkey) => blockedAccounts().some((entry) => entry.pubkey === pubkey?.toLowerCase()) ? { type: "key", label: "public key" } : matchingNamePattern(pubkey) ? { type: "name", label: matchingNamePattern(pubkey) } : null;
+  const isAccountBlocked = (pubkey) => Boolean(blockReason(pubkey));
+  const addToFollowDraft = (value, name = "") => {
+    const pubkey = parseAccountKey(value);
+    if (!pubkey) { setBlockNotice("Could not recognize that account key."); return false; }
+    if (followDraft().some((entry) => entry.pubkey === pubkey)) { setBlockNotice("This account is already in the follow draft."); return false; }
+    const entry = { pubkey, name: name || profileFor(pubkey).name, addedAt: Date.now() };
+    const next = [entry, ...followDraft()];
+    setFollowDraft(next); save(FOLLOW_DRAFT_KEY, next); setFollowDraftInput("");
+    setBlockNotice(`${entry.name || short(pubkey)} added to the local follow draft.`);
+    logUsage("follow_draft_added", { pubkey });
+    return true;
+  };
+  const removeFromFollowDraft = (pubkey) => {
+    const next = followDraft().filter((entry) => entry.pubkey !== pubkey);
+    setFollowDraft(next); save(FOLLOW_DRAFT_KEY, next);
+    setBlockNotice(`${short(pubkey)} removed from the follow draft.`);
+    logUsage("follow_draft_removed", { pubkey });
+  };
+  const isInFollowDraft = (pubkey) => followDraft().some((entry) => entry.pubkey === pubkey?.toLowerCase());
   const updatePulseSettings = (patch) => setPulseSettings((current) => { const next = { ...current, ...patch }; save(PULSE_SETTINGS_KEY, next); return next; });
   const researchPulseRelay = (relay, topic = "") => {
     setQuery(topic ? `#${topic}` : ""); setStartMode("topic"); setQueryConstraints((current) => ({ ...current, relay, promotedTopic: topic }));
+    openRoute("#/search");
     queueMicrotask(() => document.getElementById("research-composer")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
   const savePath = async () => {
@@ -559,12 +791,13 @@ function App() {
   };
   const restorePath = async (path) => {
     const legacy = path.snapshot;
-    const storedEvents = path.eventIds ? await loadEvents(path.eventIds, sourceIndex) : legacy?.corpus ?? [];
+    const storedEvents = allowedEvents(path.eventIds ? await loadEvents(path.eventIds, sourceIndex) : legacy?.corpus ?? []);
     void storeEvents(storedEvents, sourceIndex);
     setActiveRecipeId(path.id); setLastRunDelta(null);
     const draft = path.queryDraft ?? { mode: "words", value: path.query ?? legacy?.query ?? "", constraints: emptyQueryConstraints() };
     setQuery(draft.value); setStartMode(draft.mode); setQueryConstraints(draft.constraints ?? emptyQueryConstraints()); setResults(storedEvents); rememberEvents(storedEvents);
-    setPinned(new Set(path.pinned ?? legacy?.pinned ?? [])); setView(path.settings?.view ?? legacy?.view ?? "list");
+    const restoredIds = new Set(storedEvents.map((event) => event.id));
+    setPinned(new Set((path.pinned ?? legacy?.pinned ?? []).filter((id) => restoredIds.has(id)))); setView(path.settings?.view ?? legacy?.view ?? "list");
     setKindFilter(path.settings?.kindFilter ?? legacy?.kindFilter ?? "all"); setSinceDays(path.settings?.sinceDays ?? legacy?.sinceDays ?? 0);
     setDedupeEnabled(path.settings?.dedupeEnabled ?? true); setQueryLimit(path.settings?.queryLimit ?? queryLimit()); setLastQueryPlan(path.plan ?? null);
     history.replaceState(null, "", "#/search"); setRoute(parseRoute());
@@ -605,8 +838,8 @@ function App() {
     logUsage("collection_saved", { collectionId: collection.id, eventCount: eventIds.length });
   };
   const openCollection = async (collection) => {
-    const events = await loadEvents(collection.eventIds, sourceIndex);
-    rememberEvents(events); setResults(events.sort((a, b) => b.created_at - a.created_at)); setPinned(new Set(collection.eventIds));
+    const events = allowedEvents(await loadEvents(collection.eventIds, sourceIndex));
+    rememberEvents(events); setResults(events.sort((a, b) => b.created_at - a.created_at)); setPinned(new Set(events.map((event) => event.id)));
     setQuery(collection.title); setView("table"); setSelectedId(""); setActiveFacets(emptyFacets());
     history.replaceState(null, "", "#/search"); setRoute(parseRoute());
     logUsage("collection_opened", { collectionId: collection.id, cachedEvents: events.length });
@@ -645,7 +878,7 @@ function App() {
     }
     if (recipes.length || migrated.length) setPaths([...recipes, ...migrated].sort((a, b) => b.updatedAt - a.updatedAt));
     if (restored.eventIds?.length) {
-      const stored = await loadEvents(restored.eventIds, sourceIndex);
+      const stored = allowedEvents(await loadEvents(restored.eventIds, sourceIndex));
       if (stored.length) { void storeEvents(stored, sourceIndex); if (!results().length) { setResults(stored); rememberEvents(stored); } }
     }
     if (restored.activeRecipeId) setActiveRecipeId(restored.activeRecipeId);
@@ -672,7 +905,7 @@ function App() {
     if (!value) return;
     checkpointCorpus(`before local archive search · ${value}`);
     setLoading(true); setError("");
-    const events = await searchStoredEvents(value.replace(/^#/, ""), 250, sourceIndex);
+    const events = allowedEvents(await searchStoredEvents(value.replace(/^#/, ""), 250, sourceIndex));
     rememberEvents(events); setResults(events); setEntryReasons(Object.fromEntries(events.map((event) => [event.id, `local archive search: ${value}`]))); setActiveFacets(emptyFacets()); setView("table");
     if (!events.length) setError("No cached events matched this local archive search. Retrieve data from relays first to grow the archive.");
     logUsage("local_archive_search", { query: value, resultCount: events.length }); setLoading(false);
@@ -699,15 +932,16 @@ function App() {
 
   return <div class="min-h-screen bg-[#050b08] text-emerald-100 selection:bg-lime-300 selection:text-black">
     <header class="sticky top-0 z-30 border-b border-emerald-900/80 bg-[#050b08]/95 backdrop-blur">
-      <div class="mx-auto flex max-w-[1600px] items-center gap-5 px-4 py-3 lg:px-7">
+      <div class="relative mx-auto flex max-w-[1600px] items-center gap-5 px-4 py-3 lg:px-7">
         <button onClick={newExploration} class="font-mono text-sm font-bold tracking-[.14em] text-lime-200">NOSTR_RESEARCH<span class="text-emerald-700">://LIVE</span></button>
-        <span class="hidden text-xs text-emerald-800 sm:block">real relay graph · local research state</span>
-        <div class="ml-auto flex items-center gap-2"><button aria-label="Help" title="How to use Nostr Research" onClick={() => openRoute("#/help")} class={`flex h-8 w-8 items-center justify-center rounded-full border font-mono text-sm ${route().kind === "help" ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-800 text-emerald-400 hover:border-lime-500 hover:text-lime-300"}`}>?</button><button onClick={newExploration} class="rounded border border-lime-800 px-3 py-1.5 font-mono text-[11px] text-lime-300 hover:bg-lime-300 hover:text-black">＋ NEW</button><div class="hidden items-center gap-2 text-[11px] text-emerald-700 sm:flex"><span class="h-1.5 w-1.5 animate-pulse rounded-full bg-lime-300"/>LIVE RELAYS</div></div>
+        <nav class="absolute left-1/2 flex -translate-x-1/2 items-center gap-1 font-mono text-[11px]"><button onClick={() => openRoute("#/search")} class={`rounded px-3 py-1.5 ${route().kind === "search" ? "bg-lime-300 text-black" : "text-emerald-500 hover:text-lime-300"}`}>SEARCH</button><button onClick={() => openRoute("#/relays")} class={`rounded px-3 py-1.5 ${route().kind === "relays" ? "bg-lime-300 text-black" : "text-emerald-500 hover:text-lime-300"}`}>RELAY EXPLORER</button></nav>
+        <div class="ml-auto flex items-center gap-2"><button aria-label="Settings" title="Settings" onClick={() => openRoute("#/settings")} class={`flex h-8 w-8 items-center justify-center rounded-full border font-mono text-sm ${route().kind === "settings" ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-800 text-emerald-400 hover:border-lime-500 hover:text-lime-300"}`}>⚙</button><button onClick={newExploration} class="rounded border border-lime-800 px-3 py-1.5 font-mono text-[11px] text-lime-300 hover:bg-lime-300 hover:text-black">＋ NEW</button><div class="hidden items-center gap-2 text-[11px] text-emerald-700 sm:flex"><span class="h-1.5 w-1.5 animate-pulse rounded-full bg-lime-300"/>LIVE RELAYS</div></div>
       </div>
     </header>
+    <Show when={blockNotice()}><div class="fixed bottom-5 left-1/2 z-50 flex w-[min(92vw,42rem)] -translate-x-1/2 items-center gap-3 rounded border border-lime-700 bg-[#07110c] px-4 py-3 shadow-2xl"><span class="font-mono text-xs text-lime-200">{blockNotice()}</span><button onClick={() => setBlockNotice("")} class="ml-auto font-mono text-emerald-600 hover:text-lime-300">×</button></div></Show>
 
-    <div class={`mx-auto grid gap-4 px-4 py-5 lg:px-6 ${route().kind === "help" ? "max-w-[1100px]" : "max-w-[1800px] xl:grid-cols-[250px_minmax(0,1fr)_310px]"}`}>
-      <Show when={route().kind !== "help"}><aside class="hidden space-y-4 xl:sticky xl:top-20 xl:block xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
+    <div class={`mx-auto grid gap-4 px-4 py-5 lg:px-6 ${route().kind === "settings" ? "max-w-[1100px]" : route().kind === "relays" ? "max-w-[1600px]" : "max-w-[1800px] xl:grid-cols-[250px_minmax(0,1fr)_310px]"}`}>
+      <Show when={!['settings', 'relays'].includes(route().kind)}><aside class="hidden space-y-4 xl:sticky xl:top-20 xl:block xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
         <Show when={results().length}><FacetPanel facets={corpusFacets()} active={activeFacets()} profileFor={profileFor} onFacet={toggleFacet} onOpenAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onClear={() => setActiveFacets(emptyFacets())} onCompile={compileActiveFacets}/></Show>
         <Panel title="RESEARCH RECIPES"><Show when={paths().length} fallback={<p class="text-emerald-900">Save a search to make it rerunnable.</p>}><For each={paths().slice(0, 8)}>{(path) => <button onClick={() => void restorePath(path)} class={`block w-full border-b border-emerald-950 py-2 text-left hover:text-lime-300 ${activeRecipeId() === path.id ? "text-lime-300" : "text-emerald-500"}`}><span class="block truncate">{activeRecipeId() === path.id ? "› " : ""}{path.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{path.eventIds?.length ?? path.snapshot?.corpus?.length ?? 0} cached nodes</span></button>}</For></Show></Panel>
         <Show when={collections().length}><Panel title="COLLECTIONS"><For each={collections().slice(0, 8)}>{(collection) => <button onClick={() => void openCollection(collection)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">{collection.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{collection.eventIds.length} evidence items</span></button>}</For></Panel></Show>
@@ -716,12 +950,12 @@ function App() {
       </aside></Show>
 
       <main class="min-w-0">
-        <Show when={route().kind !== "help"}><Show when={results().length}><details class="mb-4 rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs xl:hidden"><summary class="text-lime-300">filter this corpus · {filteredResults().length}/{results().length} items</summary><div class="mt-3 border-t border-emerald-900 pt-3"><div class="flex flex-wrap gap-2"><For each={corpusFacets().topics.slice(0, 10)}>{([topic, count]) => <button onClick={() => toggleFacet("topic", topic)} class={`rounded border px-2 py-1 ${activeFacets().topic === topic ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-900 text-emerald-500"}`}>#{topic} {count}</button>}</For><Show when={activeFacetCount()}><button onClick={compileActiveFacets} class="rounded border border-lime-700 px-2 py-1 text-lime-300">use in a new search ↗</button><button onClick={() => setActiveFacets(emptyFacets())} class="text-emerald-600">clear</button></Show></div></div></details></Show>
+        <Show when={route().kind === "search"}><Show when={results().length}><details class="mb-4 rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs xl:hidden"><summary class="text-lime-300">filter this corpus · {filteredResults().length}/{results().length} items</summary><div class="mt-3 border-t border-emerald-900 pt-3"><div class="flex flex-wrap gap-2"><For each={corpusFacets().topics.slice(0, 10)}>{([topic, count]) => <button onClick={() => toggleFacet("topic", topic)} class={`rounded border px-2 py-1 ${activeFacets().topic === topic ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-900 text-emerald-500"}`}>#{topic} {count}</button>}</For><Show when={activeFacetCount()}><button onClick={compileActiveFacets} class="rounded border border-lime-700 px-2 py-1 text-lime-300">use in a new search ↗</button><button onClick={() => setActiveFacets(emptyFacets())} class="text-emerald-600">clear</button></Show></div></div></details></Show>
         <section id="research-composer" class="mb-4 scroll-mt-20 rounded border border-emerald-900 bg-emerald-950/20 p-3 shadow-[0_0_40px_rgba(16,185,129,.04)]">
           <div class="mb-3 flex flex-wrap gap-2 font-mono text-xs"><span class="mr-1 self-center text-emerald-700">START FROM</span><For each={[['topic','a topic'],['person','a person'],['note','a note'],['words','keywords']]}>{([mode,label]) => <button type="button" onClick={() => setStartMode(mode)} class={`rounded px-3 py-1.5 ${startMode() === mode ? "bg-lime-300 text-black" : "border border-emerald-900 text-emerald-500"}`}>{label}</button>}</For></div>
           <form class="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); startSearch(); }}>
             <span class="font-mono text-lime-300">→</span>
-            <input value={query()} onInput={(event) => setQuery(event.currentTarget.value)} class="min-w-0 flex-1 bg-transparent px-1 py-2 font-mono text-sm text-emerald-50 outline-none placeholder:text-emerald-900" placeholder={{topic:"topic, for example bitcoin",person:"name@domain, npub, or public key",note:"note, nevent, or event ID",words:"words contained in notes"}[startMode()]} autofocus />
+            <input id="research-query-input" value={query()} onInput={(event) => setQuery(event.currentTarget.value)} class="min-w-0 flex-1 bg-transparent px-1 py-2 font-mono text-sm text-emerald-50 outline-none placeholder:text-emerald-900" placeholder={{topic:"topic, for example bitcoin",person:"name@domain, npub, or public key",note:"note, nevent, or event ID",words:"words contained in notes"}[startMode()]} autofocus />
             <button disabled={loading()} class="rounded border border-lime-700 px-4 py-2 font-mono text-xs text-lime-200 transition hover:bg-lime-300 hover:text-black disabled:opacity-40">{loading() ? "SEARCHING…" : "SEARCH RELAYS"}</button><button type="button" disabled={loading()} onClick={() => void searchLocalArchive()} class="rounded border border-emerald-800 px-3 py-2 font-mono text-[10px] text-emerald-400 hover:text-lime-300">SEARCH LOCAL</button>
           </form>
           <Show when={composerChips().length}><div class="mt-3 flex flex-wrap gap-2 font-mono text-[10px]"><For each={composerChips()}>{(chip) => <button type="button" title="Remove constraint" onClick={() => setQueryConstraints((current) => removeConstraint(current, chip.key))} class={`rounded border px-2 py-1 ${chip.scope === "relay" ? "border-lime-800 text-lime-300" : "border-cyan-900 text-cyan-400"}`}>{chip.label} <span class="ml-1 opacity-50">{chip.scope.toUpperCase()} ×</span></button>}</For></div></Show>
@@ -734,24 +968,20 @@ function App() {
             <button type="button" onClick={() => void savePath()} class="rounded border border-emerald-900 px-2 py-1.5 text-emerald-500 hover:text-emerald-200">{activeRecipeId() ? "update recipe" : "save as recipe"}</button>
             <Show when={activeRecipeId()}><button type="button" disabled={loading()} onClick={rerunRecipe} class="rounded border border-lime-800 px-2 py-1.5 text-lime-300 disabled:opacity-40">rerun + compare</button></Show>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">depth · {queryLimit()}/relay</summary><div class="absolute right-0 top-9 z-40 w-72 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="text-[10px] tracking-wider text-lime-300">RESEARCH DEPTH · PER RELAY</div><div class="mt-3 grid grid-cols-2 gap-1"><For each={[[50,"quick"],[100,"standard"],[250,"deep"],[500,"exhaustive"]]}>{([limit,label]) => <button type="button" onClick={() => setQueryLimit(limit)} class={`rounded border px-2 py-2 text-left ${queryLimit() === limit ? "border-lime-500 bg-lime-950/40 text-lime-300" : "border-emerald-900 text-emerald-600"}`}><span class="block">{label}</span><span class="font-mono text-[9px] text-emerald-800">{limit} events</span></button>}</For></div><label class="mt-3 block text-[10px] text-emerald-700">CUSTOM · 10–1000<input aria-label="Custom events per relay" type="number" min="10" max="1000" value={queryLimit()} onChange={(event) => setQueryLimit(Math.min(1000, Math.max(10, Number(event.currentTarget.value) || 100)))} class="mt-1 w-full rounded border border-emerald-900 bg-black/30 px-2 py-2 font-mono text-emerald-300 outline-none"/></label><p class="mt-2 text-[9px] leading-4 text-emerald-800">This is a requested maximum. Relays may return fewer. Exact note and profile lookups ignore this setting.</p></div></details>
-            <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">relays · {READ_RELAYS.length + searchRelays().length}</summary><div class="absolute right-0 top-9 z-40 w-80 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="mb-3 text-[10px] tracking-wider text-lime-300">DEFAULT READ RELAYS</div><For each={READ_RELAYS}>{(relay) => <div class="mb-1 flex items-center gap-2 text-emerald-500"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"/>{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">KEYWORD SEARCH RELAYS</div><textarea aria-label="Keyword search relays" value={relayDraft()} onInput={(event) => setRelayDraft(event.currentTarget.value)} class="h-24 w-full resize-none bg-black/30 p-2 font-mono text-xs outline-none"/><button type="button" onClick={applyRelays} class="mt-2 border border-lime-700 px-3 py-1 text-lime-300">apply search relays</button><p class="mt-2 text-[10px] text-emerald-800">Topic, account, note, and relationship queries use the default read relays. Keyword searches use the editable NIP-50 list.</p></div></details>
+            <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">relays · {new Set([...READ_RELAYS, ...INDEXER_RELAYS, ...OPTIONAL_READ_RELAYS, ...searchRelays()]).size}</summary><div class="absolute right-0 top-9 z-40 w-80 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="mb-3 text-[10px] tracking-wider text-lime-300">GENERAL RESEARCH · ACTIVE</div><For each={READ_RELAYS}>{(relay) => <div class="mb-1 flex items-center gap-2 text-emerald-500"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"/>{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">ACCOUNT INDEXER</div><For each={INDEXER_RELAYS}>{(relay) => <div class="mb-1 text-emerald-500">{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">OPTIONAL GENERAL RELAY</div><For each={OPTIONAL_READ_RELAYS}>{(relay) => <div class="mb-1 text-emerald-700">{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">KEYWORD SEARCH RELAYS</div><textarea aria-label="Keyword search relays" value={relayDraft()} onInput={(event) => setRelayDraft(event.currentTarget.value)} class="h-24 w-full resize-none bg-black/30 p-2 font-mono text-xs outline-none"/><button type="button" onClick={applyRelays} class="mt-2 border border-lime-700 px-3 py-1 text-lime-300">apply search relays</button><p class="mt-2 text-[10px] text-emerald-800">General queries use the four active relays. Purple Pages is reserved for account indexing. Keyword searches use the editable NIP-50 list. Optional relays can be selected in Relay Explorer.</p></div></details>
             <ConstraintPicker constraints={queryConstraints()} setConstraints={setQueryConstraints} editor={constraintEditor()} setEditor={setConstraintEditor} readRelays={READ_RELAYS}/>
           </div>
         </section></Show>
 
         <Show when={!routeLoading()} fallback={<LoadingPanel label="reading relay graph"/>}>
           <Show when={!error()} fallback={<ErrorPanel message={error()}/>}>
-            <Show keyed when={route()}>{(currentRoute) => <Show when={currentRoute.kind === "help"} fallback={<Show when={currentRoute.kind === "search"} fallback={<RouteView route={currentRoute} data={routeData()} profileFor={profileFor} openRoute={openRoute} onComposeAuthor={composeAuthorSearch}/> }>
-                <Show when={!results().length && !query()}><HomeDiscovery analysis={pulseAnalysis()} events={pulseEvents()} loading={pulseLoading()} settings={pulseSettings()} meta={pulseMeta()} view={pulseView()} setView={setPulseView} availableRelays={[...new Set([...READ_RELAYS, ...searchRelays()])]} profileFor={profileFor} onSettings={updatePulseSettings} onTopic={(topic) => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onDomain={(domain) => { setQuery(domain); setStartMode("words"); runSearch(domain, "replace", "words"); }} onRelay={researchPulseRelay} onRefresh={loadRelayPulse}/></Show>
-                <ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onNavigate={navigateFromEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0} activeFacets={activeFacets()} onFacet={toggleFacet} entryReasons={entryReasons()}/>
-              </Show>}><HelpPage onClose={() => openRoute("#/search")}/></Show>}</Show>
+            <Show keyed when={route()}>{(currentRoute) => <Show when={currentRoute.kind === "settings"} fallback={<Show when={currentRoute.kind === "relays"} fallback={<Show when={currentRoute.kind === "search"} fallback={<RouteView route={currentRoute} data={routeData()} profileFor={profileFor} openRoute={openRoute} onComposeAuthor={composeAuthorSearch} onBlock={blockAccount} onUnblock={unblockAccount} isBlocked={isAccountBlocked} blockReason={blockReason} onFollow={addToFollowDraft} onUnfollow={removeFromFollowDraft} isFollowed={isInFollowDraft}/> }><ResearchWorkspace view={view()} setView={setView} events={filteredResults()} loading={loading()} query={query()} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onNavigate={navigateFromEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={results().length > 0} activeFacets={activeFacets()} onFacet={toggleFacet} entryReasons={entryReasons()}/></Show>}><HomeDiscovery analysis={pulseAnalysis()} events={pulseEvents()} loading={pulseLoading()} progress={pulseProgress()} settings={pulseSettings()} meta={pulseMeta()} view={pulseView()} setView={setPulseView} availableRelays={[...new Set([...READ_RELAYS, ...OPTIONAL_READ_RELAYS])]} profileFor={profileFor} direction={scanDirection()} directionCount={directionCount()} round={scanRound()} onPursue={pursueDirection} onRemoveDirection={removeDirection} onClearDirection={clearDirection} onContinueScan={continueDirectedScan} onOpenInSearch={openScanInSearch} onSettings={updatePulseSettings} onTopic={(topic) => { setQuery(`#${topic}`); runSearch(`#${topic}`, "replace"); }} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onEvent={(id) => openRoute(`#/event/${id}`)} onDomain={(domain) => { setQuery(domain); setStartMode("words"); runSearch(domain, "replace", "words"); }} onRelay={researchPulseRelay} onRefresh={loadRelayPulse} onCancel={cancelRelayPulse}/></Show>}><SettingsPage accounts={blockedAccounts()} draft={blockDraft()} setDraft={setBlockDraft} onAdd={() => void blockAccount(blockDraft())} onUnblock={unblockAccount} names={blockedNames()} nameDraft={nameBlockDraft()} setNameDraft={setNameBlockDraft} onAddName={addBlockedName} onRemoveName={removeBlockedName} follows={followDraft()} followDraft={followDraftInput()} setFollowDraft={setFollowDraftInput} onAddFollow={() => addToFollowDraft(followDraftInput())} onRemoveFollow={removeFromFollowDraft}/></Show>}</Show>
           </Show>
         </Show>
       </main>
 
-      <Show when={results().length && route().kind !== "help"}><aside class="space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pl-1">
+      <Show when={results().length && !["settings", "relays"].includes(route().kind)}><aside class="space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pl-1">
         <Show when={selectedEvent()}>{(event) => <ExploreFromNode compact event={event()} corpus={results()} profile={profileFor(event().pubkey)} profileFor={profileFor} onSelect={selectEvent} onExpand={expandSelection} operation={expansionOperation()} onOperation={setExpansionOperation} openRoute={openRoute} loading={loading()} status={expansionStatus()} reason={entryReasons()[event().id]}/>}</Show>
-        <Panel title={`RELAY PULSE · ${pulseSettings().windowHours < 24 ? `${pulseSettings().windowHours}H` : `${pulseSettings().windowHours / 24}D`}`}><Show when={pulseAnalysis().rising.length} fallback={<p class="text-emerald-900">{pulseLoading() ? "sampling relay activity…" : "no rising tagged topics returned"}</p>}><div class="mb-2 text-[9px] tracking-wider text-emerald-800">RISING AGAINST THE PREVIOUS WINDOW</div><div class="flex flex-wrap gap-1.5"><For each={pulseAnalysis().rising.slice(0, 8)}>{(item) => <button onClick={() => { setQuery(`#${item.topic}`); runSearch(`#${item.topic}`, "replace"); }} class="rounded border border-emerald-900 px-2 py-1 text-emerald-500 hover:border-lime-700 hover:text-lime-300">#{item.topic} <span class="text-emerald-800">{item.state === "new" ? "new" : `${item.delta >= 0 ? "+" : ""}${item.delta}`}</span></button>}</For></div></Show></Panel>
         <Panel title="EVIDENCE"><Show when={pinned().size} fallback={<p class="text-emerald-900">Pin nodes to build a lightweight evidence collection.</p>}><For each={[...pinned()].map((id) => knownEvents.get(id)).filter(Boolean)}>{(event) => <button onClick={() => setSelectedId(event.id)} class="block w-full border-b border-emerald-950 py-2 text-left"><span class="text-lime-500">{kindName(event.kind)}</span><span class="mt-1 block truncate text-emerald-600">{compact(event.content, 60)}</span></button>}</For><div class="flex gap-1 pt-2"><input aria-label="Collection name" value={collectionDraft()} onInput={(event) => setCollectionDraft(event.currentTarget.value)} placeholder="collection name" class="min-w-0 flex-1 rounded border border-emerald-900 bg-black/20 px-2 py-1 text-emerald-300 outline-none"/><button onClick={() => void savePinnedAsCollection()} class="rounded border border-lime-800 px-2 text-lime-300">save</button></div></Show></Panel>
         <Show when={lastRunDelta()}>{(delta) => <Panel title="RUN COMPARISON"><Show when={delta().previous} fallback={<p class="text-emerald-700">Baseline saved. Rerun this recipe later to measure change.</p>}><Stat label="new" value={`+${delta().added}`}/><Stat label="not returned" value={`−${delta().missing}`}/><Stat label="set overlap" value={`${Math.round((delta().overlap ?? 0) * 100)}%`}/></Show></Panel>}</Show>
         <CoveragePanel states={relayStates()} information={relayInformation()} requestedLimit={queryLimit()} uniqueCount={results().length} visibleCount={filteredResults().length}/>
@@ -760,42 +990,16 @@ function App() {
   </div>;
 }
 
-function HelpPage(props) {
-  const regions = [
-    ["1", "Start here", "On a clean page, Relay Pulse compares two time windows and lets you research its topics, accounts, domains, and relay-specific signals. Or choose topic, person, note, or keywords to search directly."],
-    ["2", "Control the next result", "Replace starts a new corpus, Add expands it, and Keep matches narrows it. Depth is the requested number of events per relay."],
-    ["3", "Filter or prepare new research", "Facet clicks filter the current corpus locally. “Use in a new search” copies those selections into the visible composer, where you can edit them before searching relays."],
-    ["4", "Change how you look", "Explore is for reading, Analyze is for tables and comparisons, and Map reveals aggregate and relationship structure. They are views of the same corpus."],
-    ["5", "Work with the corpus", "The middle is your current set of real events. Select a note to research from it, open it fully, follow its author, or pin it as evidence."],
-    ["6", "Navigate from a note", "The right side answers “where next?” Follow conversations, references, mentions, reactions, topics, or an author’s network. Choose whether those results add to or replace the corpus."],
-    ["7", "Keep evidence and check coverage", "Pinned notes become named collections. Coverage shows what each queried relay returned; it never proves that nothing else exists on Nostr."],
-    ["8", "Continue", "Load older results requests another depth-sized page from before the oldest event currently retrieved."],
-    ["9", "Configure Relay Pulse", "Choose a time window, per-relay depth, content scope, and 1–4 relays. Overview shows movement, Relays exposes overlap and local differences, and Data explains the sample and its cost."],
-  ];
-  return <article class="overflow-hidden rounded border border-emerald-900 bg-emerald-950/10">
-    <header class="flex flex-wrap items-start gap-5 border-b border-emerald-900 bg-[radial-gradient(circle_at_top_left,rgba(132,204,22,.12),transparent_55%)] p-6 sm:p-8">
-      <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-lime-500 font-mono text-xl text-lime-300">?</div><div class="min-w-0 flex-1"><div class="font-mono text-[10px] tracking-[.2em] text-emerald-600">UI MAP</div><h1 class="mt-1 text-2xl text-lime-100">What am I looking at?</h1><p class="mt-2 max-w-3xl text-sm leading-6 text-emerald-500">Build a corpus from real Nostr events, then read it, filter it, map it, and move through its relationships. The numbered screen below shows what each area is for.</p></div><button onClick={props.onClose} class="rounded border border-lime-700 px-4 py-2 font-mono text-xs text-lime-200 hover:bg-lime-300 hover:text-black">← BACK</button>
-    </header>
-
-    <section class="border-b border-emerald-900 p-4 sm:p-6"><div class="overflow-hidden rounded border border-emerald-800 bg-[#050b08] shadow-[0_0_50px_rgba(16,185,129,.05)]">
-      <div class="flex items-center gap-2 border-b border-emerald-900 px-3 py-2 font-mono text-[9px] text-emerald-700"><span class="text-lime-300">NOSTR_RESEARCH://LIVE</span><span class="ml-auto">?　＋ NEW　● LIVE</span></div>
-      <div class="border-b border-emerald-900 p-3"><div class="flex items-center gap-2"><HelpMarker number="1"/><span class="rounded border border-lime-700 px-2 py-1 text-[10px] text-lime-200">a topic</span><div class="min-w-0 flex-1 border-b border-emerald-800 px-2 py-1 font-mono text-[10px] text-emerald-600">→ what are you researching?</div><span class="rounded border border-lime-700 px-2 py-1 font-mono text-[9px] text-lime-300">SEARCH RELAYS</span><span class="hidden rounded border border-emerald-800 px-2 py-1 font-mono text-[9px] text-emerald-500 sm:block">SEARCH LOCAL</span></div><div class="mt-2 flex flex-wrap items-center gap-1 font-mono text-[8px] text-emerald-600"><HelpMarker number="2"/><span class="rounded border border-emerald-900 px-2 py-1">replace results</span><span class="rounded border border-emerald-900 px-2 py-1">all content</span><span class="rounded border border-emerald-900 px-2 py-1">depth · 100/relay</span><span class="rounded border border-emerald-900 px-2 py-1">relays · 3</span></div></div>
-      <div class="grid min-h-[430px] lg:grid-cols-[170px_minmax(0,1fr)_210px]">
-        <aside class="border-b border-emerald-900 p-3 lg:border-b-0 lg:border-r"><div class="mb-2 flex items-center gap-2"><HelpMarker number="3"/><span class="font-mono text-[9px] tracking-wider text-lime-300">FILTER THIS CORPUS</span></div><div class="mb-2 rounded bg-lime-300 px-2 py-1.5 font-mono text-[8px] font-bold text-black">USE IN A NEW SEARCH ↗</div><MockGroup title="TOPICS" values={["#nostr 42","#bitcoin 21","#research 9"]}/><MockGroup title="ACCOUNTS" values={["alice 18","bob 11"]}/><MockGroup title="SAVED" values={["recipes","collections","return to"]}/></aside>
-        <main class="min-w-0"><div class="grid grid-cols-3 border-b border-emerald-900 font-mono text-[9px]"><div class="border-r border-emerald-900 bg-lime-950/30 p-3 text-lime-300"><HelpMarker number="4"/> EXPLORE<span class="mt-1 block text-[8px] text-emerald-800">read evidence</span></div><div class="border-r border-emerald-900 p-3 text-emerald-600">ANALYZE<span class="mt-1 block text-[8px] text-emerald-800">sort + compare</span></div><div class="p-3 text-emerald-600">MAP<span class="mt-1 block text-[8px] text-emerald-800">see structure</span></div></div><div class="p-3"><div class="mb-2 flex items-center gap-2 font-mono text-[9px] text-emerald-700"><HelpMarker number="5"/><span>CURRENT CORPUS · 112 EVENTS</span></div><For each={["A note with a linked image and a topic tag…","A reply that points to another event…","A long-form article from an account…"]}>{(text,index) => <div class="mb-2 rounded border border-emerald-950 p-3"><div class="font-mono text-[8px] text-emerald-800">[{index()+1}] account · short note · 2 relays</div><p class="mt-1 text-[10px] text-emerald-400">{text}</p><div class="mt-2 font-mono text-[8px] text-lime-400">research　 read　 conversation　 pin</div></div>}</For></div><div class="flex items-center justify-center gap-2 border-t border-emerald-900 p-3 font-mono text-[9px] text-lime-300"><HelpMarker number="8"/> LOAD OLDER RESULTS</div></main>
-        <aside class="border-t border-emerald-900 p-3 lg:border-l lg:border-t-0"><div class="mb-2 flex items-center gap-2"><HelpMarker number="6"/><span class="font-mono text-[9px] tracking-wider text-lime-300">RESEARCH FROM THIS NOTE</span></div><For each={["Conversation →","What it points to →","More from this person →","Related topics →"]}>{(label) => <div class="mb-1 rounded border border-emerald-950 p-2 text-[9px] text-emerald-500">{label}</div>}</For><div class="mb-2 mt-4 flex items-center gap-2"><HelpMarker number="7"/><span class="font-mono text-[9px] tracking-wider text-lime-300">EVIDENCE + COVERAGE</span></div><div class="rounded border border-emerald-950 p-2 font-mono text-[8px] leading-5 text-emerald-700">◆ 3 pinned notes<br/>2/2 relays responded<br/>112 unique events</div></aside>
-      </div>
-    </div></section>
-
-    <section class="border-b border-emerald-900 p-6"><h2 class="font-mono text-xs tracking-[.14em] text-lime-300">WHAT EACH NUMBER MEANS</h2><div class="mt-4 grid gap-x-7 gap-y-1 md:grid-cols-2"><For each={regions}>{([number,title,detail]) => <div class="grid grid-cols-[28px_1fr] gap-2 border-b border-emerald-950 py-3"><HelpMarker number={number}/><div><h3 class="text-sm text-emerald-200">{title}</h3><p class="mt-1 text-xs leading-5 text-emerald-600">{detail}</p></div></div>}</For></div></section>
-
-    <section class="p-6"><h2 class="font-mono text-xs tracking-[.14em] text-lime-300">THREE USEFUL STARTS</h2><div class="mt-4 grid gap-3 md:grid-cols-3"><HelpPath title="Discover a subject" steps="topic → Search relays → Map → select a facet → read notes"/><HelpPath title="Investigate a note" steps="select note → conversation or references → Add to corpus → pin evidence"/><HelpPath title="Revisit your material" steps="Search local → Analyze table → open a collection or recipe"/></div><div class="mt-5 flex flex-wrap items-center gap-3"><button onClick={props.onClose} class="rounded bg-lime-300 px-5 py-2.5 font-mono text-xs font-bold text-black hover:bg-lime-200">BACK TO THE APP →</button><span class="text-xs text-emerald-800">Corpus = your current working set. Relay = a server holding part of Nostr.</span></div></section>
-  </article>;
+function SettingsPage(props) {
+  return <section class="overflow-hidden rounded border border-emerald-900 bg-emerald-950/10">
+    <div class="border-b border-emerald-900 p-5"><h1 class="font-mono text-lg text-lime-200">SETTINGS</h1><p class="mt-2 max-w-3xl text-sm leading-6 text-emerald-600">Global blocks apply to relay collection, search, Relay Pulse, graphs, saved research when reopened, and the local archive. Events from blocked authors are discarded before storage and analysis.</p></div>
+    <div class="border-b border-emerald-900 p-5"><div class="font-mono text-[10px] tracking-[.14em] text-cyan-300">ACCOUNTS TO FOLLOW · LOCAL DRAFT · {props.follows.length}</div><p class="mt-2 text-xs leading-5 text-emerald-700">A simple private list with no effect on feeds, searches, relays, or your published Nostr follows. It can become an import or publishing workflow later.</p><form onSubmit={(event) => { event.preventDefault(); props.onAddFollow(); }} class="mt-3 flex gap-2"><input value={props.followDraft} onInput={(event) => props.setFollowDraft(event.currentTarget.value)} placeholder="npub, nprofile, or 64-character public key" class="min-w-0 flex-1 rounded border border-emerald-900 bg-black/20 px-3 py-2 font-mono text-xs text-emerald-200 outline-none focus:border-cyan-700"/><button class="rounded border border-cyan-900 px-4 py-2 font-mono text-xs text-cyan-300 hover:bg-cyan-950">add account</button></form><div class="mt-5"><Show when={props.follows.length} fallback={<div class="rounded border border-emerald-950 p-6 text-center text-sm text-emerald-800">The follow draft is empty.</div>}><For each={props.follows}>{(account) => <div class="flex items-center gap-3 border-b border-emerald-950 py-3"><div class="min-w-0 flex-1"><div class="truncate text-sm text-cyan-200">{account.name || short(account.pubkey)}</div><div class="mt-1 truncate font-mono text-[10px] text-emerald-800">{account.pubkey}</div></div><button onClick={() => props.onRemoveFollow(account.pubkey)} class="rounded border border-emerald-900 px-3 py-1.5 font-mono text-[10px] text-emerald-600 hover:text-cyan-300">remove</button></div>}</For></Show></div></div>
+    <div class="p-5"><div class="font-mono text-[10px] tracking-[.14em] text-lime-300">GLOBAL ACCOUNT BLOCK LIST · {props.accounts.length}</div><form onSubmit={(event) => { event.preventDefault(); props.onAdd(); }} class="mt-3 flex gap-2"><input value={props.draft} onInput={(event) => props.setDraft(event.currentTarget.value)} placeholder="npub, nprofile, or 64-character public key" class="min-w-0 flex-1 rounded border border-emerald-900 bg-black/20 px-3 py-2 font-mono text-xs text-emerald-200 outline-none focus:border-lime-700"/><button class="rounded border border-lime-800 px-4 py-2 font-mono text-xs text-lime-300 hover:bg-lime-300 hover:text-black">block account</button></form><p class="mt-2 text-[10px] text-emerald-800">Blocking removes the author’s existing events from local storage. Other people’s notes that merely mention the account remain visible.</p>
+      <div class="mt-5"><Show when={props.accounts.length} fallback={<div class="rounded border border-emerald-950 p-6 text-center text-sm text-emerald-800">No globally blocked accounts.</div>}><For each={props.accounts}>{(account) => <div class="flex items-center gap-3 border-b border-emerald-950 py-3"><div class="min-w-0 flex-1"><div class="truncate text-sm text-emerald-300">{account.name || short(account.pubkey)}</div><div class="mt-1 truncate font-mono text-[10px] text-emerald-800">{account.pubkey}</div></div><button onClick={() => props.onUnblock(account.pubkey)} class="rounded border border-amber-900 px-3 py-1.5 font-mono text-[10px] text-amber-500 hover:border-amber-600">unblock</button></div>}</For></Show></div>
+    </div>
+    <div class="border-t border-emerald-900 p-5"><div class="font-mono text-[10px] tracking-[.14em] text-lime-300">BLOCKED NAME STRINGS · {props.names.length}</div><p class="mt-2 text-xs leading-5 text-emerald-700">Case-insensitive contains matching. If either the account name or display name contains the text, that account’s events are excluded globally.</p><form onSubmit={(event) => { event.preventDefault(); props.onAddName(); }} class="mt-3 flex gap-2"><input value={props.nameDraft} onInput={(event) => props.setNameDraft(event.currentTarget.value)} placeholder="text contained in unwanted names" class="min-w-0 flex-1 rounded border border-emerald-900 bg-black/20 px-3 py-2 font-mono text-xs text-emerald-200 outline-none focus:border-lime-700"/><button class="rounded border border-lime-800 px-4 py-2 font-mono text-xs text-lime-300 hover:bg-lime-300 hover:text-black">block names containing</button></form><div class="mt-4 flex flex-wrap gap-2"><For each={props.names}>{(pattern) => <div class="flex items-center gap-2 rounded border border-red-950 bg-red-950/10 px-3 py-2"><span class="font-mono text-xs text-red-400">contains “{pattern}”</span><button aria-label={`Remove ${pattern} name rule`} onClick={() => props.onRemoveName(pattern)} class="text-red-800 hover:text-red-400">×</button></div>}</For></div></div>
+  </section>;
 }
-
-function HelpMarker(props) { return <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-lime-300 font-mono text-[9px] font-bold text-black">{props.number}</span>; }
-function MockGroup(props) { return <div class="mb-4"><div class="mb-1 font-mono text-[8px] text-emerald-800">{props.title}</div><For each={props.values}>{(value) => <div class="border-b border-emerald-950 py-1 font-mono text-[9px] text-emerald-600">{value}</div>}</For></div>; }
-function HelpPath(props) { return <div class="rounded border border-emerald-900 bg-black/10 p-4"><h3 class="font-mono text-[10px] tracking-wider text-lime-300">{props.title.toUpperCase()}</h3><p class="mt-3 font-mono text-[10px] leading-5 text-emerald-600">{props.steps}</p></div>; }
 
 function ConstraintPicker(props) {
   const update = (patch) => props.setConstraints((current) => ({ ...current, ...patch }));
@@ -875,14 +1079,35 @@ function HomeDiscovery(props) {
   };
   const windowLabel = () => PULSE_WINDOWS.find(([hours]) => hours === props.settings.windowHours)?.[1] ?? `${props.settings.windowHours} hours`;
   return <section class="mb-4 overflow-hidden rounded border border-emerald-900 bg-emerald-950/10">
-    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-emerald-900 px-4 py-3"><div><h1 class="font-mono text-sm text-lime-200">RELAY PULSE</h1><p class="mt-1 text-xs text-emerald-700">A configurable comparison of {windowLabel()} with the previous {windowLabel()}—a relay sample, not a global ranking.</p></div><div class="flex gap-2"><details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-3 py-1.5 font-mono text-xs text-emerald-400 hover:text-lime-300">configure</summary><div class="absolute right-0 top-9 z-40 w-[min(90vw,28rem)] rounded border border-emerald-800 bg-[#07110c] p-4 shadow-2xl"><div class="text-[10px] tracking-[.14em] text-lime-300">PULSE SETTINGS</div><PulseChoice title="TIME WINDOW" options={PULSE_WINDOWS} value={props.settings.windowHours} onChange={(windowHours) => props.onSettings({ windowHours })}/><PulseChoice title="SAMPLE DEPTH · PER RELAY" options={PULSE_DEPTHS} value={props.settings.depth} onChange={(depth) => props.onSettings({ depth })}/><PulseChoice title="CONTENT" options={PULSE_SCOPES.map(([value,label]) => [value,label])} value={props.settings.scope} onChange={(scope) => props.onSettings({ scope })}/><div class="mt-4 text-[9px] tracking-wider text-emerald-700">RELAYS · SELECT 1–4</div><div class="mt-2 space-y-1"><For each={props.availableRelays}>{(relay) => <button type="button" onClick={() => toggleRelay(relay)} class={`flex w-full items-center gap-2 rounded border px-2 py-1.5 text-left font-mono text-[10px] ${props.settings.relays.includes(relay) ? "border-lime-800 text-lime-300" : "border-emerald-950 text-emerald-700"}`}><span>{props.settings.relays.includes(relay) ? "●" : "○"}</span><span class="truncate">{new URL(relay).hostname}</span></button>}</For></div><div class="mt-3 rounded border border-emerald-950 bg-black/20 p-2 font-mono text-[10px] text-emerald-600">ESTIMATED MAXIMUM · {props.settings.relays.length} relays × {props.settings.depth} = {props.settings.relays.length * props.settings.depth} responses per window<br/><span class="text-emerald-800">Two windows are collected to calculate movement. Relays can return fewer.</span></div></div></details><button onClick={props.onRefresh} disabled={props.loading} class="rounded border border-lime-800 px-3 py-1.5 font-mono text-xs text-lime-300 hover:bg-lime-300 hover:text-black disabled:opacity-40">{props.loading ? "sampling…" : "refresh pulse"}</button></div></div>
-    <div class="flex gap-1 border-b border-emerald-900 px-4 pt-3"><For each={[["overview","Overview"],["relays","Relays"],["data","Data"]]}>{([value,label]) => <button onClick={() => props.setView(value)} class={`border-b-2 px-3 py-2 font-mono text-[10px] ${props.view === value ? "border-lime-300 text-lime-300" : "border-transparent text-emerald-700"}`}>{label}</button>}</For><Show when={props.meta}><span class="ml-auto self-center pb-1 font-mono text-[9px] text-emerald-900">{props.analysis.unique} unique · {(props.meta.durationMs / 1000).toFixed(1)}s</span></Show></div>
+    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-emerald-900 px-4 py-3"><div><h1 class="font-mono text-sm text-lime-200">RELAY EXPLORER</h1><p class="mt-1 text-xs text-emerald-700">Scan broadly, pursue useful signals, then continue in a direction without losing unexpected discovery.</p></div><div class="flex gap-2"><details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-3 py-1.5 font-mono text-xs text-emerald-400 hover:text-lime-300">configure</summary><div class="pulse-settings-popover fixed left-4 right-4 top-20 z-40 max-h-[calc(100vh-6rem)] w-auto overflow-y-auto rounded border border-emerald-800 bg-[#07110c] p-4 shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-9 sm:max-h-none sm:w-[min(90vw,28rem)] sm:overflow-visible"><div class="text-[10px] tracking-[.14em] text-lime-300">SCAN SETTINGS</div><PulseChoice title="TIME WINDOW" options={PULSE_WINDOWS} value={props.settings.windowHours} onChange={(windowHours) => props.onSettings({ windowHours })}/><PulseChoice title="TARGET EVENTS · PER RELAY / WINDOW" options={PULSE_DEPTHS} value={props.settings.depth} onChange={(depth) => props.onSettings({ depth })}/><PulseChoice title="CONTENT" options={PULSE_SCOPES.map(([value,label]) => [value,label])} value={props.settings.scope} onChange={(scope) => props.onSettings({ scope })}/><div class="mt-4 text-[9px] tracking-wider text-emerald-700">RELAYS · SELECT 1–4</div><div class="mt-2 space-y-1"><For each={props.availableRelays}>{(relay) => <button type="button" onClick={() => toggleRelay(relay)} class={`flex w-full items-center gap-2 rounded border px-2 py-1.5 text-left font-mono text-[10px] ${props.settings.relays.includes(relay) ? "border-lime-800 text-lime-300" : "border-emerald-950 text-emerald-700"}`}><span>{props.settings.relays.includes(relay) ? "●" : "○"}</span><span class="truncate">{new URL(relay).hostname}</span></button>}</For></div><div class="mt-3 rounded border border-emerald-950 bg-black/20 p-2 font-mono text-[10px] text-emerald-600">ESTIMATED MAXIMUM · {props.settings.relays.length} relays × {props.settings.depth} = {props.settings.relays.length * props.settings.depth} deliveries per window<br/><span class="text-emerald-800">Broad scans compare two periods. Directed rounds spend most requests on pursued signals and retain a smaller broad sample.</span></div></div></details><Show when={props.loading} fallback={<button onClick={props.onRefresh} class="rounded border border-lime-800 px-3 py-1.5 font-mono text-xs text-lime-300 hover:bg-lime-300 hover:text-black">new broad scan</button>}><button onClick={props.onCancel} class="rounded border border-amber-800 px-3 py-1.5 font-mono text-xs text-amber-400 hover:bg-amber-950">cancel · {props.progress?.completed ?? 0}/{props.progress?.total ?? "?"}</button></Show></div></div>
+    <Show when={props.progress && props.progress.state !== "complete"}><div class="border-b border-emerald-900 px-4 py-2"><div class="flex justify-between font-mono text-[9px] text-emerald-600"><span>{props.progress.state === "cancelled" ? "COLLECTION CANCELLED · PARTIAL RESULTS KEPT" : `COLLECTING TIME SLICE ${props.progress.completed + 1} OF ${props.progress.total}`}</span><span>{props.progress.unique.toLocaleString()} current-window events</span></div><div class="mt-2 h-1 overflow-hidden rounded bg-emerald-950"><div class={`h-full ${props.progress.state === "cancelled" ? "bg-amber-700" : "bg-lime-400"}`} style={{ width: `${Math.round(props.progress.completed / props.progress.total * 100)}%` }}/></div></div></Show>
+    <ScanDirectionPanel direction={props.direction} count={props.directionCount} round={props.round} loading={props.loading} profileFor={props.profileFor} onRemove={props.onRemoveDirection} onClear={props.onClearDirection} onContinue={props.onContinueScan} onOpen={props.onOpenInSearch}/>
+    <div class="flex gap-1 border-b border-emerald-900 px-4 pt-3"><For each={[["overview","Signals"],["relays","Relays"],["data","Data"]]}>{([value,label]) => <button onClick={() => props.setView(value)} class={`border-b-2 px-3 py-2 font-mono text-[10px] ${props.view === value ? "border-lime-300 text-lime-300" : "border-transparent text-emerald-700"}`}>{label}</button>}</For><Show when={props.meta}><span class="ml-auto self-center pb-1 font-mono text-[9px] text-emerald-900">{props.meta.mode === "directed" ? `round ${props.meta.round}` : windowLabel()} · {props.analysis.unique} unique · {(props.meta.durationMs / 1000).toFixed(1)}s</span></Show></div>
     <Show when={!props.loading || props.events.length} fallback={<div class="p-8 text-sm text-emerald-700">Sampling two comparable windows across {props.settings.relays.length} relays…</div>}>
-      <Show when={props.view === "overview"}><div class="grid lg:grid-cols-2"><PulseBlock title="RISING TOPICS" detail="Activity versus the previous window"><Show when={props.analysis.rising.length} fallback={<PulseEmpty>Not enough repeated topic tags to measure movement.</PulseEmpty>}><div class="flex flex-wrap gap-2"><For each={props.analysis.rising}>{(item) => <button onClick={() => props.onTopic(item.topic)} class="rounded-full border border-emerald-800 px-3 py-1.5 text-sm text-lime-200 hover:bg-lime-300 hover:text-black">#{item.topic} <span class={item.state === "new" ? "text-cyan-400" : "text-emerald-600"}>{item.state === "new" ? "new" : `${item.delta >= 0 ? "+" : ""}${item.delta}`}</span></button>}</For></div></Show></PulseBlock><PulseBlock title="MOST ACTIVE ACCOUNTS" detail="Posting frequency inside this sample"><div class="grid gap-2 sm:grid-cols-2"><For each={props.analysis.authors}>{(author) => <button onClick={() => props.onAuthor(author.pubkey)} class="rounded border border-emerald-950 p-2 text-left hover:border-emerald-700"><span class="block truncate text-sm text-emerald-300">{props.profileFor(author.pubkey).name}</span><span class="font-mono text-[9px] text-emerald-800">{author.count} events · {author.relays} relay{author.relays === 1 ? "" : "s"}</span></button>}</For></div></PulseBlock><PulseBlock title="SHARED DOMAINS" detail="Links circulating in sampled events"><div class="space-y-1"><For each={props.analysis.domains}>{([domain,count]) => <button onClick={() => props.onDomain(domain)} class="flex w-full justify-between rounded px-2 py-1 text-left text-emerald-400 hover:bg-emerald-950 hover:text-lime-300"><span class="truncate">{domain}</span><span class="text-emerald-800">{count}</span></button>}</For></div></PulseBlock><PulseBlock title="CONTENT SIGNALS" detail="Media and format composition"><div class="grid grid-cols-2 gap-2"><For each={props.analysis.media}>{([type,count]) => <PulseStat label={type} value={count}/>}</For></div><div class="mt-4 text-[9px] tracking-wider text-emerald-700">POPULAR, NOT NECESSARILY RISING</div><div class="mt-2 flex flex-wrap gap-1"><For each={props.analysis.topics.slice(0,10)}>{([topic,count]) => <button onClick={() => props.onTopic(topic)} class="rounded border border-emerald-900 px-2 py-1 text-emerald-500">#{topic} <span class="text-emerald-800">{count}</span></button>}</For></div></PulseBlock></div></Show>
+      <Show when={props.view === "overview"}><div class="grid lg:grid-cols-2">
+        <PulseBlock title="TOPIC SIGNALS" detail="Independent contributors, persistence, relay breadth, and low dominance"><Show when={props.analysis.topicSignals.length} fallback={<PulseEmpty>No topic has enough independent participation yet.</PulseEmpty>}><div class="space-y-2"><For each={props.analysis.topicSignals}>{(item) => <SignalCard title={`#${item.topic}`} state={item.signal} pursued={props.direction.topics.includes(item.topic)} onPursue={() => props.onPursue("topic", item.topic)} onInspect={() => props.onTopic(item.topic)}><span>{item.authors} accounts</span><span>{item.days} active days</span><span>{item.relays} relays</span><span>{Math.round(item.dominance * 100)}% largest contributor</span><Show when={props.meta?.mode === "directed"}><span class={item.deltaAuthors >= 0 ? "text-cyan-500" : "text-amber-600"}>{item.deltaAuthors >= 0 ? "+" : ""}{item.deltaAuthors} accounts vs prior round</span></Show></SignalCard>}</For></div></Show></PulseBlock>
+        <PulseBlock title="CONTRIBUTORS TO EXPLORE" detail="Originality, sustained activity, conversations, and relay breadth"><Show when={props.analysis.accountSignals.length} fallback={<PulseEmpty>No account passed the current discovery signals.</PulseEmpty>}><div class="grid gap-2 sm:grid-cols-2"><For each={props.analysis.accountSignals}>{(account) => <SignalCard title={props.profileFor(account.pubkey).name} state={account.role} pursued={props.direction.authors.includes(account.pubkey)} onPursue={() => props.onPursue("author", account.pubkey)} onInspect={() => props.onAuthor(account.pubkey)}><span>{account.count} events / {account.days} days</span><span>{Math.round(account.originality * 100)}% distinct content</span><span>{account.conversations} replies or quotes</span><span>{account.relays} relays</span></SignalCard>}</For></div></Show><Show when={props.analysis.noiseAccounts.length}><details class="mt-4 rounded border border-amber-950 p-2"><summary class="cursor-pointer font-mono text-[10px] text-amber-700">HIGH-VOLUME / REPETITIVE · {props.analysis.noiseAccounts.length}</summary><div class="mt-2 space-y-1"><For each={props.analysis.noiseAccounts}>{(account) => <button onClick={() => props.onAuthor(account.pubkey)} class="flex w-full justify-between text-left text-[10px] text-amber-800 hover:text-amber-500"><span class="truncate">{props.profileFor(account.pubkey).name}</span><span>{account.count} events · {Math.round(account.originality * 100)}% distinct</span></button>}</For></div></details></Show></PulseBlock>
+        <PulseBlock title="CONVERSATION FRONTS" detail="Events referenced by several independent accounts"><Show when={props.analysis.conversations.length} fallback={<PulseEmpty>No multi-account conversation front found in this sample.</PulseEmpty>}><div class="space-y-2"><For each={props.analysis.conversations}>{(item) => <SignalCard title={short(item.id)} state={`${item.authors} participating accounts`} pursued={props.direction.events.includes(item.id)} onPursue={() => props.onPursue("event", item.id)} onInspect={() => props.onEvent(item.id)}><span>{item.events} replies, quotes, or reactions</span><span>{item.authors} independent accounts</span></SignalCard>}</For></div></Show></PulseBlock>
+        <PulseBlock title="LINKED DOMAINS" detail="External domains circulating in the sample"><div class="space-y-2"><For each={props.analysis.domains}>{([domain,count]) => <SignalCard title={domain} state={`${count} linked events`} pursued={props.direction.domains.includes(domain)} onPursue={() => props.onPursue("domain", domain)} onInspect={() => props.onDomain(domain)}><span>{count} references in this sample</span></SignalCard>}</For></div></PulseBlock>
+      </div></Show>
       <Show when={props.view === "relays"}><div class="p-4"><div class="grid gap-3 lg:grid-cols-2"><For each={props.analysis.relayRows}>{(row) => <div class="rounded border border-emerald-900 p-3"><button onClick={() => props.onRelay(row.relay)} class="flex w-full items-center justify-between text-left"><span class="font-mono text-sm text-lime-200">{new URL(row.relay).hostname}</span><span class="font-mono text-[10px] text-emerald-700">{row.count} events</span></button><div class="mt-1 text-[9px] text-emerald-800">{row.uniqueHere} seen only on this relay in the sample</div><div class="mt-3 flex flex-wrap gap-1"><For each={row.topics}>{([topic,count]) => <button onClick={() => props.onRelay(row.relay, topic)} class="rounded border border-emerald-950 px-2 py-1 text-[10px] text-emerald-500 hover:text-lime-300">#{topic} {count}</button>}</For></div></div>}</For></div><div class="mt-4 grid gap-3 sm:grid-cols-3"><PulseStat label="events on 2+ relays" value={props.analysis.overlapCount}/><PulseStat label="duplicate deliveries" value={props.analysis.duplicates}/><PulseStat label="cross-relay accounts" value={props.analysis.authors.filter((item) => item.relays > 1).length}/></div><div class="mt-5 text-[9px] tracking-wider text-emerald-700">ACCOUNTS VISIBLE ACROSS RELAYS</div><div class="mt-2 flex flex-wrap gap-2"><For each={props.analysis.authors.filter((item) => item.relays > 1)}>{(author) => <button onClick={() => props.onAuthor(author.pubkey)} class="rounded border border-emerald-900 px-2 py-1 text-emerald-400">{props.profileFor(author.pubkey).name} <span class="text-emerald-800">{author.relays} relays</span></button>}</For></div></div></Show>
-      <Show when={props.view === "data"}><div class="p-4"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><PulseStat label="requested / window" value={props.meta?.requested ?? props.settings.depth * props.settings.relays.length}/><PulseStat label="relay deliveries" value={props.analysis.received}/><PulseStat label="unique events" value={props.analysis.unique}/><PulseStat label="duplicates merged" value={props.analysis.duplicates}/></div><div class="mt-5 grid gap-5 lg:grid-cols-2"><div><div class="text-[9px] tracking-wider text-emerald-700">EVENT KINDS</div><div class="mt-2 space-y-1"><For each={props.analysis.kinds}>{([kind,count]) => <div class="flex justify-between border-b border-emerald-950 py-1 text-emerald-400"><span>{kind}</span><span class="text-emerald-800">{count}</span></div>}</For></div></div><div><div class="text-[9px] tracking-wider text-emerald-700">COLLECTION DETAILS</div><div class="mt-2 space-y-2 font-mono text-[10px] text-emerald-600"><div>window · {windowLabel()}</div><div>comparison · preceding {windowLabel()}</div><div>scope · {PULSE_SCOPES.find(([value]) => value === props.settings.scope)?.[1]}</div><div>relays · {props.settings.relays.length}</div><div>elapsed · {props.meta ? `${(props.meta.durationMs / 1000).toFixed(1)} seconds` : "not collected"}</div><div>collected · {props.meta ? new Date(props.meta.collectedAt).toLocaleString() : "not collected"}</div><p class="pt-2 leading-4 text-emerald-800">Counts describe only returned events. Limits, relay policies, timeouts, deletions, and uneven replication all shape this sample.</p></div></div></div></div></Show>
+      <Show when={props.view === "data"}><div class="p-4"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><PulseStat label={props.meta?.mode === "directed" ? "planned relay requests" : "requested / window"} value={props.meta?.requested ?? props.settings.depth * props.settings.relays.length}/><PulseStat label="relay deliveries" value={props.analysis.received}/><PulseStat label="unique events" value={props.analysis.unique}/><PulseStat label="duplicates merged" value={props.analysis.duplicates}/></div><div class="mt-5 grid gap-5 lg:grid-cols-2"><div><div class="text-[9px] tracking-wider text-emerald-700">EVENT KINDS</div><div class="mt-2 space-y-1"><For each={props.analysis.kinds}>{([kind,count]) => <div class="flex justify-between border-b border-emerald-950 py-1 text-emerald-400"><span>{kind}</span><span class="text-emerald-800">{count}</span></div>}</For></div></div><div><div class="text-[9px] tracking-wider text-emerald-700">COLLECTION DETAILS</div><div class="mt-2 space-y-2 font-mono text-[10px] text-emerald-600"><div>mode · {props.meta?.mode === "directed" ? `directed round ${props.meta.round}` : "broad time comparison"}</div><div>window · {windowLabel()}</div><div>comparison · {props.meta?.mode === "directed" ? "preceding scan round" : `preceding ${windowLabel()}`}</div><div>scope · {PULSE_SCOPES.find(([value]) => value === props.settings.scope)?.[1]}</div><div>relays · {props.settings.relays.length}</div><div>elapsed · {props.meta ? `${(props.meta.durationMs / 1000).toFixed(1)} seconds` : "not collected"}</div><div>collected · {props.meta ? new Date(props.meta.collectedAt).toLocaleString() : "not collected"}</div><p class="pt-2 leading-4 text-emerald-800">Scores are discovery signals, not reputation. Raw relay counts remain available here; relay policies, timeouts, and uneven replication shape every sample.</p></div></div></div></div></Show>
     </Show>
   </section>;
+}
+
+function ScanDirectionPanel(props) {
+  const groups = () => [
+    ["topics", "TOPICS", props.direction.topics.map((value) => [value, `#${value}`])],
+    ["authors", "ACCOUNTS", props.direction.authors.map((value) => [value, props.profileFor(value).name])],
+    ["domains", "DOMAINS", props.direction.domains.map((value) => [value, value])],
+    ["events", "CONVERSATIONS", props.direction.events.map((value) => [value, short(value)])],
+  ].filter(([, , values]) => values.length);
+  return <div class="border-b border-emerald-900 bg-black/15 p-4"><div class="flex flex-wrap items-center gap-2"><div><div class="font-mono text-[10px] tracking-[.14em] text-cyan-300">CURRENT DIRECTION · {props.count} SIGNAL{props.count === 1 ? "" : "S"}</div><div class="mt-1 text-[10px] text-emerald-800">Pursued items shape the next round; a broad sample remains for unexpected findings.</div></div><div class="ml-auto flex gap-2"><Show when={props.count}><button disabled={props.loading} onClick={props.onContinue} class="rounded bg-cyan-300 px-3 py-2 font-mono text-[10px] font-bold text-black disabled:opacity-40">CONTINUE SCAN →</button><button disabled={props.loading} onClick={props.onOpen} class="rounded border border-lime-800 px-3 py-2 font-mono text-[10px] text-lime-300 disabled:opacity-40">OPEN CORPUS IN SEARCH</button><button onClick={props.onClear} class="px-2 font-mono text-[9px] text-emerald-700 hover:text-red-400">clear</button></Show></div></div><Show when={groups().length} fallback={<div class="mt-3 rounded border border-dashed border-emerald-900 px-3 py-4 text-center text-xs text-emerald-800">Use Pursue on a useful topic, contributor, conversation, or domain to build the next scan.</div>}><div class="mt-3 space-y-2"><For each={groups()}>{([key,label,values]) => <div class="flex flex-wrap items-center gap-1.5"><span class="mr-1 font-mono text-[8px] tracking-wider text-emerald-800">{label}</span><For each={values}>{([value,text]) => <button title="Remove from direction" onClick={() => props.onRemove(key, value)} class="rounded border border-cyan-950 bg-cyan-950/10 px-2 py-1 font-mono text-[10px] text-cyan-400">{text} <span class="opacity-50">×</span></button>}</For></div>}</For></div></Show><Show when={props.round}><div class="mt-3 font-mono text-[9px] text-emerald-800">DIRECTED ROUND {props.round} · signals compare with the preceding scan round</div></Show></div>;
+}
+
+function SignalCard(props) {
+  return <div class={`rounded border p-2.5 ${props.pursued ? "border-cyan-700 bg-cyan-950/15" : "border-emerald-950"}`}><div class="flex min-w-0 items-start gap-2"><button onClick={props.onInspect} class="min-w-0 flex-1 text-left"><span class="block truncate text-sm text-emerald-200 hover:text-lime-300">{props.title}</span><span class="mt-1 block font-mono text-[9px] text-cyan-700">{props.state}</span></button><button disabled={props.pursued} onClick={props.onPursue} class={`rounded border px-2 py-1 font-mono text-[9px] ${props.pursued ? "border-cyan-900 text-cyan-600" : "border-emerald-800 text-emerald-500 hover:border-cyan-700 hover:text-cyan-300"}`}>{props.pursued ? "PURSUED" : "PURSUE"}</button></div><div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[8px] text-emerald-800">{props.children}</div></div>;
 }
 
 function PulseChoice(props) { return <div class="mt-4"><div class="mb-2 text-[9px] tracking-wider text-emerald-700">{props.title}</div><div class="grid grid-cols-2 gap-1"><For each={props.options}>{([value,label]) => <button type="button" onClick={() => props.onChange(value)} class={`rounded border px-2 py-1.5 text-left text-[10px] ${props.value === value ? "border-lime-700 bg-lime-950/30 text-lime-300" : "border-emerald-950 text-emerald-600"}`}>{label}</button>}</For></div></div>; }
@@ -1119,7 +1344,7 @@ function Action(props) { return <button onClick={props.onClick} class={`rounded 
 function RouteView(props) {
   return <Show when={props.data} fallback={<LoadingPanel label="assembling node"/>}>
     <Show when={props.route.kind === "account" || props.route.kind === "follows"} fallback={<EventView route={props.route} data={props.data} profileFor={props.profileFor} openRoute={props.openRoute} onComposeAuthor={props.onComposeAuthor}/> }>
-      <AccountView route={props.route} data={props.data} profileFor={props.profileFor} openRoute={props.openRoute} onComposeAuthor={props.onComposeAuthor}/>
+      <AccountView route={props.route} data={props.data} profileFor={props.profileFor} openRoute={props.openRoute} onComposeAuthor={props.onComposeAuthor} onBlock={props.onBlock} onUnblock={props.onUnblock} isBlocked={props.isBlocked} blockReason={props.blockReason} onFollow={props.onFollow} onUnfollow={props.onUnfollow} isFollowed={props.isFollowed}/>
     </Show>
   </Show>;
 }
@@ -1189,8 +1414,12 @@ function AccountView(props) {
     days: new Set(props.data.authored.map((event) => new Date(event.created_at * 1000).toISOString().slice(0, 10))).size,
     relays: new Set(props.data.authored.flatMap((event) => sourceIndex.get(event.id) ?? [])).size
   }));
-  return <section class="overflow-hidden rounded border border-emerald-900 bg-emerald-950/10">
-    <div class="flex flex-wrap gap-2 border-b border-emerald-900 p-4"><Action onClick={() => props.openRoute("#/search")}>← search</Action><Action onClick={() => props.openRoute(`#/account/${props.data.pubkey}`)}>account</Action><Action onClick={() => props.onComposeAuthor(props.data.pubkey)}>use account in search</Action><Action onClick={() => props.openRoute(`#/follows/${props.data.pubkey}`)}>follows · {props.data.follows.length}</Action></div>
+  const blocked = () => props.isBlocked(props.data.pubkey);
+  const reason = () => props.blockReason(props.data.pubkey);
+  const followed = () => props.isFollowed(props.data.pubkey);
+  return <section class={`overflow-hidden rounded border bg-emerald-950/10 ${blocked() ? "border-red-900" : "border-emerald-900"}`}>
+    <Show when={blocked()}><div class="flex items-center gap-3 border-b border-red-950 bg-red-950/20 px-4 py-3"><span class="h-2 w-2 rounded-full bg-red-500"/><div><div class="font-mono text-xs font-bold tracking-wider text-red-400">BLOCKED GLOBALLY</div><div class="mt-1 text-[10px] text-red-800">{reason()?.type === "name" ? `Name contains blocked text “${reason().label}”.` : "Public key is on the block list."} Events are excluded from search, Relay Pulse, research views, and local storage.</div></div><Show when={reason()?.type === "key"} fallback={<button onClick={() => props.openRoute("#/settings")} class="ml-auto rounded border border-red-900 px-3 py-1.5 font-mono text-[10px] text-red-400 hover:border-red-600">manage name rules</button>}><button onClick={() => props.onUnblock(props.data.pubkey)} class="ml-auto rounded border border-red-900 px-3 py-1.5 font-mono text-[10px] text-red-400 hover:border-red-600">unblock</button></Show></div></Show>
+    <div class="flex flex-wrap gap-2 border-b border-emerald-900 p-4"><Action onClick={() => props.openRoute("#/search")}>← search</Action><Action onClick={() => props.openRoute(`#/account/${props.data.pubkey}`)}>account</Action><Action onClick={() => props.onComposeAuthor(props.data.pubkey)}>use account in search</Action><Action onClick={() => props.openRoute(`#/follows/${props.data.pubkey}`)}>follows · {props.data.follows.length}</Action><Show when={followed()} fallback={<button onClick={() => props.onFollow(props.data.pubkey, profile().name)} class="rounded border border-cyan-900 px-3 py-1 font-mono text-[10px] text-cyan-500 hover:border-cyan-600">＋ follow draft</button>}><button onClick={() => props.onUnfollow(props.data.pubkey)} class="rounded border border-cyan-800 bg-cyan-950/20 px-3 py-1 font-mono text-[10px] text-cyan-300">✓ in follow draft</button></Show><Show when={!blocked()}><button onClick={() => void props.onBlock(props.data.pubkey, profile().name)} class="ml-auto rounded border border-red-950 px-3 py-1 font-mono text-[10px] text-red-500 hover:border-red-700 hover:text-red-300">block globally</button></Show></div>
     <div class="p-5"><h1 class="text-xl text-lime-100">{profile().name}</h1><div class="mt-1 break-all font-mono text-xs text-emerald-800">{props.data.pubkey}</div><div class="mt-1 font-mono text-xs text-emerald-500">{profile().handle}</div><p class="mt-4 max-w-3xl whitespace-pre-wrap leading-7 text-emerald-300">{profile().about || "No profile description returned."}</p></div>
     <Show when={props.route.kind !== "follows"}><div class="grid border-y border-emerald-900 lg:grid-cols-3"><MapSection title="POSTING THEMES" detail="Topic tags in the retrieved account sample"><For each={intelligence().topics}>{([topic, count]) => <MapItem label={`#${topic}`} count={count} onClick={() => props.openRoute(`#/topic/${topic}`)}/>}</For></MapSection><MapSection title="REFERENCED SOURCES" detail="Domains linked by this account"><Show when={intelligence().domains.length} fallback={<p class="text-emerald-900">No external domains in this sample.</p>}><For each={intelligence().domains}>{([domain, count]) => <MapItem label={domain} count={count}/>}</For></Show></MapSection><MapSection title="ACCOUNT CONTEXT" detail="Inspectable facts from retrieved events"><div class="grid grid-cols-2 gap-2"><MapStat label="events" value={props.data.authored.length}/><MapStat label="active days" value={intelligence().days}/><MapStat label="follows" value={props.data.follows.length}/><MapStat label="observed relays" value={intelligence().relays || "cache"}/></div><div class="mt-3 text-[9px] tracking-wider text-emerald-800">FREQUENTLY REFERENCED ACCOUNTS</div><For each={intelligence().mentions}>{([pubkey, count]) => <MapItem label={props.profileFor(pubkey).name} count={count} onClick={() => props.openRoute(`#/account/${pubkey}`)}/>}</For></MapSection></div></Show>
     <Show when={props.route.kind === "follows"} fallback={<>

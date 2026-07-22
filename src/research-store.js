@@ -66,6 +66,29 @@ export async function storeEvents(events, sourceIndex = new Map()) {
   });
 }
 
+export async function deleteEventsByAuthors(pubkeys = []) {
+  const authors = [...new Set(pubkeys.filter(Boolean))];
+  if (!authors.length) return 0;
+  const database = await openDatabase();
+  if (!database) return 0;
+  return new Promise((resolve) => {
+    const transaction = database.transaction(["events", "eventSearch"], "readwrite");
+    const events = transaction.objectStore("events");
+    const search = transaction.objectStore("eventSearch");
+    const index = search.index("pubkey");
+    let deleted = 0;
+    for (const pubkey of authors) {
+      const request = index.getAllKeys(pubkey);
+      request.onsuccess = () => {
+        for (const id of request.result) { events.delete(id); search.delete(id); deleted += 1; }
+      };
+    }
+    transaction.oncomplete = () => resolve(deleted);
+    transaction.onerror = () => resolve(deleted);
+    transaction.onabort = () => resolve(deleted);
+  });
+}
+
 export function indexTerms(event) {
   const content = event.content ?? "";
   const words = content.toLowerCase().match(/[\p{L}\p{N}_-]{3,}/gu) ?? [];
