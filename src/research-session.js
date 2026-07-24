@@ -8,13 +8,14 @@ import { mergeSearchResults, pageAdditions, presentCorpus } from "./search-state
 
 const unique = (events) => [...new Map(events.filter((event) => event?.id).map((event) => [event.id, event])).values()];
 const emptyFacets = () => ({ topic: "", author: "", kind: null, day: "", domain: "", relay: "", media: "" });
+const normalizeView = (value) => ["list", "table", "thread", "timeline", "map", "graph", "compare"].includes(value) ? value : "list";
 
 export function createResearchSession(deps, restored = {}) {
   const [draft, setDraft] = createStore(createResearchDraft({
     text: restored.query ?? "",
     mode: restored.startMode ?? "topic",
     constraints: restored.queryConstraints ?? emptyQueryConstraints(),
-    operation: restored.combineMode ?? "replace",
+    operation: "replace",
     limit: restored.queryLimit ?? 100,
   }));
   const [corpus, setCorpus] = createSignal([]);
@@ -23,7 +24,7 @@ export function createResearchSession(deps, restored = {}) {
   const [relayStates, setRelayStates] = createSignal(new Map());
   const [kindFilter, setKindFilter] = createSignal(restored.kindFilter ?? "all");
   const [sinceDays, setSinceDays] = createSignal(restored.sinceDays ?? 0);
-  const [view, setView] = createSignal(restored.view ?? "list");
+  const [view, setView] = createSignal(normalizeView(restored.view));
   const [pinned, setPinned] = createSignal(new Set(restored.pinned ?? []));
   const [selectedId, setSelectedId] = createSignal(restored.selectedId ?? "");
   const [constraintEditor, setConstraintEditor] = createSignal("");
@@ -76,7 +77,7 @@ export function createResearchSession(deps, restored = {}) {
   const restoreCheckpoint = async (item) => {
     const events = deps.allowedEvents(await deps.loadEvents(item.eventIds, deps.runtime.recordSources));
     deps.rememberEvents(events);
-    setCorpus(events); setDraft("text", item.query); setView(item.view); setActiveFacets(item.facets ?? emptyFacets()); setSelectedId(""); setExpansionStatus(null);
+    setCorpus(events); setDraft("text", item.query); setView(normalizeView(item.view)); setActiveFacets(item.facets ?? emptyFacets()); setSelectedId(""); setExpansionStatus(null);
     setLastQueryPlan(null); setHasMore(false); setPageMessage("Restored checkpoints are fixed corpora. Run a relay search to retrieve more.");
     deps.openSearchRoute();
     deps.logUsage("corpus_checkpoint_restored", { checkpointId: item.id, eventCount: events.length });
@@ -182,7 +183,7 @@ export function createResearchSession(deps, restored = {}) {
     const request = createSearchRequest(draft, overrides);
     const problem = searchRequestProblem(request);
     if (problem) { onInvalid(problem); return; }
-    updateDraft(request);
+    updateDraft({ ...request, operation: "replace" });
     void retrieve(request);
   };
 
@@ -211,6 +212,39 @@ export function createResearchSession(deps, restored = {}) {
     finally { if (token === pagingToken) setPaging(false); }
   }
 
+  async function searchAuthors(pubkeys) {
+    const authors = [...new Set(pubkeys.filter(Boolean))].slice(0, 100);
+    if (!authors.length) { setError("Add at least one seed account first."); return; }
+    checkpoint(`before seed account search · ${authors.length} accounts`);
+    const token = ++requestToken;
+    pagingToken += 1; expansionToken += 1;
+    const relays = deps.readRelays;
+    const filter = { authors, kinds: [1, 6, 20, 21, 22, 1111, 30023], limit: draft.limit };
+    const plan = { filter, relays, mode: "seed accounts", query: `${authors.length} seed accounts`, limit: draft.limit, operation: "replace", constraints: emptyQueryConstraints(), intersectionBaseIds: [], exactLookup: false };
+    setLoading(true); setError(""); setCorpus([]); setActiveFacets(emptyFacets()); setLastQueryPlan(plan); setHasMore(true); setPageMessage("");
+    setRelayStates(new Map(relays.map((relay) => [relay, { state: "searching", count: 0 }])));
+    deps.openSearchRoute();
+    try {
+      let incoming = [];
+      await Promise.all(relays.map(async (relay) => {
+        const started = performance.now();
+        const found = await deps.runtime.queryRelay(relay, { ...filter, limit: deps.relayQueryLimit(filter.limit, deps.relayInformation().get(relay)) }, "seed-accounts");
+        if (token !== requestToken) return;
+        deps.rememberEvents(found);
+        incoming = unique([...incoming, ...found]);
+        setCorpus([...incoming].sort((left, right) => right.created_at - left.created_at));
+        setRelayStates((current) => new Map(current).set(relay, { state: "ok", count: found.length, ids: found.map((event) => event.id), duration: Math.round(performance.now() - started) }));
+      }));
+      if (token !== requestToken) return;
+      setExecutedQuery({ value: `${authors.length} seed accounts`, mode: "seed accounts", constraints: emptyQueryConstraints(), operation: "replace", completedAt: Date.now() });
+      setEntryReasons(Object.fromEntries(corpus().map((event) => [event.id, "seed account activity"])));
+      deps.recordDecision("search", `Searched ${authors.length} seed accounts`, `${corpus().length} events`);
+      deps.logUsage("seed_accounts_search", { accounts: authors.length, resultCount: corpus().length });
+      deps.hydrateProfiles(corpus(), () => token === requestToken);
+    } catch (cause) { if (token === requestToken) setError(cause.message); }
+    finally { if (token === requestToken) setLoading(false); }
+  }
+
   const compileFacets = () => {
     const facets = activeFacets();
     if (!activeFacetCount()) return;
@@ -220,6 +254,17 @@ export function createResearchSession(deps, restored = {}) {
     deps.notice("New search draft ready. Review the constraints, then search the relays.");
     deps.focusComposer(false);
     deps.logUsage("facets_compiled", { facets });
+  };
+
+  const prepareFacetSearch = (type, value) => {
+    const facet = { ...emptyFacets(), [type]: value };
+    const patch = researchPatchFromFacets(facet, "", emptyQueryConstraints());
+    if (type === "domain") Object.assign(patch, { text: value, mode: "words", constraints: emptyQueryConstraints() });
+    updateDraft({ ...patch, mode: type === "topic" ? "topic" : "words", operation: "replace" });
+    deps.recordDecision("refine", `Prepared wider search from ${type}`, String(value));
+    deps.notice("Wider search ready. Review it, then search the relays.");
+    deps.openSearchRoute();
+    deps.focusComposer(false);
   };
 
   async function searchLocalArchive() {
@@ -304,7 +349,7 @@ export function createResearchSession(deps, restored = {}) {
 
   const openFixedCorpus = ({ events, label, mode, entryReasons: reasons = {}, pinnedIds, nextView = "table", draftPatch, pageMessage: message }) => {
     requestToken += 1; pagingToken += 1; expansionToken += 1;
-    deps.rememberEvents(events); setCorpus(events); setSelectedId(""); setActiveFacets(emptyFacets()); setExpansionStatus(null); setEntryReasons(reasons); setView(nextView);
+    deps.rememberEvents(events); setCorpus(events); setSelectedId(""); setActiveFacets(emptyFacets()); setExpansionStatus(null); setEntryReasons(reasons); setView(normalizeView(nextView));
     if (draftPatch) updateDraft(draftPatch);
     if (pinnedIds) setPinned(new Set(pinnedIds));
     setExecutedQuery({ value: label, mode, constraints: emptyQueryConstraints(), operation: "replace", completedAt: Date.now() });
@@ -326,7 +371,7 @@ export function createResearchSession(deps, restored = {}) {
     expansionStatus, setExpansionStatus, expansionOperation, setExpansionOperation, dedupeEnabled, setDedupeEnabled,
     lastQueryPlan, setLastQueryPlan, paging, hasMore, setHasMore, pageMessage, setPageMessage, activeFacets, setActiveFacets,
     corpusHistory, setCorpusHistory, selectedEvent, visibleCorpus, eligibleCorpus, corpusFacets, composerChips, activeFacetCount,
-    startRelaySearch, loadMore, compileFacets, searchLocalArchive, expandSelection, toggleFacet, checkpoint, restoreCheckpoint, openFixedCorpus, resolvePubkey, reset,
+    startRelaySearch, searchAuthors, loadMore, compileFacets, prepareFacetSearch, searchLocalArchive, expandSelection, toggleFacet, checkpoint, restoreCheckpoint, openFixedCorpus, resolvePubkey, reset,
     invalidate: () => { requestToken += 1; pagingToken += 1; expansionToken += 1; },
   };
 }

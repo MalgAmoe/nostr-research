@@ -27,3 +27,73 @@ test("research facets can be selected and cleared through the session boundary",
     dispose();
   });
 });
+
+test("successive searches use the latest term and reset corpus combination to replace", () => {
+  createRoot((dispose) => {
+    const started = [];
+    const session = createResearchSession({
+      runtime: { sourcesFor: () => [], recordSources: noop, queryRelay: async () => [] },
+      eventFor: noop,
+      allEvents: () => [],
+      sessionEventLimit: 10,
+      storeEvents: noop,
+      loadEvents: async () => [],
+      searchStoredEvents: async () => [],
+      searchRelays: () => [],
+      readRelays: [],
+      relayInformation: () => new Map(),
+      relayQueryLimit: (limit) => limit,
+      inspectRelays: noop,
+      allowedEvents: (events) => events,
+      rememberEvents: (events) => events,
+      recordDecision: noop,
+      recordResearchRun: noop,
+      hydrateProfiles: noop,
+      openSearchRoute: noop,
+      focusComposer: noop,
+      notice: noop,
+      short: String,
+      logUsage: (type, detail) => { if (type === "search_started") started.push(detail.query); },
+    });
+
+    session.updateDraft({ text: "bitcoin", operation: "union" });
+    session.startRelaySearch();
+    assert.equal(session.draft.text, "bitcoin");
+    assert.equal(session.draft.operation, "replace");
+
+    session.updateDraft({ text: "nostr" });
+    session.startRelaySearch();
+    assert.equal(session.draft.text, "nostr");
+    assert.deepEqual(started, ["bitcoin", "nostr"]);
+    dispose();
+  });
+});
+
+test("searching wider from a facet replaces the old draft with an exact constraint", () => {
+  createRoot((dispose) => {
+    const session = createResearchSession({
+      runtime: { sourcesFor: () => [], recordSources: noop },
+      eventFor: noop,
+      allEvents: () => [],
+      sessionEventLimit: 10,
+      storeEvents: noop,
+      allowedEvents: (events) => events,
+      rememberEvents: (events) => events,
+      recordDecision: noop,
+      notice: noop,
+      openSearchRoute: noop,
+      focusComposer: noop,
+      logUsage: noop,
+    });
+
+    session.updateDraft({ text: "old term", mode: "words" });
+    session.prepareFacetSearch("topic", "nostr");
+
+    assert.equal(session.draft.text, "");
+    assert.equal(session.draft.mode, "topic");
+    assert.equal(session.draft.constraints.tag, "t");
+    assert.equal(session.draft.constraints.tagValue, "nostr");
+    assert.equal(session.draft.operation, "replace");
+    dispose();
+  });
+});

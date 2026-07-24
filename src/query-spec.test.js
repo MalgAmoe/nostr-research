@@ -59,9 +59,9 @@ test("facet research follows the same draft, request, and plan stages as manual 
   const plan = compileRelayPlan({ filter: { limit: 100 }, relays: ["wss://read"], mode: "constraints" }, request, request.constraints, ["wss://search"]);
   assert.equal(request.text, "");
   assert.equal(searchRequestProblem(request), "");
-  assert.equal(plan.filter.search, "nostr");
+  assert.deepEqual(plan.filter["#t"], ["nostr"]);
   assert.deepEqual(plan.filter.kinds, [1]);
-  assert.deepEqual(plan.relays, ["wss://search"]);
+  assert.deepEqual(plan.relays, ["wss://read"]);
   assert.equal(plan.operation, "replace");
   const localDraft = researchPatchFromFacets({ domain: "example.com" }, "previous words", emptyQueryConstraints());
   assert.equal(localDraft.text, "previous words");

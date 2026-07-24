@@ -13,23 +13,27 @@ import { createResearchManifest, muteEventDraft, muteRulesFromEvent } from "./re
 import { createNostrRuntime } from "./nostr-runtime.js";
 import { createResearchSession } from "./research-session.js";
 import { createRelayExplorer, emptyScanDirection } from "./relay-explorer.js";
-import { SettingsPage, WorkspaceBar } from "./ui/settings-page.jsx";
+import { SettingsPage } from "./ui/settings-page.jsx";
 import { createModerationPolicy } from "./moderation.js";
-import { createResearchLibrary } from "./research-library.js";
 import "./styles.css";
 
 const SEARCH_RELAYS_KEY = "nostr-research-relays-v2";
-const SESSION_KEY = "nostr-research-session-v1";
+const SESSION_KEY = "nostr-research-session-v2";
 const PULSE_SETTINGS_KEY = "nostr-research-pulse-v3";
 const BLOCKED_ACCOUNTS_KEY = "nostr-research-blocked-accounts-v1";
 const BLOCKED_NAMES_KEY = "nostr-research-blocked-names-v1";
-const FOLLOW_DRAFT_KEY = "nostr-research-follow-draft-v1";
+const SEED_ACCOUNTS_KEY = "nostr-research-seed-accounts-v1";
 const MUTE_RULES_KEY = "nostr-research-mute-rules-v1";
 const SCAN_DIRECTION_KEY = "nostr-research-scan-direction-v1";
 const SCAN_STRATEGY_KEY = "nostr-research-scan-strategy-v1";
-const WORKSPACES_KEY = "nostr-research-workspaces-v1";
-const ACTIVE_WORKSPACE_KEY = "nostr-research-active-workspace-v1";
-const PULSE_SESSION_KEY = "nostr-research-pulse-session-v1";
+const PULSE_SESSION_KEY = "nostr-research-pulse-session-v2";
+const OBSOLETE_LOCAL_STATE_KEYS = [
+  "nostr-research-session-v1",
+  "nostr-research-pulse-session-v1",
+  "nostr-research-follow-draft-v1",
+  "nostr-research-workspaces-v1",
+  "nostr-research-active-workspace-v1",
+];
 const DEFAULT_SEARCH_RELAYS = ["wss://search.nos.today"];
 const READ_RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://nostr.mom"];
 const INDEXER_RELAYS = ["wss://purplepag.es"];
@@ -53,9 +57,10 @@ const save = (key, value) => {
     catch { return false; }
   }
 };
+for (const key of OBSOLETE_LOCAL_STATE_KEYS) localStorage.removeItem(key);
 const initialBlockedAccounts = load(BLOCKED_ACCOUNTS_KEY, []).map((entry) => typeof entry === "string" ? { pubkey: entry, name: "", blockedAt: 0 } : entry).filter((entry) => /^[0-9a-f]{64}$/i.test(entry.pubkey));
 const initialBlockedNames = load(BLOCKED_NAMES_KEY, []).map(normalizeNamePattern).filter(Boolean);
-const initialFollowDraft = load(FOLLOW_DRAFT_KEY, []).map((entry) => typeof entry === "string" ? { pubkey: entry, name: "", addedAt: 0 } : entry).filter((entry) => /^[0-9a-f]{64}$/i.test(entry.pubkey));
+const initialSeedAccounts = load(SEED_ACCOUNTS_KEY, []).map((entry) => typeof entry === "string" ? { pubkey: entry, name: "", addedAt: 0 } : entry).filter((entry) => /^[0-9a-f]{64}$/i.test(entry.pubkey));
 const initialMuteRules = load(MUTE_RULES_KEY, { topics: [], words: [], events: [], relays: [] });
 const moderation = createModerationPolicy({ accounts: initialBlockedAccounts.map((entry) => entry.pubkey), names: initialBlockedNames, muteRules: initialMuteRules });
 const allowedEvents = moderation.allowedEvents;
@@ -123,22 +128,21 @@ function App() {
   const [blockedNames, setBlockedNames] = createSignal(initialBlockedNames);
   const [nameBlockDraft, setNameBlockDraft] = createSignal("");
   const [nameBlockRevision, setNameBlockRevision] = createSignal(0);
-  const [followDraft, setFollowDraft] = createSignal(initialFollowDraft);
-  const [followDraftInput, setFollowDraftInput] = createSignal("");
+  const [seedAccounts, setSeedAccounts] = createSignal(initialSeedAccounts);
+  const [seedAccountInput, setSeedAccountInput] = createSignal("");
   const [muteRules, setMuteRules] = createSignal(initialMuteRules);
   const [muteImportDraft, setMuteImportDraft] = createSignal("");
   const [blockNotice, setBlockNotice] = createSignal("");
-  const initialWorkspaceId = load(ACTIVE_WORKSPACE_KEY, "") || crypto.randomUUID();
-  const library = createResearchLibrary({
-    workspaceId: initialWorkspaceId,
-    workspaces: load(WORKSPACES_KEY, []),
-    decisions: restored.researchDecisions ?? [],
-  });
-  const {
-    recipes: paths, setRecipes: setPaths, activeRecipeId, setActiveRecipeId, collections, setCollections,
-    collectionDraft, setCollectionDraft, lastRunDelta, setLastRunDelta, activeWorkspaceId, setActiveWorkspaceId,
-    workspaces, setWorkspaces, researchDecisions, setResearchDecisions, recordDecision,
-  } = library;
+  const [paths, setPaths] = createSignal([]);
+  const [activeRecipeId, setActiveRecipeId] = createSignal("");
+  const [collections, setCollections] = createSignal([]);
+  const [collectionDraft, setCollectionDraft] = createSignal("");
+  const [lastRunDelta, setLastRunDelta] = createSignal(null);
+  const [researchDecisions, setResearchDecisions] = createSignal(restored.researchDecisions ?? []);
+  const recordDecision = (type, label, detail = "") => setResearchDecisions((current) => [
+    ...current,
+    { id: crypto.randomUUID(), at: Date.now(), type, label, detail },
+  ].slice(-30));
   let routeToken = 0;
   const knownEvents = new Map();
   const rememberEvents = (events) => { const allowed = allowedEvents(events); for (const event of allowed) knownEvents.set(event.id, event); return allowed; };
@@ -185,10 +189,12 @@ function App() {
   } = research;
   const restoreCorpusCheckpoint = research.restoreCheckpoint;
   const startRelaySearch = research.startRelaySearch;
+  const searchSeedAccounts = research.searchAuthors;
   const loadMoreResults = research.loadMore;
   const resolvePubkey = research.resolvePubkey;
   const toggleFacet = research.toggleFacet;
   const compileActiveFacets = research.compileFacets;
+  const prepareFacetSearch = research.prepareFacetSearch;
   const searchLocalArchive = research.searchLocalArchive;
   const expandSelection = research.expandSelection;
   const relayExplorer = createRelayExplorer({
@@ -214,54 +220,11 @@ function App() {
     loading: pulseLoading, settings: pulseSettings, meta: pulseMeta, setMeta: setPulseMeta, progress: pulseProgress,
     view: pulseView, setView: setPulseView, direction: scanDirection, strategy: scanStrategy, round: scanRound,
     reasons: scanReasons, analysis: pulseAnalysis, directionCount, updateSettings: updatePulseSettings,
-    updateStrategy: updateScanStrategy, pursue: pursueDirection, removeDirection, clearDirection,
+    updateStrategy: updateScanStrategy, pursue: pursueDirection, addAuthors: addDirectionAuthors, removeDirection, clearDirection,
     scan: loadRelayPulse, continueScan: continueDirectedScan, cancel: cancelRelayPulse,
   } = relayExplorer;
   rememberEvents(corpus());
   const eventStates = createMemo(() => { corpus(); routeData(); return reconcileEventState([...knownEvents.values()]); });
-  const workspaceSnapshot = (id = activeWorkspaceId(), label = "") => ({
-    id, label: label || researchDraft.text.trim() || executedQuery()?.value || "Untitled branch", updatedAt: Date.now(),
-    query: researchDraft.text, queryConstraints: researchDraft.constraints, startMode: researchDraft.mode, executedQuery: executedQuery(),
-    eventIds: corpus().slice(0, SESSION_EVENT_LIMIT).map((event) => event.id), pinned: [...pinned()], selectedId: selectedId(),
-    view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: entryReasons(), activeFacets: activeFacets(),
-    combineMode: researchDraft.operation, queryLimit: researchDraft.limit, dedupeEnabled: dedupeEnabled(), lastQueryPlan: lastQueryPlan(), hasMore: hasMore(), pageMessage: pageMessage(), activeRecipeId: activeRecipeId(),
-    decisions: researchDecisions().slice(-30),
-  });
-  const persistWorkspaces = (items) => { setWorkspaces(items); save(WORKSPACES_KEY, items); };
-  const saveCurrentWorkspace = () => {
-    const snapshot = workspaceSnapshot();
-    const next = [snapshot, ...workspaces().filter((item) => item.id !== snapshot.id)].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8);
-    persistWorkspaces(next); void storeEvents(corpus(), sourcesFor); return snapshot;
-  };
-  const openWorkspace = async (target) => {
-    if (target.id === activeWorkspaceId()) return;
-    saveCurrentWorkspace();
-    const events = allowedEvents(await loadEvents(target.eventIds, runtime.recordSources)); rememberEvents(events);
-    updateResearchDraft({
-      text: target.query ?? "",
-      constraints: target.queryConstraints ?? emptyQueryConstraints(),
-      mode: target.startMode ?? "words",
-      operation: target.combineMode ?? "replace",
-      limit: target.queryLimit ?? 100,
-    });
-    setExecutedQuery(target.executedQuery ?? null);
-    setCorpus(events); setPinned(new Set((target.pinned ?? []).filter((id) => events.some((event) => event.id === id)))); setSelectedId(target.selectedId ?? ""); setView(target.view ?? "list");
-    setKindFilter(target.kindFilter ?? "all"); setSinceDays(target.sinceDays ?? 0); setEntryReasons(target.entryReasons ?? {}); setActiveFacets(target.activeFacets ?? emptyFacets()); setResearchDecisions(target.decisions ?? []);
-    setDedupeEnabled(target.dedupeEnabled ?? true); setLastQueryPlan(target.lastQueryPlan ?? null); setHasMore(target.hasMore ?? true); setPageMessage(target.pageMessage ?? ""); setActiveRecipeId(target.activeRecipeId ?? "");
-    setActiveWorkspaceId(target.id); save(ACTIVE_WORKSPACE_KEY, target.id); history.replaceState(null, "", "#/search"); setRoute(parseRoute());
-    logUsage("workspace_opened", { workspaceId: target.id, cachedEvents: events.length });
-  };
-  const branchWorkspace = () => {
-    const current = saveCurrentWorkspace();
-    const branch = { ...current, id: crypto.randomUUID(), label: `${current.label} · branch`, updatedAt: Date.now(), decisions: [...current.decisions, { id: crypto.randomUUID(), at: Date.now(), type: "branch", label: `Branched from ${current.label}` }].slice(-30) };
-    persistWorkspaces([branch, current, ...workspaces().filter((item) => ![branch.id, current.id].includes(item.id))].slice(0, 8)); setActiveWorkspaceId(branch.id); save(ACTIVE_WORKSPACE_KEY, branch.id); setResearchDecisions(branch.decisions);
-    setBlockNotice("Created an independent research branch from the current corpus."); logUsage("workspace_branched", { from: current.id, workspaceId: branch.id, eventCount: branch.eventIds.length });
-  };
-  const closeWorkspace = (id) => {
-    if (workspaces().length <= 1) { setBlockNotice("Keep at least one research workspace open."); return; }
-    if (id === activeWorkspaceId()) { setBlockNotice("Open another branch before closing this one."); return; }
-    const remaining = workspaces().filter((item) => item.id !== id); persistWorkspaces(remaining);
-  };
   const inspectRelays = async (relays) => {
     const information = await loadRelayInformationSet(relays);
     setRelayInformation((current) => new Map([...current, ...information]));
@@ -468,24 +431,24 @@ function App() {
   };
   const blockReason = (pubkey) => blockedAccounts().some((entry) => entry.pubkey === pubkey?.toLowerCase()) ? { type: "key", label: "public key" } : matchingNamePattern(pubkey) ? { type: "name", label: matchingNamePattern(pubkey) } : null;
   const isAccountBlocked = (pubkey) => Boolean(blockReason(pubkey));
-  const addToFollowDraft = (value, name = "") => {
+  const addSeedAccount = (value, name = "") => {
     const pubkey = parseAccountKey(value);
     if (!pubkey) { setBlockNotice("Could not recognize that account key."); return false; }
-    if (followDraft().some((entry) => entry.pubkey === pubkey)) { setBlockNotice("This account is already in the follow draft."); return false; }
+    if (seedAccounts().some((entry) => entry.pubkey === pubkey)) { setBlockNotice("This account is already a seed."); return false; }
     const entry = { pubkey, name: name || profileFor(pubkey).name, addedAt: Date.now() };
-    const next = [entry, ...followDraft()];
-    setFollowDraft(next); save(FOLLOW_DRAFT_KEY, next); setFollowDraftInput("");
-    setBlockNotice(`${entry.name || short(pubkey)} added to the local follow draft.`);
-    logUsage("follow_draft_added", { pubkey });
+    const next = [entry, ...seedAccounts()];
+    setSeedAccounts(next); save(SEED_ACCOUNTS_KEY, next); setSeedAccountInput("");
+    setBlockNotice(`${entry.name || short(pubkey)} added to Seed Accounts.`);
+    logUsage("seed_account_added", { pubkey });
     return true;
   };
-  const removeFromFollowDraft = (pubkey) => {
-    const next = followDraft().filter((entry) => entry.pubkey !== pubkey);
-    setFollowDraft(next); save(FOLLOW_DRAFT_KEY, next);
-    setBlockNotice(`${short(pubkey)} removed from the follow draft.`);
-    logUsage("follow_draft_removed", { pubkey });
+  const removeSeedAccount = (pubkey) => {
+    const next = seedAccounts().filter((entry) => entry.pubkey !== pubkey);
+    setSeedAccounts(next); save(SEED_ACCOUNTS_KEY, next);
+    setBlockNotice(`${short(pubkey)} removed from Seed Accounts.`);
+    logUsage("seed_account_removed", { pubkey });
   };
-  const isInFollowDraft = (pubkey) => followDraft().some((entry) => entry.pubkey === pubkey?.toLowerCase());
+  const isSeedAccount = (pubkey) => seedAccounts().some((entry) => entry.pubkey === pubkey?.toLowerCase());
   const applyMuteRules = (next) => {
     const normalized = {
       topics: [...new Set((next.topics ?? []).map((value) => String(value).trim().toLowerCase().replace(/^#/, "")).filter(Boolean))],
@@ -526,7 +489,7 @@ function App() {
   const exportManifest = () => downloadJson("nostr-research-manifest.json", currentManifest());
   const exportResearchPackage = () => {
     const manifest = currentManifest();
-    downloadJson("nostr-research-package.json", { format: "nostr-research-package-v1", manifest, evidence: [...pinned()].map((id) => knownEvents.get(id)).filter(Boolean), followDraft: followDraft(), muteListDraft: muteEventDraft({ ...muteRules(), accounts: moderation.accountsList() }), direction: scanDirection(), decisions: researchDecisions() });
+    downloadJson("nostr-research-package.json", { format: "nostr-research-package-v1", manifest, evidence: [...pinned()].map((id) => knownEvents.get(id)).filter(Boolean), seedAccounts: seedAccounts(), muteListDraft: muteEventDraft({ ...muteRules(), accounts: moderation.accountsList() }), direction: scanDirection(), decisions: researchDecisions() });
   };
   const searchPulseTopic = (topic) => startRelaySearch({ text: `#${topic}`, mode: "topic", operation: "replace" });
   const searchPulseDomain = (domain) => startRelaySearch({ text: domain, mode: "words", operation: "replace" });
@@ -638,7 +601,7 @@ function App() {
   const toggleSet = (setter, id) => setter((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   createEffect(() => save(SESSION_KEY, {
-    query: researchDraft.text, queryConstraints: researchDraft.constraints, startMode: researchDraft.mode, executedQuery: executedQuery(), eventIds: corpus().slice(0, SESSION_EVENT_LIMIT).map((event) => event.id), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory(), queryLimit: researchDraft.limit, researchDecisions: researchDecisions(), combineMode: researchDraft.operation, lastQueryPlan: lastQueryPlan(), hasMore: hasMore(), pageMessage: pageMessage(), activeFacets: activeFacets()
+    query: researchDraft.text, queryConstraints: researchDraft.constraints, startMode: researchDraft.mode, executedQuery: executedQuery(), eventIds: corpus().slice(0, SESSION_EVENT_LIMIT).map((event) => event.id), pinned: [...pinned()].slice(0, 150), selectedId: selectedId(), view: view(), kindFilter: kindFilter(), sinceDays: sinceDays(), entryReasons: Object.fromEntries(Object.entries(entryReasons()).slice(-150)), dedupeEnabled: dedupeEnabled(), activeRecipeId: activeRecipeId(), corpusHistory: corpusHistory(), queryLimit: researchDraft.limit, researchDecisions: researchDecisions(), lastQueryPlan: lastQueryPlan(), hasMore: hasMore(), pageMessage: pageMessage(), activeFacets: activeFacets()
   }));
   createEffect(() => {
     if (!pulsePersistenceReady()) return;
@@ -652,7 +615,6 @@ function App() {
     window.addEventListener("hashchange", handler);
     onCleanup(() => { window.removeEventListener("hashchange", handler); runtime.destroy(); });
     logUsage("client_opened", { framework: "solid", searchRelays: searchRelays() });
-    if (!workspaces().some((item) => item.id === activeWorkspaceId())) persistWorkspaces([workspaceSnapshot(), ...workspaces()].slice(0, 8));
     const [recipes, storedCollections] = await Promise.all([listRecipes(), listCollections()]);
     if (storedCollections.length) setCollections(storedCollections);
     if (recipes.length) setPaths(recipes);
@@ -689,6 +651,17 @@ function App() {
     openRoute("#/search");
     queueMicrotask(() => document.getElementById("research-composer")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
+  const usableSeedPubkeys = () => seedAccounts().map((account) => account.pubkey).filter((pubkey) => !isAccountBlocked(pubkey));
+  const searchAllSeeds = () => void searchSeedAccounts(usableSeedPubkeys());
+  const searchOneSeed = (pubkey) => prepareFacetSearch("author", pubkey);
+  const directAllSeeds = () => {
+    const added = addDirectionAuthors(usableSeedPubkeys());
+    setBlockNotice(added ? `${added} seed account${added === 1 ? "" : "s"} added to the Relay Explorer direction.` : "Those seed accounts are already in the direction, or its eight-account limit is full.");
+  };
+  const directOneSeed = (pubkey) => {
+    const added = pursueDirection("author", pubkey);
+    setBlockNotice(added ? "Seed account added to the Relay Explorer direction." : "That account is already in the direction, or its eight-account limit is full.");
+  };
   const navigateFromEvent = (id, relation) => {
     setSelectedId(id); setExpansionStatus(null);
     if (relation === "author") {
@@ -704,7 +677,7 @@ function App() {
   return <div class="min-h-screen bg-[#050b08] text-emerald-100 selection:bg-lime-300 selection:text-black">
     <header class="sticky top-0 z-30 border-b border-emerald-900/80 bg-[#050b08]/95 backdrop-blur">
       <div class="relative mx-auto flex max-w-[1600px] items-center gap-5 px-4 py-3 lg:px-7">
-        <button onClick={newExploration} class="font-mono text-sm font-bold tracking-[.14em] text-lime-200">NOSTR_RESEARCH<span class="text-emerald-700">://LIVE</span></button>
+        <button onClick={() => openRoute("#/search")} class="font-mono text-sm font-bold tracking-[.14em] text-lime-200">NOSTR_RESEARCH<span class="text-emerald-700">://LIVE</span></button>
         <nav class="absolute left-1/2 flex -translate-x-1/2 items-center gap-1 font-mono text-[11px]"><button onClick={() => openRoute("#/search")} class={`rounded px-3 py-1.5 ${route().kind === "search" ? "bg-lime-300 text-black" : "text-emerald-500 hover:text-lime-300"}`}>SEARCH</button><button onClick={() => openRoute("#/relays")} class={`rounded px-3 py-1.5 ${route().kind === "relays" ? "bg-lime-300 text-black" : "text-emerald-500 hover:text-lime-300"}`}>RELAY EXPLORER</button></nav>
         <div class="ml-auto flex items-center gap-2"><button aria-label="Settings" title="Settings" onClick={() => openRoute("#/settings")} class={`flex h-8 w-8 items-center justify-center rounded-full border font-mono text-sm ${route().kind === "settings" ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-800 text-emerald-400 hover:border-lime-500 hover:text-lime-300"}`}>⚙</button><button onClick={newExploration} class="rounded border border-lime-800 px-3 py-1.5 font-mono text-[11px] text-lime-300 hover:bg-lime-300 hover:text-black">＋ NEW</button><div class="hidden items-center gap-2 text-[11px] text-emerald-700 sm:flex"><span class="h-1.5 w-1.5 animate-pulse rounded-full bg-lime-300"/>LIVE RELAYS</div></div>
       </div>
@@ -713,33 +686,28 @@ function App() {
 
     <div class={`mx-auto grid gap-4 px-4 py-5 lg:px-6 ${route().kind === "settings" ? "max-w-[1100px]" : route().kind === "relays" ? "max-w-[1600px]" : "max-w-[1800px] xl:grid-cols-[250px_minmax(0,1fr)_310px]"}`}>
       <Show when={!['settings', 'relays'].includes(route().kind)}><aside class="hidden space-y-4 xl:sticky xl:top-20 xl:block xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
-        <Show when={corpus().length}><FacetPanel facets={corpusFacets()} active={activeFacets()} profileFor={profileFor} onFacet={toggleFacet} onOpenAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onClear={() => setActiveFacets(emptyFacets())} onCompile={compileActiveFacets}/></Show>
-        <Panel title="RESEARCH RECIPES"><Show when={paths().length} fallback={<p class="text-emerald-900">Save a search to make it rerunnable.</p>}><For each={paths().slice(0, 8)}>{(path) => <button onClick={() => void restorePath(path)} class={`block w-full border-b border-emerald-950 py-2 text-left hover:text-lime-300 ${activeRecipeId() === path.id ? "text-lime-300" : "text-emerald-500"}`}><span class="block truncate">{activeRecipeId() === path.id ? "› " : ""}{path.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{path.eventIds?.length ?? 0} cached nodes</span></button>}</For></Show></Panel>
-        <Show when={collections().length}><Panel title="COLLECTIONS"><For each={collections().slice(0, 8)}>{(collection) => <button onClick={() => void openCollection(collection)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">{collection.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{collection.eventIds.length} evidence items</span></button>}</For></Panel></Show>
-        <Show when={corpusHistory().length}><Panel title="RETURN TO"><For each={corpusHistory()}>{(checkpoint) => <button onClick={() => void restoreCorpusCheckpoint(checkpoint)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">↶ {checkpoint.label}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{checkpoint.eventIds.length} events · {new Date(checkpoint.at).toLocaleTimeString()}</span></button>}</For></Panel></Show>
-        <Show when={corpus().length}><Panel title="CURRENT SET"><Stat label="retrieved" value={corpus().length}/><Stat label="visible" value={visibleCorpus().length}/><Stat label="active facets" value={activeFacetCount()}/><Stat label="evidence" value={pinned().size}/></Panel></Show>
-        <Show when={researchDecisions().length}><Panel title="RESEARCH BRANCH"><For each={researchDecisions().slice(-8).reverse()}>{(decision) => <div class="border-b border-emerald-950 pb-2"><div class="text-emerald-400">{decision.label}</div><Show when={decision.detail}><div class="mt-1 text-[9px] leading-4 text-emerald-800">{decision.detail}</div></Show><div class="mt-1 text-[8px] uppercase tracking-wider text-cyan-900">{decision.type} · {new Date(decision.at).toLocaleTimeString()}</div></div>}</For></Panel></Show>
+        <Show when={corpus().length}><FacetPanel facets={corpusFacets()} active={activeFacets()} profileFor={profileFor} onFacet={toggleFacet} onSearchFacet={prepareFacetSearch} onOpenAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onClear={() => setActiveFacets(emptyFacets())} onCompile={compileActiveFacets}/></Show>
+        <Panel title="SAVED SEARCHES"><Show when={paths().length} fallback={<p class="text-emerald-900">Save a search to run it again later.</p>}><For each={paths().slice(0, 8)}>{(path) => <button onClick={() => void restorePath(path)} class={`block w-full border-b border-emerald-950 py-2 text-left hover:text-lime-300 ${activeRecipeId() === path.id ? "text-lime-300" : "text-emerald-500"}`}><span class="block truncate">{activeRecipeId() === path.id ? "› " : ""}{path.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{path.eventIds?.length ?? 0} cached nodes</span></button>}</For></Show></Panel>
+        <Show when={collections().length}><Panel title="EVIDENCE COLLECTIONS"><For each={collections().slice(0, 8)}>{(collection) => <button onClick={() => void openCollection(collection)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">{collection.title}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{collection.eventIds.length} evidence items</span></button>}</For></Panel></Show>
+        <Show when={corpusHistory().length}><details class="rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs"><summary class="cursor-pointer text-[10px] tracking-[.16em] text-emerald-600">RECENT HISTORY · {corpusHistory().length}</summary><div class="mt-3"><For each={corpusHistory()}>{(checkpoint) => <button onClick={() => void restoreCorpusCheckpoint(checkpoint)} class="block w-full border-b border-emerald-950 py-2 text-left text-emerald-500 hover:text-lime-300"><span class="block truncate">↶ {checkpoint.label}</span><span class="mt-0.5 block text-[9px] text-emerald-900">{checkpoint.eventIds.length} events · {new Date(checkpoint.at).toLocaleTimeString()}</span></button>}</For></div></details></Show>
+        <Show when={corpus().length}><Panel title="CURRENT INVESTIGATION"><Stat label="retrieved" value={corpus().length}/><Stat label="visible" value={visibleCorpus().length}/><Stat label="active facets" value={activeFacetCount()}/><Stat label="evidence" value={pinned().size}/></Panel></Show>
       </aside></Show>
 
       <main class="min-w-0">
-        <Show when={route().kind === "search"}><WorkspaceBar workspaces={workspaces()} activeId={activeWorkspaceId()} currentLabel={researchDraft.text.trim() || executedQuery()?.value || "Untitled branch"} currentCount={corpus().length} onOpen={openWorkspace} onBranch={branchWorkspace} onClose={closeWorkspace}/></Show>
         <Show when={route().kind === "search"}><Show when={corpus().length}><details class="mb-4 rounded border border-emerald-900 bg-emerald-950/10 p-3 font-mono text-xs xl:hidden"><summary class="text-lime-300">filter this corpus · {visibleCorpus().length}/{corpus().length} items</summary><div class="mt-3 border-t border-emerald-900 pt-3"><div class="flex flex-wrap gap-2"><For each={corpusFacets().topics.slice(0, 10)}>{([topic, count]) => <button onClick={() => toggleFacet("topic", topic)} class={`rounded border px-2 py-1 ${activeFacets().topic === topic ? "border-lime-400 bg-lime-300 text-black" : "border-emerald-900 text-emerald-500"}`}>#{topic} {count}</button>}</For><Show when={activeFacetCount()}><button onClick={compileActiveFacets} class="rounded border border-lime-700 px-2 py-1 text-lime-300">use in a new search ↗</button><button onClick={() => setActiveFacets(emptyFacets())} class="text-emerald-600">clear</button></Show></div></div></details></Show>
         <section id="research-composer" class="mb-4 scroll-mt-20 rounded border border-emerald-900 bg-emerald-950/20 p-3 shadow-[0_0_40px_rgba(16,185,129,.04)]">
           <div class="mb-3 flex flex-wrap gap-2 font-mono text-xs"><span class="mr-1 self-center text-emerald-700">START FROM</span><For each={[['topic','a topic'],['person','a person'],['note','a note'],['words','keywords']]}>{([mode,label]) => <button type="button" onClick={() => setResearchDraft("mode", mode)} class={`rounded px-3 py-1.5 ${researchDraft.mode === mode ? "bg-lime-300 text-black" : "border border-emerald-900 text-emerald-500"}`}>{label}</button>}</For></div>
           <form class="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); startRelaySearch(); }}>
             <span class="font-mono text-lime-300">→</span>
             <input id="research-query-input" value={researchDraft.text} onInput={(event) => setResearchDraft("text", event.currentTarget.value)} class="min-w-0 flex-1 bg-transparent px-1 py-2 font-mono text-sm text-emerald-50 outline-none placeholder:text-emerald-900" placeholder={{topic:"topic, for example bitcoin",person:"name@domain, npub, or public key",note:"note, nevent, or event ID",words:"words contained in notes"}[researchDraft.mode]} autofocus />
-            <button disabled={loading()} class="rounded border border-lime-700 px-4 py-2 font-mono text-xs text-lime-200 transition hover:bg-lime-300 hover:text-black disabled:opacity-40">{loading() ? "SEARCHING…" : "SEARCH RELAYS"}</button><button type="button" disabled={loading()} onClick={() => void searchLocalArchive()} class="rounded border border-emerald-800 px-3 py-2 font-mono text-[10px] text-emerald-400 hover:text-lime-300">SEARCH LOCAL</button>
+            <button disabled={loading()} class="rounded border border-lime-700 px-4 py-2 font-mono text-xs text-lime-200 transition hover:bg-lime-300 hover:text-black disabled:opacity-40">{loading() ? "SEARCHING…" : "SEARCH RELAYS"}</button><button type="button" disabled={loading()} onClick={() => void searchLocalArchive()} class="rounded border border-emerald-800 px-3 py-2 font-mono text-[10px] text-emerald-400 hover:text-lime-300">SEARCH DOWNLOADED DATA</button>
           </form>
           <Show when={composerChips().length}><div class="mt-3 flex flex-wrap gap-2 font-mono text-[10px]"><For each={composerChips()}>{(chip) => <button type="button" title="Remove constraint" onClick={() => setResearchDraft("constraints", (current) => removeConstraint(current, chip.key))} class={`rounded border px-2 py-1 ${chip.scope === "relay" ? "border-lime-800 text-lime-300" : "border-cyan-900 text-cyan-400"}`}>{chip.label} <span class="ml-1 opacity-50">{chip.scope.toUpperCase()} ×</span></button>}</For></div></Show>
           <Show when={executedQuery()}>{(run) => { const labels = () => constraintChips(run().constraints ?? {}).map((chip) => chip.label); return <div class="mt-2 font-mono text-[9px] text-emerald-800">CURRENT CORPUS ← {run().mode}{run().value ? `: ${run().value}` : ""}<Show when={labels().length}> · {labels().join(" · ")}</Show> · {run().operation}</div>; }}</Show>
           <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-emerald-900/70 pt-3 text-xs">
-            <select aria-label="How to use these results" value={researchDraft.operation} onChange={(event) => setResearchDraft("operation", event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-lime-300"><option value="replace">replace current results</option><option value="union">add to current results</option><option value="intersect">keep only matches</option></select>
-            <select aria-label="Content type" value={kindFilter()} onChange={(event) => setKindFilter(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="all">all content</option><option value="notes">short notes</option><option value="profiles">profiles</option><option value="follows">follow lists</option><option value="articles">long articles</option><option value="other">other data</option></select>
-            <button type="button" aria-pressed={dedupeEnabled()} onClick={() => setDedupeEnabled((value) => !value)} class={`rounded border px-2 py-1.5 ${dedupeEnabled() ? "border-lime-800 bg-lime-950/30 text-lime-300" : "border-emerald-900 text-emerald-600"}`}>{dedupeEnabled() ? "duplicates collapsed" : "showing duplicates"}</button>
-            <select value={sinceDays()} onChange={(event) => setSinceDays(Number(event.currentTarget.value))} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="0">all time</option><option value="1">last day</option><option value="7">last 7 days</option><option value="30">last 30 days</option><option value="90">last 90 days</option><option value="365">last year</option></select>
-            <button type="button" onClick={() => void savePath()} class="rounded border border-emerald-900 px-2 py-1.5 text-emerald-500 hover:text-emerald-200">{activeRecipeId() ? "update recipe" : "save as recipe"}</button><details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">export</summary><div class="absolute right-0 top-9 z-40 w-64 rounded border border-emerald-800 bg-[#07110c] p-2 shadow-2xl"><button type="button" disabled={!corpus().length} onClick={exportManifest} class="block w-full rounded px-2 py-2 text-left text-emerald-400 hover:bg-emerald-950 disabled:opacity-30">corpus manifest<span class="mt-1 block text-[9px] text-emerald-800">query, coverage, exclusions, fingerprint</span></button><button type="button" disabled={!corpus().length} onClick={exportResearchPackage} class="mt-1 block w-full rounded px-2 py-2 text-left text-cyan-400 hover:bg-cyan-950 disabled:opacity-30">complete research package<span class="mt-1 block text-[9px] text-emerald-800">manifest, evidence, lists, direction, decisions</span></button></div></details>
-            <Show when={activeRecipeId()}><button type="button" disabled={loading()} onClick={rerunRecipe} class="rounded border border-lime-800 px-2 py-1.5 text-lime-300 disabled:opacity-40">rerun + compare</button></Show>
+            <Show when={corpus().length}><span class="font-mono text-[9px] tracking-wider text-emerald-700">USE NEXT RESULTS</span><For each={[["replace","replace"],["union","add"],["intersect","keep matches"]]}>{([operation,label]) => <button type="button" onClick={() => setResearchDraft("operation", operation)} class={`rounded border px-2 py-1.5 ${researchDraft.operation === operation ? "border-lime-600 bg-lime-950/30 text-lime-300" : "border-emerald-900 text-emerald-600"}`}>{label}</button>}</For><span class="text-[9px] text-emerald-800">resets to replace after one search</span></Show>
+            <button type="button" onClick={() => void savePath()} class="rounded border border-emerald-900 px-2 py-1.5 text-emerald-500 hover:text-emerald-200">{activeRecipeId() ? "update saved search" : "save search"}</button><details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">export</summary><div class="absolute right-0 top-9 z-40 w-64 rounded border border-emerald-800 bg-[#07110c] p-2 shadow-2xl"><button type="button" disabled={!corpus().length} onClick={exportManifest} class="block w-full rounded px-2 py-2 text-left text-emerald-400 hover:bg-emerald-950 disabled:opacity-30">corpus manifest<span class="mt-1 block text-[9px] text-emerald-800">query, coverage, exclusions, fingerprint</span></button><button type="button" disabled={!corpus().length} onClick={exportResearchPackage} class="mt-1 block w-full rounded px-2 py-2 text-left text-cyan-400 hover:bg-cyan-950 disabled:opacity-30">complete research package<span class="mt-1 block text-[9px] text-emerald-800">manifest, evidence, lists, direction, decisions</span></button></div></details>
+            <Show when={activeRecipeId()}><button type="button" disabled={loading()} onClick={rerunRecipe} class="rounded border border-lime-800 px-2 py-1.5 text-lime-300 disabled:opacity-40">rerun saved search</button></Show>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">depth · {researchDraft.limit}/relay</summary><div class="absolute right-0 top-9 z-40 w-72 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="text-[10px] tracking-wider text-lime-300">RESEARCH DEPTH · PER RELAY</div><div class="mt-3 grid grid-cols-2 gap-1"><For each={[[50,"quick"],[100,"standard"],[250,"deep"],[500,"exhaustive"]]}>{([limit,label]) => <button type="button" onClick={() => setResearchDraft("limit", limit)} class={`rounded border px-2 py-2 text-left ${researchDraft.limit === limit ? "border-lime-500 bg-lime-950/40 text-lime-300" : "border-emerald-900 text-emerald-600"}`}><span class="block">{label}</span><span class="font-mono text-[9px] text-emerald-800">{limit} events</span></button>}</For></div><label class="mt-3 block text-[10px] text-emerald-700">CUSTOM · 10–1000<input aria-label="Custom events per relay" type="number" min="10" max="1000" value={researchDraft.limit} onChange={(event) => setResearchDraft("limit", Math.min(1000, Math.max(10, Number(event.currentTarget.value) || 100)))} class="mt-1 w-full rounded border border-emerald-900 bg-black/30 px-2 py-2 font-mono text-emerald-300 outline-none"/></label><p class="mt-2 text-[9px] leading-4 text-emerald-800">This is a requested maximum. Relays may return fewer. Exact note and profile lookups ignore this setting.</p></div></details>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">relays · {new Set([...READ_RELAYS, ...INDEXER_RELAYS, ...OPTIONAL_READ_RELAYS, ...searchRelays()]).size}</summary><div class="absolute right-0 top-9 z-40 w-80 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="mb-3 text-[10px] tracking-wider text-lime-300">GENERAL RESEARCH · ACTIVE</div><For each={READ_RELAYS}>{(relay) => <div class="mb-1 flex items-center gap-2 text-emerald-500"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"/>{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">ACCOUNT INDEXER</div><For each={INDEXER_RELAYS}>{(relay) => <div class="mb-1 text-emerald-500">{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">OPTIONAL GENERAL RELAY</div><For each={OPTIONAL_READ_RELAYS}>{(relay) => <div class="mb-1 text-emerald-700">{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">KEYWORD SEARCH RELAYS</div><textarea aria-label="Keyword search relays" value={relayDraft()} onInput={(event) => setRelayDraft(event.currentTarget.value)} class="h-24 w-full resize-none bg-black/30 p-2 font-mono text-xs outline-none"/><button type="button" onClick={applyRelays} class="mt-2 border border-lime-700 px-3 py-1 text-lime-300">apply search relays</button><p class="mt-2 text-[10px] text-emerald-800">General queries use the four active relays. Purple Pages is reserved for account indexing. Keyword searches use the editable NIP-50 list. Optional relays can be selected in Relay Explorer.</p></div></details>
             <ConstraintPicker constraints={researchDraft.constraints} setConstraints={(update) => setResearchDraft("constraints", update)} editor={constraintEditor()} setEditor={setConstraintEditor} readRelays={READ_RELAYS}/>
@@ -748,7 +716,7 @@ function App() {
 
         <Show when={!routeLoading()} fallback={<LoadingPanel label="reading relay graph"/>}>
           <Show when={!error()} fallback={<ErrorPanel message={error()}/>}>
-            <Show keyed when={route()}>{(currentRoute) => <Show when={currentRoute.kind === "settings"} fallback={<Show when={currentRoute.kind === "relays"} fallback={<Show when={currentRoute.kind === "search"} fallback={<RouteView route={currentRoute} data={routeData()} eventStates={eventStates()} profileFor={profileFor} openRoute={openRoute} onComposeAuthor={composeAuthorSearch} onBlock={blockAccount} onUnblock={unblockAccount} isBlocked={isAccountBlocked} blockReason={blockReason} onFollow={addToFollowDraft} onUnfollow={removeFromFollowDraft} isFollowed={isInFollowDraft}/> }><ResearchWorkspace view={view()} setView={setView} events={visibleCorpus()} loading={loading()} query={researchDraft.text} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onNavigate={navigateFromEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={corpus().length > 0} activeFacets={activeFacets()} onFacet={toggleFacet} entryReasons={entryReasons()}/></Show>}><HomeDiscovery analysis={pulseAnalysis()} events={pulseEvents()} loading={pulseLoading()} progress={pulseProgress()} settings={pulseSettings()} meta={pulseMeta()} view={pulseView()} setView={setPulseView} availableRelays={[...new Set([...READ_RELAYS, ...OPTIONAL_READ_RELAYS])]} profileFor={profileFor} direction={scanDirection()} directionCount={directionCount()} strategy={scanStrategy()} onStrategy={updateScanStrategy} round={scanRound()} onPursue={pursueDirection} onRemoveDirection={removeDirection} onClearDirection={clearDirection} onContinueScan={continueDirectedScan} onOpenInSearch={openScanInSearch} onSettings={updatePulseSettings} onTopic={searchPulseTopic} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onEvent={(id) => openRoute(`#/event/${id}`)} onDomain={searchPulseDomain} onRelay={researchPulseRelay} onRefresh={loadRelayPulse} onCancel={cancelRelayPulse}/></Show>}><SettingsPage accounts={blockedAccounts()} draft={blockDraft()} setDraft={setBlockDraft} onAdd={() => void blockAccount(blockDraft())} onUnblock={unblockAccount} names={blockedNames()} nameDraft={nameBlockDraft()} setNameDraft={setNameBlockDraft} onAddName={addBlockedName} onRemoveName={removeBlockedName} follows={followDraft()} followDraft={followDraftInput()} setFollowDraft={setFollowDraftInput} onAddFollow={() => addToFollowDraft(followDraftInput())} onRemoveFollow={removeFromFollowDraft} muteRules={muteRules()} onMuteRules={applyMuteRules} muteImport={muteImportDraft()} setMuteImport={setMuteImportDraft} onImportMute={importMuteList} onExportMute={exportMuteList}/></Show>}</Show>
+            <Show keyed when={route()}>{(currentRoute) => <Show when={currentRoute.kind === "settings"} fallback={<Show when={currentRoute.kind === "relays"} fallback={<Show when={currentRoute.kind === "search"} fallback={<RouteView route={currentRoute} data={routeData()} eventStates={eventStates()} profileFor={profileFor} openRoute={openRoute} onComposeAuthor={composeAuthorSearch} onBlock={blockAccount} onUnblock={unblockAccount} isBlocked={isAccountBlocked} blockReason={blockReason} onFollow={addSeedAccount} onUnfollow={removeSeedAccount} isFollowed={isSeedAccount}/> }><CorpusViewControls total={corpus().length} visible={visibleCorpus().length} kind={kindFilter()} onKind={setKindFilter} days={sinceDays()} onDays={setSinceDays} dedupe={dedupeEnabled()} onDedupe={setDedupeEnabled}/><ResearchWorkspace view={view()} setView={setView} events={visibleCorpus()} loading={loading()} query={researchDraft.text} profileFor={profileFor} pinned={pinned()} selectedId={selectedId()} openRoute={openRoute} onSelect={selectEvent} onNavigate={navigateFromEvent} onPin={(id) => toggleSet(setPinned, id)} onLoadMore={loadMoreResults} paging={paging()} hasMore={hasMore()} pageMessage={pageMessage()} canLoadMore={corpus().length > 0} activeFacets={activeFacets()} onFacet={toggleFacet} onSearchFacet={prepareFacetSearch} entryReasons={entryReasons()}/></Show>}><HomeDiscovery analysis={pulseAnalysis()} events={pulseEvents()} loading={pulseLoading()} progress={pulseProgress()} settings={pulseSettings()} meta={pulseMeta()} view={pulseView()} setView={setPulseView} availableRelays={[...new Set([...READ_RELAYS, ...OPTIONAL_READ_RELAYS])]} profileFor={profileFor} direction={scanDirection()} directionCount={directionCount()} strategy={scanStrategy()} onStrategy={updateScanStrategy} round={scanRound()} onPursue={pursueDirection} onRemoveDirection={removeDirection} onClearDirection={clearDirection} onContinueScan={continueDirectedScan} onOpenInSearch={openScanInSearch} onSettings={updatePulseSettings} onTopic={searchPulseTopic} onAuthor={(pubkey) => openRoute(`#/account/${pubkey}`)} onEvent={(id) => openRoute(`#/event/${id}`)} onDomain={searchPulseDomain} onRelay={researchPulseRelay} onRefresh={loadRelayPulse} onCancel={cancelRelayPulse}/></Show>}><SettingsPage accounts={blockedAccounts()} draft={blockDraft()} setDraft={setBlockDraft} onAdd={() => void blockAccount(blockDraft())} onUnblock={unblockAccount} names={blockedNames()} nameDraft={nameBlockDraft()} setNameDraft={setNameBlockDraft} onAddName={addBlockedName} onRemoveName={removeBlockedName} seeds={seedAccounts()} seedInput={seedAccountInput()} setSeedInput={setSeedAccountInput} onAddSeed={() => addSeedAccount(seedAccountInput())} onRemoveSeed={removeSeedAccount} onOpenSeed={(pubkey) => openRoute(`#/account/${pubkey}`)} onSearchSeed={searchOneSeed} onSearchSeeds={searchAllSeeds} onDirectSeed={directOneSeed} onDirectSeeds={directAllSeeds} muteRules={muteRules()} onMuteRules={applyMuteRules} muteImport={muteImportDraft()} setMuteImport={setMuteImportDraft} onImportMute={importMuteList} onExportMute={exportMuteList}/></Show>}</Show>
           </Show>
         </Show>
       </main>
@@ -761,6 +729,10 @@ function App() {
       </aside></Show>
     </div>
   </div>;
+}
+
+function CorpusViewControls(props) {
+  return <Show when={props.total}><section class="mb-3 flex flex-wrap items-center gap-2 rounded border border-cyan-950 bg-cyan-950/5 px-3 py-2 text-xs"><span class="font-mono text-[9px] tracking-wider text-cyan-500">FILTER CURRENT INVESTIGATION</span><span class="mr-auto font-mono text-[9px] text-emerald-800">{props.visible}/{props.total} visible</span><select aria-label="Filter current investigation by content type" value={props.kind} onChange={(event) => props.onKind(event.currentTarget.value)} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="all">all content</option><option value="notes">short notes</option><option value="profiles">profiles</option><option value="follows">follow lists</option><option value="articles">long articles</option><option value="other">other data</option></select><select aria-label="Filter current investigation by age" value={props.days} onChange={(event) => props.onDays(Number(event.currentTarget.value))} class="rounded border border-emerald-900 bg-[#07110c] px-2 py-1.5 text-emerald-300"><option value="0">all time</option><option value="1">last day</option><option value="7">last 7 days</option><option value="30">last 30 days</option><option value="90">last 90 days</option><option value="365">last year</option></select><button type="button" aria-pressed={props.dedupe} onClick={() => props.onDedupe((value) => !value)} class={`rounded border px-2 py-1.5 ${props.dedupe ? "border-cyan-800 bg-cyan-950/30 text-cyan-300" : "border-emerald-900 text-emerald-600"}`}>{props.dedupe ? "duplicates collapsed" : "show duplicates"}</button></section></Show>;
 }
 
 function ConstraintPicker(props) {
@@ -822,16 +794,16 @@ function FacetPanel(props) {
   const hasActive = () => Object.values(props.active).some((value) => value !== "" && value !== null);
   return <Panel title="FILTER THIS CORPUS"><Show when={hasFacets()} fallback={<p class="py-2 text-emerald-900">Search something to generate useful facets here.</p>}>
     <Show when={hasActive()}><div class="mb-2 rounded border border-lime-900/70 bg-lime-950/10 p-2"><div class="mb-2 text-[9px] leading-4 text-emerald-600">These selections only filter the current corpus.</div><button onClick={props.onCompile} class="w-full rounded bg-lime-300 px-2 py-2 text-left font-bold text-black hover:bg-lime-200">USE IN A NEW SEARCH ↗</button><p class="mt-2 text-[9px] leading-4 text-emerald-700">Copy them into the search composer, review or edit them, then choose when to search.</p><button onClick={props.onClear} class="mt-1 text-[9px] text-emerald-600 hover:text-emerald-300">clear active filters</button></div></Show>
-    <Show when={props.facets.topics.length}><FacetGroup title="TOPICS"><For each={props.facets.topics}>{([topic, count]) => <Facet active={props.active.topic === topic} label={`#${topic}`} count={count} onClick={() => props.onFacet("topic", topic)}/>}</For></FacetGroup></Show>
-    <Show when={props.facets.authors.length}><FacetGroup title="ACTIVE ACCOUNTS"><For each={props.facets.authors}>{([pubkey, count]) => <div class="flex items-center"><Facet active={props.active.author === pubkey} label={props.profileFor(pubkey).name} count={count} onClick={() => props.onFacet("author", pubkey)}/><button title="Open account" onClick={() => props.onOpenAuthor(pubkey)} class="px-1 text-emerald-800 hover:text-lime-300">↗</button></div>}</For></FacetGroup></Show>
-    <Show when={props.facets.kinds.length}><FacetGroup title="CONTENT TYPES"><For each={props.facets.kinds}>{([kind, count]) => <Facet active={props.active.kind === kind} label={`${kindName(kind)} · ${kind}`} count={count} onClick={() => props.onFacet("kind", kind)}/>}</For></FacetGroup></Show>
-    <Show when={props.facets.domains.length}><FacetGroup title="SOURCES / DOMAINS"><For each={props.facets.domains}>{([domain, count]) => <Facet active={props.active.domain === domain} label={domain} count={count} onClick={() => props.onFacet("domain", domain)}/>}</For></FacetGroup></Show>
-    <Show when={props.facets.relays.length}><FacetGroup title="FOUND ON RELAYS"><For each={props.facets.relays}>{([relay, count]) => <Facet active={props.active.relay === relay} label={new URL(relay).hostname} count={count} onClick={() => props.onFacet("relay", relay)}/>}</For></FacetGroup></Show>
-    <Show when={props.facets.days.length}><FacetGroup title="ACTIVE DAYS"><For each={props.facets.days}>{([day, count]) => <Facet active={props.active.day === day} label={day} count={count} onClick={() => props.onFacet("day", day)}/>}</For></FacetGroup></Show>
+    <Show when={props.facets.topics.length}><FacetGroup title="TOPICS"><For each={props.facets.topics}>{([topic, count]) => <Facet active={props.active.topic === topic} label={`#${topic}`} count={count} onClick={() => props.onFacet("topic", topic)} onSearch={() => props.onSearchFacet("topic", topic)}/>}</For></FacetGroup></Show>
+    <Show when={props.facets.authors.length}><FacetGroup title="ACTIVE ACCOUNTS"><For each={props.facets.authors}>{([pubkey, count]) => <div class="flex items-center"><Facet active={props.active.author === pubkey} label={props.profileFor(pubkey).name} count={count} onClick={() => props.onFacet("author", pubkey)} onSearch={() => props.onSearchFacet("author", pubkey)}/><button title="Open account" onClick={() => props.onOpenAuthor(pubkey)} class="px-1 text-emerald-800 hover:text-lime-300">open</button></div>}</For></FacetGroup></Show>
+    <Show when={props.facets.kinds.length}><FacetGroup title="CONTENT TYPES"><For each={props.facets.kinds}>{([kind, count]) => <Facet active={props.active.kind === kind} label={`${kindName(kind)} · ${kind}`} count={count} onClick={() => props.onFacet("kind", kind)} onSearch={() => props.onSearchFacet("kind", kind)}/>}</For></FacetGroup></Show>
+    <Show when={props.facets.domains.length}><FacetGroup title="SOURCES / DOMAINS"><For each={props.facets.domains}>{([domain, count]) => <Facet active={props.active.domain === domain} label={domain} count={count} onClick={() => props.onFacet("domain", domain)} onSearch={() => props.onSearchFacet("domain", domain)}/>}</For></FacetGroup></Show>
+    <Show when={props.facets.relays.length}><FacetGroup title="FOUND ON RELAYS"><For each={props.facets.relays}>{([relay, count]) => <Facet active={props.active.relay === relay} label={new URL(relay).hostname} count={count} onClick={() => props.onFacet("relay", relay)} onSearch={() => props.onSearchFacet("relay", relay)}/>}</For></FacetGroup></Show>
+    <Show when={props.facets.days.length}><FacetGroup title="ACTIVE DAYS"><For each={props.facets.days}>{([day, count]) => <Facet active={props.active.day === day} label={day} count={count} onClick={() => props.onFacet("day", day)} onSearch={() => props.onSearchFacet("day", day)}/>}</For></FacetGroup></Show>
   </Show></Panel>;
 }
 function FacetGroup(props) { return <div class="border-b border-emerald-950 pb-2"><div class="mb-1 text-[9px] tracking-[.14em] text-emerald-800">{props.title}</div><div class="space-y-0.5">{props.children}</div></div>; }
-function Facet(props) { return <button onClick={props.onClick} class={`flex min-w-0 flex-1 items-center justify-between rounded px-1 py-1 text-left hover:bg-emerald-950 hover:text-lime-300 ${props.active ? "bg-lime-950/40 text-lime-300" : "text-emerald-500"}`}><span class="truncate">{props.active ? "× " : ""}{props.label}</span><span class="ml-2 text-emerald-800">{props.count}</span></button>; }
+function Facet(props) { return <div class="flex min-w-0 flex-1 items-center"><button title="Filter this investigation" onClick={props.onClick} class={`flex min-w-0 flex-1 items-center justify-between rounded px-1 py-1 text-left hover:bg-emerald-950 hover:text-lime-300 ${props.active ? "bg-lime-950/40 text-lime-300" : "text-emerald-500"}`}><span class="truncate">{props.active ? "× " : ""}{props.label}</span><span class="ml-2 text-emerald-800">{props.count}</span></button><button title="Prepare a wider relay search" onClick={props.onSearch} class="px-1 font-mono text-[8px] text-cyan-800 hover:text-cyan-300">search ↗</button></div>; }
 
 function HomeDiscovery(props) {
   const [accountLens, setAccountLens] = createSignal("balanced");
@@ -924,19 +896,14 @@ function ExploreFromNode(props) {
 function Direction(props) { return <button disabled={props.loading} onClick={props.onClick} class="rounded border border-emerald-900 bg-black/10 p-3 text-left hover:border-lime-700 hover:bg-emerald-950/50 disabled:cursor-wait disabled:opacity-40"><span class="block text-sm text-lime-200">{props.title} →</span><span class="mt-1 block text-[11px] text-emerald-700">{props.loading ? "Checking relays…" : props.detail}</span></button>; }
 
 function ResearchWorkspace(props) {
-  const workspace = () => ["table", "matrix", "compare"].includes(props.view) ? "analyze" : ["map", "graph"].includes(props.view) ? "map" : "explore";
-  const modes = [
-    { id: "explore", label: "EXPLORE", detail: "read and follow evidence", defaultView: "list", views: ["list", "thread", "timeline"] },
-    { id: "analyze", label: "ANALYZE", detail: "sort and compare the corpus", defaultView: "table", views: ["table", "matrix", "compare"] },
-    { id: "map", label: "MAP", detail: "see relationships and structure", defaultView: "map", views: ["map", "graph"] }
-  ];
-  const activeMode = () => modes.find((mode) => mode.id === workspace());
+  const primaryViews = [["list", "notes"], ["table", "table"], ["thread", "thread"]];
+  const secondaryViews = [["timeline", "timeline"], ["map", "map"], ["graph", "graph"], ["compare", "compare"]];
+  const secondaryActive = () => secondaryViews.some(([value]) => value === props.view);
   return <section class="overflow-hidden rounded border border-emerald-900 bg-emerald-950/10">
-    <div class="grid border-b border-emerald-900 bg-black/20 sm:grid-cols-3">
-      <For each={modes}>{(mode) => <button onClick={() => props.setView(mode.defaultView)} class={`border-b border-emerald-900 px-4 py-3 text-left sm:border-b-0 sm:border-r ${workspace() === mode.id ? "bg-lime-950/40" : "hover:bg-emerald-950/30"}`}><span class={`block font-mono text-xs tracking-[.14em] ${workspace() === mode.id ? "text-lime-300" : "text-emerald-600"}`}>{mode.label}</span><span class="mt-1 block text-[11px] text-emerald-800">{mode.detail}</span></button>}</For>
-    </div>
     <div class="flex flex-wrap items-center gap-1 border-b border-emerald-900 bg-black/10 px-3 py-2">
-      <For each={activeMode().views}>{(lens) => <button onClick={() => props.setView(lens)} class={`rounded px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider ${props.view === lens ? "bg-lime-300 text-black" : "text-emerald-700 hover:bg-emerald-950 hover:text-emerald-300"}`}>{lens === "list" ? "notes" : lens}</button>}</For>
+      <span class="mr-2 font-mono text-[9px] tracking-wider text-emerald-800">INVESTIGATION VIEW</span>
+      <For each={primaryViews}>{([value, label]) => <button onClick={() => props.setView(value)} class={`rounded px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider ${props.view === value ? "bg-lime-300 text-black" : "text-emerald-600 hover:bg-emerald-950 hover:text-emerald-300"}`}>{label}</button>}</For>
+      <details class="relative"><summary class={`cursor-pointer rounded px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider ${secondaryActive() ? "bg-cyan-950 text-cyan-300" : "text-emerald-700 hover:bg-emerald-950 hover:text-emerald-300"}`}>more views</summary><div class="absolute left-0 top-8 z-30 w-40 rounded border border-emerald-800 bg-[#07110c] p-1 shadow-2xl"><For each={secondaryViews}>{([value, label]) => <button onClick={() => props.setView(value)} class={`block w-full rounded px-3 py-2 text-left font-mono text-[10px] uppercase ${props.view === value ? "bg-cyan-950 text-cyan-300" : "text-emerald-600 hover:bg-emerald-950"}`}>{label}</button>}</For></div></details>
       <span class="ml-auto font-mono text-[10px] text-emerald-800">{props.events.length} visible nodes</span>
     </div>
     <Show when={props.view === "list"}><SearchView {...props}/></Show>
@@ -945,7 +912,6 @@ function ResearchWorkspace(props) {
     <Show when={props.view === "thread"}><ThreadLens {...props}/></Show>
     <Show when={props.view === "timeline"}><TimelineLens {...props}/></Show>
     <Show when={props.view === "graph"}><GraphLens {...props}/></Show>
-    <Show when={props.view === "matrix"}><MatrixLens {...props}/></Show>
     <Show when={props.view === "compare"}><ComparisonLens {...props}/></Show>
     <Show when={props.canLoadMore}><div class="border-t border-emerald-900 bg-black/10 p-4 text-center"><button disabled={props.paging || !props.hasMore} onClick={props.onLoadMore} class="rounded border border-lime-800 px-6 py-2 font-mono text-xs text-lime-300 hover:bg-lime-300 hover:text-black disabled:cursor-not-allowed disabled:border-emerald-950 disabled:text-emerald-800">{props.paging ? "CHECKING RELAYS…" : props.hasMore ? "LOAD OLDER RESULTS" : "END OF RELAY RESULTS"}</button><Show when={props.pageMessage}><p class="mt-2 font-mono text-[10px] text-emerald-700">{props.pageMessage}</p></Show></div></Show>
   </section>;
@@ -990,9 +956,9 @@ function CorpusMap(props) {
   });
   return <div><LensHeader title="CORPUS MAP" detail={`${props.events.length} nodes · click anything to filter the corpus`}/>
     <Show when={props.events.length} fallback={<EmptyLens text="No visible events to map."/>}><div class="grid gap-px bg-emerald-950 lg:grid-cols-2">
-      <MapSection title="TOPIC CLUSTERS" detail="Tags that organize this corpus"><For each={model().topics}>{([topic, count]) => <MapItem label={`#${topic}`} count={count} active={props.activeFacets.topic === topic} onClick={() => props.onFacet("topic", topic)}/>}</For></MapSection>
-      <MapSection title="PARTICIPATING ACCOUNTS" detail="Who contributes most here"><For each={model().authors}>{([pubkey, count]) => <MapItem label={props.profileFor(pubkey).name} count={count} active={props.activeFacets.author === pubkey} onClick={() => props.onFacet("author", pubkey)} secondary="open" onSecondary={() => props.openRoute(`#/account/${pubkey}`)}/>}</For></MapSection>
-      <MapSection title="EXTERNAL SOURCES" detail="Domains referenced in event content"><Show when={model().domains.length} fallback={<p class="text-emerald-900">No external domains in this corpus.</p>}><For each={model().domains}>{([domain, count]) => <MapItem label={domain} count={count} active={props.activeFacets.domain === domain} onClick={() => props.onFacet("domain", domain)}/>}</For></Show></MapSection>
+      <MapSection title="TOPIC CLUSTERS" detail="Tags that organize this corpus"><For each={model().topics}>{([topic, count]) => <MapItem label={`#${topic}`} count={count} active={props.activeFacets.topic === topic} onClick={() => props.onFacet("topic", topic)} secondary="search" onSecondary={() => props.onSearchFacet("topic", topic)}/>}</For></MapSection>
+      <MapSection title="PARTICIPATING ACCOUNTS" detail="Who contributes most here"><For each={model().authors}>{([pubkey, count]) => <MapItem label={props.profileFor(pubkey).name} count={count} active={props.activeFacets.author === pubkey} onClick={() => props.onFacet("author", pubkey)} secondary="search" onSecondary={() => props.onSearchFacet("author", pubkey)} tertiary="open" onTertiary={() => props.openRoute(`#/account/${pubkey}`)}/>}</For></MapSection>
+      <MapSection title="EXTERNAL SOURCES" detail="Domains referenced in event content"><Show when={model().domains.length} fallback={<p class="text-emerald-900">No external domains in this corpus.</p>}><For each={model().domains}>{([domain, count]) => <MapItem label={domain} count={count} active={props.activeFacets.domain === domain} onClick={() => props.onFacet("domain", domain)} secondary="search" onSecondary={() => props.onSearchFacet("domain", domain)}/>}</For></Show></MapSection>
       <MapSection title="DATA SHAPE" detail="Protocol types and conversation structure"><For each={model().kinds}>{([kind, count]) => <MapItem label={`${kindName(kind)} · ${kind}`} count={count} active={props.activeFacets.kind === kind} onClick={() => props.onFacet("kind", kind)}/>}</For><div class="mt-3 grid grid-cols-2 gap-2"><MapStat label="with references" value={model().referenced}/><MapStat label="root-like" value={model().rootLike}/></div></MapSection>
       <MapSection title="RELAY DISTRIBUTION" detail="Where visible events were observed"><Show when={model().relays.length} fallback={<p class="text-emerald-900">Relay provenance is unavailable for restored cached events.</p>}><For each={model().relays}>{([relay, count]) => <MapItem label={new URL(relay).hostname} count={count} active={props.activeFacets.relay === relay} onClick={() => props.onFacet("relay", relay)}/>}</For></Show></MapSection>
       <MapSection title="ACTIVITY WINDOWS" detail="Days represented in this corpus"><For each={model().days}>{([day, count]) => <MapItem label={day} count={count} active={props.activeFacets.day === day} onClick={() => props.onFacet("day", day)}/>}</For></MapSection>
@@ -1003,7 +969,7 @@ function CorpusMap(props) {
 function MapSection(props) { return <section class="bg-[#050b08] p-4"><div class="mb-3"><h3 class="font-mono text-[10px] tracking-[.14em] text-lime-300">{props.title}</h3><p class="mt-1 text-xs text-emerald-800">{props.detail}</p></div><div class="space-y-1">{props.children}</div></section>; }
 function MapItem(props) {
   const content = <><span class="truncate">{props.active ? "× " : ""}{props.label}</span><span class="ml-2 font-mono text-[10px] text-emerald-800">{props.count}</span></>;
-  return <div class={`flex items-center rounded border ${props.active ? "border-lime-600 bg-lime-950/30" : "border-emerald-950 hover:border-emerald-800"}`}><Show when={props.onClick} fallback={<span class="flex min-w-0 flex-1 items-center justify-between px-2 py-1.5 text-sm text-emerald-400">{content}</span>}><button onClick={props.onClick} class="flex min-w-0 flex-1 items-center justify-between px-2 py-1.5 text-left text-sm text-emerald-400">{content}</button></Show><Show when={props.secondary}><button onClick={props.onSecondary} class="border-l border-emerald-950 px-2 py-1.5 font-mono text-[9px] text-emerald-700 hover:text-lime-300">{props.secondary} ↗</button></Show></div>;
+  return <div class={`flex items-center rounded border ${props.active ? "border-lime-600 bg-lime-950/30" : "border-emerald-950 hover:border-emerald-800"}`}><Show when={props.onClick} fallback={<span class="flex min-w-0 flex-1 items-center justify-between px-2 py-1.5 text-sm text-emerald-400">{content}</span>}><button onClick={props.onClick} class="flex min-w-0 flex-1 items-center justify-between px-2 py-1.5 text-left text-sm text-emerald-400">{content}</button></Show><Show when={props.secondary}><button onClick={props.onSecondary} class="border-l border-emerald-950 px-2 py-1.5 font-mono text-[9px] text-emerald-700 hover:text-lime-300">{props.secondary} ↗</button></Show><Show when={props.tertiary}><button onClick={props.onTertiary} class="border-l border-emerald-950 px-2 py-1.5 font-mono text-[9px] text-emerald-700 hover:text-cyan-300">{props.tertiary} ↗</button></Show></div>;
 }
 function MapStat(props) { return <div class="rounded border border-emerald-950 p-2"><span class="block font-mono text-lg text-emerald-300">{props.value}</span><span class="text-[10px] text-emerald-800">{props.label}</span></div>; }
 
@@ -1054,7 +1020,7 @@ function GraphLens(props) {
   const focusEntity = (type, value, label) => setFocus({ type, value, label });
   return <div><LensHeader title="RESEARCH MAP" detail={`${graph().authors.length} accounts · ${graph().events.length} events · ${graph().topics.length} topics · ${graph().domains.length} domains · ${graph().relays.length} relays`}/><Show when={graph().events.length} fallback={<EmptyLens text="Add nodes to the corpus before opening the graph."/>}>
     <div class="flex flex-wrap gap-4 border-b border-emerald-950 px-4 py-2 font-mono text-[9px] text-emerald-700"><span><b class="text-emerald-400">—</b> authored</span><span><b class="text-lime-500">—</b> tagged</span><span><b class="text-cyan-600">—</b> links / relay provenance</span><span><b class="text-amber-500">↝</b> reply, thread, quote, or reference</span><Show when={graph().omitted}><span class="ml-auto text-emerald-800">{graph().omitted} lower-signal events omitted for readability</span></Show></div>
-    <Show when={focus()}>{(entity) => <div class="flex flex-wrap items-center gap-2 border-b border-cyan-950 bg-cyan-950/10 px-4 py-3"><div class="min-w-0 flex-1"><span class="font-mono text-[9px] uppercase tracking-wider text-cyan-600">focused {entity().type}</span><span class="ml-3 text-sm text-cyan-200">{entity().label}</span></div><Show when={entity().type === "account"}><Action onClick={() => props.openRoute(`#/account/${entity().value}`)}>open account</Action><Action onClick={() => props.onFacet("author", entity().value)}>filter corpus</Action></Show><Show when={entity().type === "topic"}><Action onClick={() => props.onFacet("topic", entity().value)}>filter corpus</Action></Show><Show when={entity().type === "domain"}><Action onClick={() => props.onFacet("domain", entity().value)}>filter corpus</Action></Show><Show when={entity().type === "relay"}><Action onClick={() => props.onFacet("relay", entity().value)}>filter corpus</Action></Show><button onClick={() => setFocus(null)} class="px-2 text-emerald-700">×</button></div>}</Show>
+    <Show when={focus()}>{(entity) => <div class="flex flex-wrap items-center gap-2 border-b border-cyan-950 bg-cyan-950/10 px-4 py-3"><div class="min-w-0 flex-1"><span class="font-mono text-[9px] uppercase tracking-wider text-cyan-600">focused {entity().type}</span><span class="ml-3 text-sm text-cyan-200">{entity().label}</span></div><Show when={entity().type === "account"}><Action onClick={() => props.openRoute(`#/account/${entity().value}`)}>open account</Action><Action onClick={() => props.onFacet("author", entity().value)}>filter corpus</Action><Action onClick={() => props.onSearchFacet("author", entity().value)}>new search</Action></Show><Show when={entity().type === "topic"}><Action onClick={() => props.onFacet("topic", entity().value)}>filter corpus</Action><Action onClick={() => props.onSearchFacet("topic", entity().value)}>new search</Action></Show><Show when={entity().type === "domain"}><Action onClick={() => props.onFacet("domain", entity().value)}>filter corpus</Action><Action onClick={() => props.onSearchFacet("domain", entity().value)}>new search</Action></Show><Show when={entity().type === "relay"}><Action onClick={() => props.onFacet("relay", entity().value)}>filter corpus</Action></Show><button onClick={() => setFocus(null)} class="px-2 text-emerald-700">×</button></div>}</Show>
     <div class="overflow-auto bg-[radial-gradient(circle_at_center,rgba(16,185,129,.05),transparent_65%)]"><svg viewBox={`0 0 1390 ${height()}`} class="min-w-[1180px]" style={{ height: `${height()}px` }}>
       <text x="20" y="22" fill="#31644a" font-size="10">ACCOUNTS</text><text x="285" y="22" fill="#31644a" font-size="10">EVENTS</text><text x="755" y="22" fill="#52791d" font-size="10">TOPICS</text><text x="980" y="22" fill="#166978" font-size="10">DOMAINS</text><text x="1190" y="22" fill="#166978" font-size="10">RELAYS</text>
       <For each={graph().edges.filter((edge) => edge.type === "authored")}>{(edge) => <line x1="175" y1={authorY(edge.from)} x2="285" y2={eventY(edge.to)} stroke="#123c29"/>}</For>
@@ -1069,18 +1035,6 @@ function GraphLens(props) {
       <For each={graph().relays}>{(item) => <g onClick={() => focusEntity("relay", item.value, new URL(item.value).hostname)} class="cursor-pointer"><rect x="1190" y={relayY(item.value) - 13} width="180" height="26" rx="4" fill="#07151a" stroke="#0e7490"/><text x="1201" y={relayY(item.value) + 4} fill="#67e8f9" font-size="10">{compact(new URL(item.value).hostname, 20)} · {item.count}</text></g>}</For>
     </svg></div><p class="border-t border-emerald-950 px-4 py-2 font-mono text-[9px] text-emerald-900">representative nodes are ranked by selection, in-corpus references, tags, and recency · click any entity to navigate or filter</p>
   </Show></div>;
-}
-
-function MatrixLens(props) {
-  const model = createMemo(() => {
-    const authorCounts = new Map();
-    const kinds = [...new Set(props.events.map((event) => event.kind))].slice(0, 8);
-    for (const event of props.events) authorCounts.set(event.pubkey, (authorCounts.get(event.pubkey) ?? 0) + 1);
-    const authors = [...authorCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([pubkey]) => pubkey);
-    return { authors, kinds };
-  });
-  const count = (pubkey, kind) => props.events.filter((event) => event.pubkey === pubkey && event.kind === kind).length;
-  return <div><LensHeader title="ACCOUNT × DATA TYPE" detail="click a count to research from a matching note"/><Show when={model().authors.length} fallback={<EmptyLens text="No accounts available for comparison."/>}><div class="overflow-auto p-4"><table class="min-w-full border-collapse font-mono text-[10px]"><thead><tr><th class="p-2 text-left text-emerald-800">account</th><For each={model().kinds}>{(kind) => <th class="p-2 text-emerald-700">{kind}</th>}</For></tr></thead><tbody><For each={model().authors}>{(pubkey) => <tr class="border-t border-emerald-950"><th class="max-w-36 truncate p-2 text-left font-normal text-emerald-400">{props.profileFor(pubkey).name}</th><For each={model().kinds}>{(kind) => { const value = count(pubkey, kind); const match = () => props.events.find((event) => event.pubkey === pubkey && event.kind === kind); return <td class="p-1 text-center"><button disabled={!value} onClick={() => props.onSelect(match()?.id)} class={`h-8 w-10 rounded ${value ? "bg-emerald-950 text-lime-300 hover:bg-emerald-800" : "text-emerald-950"}`}>{value || "·"}</button></td>; }}</For></tr>}</For></tbody></table></div></Show></div>;
 }
 
 function ComparisonLens(props) {
@@ -1201,7 +1155,7 @@ function AccountView(props) {
   const followed = () => props.isFollowed(props.data.pubkey);
   return <section class={`overflow-hidden rounded border bg-emerald-950/10 ${blocked() ? "border-red-900" : "border-emerald-900"}`}>
     <Show when={blocked()}><div class="flex items-center gap-3 border-b border-red-950 bg-red-950/20 px-4 py-3"><span class="h-2 w-2 rounded-full bg-red-500"/><div><div class="font-mono text-xs font-bold tracking-wider text-red-400">BLOCKED GLOBALLY</div><div class="mt-1 text-[10px] text-red-800">{reason()?.type === "name" ? `Name contains blocked text “${reason().label}”.` : "Public key is on the block list."} Events are excluded from search, Relay Pulse, research views, and local storage.</div></div><Show when={reason()?.type === "key"} fallback={<button onClick={() => props.openRoute("#/settings")} class="ml-auto rounded border border-red-900 px-3 py-1.5 font-mono text-[10px] text-red-400 hover:border-red-600">manage name rules</button>}><button onClick={() => props.onUnblock(props.data.pubkey)} class="ml-auto rounded border border-red-900 px-3 py-1.5 font-mono text-[10px] text-red-400 hover:border-red-600">unblock</button></Show></div></Show>
-    <div class="flex flex-wrap gap-2 border-b border-emerald-900 p-4"><Action onClick={() => props.openRoute("#/search")}>← search</Action><Action onClick={() => props.openRoute(`#/account/${props.data.pubkey}`)}>account</Action><Action onClick={() => props.onComposeAuthor(props.data.pubkey)}>use account in search</Action><Action onClick={() => props.openRoute(`#/follows/${props.data.pubkey}`)}>follows · {props.data.follows.length}</Action><Show when={followed()} fallback={<button onClick={() => props.onFollow(props.data.pubkey, profile().name)} class="rounded border border-cyan-900 px-3 py-1 font-mono text-[10px] text-cyan-500 hover:border-cyan-600">＋ follow draft</button>}><button onClick={() => props.onUnfollow(props.data.pubkey)} class="rounded border border-cyan-800 bg-cyan-950/20 px-3 py-1 font-mono text-[10px] text-cyan-300">✓ in follow draft</button></Show><Show when={!blocked()}><button onClick={() => void props.onBlock(props.data.pubkey, profile().name)} class="ml-auto rounded border border-red-950 px-3 py-1 font-mono text-[10px] text-red-500 hover:border-red-700 hover:text-red-300">block globally</button></Show></div>
+    <div class="flex flex-wrap gap-2 border-b border-emerald-900 p-4"><Action onClick={() => props.openRoute("#/search")}>← search</Action><Action onClick={() => props.openRoute(`#/account/${props.data.pubkey}`)}>account</Action><Action onClick={() => props.onComposeAuthor(props.data.pubkey)}>use account in search</Action><Action onClick={() => props.openRoute(`#/follows/${props.data.pubkey}`)}>follows · {props.data.follows.length}</Action><Show when={followed()} fallback={<button onClick={() => props.onFollow(props.data.pubkey, profile().name)} class="rounded border border-cyan-900 px-3 py-1 font-mono text-[10px] text-cyan-500 hover:border-cyan-600">＋ add seed account</button>}><button onClick={() => props.onUnfollow(props.data.pubkey)} class="rounded border border-cyan-800 bg-cyan-950/20 px-3 py-1 font-mono text-[10px] text-cyan-300">✓ seed account</button></Show><Show when={!blocked()}><button onClick={() => void props.onBlock(props.data.pubkey, profile().name)} class="ml-auto rounded border border-red-950 px-3 py-1 font-mono text-[10px] text-red-500 hover:border-red-700 hover:text-red-300">block globally</button></Show></div>
     <div class="p-5"><h1 class="text-xl text-lime-100">{profile().name}</h1><div class="mt-1 break-all font-mono text-xs text-emerald-800">{props.data.pubkey}</div><div class="mt-1 font-mono text-xs text-emerald-500">{profile().handle}</div><p class="mt-4 max-w-3xl whitespace-pre-wrap leading-7 text-emerald-300">{profile().about || "No profile description returned."}</p></div>
     <Show when={props.route.kind !== "follows"}><div class="grid border-y border-emerald-900 lg:grid-cols-3"><MapSection title="POSTING THEMES" detail="Topic tags in the retrieved account sample"><For each={intelligence().topics}>{([topic, count]) => <MapItem label={`#${topic}`} count={count} onClick={() => props.openRoute(`#/topic/${topic}`)}/>}</For></MapSection><MapSection title="REFERENCED SOURCES" detail="Domains linked by this account"><Show when={intelligence().domains.length} fallback={<p class="text-emerald-900">No external domains in this sample.</p>}><For each={intelligence().domains}>{([domain, count]) => <MapItem label={domain} count={count}/>}</For></Show></MapSection><MapSection title="ACCOUNT CONTEXT" detail="Inspectable facts from retrieved events"><div class="grid grid-cols-2 gap-2"><MapStat label="events" value={props.data.authored.length}/><MapStat label="active days" value={intelligence().days}/><MapStat label="follows" value={props.data.follows.length}/><MapStat label="observed relays" value={intelligence().relays || "cache"}/></div><div class="mt-3 text-[9px] tracking-wider text-emerald-800">FREQUENTLY REFERENCED ACCOUNTS</div><For each={intelligence().mentions}>{([pubkey, count]) => <MapItem label={props.profileFor(pubkey).name} count={count} onClick={() => props.openRoute(`#/account/${pubkey}`)}/>}</For></MapSection></div><Show when={props.data.relayPlan}><div class="mt-4 rounded border border-emerald-950 p-3 font-mono text-[9px]"><div class="text-cyan-400">ENTITY-AWARE RELAY PLAN</div><div class="mt-2 text-emerald-700">authored events · {props.data.relayPlan.authored.map((relay) => new URL(relay).hostname).join(" · ")}</div><div class="mt-1 text-emerald-700">mentions · {props.data.relayPlan.mentions.map((relay) => new URL(relay).hostname).join(" · ")}</div><div class="mt-2 text-emerald-900">NIP-65 relays are preferred when advertised; configured relays remain as fallback.</div></div></Show></Show>
     <Show when={props.route.kind === "follows"} fallback={<>

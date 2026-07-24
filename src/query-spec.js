@@ -63,7 +63,8 @@ function constraintsFromFacets(facets = {}, current = emptyQueryConstraints()) {
     media: facets.media || current.media,
     relay: facets.relay || current.relay,
     facetDay: facets.day || current.facetDay || "",
-    promotedTopic: facets.topic || current.promotedTopic || "",
+    tag: facets.topic ? "t" : current.tag,
+    tagValue: facets.topic || current.tagValue,
   };
 }
 

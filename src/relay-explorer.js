@@ -28,12 +28,31 @@ export function createRelayExplorer(deps, restored = {}) {
   const updateStrategy = (next) => { setStrategy(next); deps.persistStrategy(next); };
   const pursue = (type, value) => {
     const key = `${type}s`;
+    let added = false;
     setDirection((current) => {
       if (!current[key] || current[key].includes(value) || current[key].length >= 8) return current;
       const next = { ...current, [key]: [...current[key], value] };
-      deps.persistDirection(next); return next;
+      added = true; deps.persistDirection(next); return next;
     });
-    deps.logUsage("scan_direction_added", { type, value });
+    if (added) deps.logUsage("scan_direction_added", { type, value });
+    return added;
+  };
+  const addAuthors = (values) => {
+    const candidates = [...new Set(values.filter(Boolean))];
+    let added = 0;
+    setDirection((current) => {
+      const authors = [...current.authors];
+      for (const value of candidates) {
+        if (authors.length >= 8) break;
+        if (!authors.includes(value)) { authors.push(value); added += 1; }
+      }
+      if (!added) return current;
+      const next = { ...current, authors };
+      deps.persistDirection(next);
+      return next;
+    });
+    if (added) deps.logUsage("scan_direction_authors_added", { added });
+    return added;
   };
   const removeDirection = (type, value) => setDirection((current) => {
     const next = { ...current, [type]: current[type].filter((item) => item !== value) };
@@ -146,6 +165,6 @@ export function createRelayExplorer(deps, restored = {}) {
   return {
     events, setEvents, previousEvents, setPreviousEvents, loading, settings, meta, setMeta, progress, view, setView,
     direction, strategy, round, reasons, analysis, directionCount, updateSettings, updateStrategy,
-    pursue, removeDirection, clearDirection, scan, continueScan, cancel, restore,
+    pursue, addAuthors, removeDirection, clearDirection, scan, continueScan, cancel, restore,
   };
 }
