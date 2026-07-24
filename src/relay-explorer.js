@@ -1,6 +1,7 @@
 import { createMemo, createSignal } from "solid-js";
 import { ranked, tags } from "./event-analysis.js";
 import { analyzePulse, defaultPulseSettings, pulseKinds, pulseTimeSlices } from "./pulse-analysis.js";
+import { analyzeNeighborhood } from "./neighborhood-analysis.js";
 
 const unique = (events) => [...new Map(events.filter((event) => event?.id).map((event) => [event.id, event])).values()];
 export const emptyScanDirection = () => ({ topics: [], authors: [], domains: [], events: [] });
@@ -20,6 +21,7 @@ export function createRelayExplorer(deps, restored = {}) {
   let runToken = 0;
 
   const analysis = createMemo(() => analyzePulse(events(), previousEvents(), settings().relays, (event) => deps.runtime.sourcesFor(event.id)));
+  const neighborhood = createMemo(() => analyzeNeighborhood(events(), direction(), deps.runtime.sourcesFor));
   const directionCount = createMemo(() => Object.values(direction()).reduce((sum, values) => sum + values.length, 0));
   const updateSettings = (patch) => {
     const next = { ...settings(), ...patch };
@@ -115,9 +117,10 @@ export function createRelayExplorer(deps, restored = {}) {
     const kinds = pulseKinds(options.scope);
     const currentStrategy = strategy();
     let networkAuthors = [];
+    let networkContacts = [];
     if (currentStrategy === "network" && focus.authors.length) {
-      const contacts = await deps.runtime.readEvents({ authors: focus.authors, kinds: [3], limit: focus.authors.length }, "scan-network-seeds", relays);
-      networkAuthors = [...new Set(contacts.flatMap((event) => tags(event, "p")))].slice(0, 100);
+      networkContacts = await deps.runtime.readEvents({ authors: focus.authors, kinds: [3], limit: focus.authors.length }, "scan-network-seeds", relays);
+      networkAuthors = [...new Set(networkContacts.flatMap((event) => tags(event, "p")))].slice(0, 100);
     }
     const focusedPlans = [
       ...focus.topics.flatMap((topic) => [
@@ -136,7 +139,7 @@ export function createRelayExplorer(deps, restored = {}) {
       ...(currentStrategy === "skeptical" && focus.events.length ? [{ label: "scan-event-reports", reason: "reports and labels about pursued events", relays, filter: { kinds: [1984, 1985], "#e": focus.events, since, limit: directedLimit } }] : []),
     ];
     const prior = events();
-    let incoming = [];
+    let incoming = [...networkContacts];
     const nextReasons = {};
     setLoading(true); setProgress({ state: "collecting", completed: 0, total: plans.length, received: 0, unique: 0 });
     try {
@@ -164,7 +167,7 @@ export function createRelayExplorer(deps, restored = {}) {
 
   return {
     events, setEvents, previousEvents, setPreviousEvents, loading, settings, meta, setMeta, progress, view, setView,
-    direction, strategy, round, reasons, analysis, directionCount, updateSettings, updateStrategy,
+    direction, strategy, round, reasons, analysis, neighborhood, directionCount, updateSettings, updateStrategy,
     pursue, addAuthors, removeDirection, clearDirection, scan, continueScan, cancel, restore,
   };
 }
