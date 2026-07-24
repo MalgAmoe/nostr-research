@@ -71,11 +71,16 @@ export function createResearchSession(deps, restored = {}) {
     if (!corpus().length) return;
     const item = { id: crypto.randomUUID(), label, at: Date.now(), query: draft.text, eventIds: corpus().slice(0, deps.sessionEventLimit).map((event) => event.id), view: view(), facets: activeFacets() };
     setCorpusHistory((current) => [item, ...current.filter((entry) => entry.eventIds.join() !== item.eventIds.join())].slice(0, 8));
-    void deps.storeEvents(corpus(), deps.runtime.sourcesFor);
+    void Promise.resolve(deps.storeEvents(corpus(), deps.runtime.sourcesFor)).catch((error) => {
+      deps.logUsage("local_storage_failed", { operation: "store checkpoint events", detail: error.message });
+    });
   };
 
   const restoreCheckpoint = async (item) => {
+    const token = ++requestToken;
+    pagingToken += 1; expansionToken += 1;
     const events = deps.allowedEvents(await deps.loadEvents(item.eventIds, deps.runtime.recordSources));
+    if (token !== requestToken) return;
     deps.rememberEvents(events);
     setCorpus(events); setDraft("text", item.query); setView(normalizeView(item.view)); setActiveFacets(item.facets ?? emptyFacets()); setSelectedId(""); setExpansionStatus(null);
     setLastQueryPlan(null); setHasMore(false); setPageMessage("Restored checkpoints are fixed corpora. Run a relay search to retrieve more.");
@@ -161,7 +166,7 @@ export function createResearchSession(deps, restored = {}) {
         deps.rememberEvents(events);
         incoming = unique([...incoming, ...events]);
         setCorpus(mergeSearchResults(incoming, previous.corpus, operation).sort((a, b) => b.created_at - a.created_at));
-        setRelayStates((current) => new Map(current).set(relay, { state: "ok", count: events.length, ids: events.map((event) => event.id), duration: Math.round(performance.now() - relayStarted) }));
+        setRelayStates((current) => new Map(current).set(relay, { state: events.queryState?.state ?? "ok", detail: events.queryState?.detail, count: events.length, ids: events.map((event) => event.id), duration: Math.round(performance.now() - relayStarted) }));
       }));
       if (token !== requestToken) return;
       if (!incoming.length && operation === "replace" && previous.corpus.length) {
@@ -175,6 +180,7 @@ export function createResearchSession(deps, restored = {}) {
       deps.hydrateProfiles(corpus(), () => token === requestToken);
       if (operation === "replace") deps.focusComposer();
     } catch (cause) {
+      if (token !== requestToken) return;
       restore(); setError(cause.message); deps.logUsage("search_failed", { query: text, error: cause.message });
     } finally { if (token === requestToken) setLoading(false); }
   }
@@ -233,7 +239,7 @@ export function createResearchSession(deps, restored = {}) {
         deps.rememberEvents(found);
         incoming = unique([...incoming, ...found]);
         setCorpus([...incoming].sort((left, right) => right.created_at - left.created_at));
-        setRelayStates((current) => new Map(current).set(relay, { state: "ok", count: found.length, ids: found.map((event) => event.id), duration: Math.round(performance.now() - started) }));
+        setRelayStates((current) => new Map(current).set(relay, { state: found.queryState?.state ?? "ok", detail: found.queryState?.detail, count: found.length, ids: found.map((event) => event.id), duration: Math.round(performance.now() - started) }));
       }));
       if (token !== requestToken) return;
       setExecutedQuery({ value: `${authors.length} seed accounts`, mode: "seed accounts", constraints: emptyQueryConstraints(), operation: "replace", completedAt: Date.now() });
@@ -372,6 +378,7 @@ export function createResearchSession(deps, restored = {}) {
     lastQueryPlan, setLastQueryPlan, paging, hasMore, setHasMore, pageMessage, setPageMessage, activeFacets, setActiveFacets,
     corpusHistory, setCorpusHistory, selectedEvent, visibleCorpus, eligibleCorpus, corpusFacets, composerChips, activeFacetCount,
     startRelaySearch, searchAuthors, loadMore, compileFacets, prepareFacetSearch, searchLocalArchive, expandSelection, toggleFacet, checkpoint, restoreCheckpoint, openFixedCorpus, resolvePubkey, reset,
-    invalidate: () => { requestToken += 1; pagingToken += 1; expansionToken += 1; },
+    invalidate: () => { requestToken += 1; pagingToken += 1; expansionToken += 1; return requestToken; },
+    isCurrentOperation: (token) => token === requestToken,
   };
 }

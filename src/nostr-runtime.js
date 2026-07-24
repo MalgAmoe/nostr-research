@@ -6,40 +6,52 @@ export function createNostrRuntime({
   isRelayAllowed,
   persistEvents,
   logUsage,
+  relayPool,
   maxWait = 4500,
   cacheTtl = 60_000,
   cacheLimit = 200,
 }) {
-  const pool = new SimplePool({ enableReconnect: true });
+  const pool = relayPool ?? new SimplePool({ enableReconnect: true });
   const cache = new Map();
   const sources = new Map();
   const allowedEvents = (events = []) => events.filter(isEventAllowed);
   const unique = (events) => [...new Map(events.filter((event) => event?.id).map((event) => [event.id, event])).values()];
   const sourcesFor = (eventOrId) => sources.get(typeof eventOrId === "string" ? eventOrId : eventOrId?.id) ?? [];
-  const recordSources = (id, relays = []) => sources.set(id, [...new Set(relays)]);
+  const recordSources = (id, relays = []) => sources.set(id, [...new Set([...sourcesFor(id), ...relays])]);
   const removeSources = (ids = []) => ids.forEach((id) => sources.delete(id));
+  const result = (events, state, detail = "") => {
+    Object.defineProperty(events, "queryState", { value: { state, detail }, enumerable: false });
+    return events;
+  };
 
   async function queryRelay(relay, filter, label) {
     const started = performance.now();
     if (!isRelayAllowed(relay)) {
       logUsage("relay_query", { relay, label, state: "muted", count: 0, durationMs: 0 });
-      return [];
+      return result([], "muted");
     }
     try {
       let timer;
+      const timedOut = Symbol("relay-timeout");
       const received = await Promise.race([
         pool.querySync([relay], filter, { maxWait, label }),
-        new Promise((resolve) => { timer = setTimeout(() => resolve([]), maxWait); }),
+        new Promise((resolve) => { timer = setTimeout(() => resolve(timedOut), maxWait); }),
       ]);
       clearTimeout(timer);
+      if (received === timedOut) {
+        logUsage("relay_query", { relay, label, state: "timeout", count: 0, durationMs: Math.round(performance.now() - started) });
+        return result([], "timeout");
+      }
       const events = allowedEvents(received);
       for (const event of events) recordSources(event.id, [...sourcesFor(event), relay]);
-      void persistEvents(events, sourcesFor);
+      void Promise.resolve(persistEvents(events, sourcesFor)).catch((error) => {
+        logUsage("local_storage_failed", { operation: "store relay events", detail: error.message });
+      });
       logUsage("relay_query", { relay, label, state: "ok", count: events.length, blocked: received.length - events.length, durationMs: Math.round(performance.now() - started) });
-      return events;
+      return result(events, "ok");
     } catch (error) {
       logUsage("relay_query", { relay, label, state: "error", detail: error.message, count: 0, durationMs: Math.round(performance.now() - started) });
-      return [];
+      return result([], "error", error.message);
     }
   }
 

@@ -63,8 +63,9 @@ const initialBlockedNames = load(BLOCKED_NAMES_KEY, []).map(normalizeNamePattern
 const initialSeedAccounts = load(SEED_ACCOUNTS_KEY, []).map((entry) => typeof entry === "string" ? { pubkey: entry, name: "", addedAt: 0 } : entry).filter((entry) => /^[0-9a-f]{64}$/i.test(entry.pubkey));
 const initialMuteRules = load(MUTE_RULES_KEY, { topics: [], words: [], events: [], relays: [] });
 const moderation = createModerationPolicy({ accounts: initialBlockedAccounts.map((entry) => entry.pubkey), names: initialBlockedNames, muteRules: initialMuteRules });
-const allowedEvents = moderation.allowedEvents;
-const runtime = createNostrRuntime({
+let runtime;
+const allowedEvents = (events) => moderation.allowedEvents(events, (event) => runtime?.sourcesFor(event.id) ?? []);
+runtime = createNostrRuntime({
   defaultRelays: READ_RELAYS,
   isEventAllowed: (event) => allowedEvents([event]).length === 1,
   isRelayAllowed: moderation.allowsRelay,
@@ -529,8 +530,10 @@ function App() {
     logUsage("recipe_saved", { recipeId: id, resultCount: recipe.eventIds.length });
   };
   const restorePath = async (path) => {
+    const operation = research.invalidate();
     const storedEvents = allowedEvents(await loadEvents(path.eventIds ?? [], runtime.recordSources));
-    void storeEvents(storedEvents, sourcesFor);
+    if (!research.isCurrentOperation(operation)) return;
+    void storeEvents(storedEvents, sourcesFor).catch((cause) => logUsage("local_storage_failed", { operation: "refresh saved search events", detail: cause.message }));
     setActiveRecipeId(path.id); setLastRunDelta(null);
     const draft = path.queryDraft ?? { mode: "words", value: path.query ?? "", constraints: emptyQueryConstraints() };
     updateResearchDraft({
@@ -585,7 +588,9 @@ function App() {
     logUsage("collection_saved", { collectionId: collection.id, eventCount: eventIds.length });
   };
   const openCollection = async (collection) => {
+    const operation = research.invalidate();
     const events = allowedEvents(await loadEvents(collection.eventIds, runtime.recordSources));
+    if (!research.isCurrentOperation(operation)) return;
     research.openFixedCorpus({
       events: events.sort((a, b) => b.created_at - a.created_at),
       label: collection.title,
@@ -607,7 +612,7 @@ function App() {
     if (!pulsePersistenceReady()) return;
     const events = pulseEvents(); const previous = pulsePreviousEvents();
     save(PULSE_SESSION_KEY, { eventIds: events.slice(0, SESSION_EVENT_LIMIT).map((event) => event.id), previousIds: previous.slice(0, SESSION_EVENT_LIMIT).map((event) => event.id), meta: pulseMeta(), round: scanRound(), reasons: scanReasons() });
-    void storeEvents([...events, ...previous], sourcesFor);
+    void storeEvents([...events, ...previous], sourcesFor).catch((cause) => logUsage("local_storage_failed", { operation: "store Relay Explorer session", detail: cause.message }));
   });
 
   onMount(async () => {
@@ -621,7 +626,7 @@ function App() {
     if (restored.eventIds?.length) {
       const stored = allowedEvents(await loadEvents(restored.eventIds, runtime.recordSources));
       if (stored.length) {
-        void storeEvents(stored, sourcesFor);
+        void storeEvents(stored, sourcesFor).catch((cause) => logUsage("local_storage_failed", { operation: "refresh restored session events", detail: cause.message }));
         setCorpus(stored); rememberEvents(stored);
         const restoredIds = new Set(stored.map((event) => event.id));
         setPinned(new Set((restored.pinned ?? []).filter((id) => restoredIds.has(id))));
@@ -706,7 +711,7 @@ function App() {
           <Show when={executedQuery()}>{(run) => { const labels = () => constraintChips(run().constraints ?? {}).map((chip) => chip.label); return <div class="mt-2 font-mono text-[9px] text-emerald-800">CURRENT CORPUS ← {run().mode}{run().value ? `: ${run().value}` : ""}<Show when={labels().length}> · {labels().join(" · ")}</Show> · {run().operation}</div>; }}</Show>
           <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-emerald-900/70 pt-3 text-xs">
             <Show when={corpus().length}><span class="font-mono text-[9px] tracking-wider text-emerald-700">USE NEXT RESULTS</span><For each={[["replace","replace"],["union","add"],["intersect","keep matches"]]}>{([operation,label]) => <button type="button" onClick={() => setResearchDraft("operation", operation)} class={`rounded border px-2 py-1.5 ${researchDraft.operation === operation ? "border-lime-600 bg-lime-950/30 text-lime-300" : "border-emerald-900 text-emerald-600"}`}>{label}</button>}</For><span class="text-[9px] text-emerald-800">resets to replace after one search</span></Show>
-            <button type="button" onClick={() => void savePath()} class="rounded border border-emerald-900 px-2 py-1.5 text-emerald-500 hover:text-emerald-200">{activeRecipeId() ? "update saved search" : "save search"}</button><details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">export</summary><div class="absolute right-0 top-9 z-40 w-64 rounded border border-emerald-800 bg-[#07110c] p-2 shadow-2xl"><button type="button" disabled={!corpus().length} onClick={exportManifest} class="block w-full rounded px-2 py-2 text-left text-emerald-400 hover:bg-emerald-950 disabled:opacity-30">corpus manifest<span class="mt-1 block text-[9px] text-emerald-800">query, coverage, exclusions, fingerprint</span></button><button type="button" disabled={!corpus().length} onClick={exportResearchPackage} class="mt-1 block w-full rounded px-2 py-2 text-left text-cyan-400 hover:bg-cyan-950 disabled:opacity-30">complete research package<span class="mt-1 block text-[9px] text-emerald-800">manifest, evidence, lists, direction, decisions</span></button></div></details>
+            <button type="button" onClick={() => void savePath().catch((cause) => { setBlockNotice(`Could not save this search locally: ${cause.message}`); logUsage("local_storage_failed", { operation: "save search", detail: cause.message }); })} class="rounded border border-emerald-900 px-2 py-1.5 text-emerald-500 hover:text-emerald-200">{activeRecipeId() ? "update saved search" : "save search"}</button><details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">export</summary><div class="absolute right-0 top-9 z-40 w-64 rounded border border-emerald-800 bg-[#07110c] p-2 shadow-2xl"><button type="button" disabled={!corpus().length} onClick={exportManifest} class="block w-full rounded px-2 py-2 text-left text-emerald-400 hover:bg-emerald-950 disabled:opacity-30">corpus manifest<span class="mt-1 block text-[9px] text-emerald-800">query, coverage, exclusions, fingerprint</span></button><button type="button" disabled={!corpus().length} onClick={exportResearchPackage} class="mt-1 block w-full rounded px-2 py-2 text-left text-cyan-400 hover:bg-cyan-950 disabled:opacity-30">complete research package<span class="mt-1 block text-[9px] text-emerald-800">manifest, evidence, lists, direction, decisions</span></button></div></details>
             <Show when={activeRecipeId()}><button type="button" disabled={loading()} onClick={rerunRecipe} class="rounded border border-lime-800 px-2 py-1.5 text-lime-300 disabled:opacity-40">rerun saved search</button></Show>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">depth · {researchDraft.limit}/relay</summary><div class="absolute right-0 top-9 z-40 w-72 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="text-[10px] tracking-wider text-lime-300">RESEARCH DEPTH · PER RELAY</div><div class="mt-3 grid grid-cols-2 gap-1"><For each={[[50,"quick"],[100,"standard"],[250,"deep"],[500,"exhaustive"]]}>{([limit,label]) => <button type="button" onClick={() => setResearchDraft("limit", limit)} class={`rounded border px-2 py-2 text-left ${researchDraft.limit === limit ? "border-lime-500 bg-lime-950/40 text-lime-300" : "border-emerald-900 text-emerald-600"}`}><span class="block">{label}</span><span class="font-mono text-[9px] text-emerald-800">{limit} events</span></button>}</For></div><label class="mt-3 block text-[10px] text-emerald-700">CUSTOM · 10–1000<input aria-label="Custom events per relay" type="number" min="10" max="1000" value={researchDraft.limit} onChange={(event) => setResearchDraft("limit", Math.min(1000, Math.max(10, Number(event.currentTarget.value) || 100)))} class="mt-1 w-full rounded border border-emerald-900 bg-black/30 px-2 py-2 font-mono text-emerald-300 outline-none"/></label><p class="mt-2 text-[9px] leading-4 text-emerald-800">This is a requested maximum. Relays may return fewer. Exact note and profile lookups ignore this setting.</p></div></details>
             <details class="relative"><summary class="cursor-pointer rounded border border-emerald-900 px-2 py-1.5 text-emerald-500">relays · {new Set([...READ_RELAYS, ...INDEXER_RELAYS, ...OPTIONAL_READ_RELAYS, ...searchRelays()]).size}</summary><div class="absolute right-0 top-9 z-40 w-80 rounded border border-emerald-800 bg-[#07110c] p-3 shadow-2xl"><div class="mb-3 text-[10px] tracking-wider text-lime-300">GENERAL RESEARCH · ACTIVE</div><For each={READ_RELAYS}>{(relay) => <div class="mb-1 flex items-center gap-2 text-emerald-500"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"/>{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">ACCOUNT INDEXER</div><For each={INDEXER_RELAYS}>{(relay) => <div class="mb-1 text-emerald-500">{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">OPTIONAL GENERAL RELAY</div><For each={OPTIONAL_READ_RELAYS}>{(relay) => <div class="mb-1 text-emerald-700">{new URL(relay).hostname}</div>}</For><div class="mb-2 mt-4 text-[10px] tracking-wider text-lime-300">KEYWORD SEARCH RELAYS</div><textarea aria-label="Keyword search relays" value={relayDraft()} onInput={(event) => setRelayDraft(event.currentTarget.value)} class="h-24 w-full resize-none bg-black/30 p-2 font-mono text-xs outline-none"/><button type="button" onClick={applyRelays} class="mt-2 border border-lime-700 px-3 py-1 text-lime-300">apply search relays</button><p class="mt-2 text-[10px] text-emerald-800">General queries use the four active relays. Purple Pages is reserved for account indexing. Keyword searches use the editable NIP-50 list. Optional relays can be selected in Relay Explorer.</p></div></details>
@@ -723,7 +728,7 @@ function App() {
 
       <Show when={corpus().length && !["settings", "relays"].includes(route().kind)}><aside class="space-y-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto xl:pl-1">
         <Show when={selectedEvent()}>{(event) => <ExploreFromNode compact event={event()} corpus={corpus()} profile={profileFor(event().pubkey)} profileFor={profileFor} onSelect={selectEvent} onExpand={expandSelection} operation={expansionOperation()} onOperation={setExpansionOperation} openRoute={openRoute} loading={loading()} status={expansionStatus()} reason={entryReasons()[event().id]}/>}</Show>
-        <Panel title="EVIDENCE"><Show when={pinned().size} fallback={<p class="text-emerald-900">Pin nodes to build a lightweight evidence collection.</p>}><For each={[...pinned()].map((id) => knownEvents.get(id)).filter(Boolean)}>{(event) => <button onClick={() => setSelectedId(event.id)} class="block w-full border-b border-emerald-950 py-2 text-left"><span class="text-lime-500">{kindName(event.kind)}</span><span class="mt-1 block truncate text-emerald-600">{compact(event.content, 60)}</span></button>}</For><div class="flex gap-1 pt-2"><input aria-label="Collection name" value={collectionDraft()} onInput={(event) => setCollectionDraft(event.currentTarget.value)} placeholder="collection name" class="min-w-0 flex-1 rounded border border-emerald-900 bg-black/20 px-2 py-1 text-emerald-300 outline-none"/><button onClick={() => void savePinnedAsCollection()} class="rounded border border-lime-800 px-2 text-lime-300">save</button></div></Show></Panel>
+        <Panel title="EVIDENCE"><Show when={pinned().size} fallback={<p class="text-emerald-900">Pin nodes to build a lightweight evidence collection.</p>}><For each={[...pinned()].map((id) => knownEvents.get(id)).filter(Boolean)}>{(event) => <button onClick={() => setSelectedId(event.id)} class="block w-full border-b border-emerald-950 py-2 text-left"><span class="text-lime-500">{kindName(event.kind)}</span><span class="mt-1 block truncate text-emerald-600">{compact(event.content, 60)}</span></button>}</For><div class="flex gap-1 pt-2"><input aria-label="Collection name" value={collectionDraft()} onInput={(event) => setCollectionDraft(event.currentTarget.value)} placeholder="collection name" class="min-w-0 flex-1 rounded border border-emerald-900 bg-black/20 px-2 py-1 text-emerald-300 outline-none"/><button onClick={() => void savePinnedAsCollection().catch((cause) => { setBlockNotice(`Could not save this evidence collection locally: ${cause.message}`); logUsage("local_storage_failed", { operation: "save evidence collection", detail: cause.message }); })} class="rounded border border-lime-800 px-2 text-lime-300">save</button></div></Show></Panel>
         <Show when={lastRunDelta()}>{(delta) => <Panel title="RUN COMPARISON"><Show when={delta().previous} fallback={<p class="text-emerald-700">Baseline saved. Rerun this recipe later to measure change.</p>}><Stat label="new" value={`+${delta().added}`}/><Stat label="not returned" value={`−${delta().missing}`}/><Stat label="set overlap" value={`${Math.round((delta().overlap ?? 0) * 100)}%`}/></Show></Panel>}</Show>
         <CoveragePanel states={relayStates()} information={relayInformation()} requestedLimit={researchDraft.limit} uniqueCount={corpus().length} visibleCount={visibleCorpus().length}/>
       </aside></Show>
@@ -773,9 +778,10 @@ function CoveragePanel(props) {
   return <Panel title="SEARCH COVERAGE"><Show when={rows().length} fallback={<p class="text-emerald-900">Run a search to see which relays contributed and what they support.</p>}>
     <div class="mb-3 grid grid-cols-2 gap-x-4 gap-y-1 border-b border-emerald-950 pb-3"><Stat label="requested" value={`${props.requestedLimit} × ${rows().length}`}/><Stat label="responses" value={returned()}/><Stat label="unique corpus" value={props.uniqueCount}/><Stat label="visible" value={props.visibleCount}/><Stat label="responded" value={`${responding()}/${rows().length}`}/></div>
     <For each={rows()}>{(row) => <details class="border-b border-emerald-950 py-2">
-      <summary class="flex items-center gap-2"><span class={`h-1.5 w-1.5 rounded-full ${row.state.state === "ok" ? "bg-emerald-400" : row.state.state === "searching" ? "animate-pulse bg-lime-300" : "bg-red-500"}`}/><span class="min-w-0 flex-1 truncate text-emerald-400">{new URL(row.relay).hostname}</span><span class="text-emerald-800">{row.state.state === "searching" ? "…" : row.state.count}</span></summary>
+      <summary class="flex items-center gap-2"><span class={`h-1.5 w-1.5 rounded-full ${row.state.state === "ok" ? "bg-emerald-400" : row.state.state === "searching" ? "animate-pulse bg-lime-300" : row.state.state === "muted" ? "bg-amber-500" : "bg-red-500"}`}/><span class="min-w-0 flex-1 truncate text-emerald-400">{new URL(row.relay).hostname}</span><span class="text-emerald-800">{row.state.state === "searching" ? "…" : row.state.state === "ok" ? row.state.count : row.state.state}</span></summary>
       <div class="mt-2 space-y-1 pl-3 text-[10px] text-emerald-800">
         <Show when={row.state.state === "ok"}><div>{row.exclusive} unique here · {row.state.duration}ms</div></Show>
+        <Show when={!["ok", "searching"].includes(row.state.state)}><div>{row.state.detail || `Relay ${row.state.state}; its empty result is not counted as a successful response.`}</div></Show>
         <Show when={row.information?.state === "available"} fallback={<div>capabilities unavailable</div>}>
           <div>{row.information.name}{row.information.version ? ` · ${row.information.version}` : ""}</div>
           <div>NIP-50 search: {row.information.supportedNips.includes(50) ? "advertised" : "not advertised"}</div>

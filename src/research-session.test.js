@@ -97,3 +97,43 @@ test("searching wider from a facet replaces the old draft with an exact constrai
     dispose();
   });
 });
+
+test("an older failed search cannot restore over a newer successful search", async () => {
+  await new Promise((resolve, reject) => createRoot((dispose) => {
+    let rejectOld;
+    const newer = { id: "b".repeat(64), pubkey: "c".repeat(64), kind: 1, created_at: 2, content: "newer", tags: [] };
+    const session = createResearchSession({
+      runtime: {
+        sourcesFor: () => [],
+        recordSources: noop,
+        queryRelay: async (_relay, filter) => filter.search === "old"
+          ? new Promise((_resolve, reject) => { rejectOld = reject; })
+          : [newer],
+      },
+      eventFor: noop, allEvents: () => [], sessionEventLimit: 10, storeEvents: noop,
+      loadEvents: async () => [], searchStoredEvents: async () => [], searchRelays: () => ["wss://search.test"],
+      readRelays: [], relayInformation: () => new Map(), relayQueryLimit: (limit) => limit, inspectRelays: noop,
+      allowedEvents: (events) => events, rememberEvents: (events) => events, recordDecision: noop,
+      recordResearchRun: noop, hydrateProfiles: noop, openSearchRoute: noop, focusComposer: noop,
+      notice: noop, short: String, logUsage: noop,
+    });
+
+    session.startRelaySearch({ text: "old", mode: "words" });
+    setTimeout(() => {
+      session.startRelaySearch({ text: "new", mode: "words" });
+      setTimeout(() => {
+        try {
+          assert.deepEqual(session.corpus().map((event) => event.id), [newer.id]);
+          rejectOld(new Error("old failed"));
+        } catch (error) { dispose(); reject(error); return; }
+        setTimeout(() => {
+          try {
+          assert.deepEqual(session.corpus().map((event) => event.id), [newer.id]);
+          assert.equal(session.error(), "");
+          dispose(); resolve();
+          } catch (error) { dispose(); reject(error); }
+        }, 0);
+      }, 0);
+    }, 0);
+  }));
+});

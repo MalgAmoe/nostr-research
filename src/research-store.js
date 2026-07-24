@@ -30,13 +30,13 @@ function openDatabase() {
       }
     };
     request.onsuccess = () => resolve(request.result);
-  }).catch(() => null);
+  });
   return databasePromise;
 }
 
 async function transact(storeName, mode, action) {
   const database = await openDatabase();
-  if (!database) return null;
+  if (!database) throw new Error("IndexedDB is unavailable");
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(storeName, mode);
     const store = transaction.objectStore(storeName);
@@ -45,7 +45,7 @@ async function transact(storeName, mode, action) {
     transaction.oncomplete = () => resolve(result);
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error);
-  }).catch(() => null);
+  });
 }
 
 function requestResult(request) {
@@ -53,6 +53,10 @@ function requestResult(request) {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+}
+
+async function openDatabaseForRead() {
+  try { return await openDatabase(); } catch { return null; }
 }
 
 export async function storeEvents(events, sourceIndex = new Map()) {
@@ -100,7 +104,7 @@ function indexTerms(event) {
 
 export async function loadEvents(ids = [], sourceIndex) {
   if (!ids.length) return [];
-  const database = await openDatabase();
+  const database = await openDatabaseForRead();
   if (!database) return [];
   const transaction = database.transaction("events", "readonly");
   const store = transaction.objectStore("events");
@@ -118,7 +122,7 @@ export async function saveCollection(collection) {
 }
 
 export async function listCollections() {
-  const database = await openDatabase();
+  const database = await openDatabaseForRead();
   if (!database) return [];
   const transaction = database.transaction("collections", "readonly");
   return (await requestResult(transaction.objectStore("collections").getAll()).catch(() => []))
@@ -128,7 +132,7 @@ export async function listCollections() {
 export async function searchStoredEvents(query, limit = 250, sourceIndex) {
   const terms = [...new Set((query.toLowerCase().match(/[\p{L}\p{N}_.-]{3,}/gu) ?? []))];
   if (!terms.length) return [];
-  const database = await openDatabase();
+  const database = await openDatabaseForRead();
   if (!database) return [];
   const transaction = database.transaction("eventSearch", "readonly");
   const index = transaction.objectStore("eventSearch").index("terms");
@@ -143,7 +147,7 @@ export async function saveRecipe(recipe) {
 }
 
 export async function listRecipes() {
-  const database = await openDatabase();
+  const database = await openDatabaseForRead();
   if (!database) return [];
   const transaction = database.transaction("recipes", "readonly");
   return (await requestResult(transaction.objectStore("recipes").getAll()).catch(() => []))
@@ -157,7 +161,7 @@ export async function saveRun(run) {
 
 export async function latestRun(recipeId) {
   if (!recipeId) return null;
-  const database = await openDatabase();
+  const database = await openDatabaseForRead();
   if (!database) return null;
   const transaction = database.transaction("runs", "readonly");
   const request = transaction.objectStore("runs").index("recipeId").getAll(recipeId);

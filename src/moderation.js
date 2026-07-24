@@ -8,9 +8,11 @@ export function createModerationPolicy({ accounts = [], names = [], muteRules = 
   let namePatterns = [...new Set(names)];
   let rules = { ...muteRules, accounts: [...blockedAccounts] };
 
-  const allowedEvents = (events = []) => events.filter((event) => {
+  const allowedEvents = (events = [], sourcesFor = () => []) => events.filter((event) => {
     const pubkey = event?.pubkey?.toLowerCase();
-    return !blockedAccounts.has(pubkey) && !nameBlockedAccounts.has(pubkey) && !eventMatchesMuteRules(event, { ...rules, relays: [] });
+    const sources = sourcesFor(event) ?? [];
+    const hasAllowedSource = !sources.length || sources.some(allowsRelay);
+    return hasAllowedSource && !blockedAccounts.has(pubkey) && !nameBlockedAccounts.has(pubkey) && !eventMatchesMuteRules(event, { ...rules, relays: [] });
   });
   const allowsRelay = (relay) => !(rules.relays ?? []).includes(relay.replace(/\/$/, ""));
   const hasAccount = (pubkey) => blockedAccounts.has(pubkey?.toLowerCase());
