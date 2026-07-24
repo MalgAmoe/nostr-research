@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeAccountSignals, analyzePulse, analyzeTopicSignals, pulseKinds, pulseTimeSlices } from "./pulse-analysis.js";
+import { analyzePulse, pulseKinds, pulseTimeSlices } from "./pulse-analysis.js";
 
 const event = (id, pubkey, topic, relayCount = 1) => ({ id, pubkey, kind: 1, content: `Read https://example.com/${id}`, created_at: 1, tags: [["t", topic]], relayCount });
 
@@ -28,6 +28,10 @@ test("pulse analysis exposes relay coverage and directed signals", () => {
   assert.equal(result.topicSignals[0].before, 1);
   assert.equal(result.authors[0].pubkey, "p1");
   assert.equal(result.relayRows[1].count, 1);
+  assert.equal(result.relayRows[0].authors, 2);
+  assert.equal(result.relayRows[0].overlap[0].shared, 1);
+  assert.equal(result.relayRows[1].uniqueShare, 0);
+  assert.equal(typeof result.relayRows[0].role, "string");
   assert.equal(result.received, 4);
   assert.equal(result.duplicates, 1);
   assert.deepEqual(result.domains[0], ["example.com", 3]);
@@ -38,7 +42,7 @@ test("topic signals favor independent participation over one prolific author", (
     ...Array.from({ length: 20 }, (_, index) => event(`spam-${index}`, "spammer", "spam")),
     event("useful-1", "a", "useful"), event("useful-2", "b", "useful"), event("useful-3", "c", "useful"),
   ];
-  const signals = analyzeTopicSignals(events, [], () => ["wss://one"]);
+  const signals = analyzePulse(events, [], ["wss://one"], () => ["wss://one"]).topicSignals;
   assert.equal(signals[0].topic, "useful");
   assert.ok(!signals.some((item) => item.topic === "spam"));
 });
@@ -46,7 +50,7 @@ test("topic signals favor independent participation over one prolific author", (
 test("account signals separate repetitive high-volume accounts", () => {
   const repeated = Array.from({ length: 10 }, (_, index) => ({ ...event(`r-${index}`, "spam", "x"), content: "same message" }));
   const original = Array.from({ length: 4 }, (_, index) => ({ ...event(`o-${index}`, "person", "x"), content: `original thought ${index}` }));
-  const result = analyzeAccountSignals([...repeated, ...original], () => ["wss://one"]);
-  assert.equal(result.noise[0].pubkey, "spam");
-  assert.equal(result.recommended[0].pubkey, "person");
+  const result = analyzePulse([...repeated, ...original], [], ["wss://one"], () => ["wss://one"]);
+  assert.equal(result.noiseAccounts[0].pubkey, "spam");
+  assert.equal(result.accountSignals[0].pubkey, "person");
 });

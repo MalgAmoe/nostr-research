@@ -57,9 +57,10 @@ function requestResult(request) {
 
 export async function storeEvents(events, sourceIndex = new Map()) {
   if (!events?.length) return;
+  const sourcesFor = typeof sourceIndex === "function" ? sourceIndex : (event) => sourceIndex.get(event.id) ?? [];
   await transact("events", "readwrite", (store) => {
     const storedAt = Date.now();
-    for (const event of events) store.put({ ...event, _research: { storedAt, relays: sourceIndex.get(event.id) ?? [] } });
+    for (const event of events) store.put({ ...event, _research: { storedAt, relays: sourcesFor(event) } });
   });
   await transact("eventSearch", "readwrite", (store) => {
     for (const event of events) store.put({ id: event.id, pubkey: event.pubkey, kind: event.kind, createdAt: event.created_at, terms: indexTerms(event) });
@@ -89,7 +90,7 @@ export async function deleteEventsByAuthors(pubkeys = []) {
   });
 }
 
-export function indexTerms(event) {
+function indexTerms(event) {
   const content = event.content ?? "";
   const words = content.toLowerCase().match(/[\p{L}\p{N}_-]{3,}/gu) ?? [];
   const tagValues = (event.tags ?? []).filter((tag) => ["t", "d", "r"].includes(tag[0])).map((tag) => String(tag[1] ?? "").toLowerCase());
@@ -105,7 +106,8 @@ export async function loadEvents(ids = [], sourceIndex) {
   const store = transaction.objectStore("events");
   const events = await Promise.all(ids.map((id) => requestResult(store.get(id)).catch(() => null)));
   return events.filter(Boolean).map(({ _research, ...event }) => {
-    if (sourceIndex && _research?.relays?.length) sourceIndex.set(event.id, _research.relays);
+    if (typeof sourceIndex === "function" && _research?.relays?.length) sourceIndex(event.id, _research.relays);
+    else if (sourceIndex && _research?.relays?.length) sourceIndex.set(event.id, _research.relays);
     return event;
   });
 }

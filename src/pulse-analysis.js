@@ -1,4 +1,5 @@
 import { eventDomains, kindName, ranked, tags } from "./event-analysis.js";
+import { parseEventSemantics } from "./protocol-semantics.js";
 
 export const PULSE_WINDOWS = [[1, "1 hour"], [6, "6 hours"], [24, "24 hours"], [168, "7 days"]];
 export const PULSE_DEPTHS = [[250, "quick"], [1000, "standard"], [5000, "deep"], [10000, "massive"]];
@@ -31,7 +32,7 @@ const countMap = (values) => {
 const dayFor = (event) => new Date(event.created_at * 1000).toISOString().slice(0, 10);
 const normalizedContent = (event) => String(event.content ?? "").toLowerCase().replace(/https?:\/\/\S+/g, " ").replace(/\s+/g, " ").trim();
 
-export function analyzeTopicSignals(events, previous = [], sourcesFor = () => []) {
+function analyzeTopicSignals(events, previous = [], sourcesFor = () => []) {
   const previousAuthors = new Map();
   for (const event of previous) for (const topic of tags(event, "t").map((value) => value.toLowerCase())) {
     if (!previousAuthors.has(topic)) previousAuthors.set(topic, new Set());
@@ -49,7 +50,7 @@ export function analyzeTopicSignals(events, previous = [], sourcesFor = () => []
     const dominance = largest / topicEvents.length;
     const days = new Set(topicEvents.map(dayFor)).size;
     const relays = new Set(topicEvents.flatMap(sourcesFor)).size;
-    const conversations = topicEvents.filter((event) => tags(event, "e").length || tags(event, "q").length).length;
+    const conversations = topicEvents.filter((event) => parseEventSemantics(event).parent).length;
     const capped = new Set(topicEvents.map((event) => `${event.pubkey}:${dayFor(event)}`)).size;
     const before = previousAuthors.get(topic)?.size ?? 0;
     const deltaAuthors = authors - before;
@@ -59,7 +60,7 @@ export function analyzeTopicSignals(events, previous = [], sourcesFor = () => []
   }).filter((item) => item.authors >= 2).sort((a, b) => b.score - a.score || b.authors - a.authors).slice(0, 18);
 }
 
-export function analyzeAccountSignals(events, sourcesFor = () => []) {
+function analyzeAccountSignals(events, sourcesFor = () => []) {
   const grouped = new Map();
   for (const event of events) {
     if (!grouped.has(event.pubkey)) grouped.set(event.pubkey, []);
@@ -71,7 +72,7 @@ export function analyzeAccountSignals(events, sourcesFor = () => []) {
     const relays = new Set(authored.flatMap(sourcesFor)).size;
     const uniqueContent = new Set(authored.map(normalizedContent).filter(Boolean)).size;
     const originality = count ? uniqueContent / count : 0;
-    const conversations = authored.filter((event) => tags(event, "e").length || tags(event, "q").length).length;
+    const conversations = authored.filter((event) => parseEventSemantics(event).parent).length;
     const topics = new Set(authored.flatMap((event) => tags(event, "t").map((value) => value.toLowerCase()))).size;
     const perDay = count / Math.max(1, days);
     const noisy = count >= 8 && (originality < 0.45 || perDay > 80);
@@ -86,14 +87,30 @@ export function analyzeAccountSignals(events, sourcesFor = () => []) {
 }
 
 export function analyzePulse(current, previous, relays, sourcesFor) {
+  const noisyAuthors = new Set(analyzeAccountSignals(current, sourcesFor).noise.map((item) => item.pubkey));
   const relayRows = relays.map((relay) => {
     const events = current.filter((event) => sourcesFor(event).includes(relay));
-    return { relay, count: events.length, topics: ranked(events.flatMap((event) => tags(event, "t").map((topic) => topic.toLowerCase())), 5), uniqueHere: events.filter((event) => sourcesFor(event).length === 1).length };
+    const authors = new Set(events.map((event) => event.pubkey));
+    const uniqueHere = events.filter((event) => sourcesFor(event).length === 1).length;
+    const overlap = relays.filter((other) => other !== relay).map((other) => {
+      const shared = events.filter((event) => sourcesFor(event).includes(other)).length;
+      return { relay: other, shared, share: events.length ? shared / events.length : 0 };
+    }).sort((a, b) => b.shared - a.shared);
+    const uniqueShare = events.length ? uniqueHere / events.length : 0;
+    const noisyShare = events.length ? events.filter((event) => noisyAuthors.has(event.pubkey)).length / events.length : 0;
+    const topTopicShare = events.length ? (ranked(events.flatMap((event) => tags(event, "t").map((topic) => topic.toLowerCase())), 1)[0]?.[1] ?? 0) / events.length : 0;
+    const role = noisyShare > 0.5 ? "noise-concentrated sample" : uniqueShare > 0.45 ? "high unique contribution" : overlap[0]?.share > 0.65 ? "highly replicated coverage" : topTopicShare > 0.25 ? "topic-specialized sample" : authors.size >= Math.max(5, events.length * 0.35) ? "broad account coverage" : "mixed general coverage";
+    return {
+      relay, count: events.length, authors: authors.size, uniqueHere,
+      uniqueShare, noisyShare, role,
+      topics: ranked(events.flatMap((event) => tags(event, "t").map((topic) => topic.toLowerCase())), 5),
+      kinds: ranked(events.map((event) => kindName(event.kind)), 4), overlap,
+    };
   });
   const received = relayRows.reduce((sum, row) => sum + row.count, 0);
   const accountSignals = analyzeAccountSignals(current, sourcesFor);
   const conversationGroups = new Map();
-  for (const event of current) for (const id of [...tags(event, "e"), ...tags(event, "q")]) {
+  for (const event of current) for (const id of [parseEventSemantics(event).root].filter((item) => item?.type?.toLowerCase() === "e").map((item) => item.value)) {
     if (!conversationGroups.has(id)) conversationGroups.set(id, { id, events: 0, authors: new Set() });
     const item = conversationGroups.get(id); item.events += 1; item.authors.add(event.pubkey);
   }
