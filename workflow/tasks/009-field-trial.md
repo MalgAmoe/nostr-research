@@ -1,6 +1,6 @@
 ---
 id: 009-field-trial
-status: ready
+status: in_progress
 max_attempts: 4
 validation: workflow/tasks/009-field-trial.validate.sh
 depends_on: 008-agent-friendly-cli-output
@@ -21,8 +21,18 @@ This is an evaluation task. Product and workflow code are read-only.
 ## Required research paths
 
 Use a disposable or retained Git-ignored SQLite database under `.data/`.
-Contact two to four explicitly named public relays with bounded acquisitions.
-Do not claim relay coverage beyond the observed sample.
+Contact two to four explicitly named public relays with bounded acquisitions
+when the worker environment permits network access. A retained database may be
+used as real evidence when its recorded acquisition run contains the exact
+relays, filters, bounds, outcomes, identifiers, and per-event provenance needed
+to verify how it was acquired. Do not claim relay coverage beyond the observed
+sample.
+
+The retained `.data/first-research.sqlite` is available as a starting candidate.
+It was created through the public CLI before this task and should be accepted
+only after independently verifying its recorded acquisition run and evidence.
+If it is absent, empty, or unverifiable, perform a new bounded acquisition or
+return `BLOCKED`; never substitute fixtures.
 
 Complete at least two connected research paths:
 
@@ -79,8 +89,8 @@ The independent reviewer must:
 - avoid requesting product changes as optional polish.
 
 Live relay variability is expected. If one relay fails, record it and continue
-with successful relays. Use `BLOCKED` only if no bounded real acquisition can
-be completed.
+with successful relays. Use `BLOCKED` only if neither a bounded real acquisition
+nor a traceable retained real-evidence database is available.
 
 ## Acceptance criteria
 
