@@ -1,0 +1,13 @@
+{
+  "name": "@nostr-research/turso-portability-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "native": "node native-runner.js",
+    "serve": "node browser-server.js"
+  },
+  "dependencies": {
+    "@tursodatabase/database": "0.7.1",
+    "@tursodatabase/database-wasm": "0.7.1"
+  }
+}
