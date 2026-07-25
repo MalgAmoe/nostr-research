@@ -42,6 +42,16 @@ test('CLI projections remain concise, complete, deterministic, and composable', 
       relationship.sourceEvent === undefined && relationship.targetEvent === undefined
     )));
 
+    const thread = JSON.parse(cliText(database, 'thread', identifiers[0]));
+    assert.equal(thread.start.type, 'event');
+    assert.ok(Array.isArray(thread.ancestors));
+    assert.ok(Array.isArray(thread.directReplies));
+    assert.ok(Array.isArray(thread.descendants));
+    assert.ok(Array.isArray(thread.participants));
+    assert.ok(thread.ambiguous.some(
+      ({ evidence }) => evidence.interpretation === 'best-effort-fallback',
+    ));
+
     const run = JSON.parse(cliText(
       database, 'run', 'search', '--id', identifiers[0], '--output', 'full',
     ));
@@ -55,6 +65,7 @@ test('CLI projections remain concise, complete, deterministic, and composable', 
     const setList = JSON.parse(cliText(database, 'set', 'list'));
     assert.equal(setList.sets[0].memberCount, 1);
     assert.equal(setList.sets[0].members, undefined);
+    assert.equal(setList.sets[0].preview[0].id, identifiers[0]);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

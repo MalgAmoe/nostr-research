@@ -80,7 +80,57 @@ owns when a relay completes or a global stop condition occurs.
 The package uses Node's built-in `node:sqlite` support and requires Node 22.5
 or newer. SQLite files are generated artifacts and are ignored by Git.
 
-### Local query and navigation
+### Composable research kernel
+
+The public vocabulary is `resolve -> select/acquire -> traverse -> project ->
+retain`.
+
+`subject(type, id)` creates a stable `event`, `account`, `tag`, `set`, or `run`
+reference. `memory.resolve(...)` resolves stored event/account prefixes,
+set/run IDs, and accounts by exact stored `name`, `display_name`, or `nip05`.
+`memory.select(query)` returns a reusable result collection whose subjects,
+reasons, provenance, and canonical evidence can flow directly into the other
+operations:
+
+```js
+let memory = openResearchMemory('./research.sqlite');
+const account = memory.resolve('alice@example.org');
+const authored = memory.select({
+  authors: [account.id], kinds: [1], since: 1_700_000_000,
+  order: 'newest', limit: 20,
+});
+const conversationEvidence = memory.traverse(authored, {
+  relationshipTypes: ['reply-root', 'reply-parent', 'mentioned-account', 'topic'],
+  direction: 'both', depth: 3, limit: 100,
+});
+console.log(memory.project(conversationEvidence, {
+  mode: 'compact', excerptLimit: 120, previewLimit: 5,
+}));
+const saved = memory.retain(conversationEvidence, 'alice-conversations');
+memory.close();
+
+memory = openResearchMemory('./research.sqlite');
+const continued = memory.traverse([{ type: 'set', id: saved.id }], {
+  relationshipTypes: ['author', 'mentioned-account'],
+  direction: 'outbound', depth: 1, limit: 100,
+});
+memory.close();
+```
+
+Traversal is deterministic and breadth-first. It deduplicates subjects while
+retaining distinct explaining edges, with explicit depth and distinct-result
+bounds. `relatedEvent`, `relatedAccount`, and `expandSet` are conveniences over
+this operation. Projection modes are `compact`, `full`, `ids`, and `ndjson`;
+explicit `excerptLimit` and `previewLimit` bounds are terminal-independent.
+Full projection preserves canonical evidence. Retention saves reasons and
+provenance.
+
+`memory.thread(eventId, { depth, limit })` composes shared traversals and
+separates the start, known ancestors, direct replies, deeper descendants,
+participating accounts, and ambiguous references. Its collection remains
+projectable and retainable.
+
+### Local selection and relay acquisition
 
 `memory.searchEvents(query)` searches accumulated SQLite evidence and never
 contacts relays. It accepts `ids`, `authors`, `kinds`, inclusive `since` and
@@ -111,6 +161,14 @@ const result = memory.searchEvents({
 });
 ```
 
+`memory.select` applies these local constraints but returns the shared
+collection contract. Relay acquisition is deliberately separate:
+`acquireRelayEvents` accepts a NIP-01 filter and has network side effects.
+Local `text` and `order` are not relay filter fields. Acquisition feedback
+preserves exact relays and filter (including supplied time bounds), per-relay
+outcomes, completion reason, counts, recorded run ID when requested, and
+bounded acquired identifiers.
+
 `resolveAccount(publicKeyOrPrefix)` returns the current stored kind-0 metadata
 event, parsed profile, and its observations. Current-event selection follows
 replaceable-event ordering: greatest `created_at`, then lowest event ID.
@@ -127,7 +185,9 @@ reported as known interpretations; NIP-22 comment tags are interpreted only
 on kind-1111 events. Deprecated unmarked NIP-10 positional interpretation and
 uppercase event tags outside kind 1111 are labeled `best-effort-fallback`.
 References to events not in memory remain in the result with `resolved:
-false`. Account resolution reflects public keys evidenced as stored authors or
+false`. Fallback interpretations remain ambiguous in traversal and thread
+output and are never silently promoted to known replies. Account resolution
+reflects public keys evidenced as stored authors or
 account references independently of whether kind-0 profile metadata is
 available.
 
@@ -145,8 +205,8 @@ Saved research sets use stable UUIDs and user-facing names. The public
 operations are:
 
 - `createSet`, `listSets`, `getSet`, `renameSet`, and `deleteSet`;
-- `addSetMember` and `removeSetMember`, where a member is
-  `{ type: "event" | "account", id }`;
+- `addSetMember` and `removeSetMember`, where a member is an event, account,
+  tag, set, or recorded-run subject;
 - `createSetFromRun(name, runId)`;
 - `expandSet(sourceId, name, { relationshipTypes, direction, limit })`;
 - `combineSets(operation, leftId, rightId, name)` for `union`,
@@ -189,6 +249,7 @@ nostr-research-memory --db ./research.sqlite accounts --text alice
 nostr-research-memory --db ./research.sqlite account 84bf7562262b
 nostr-research-memory --db ./research.sqlite related event 78c49d12afd4
 nostr-research-memory --db ./research.sqlite related account 84bf7562262b
+nostr-research-memory --db ./research.sqlite thread 78c49d12afd4 --depth 5 --limit 100
 nostr-research-memory --db ./research.sqlite run search --kind 1 --text fixture
 nostr-research-memory --db ./research.sqlite run list
 nostr-research-memory --db ./research.sqlite set from-run findings <run-id>
@@ -199,6 +260,13 @@ nostr-research-memory --db ./research.sqlite set combine union <left-id> <right-
 nostr-research-memory --db ./research.sqlite set explain <set-id> event <full-event-id>
 nostr-research-memory --db ./research.sqlite reset
 ```
+
+For an account-to-conversation investigation, resolve with `account
+alice@example.org`, acquire bounded evidence using explicit relays and a filter
+such as `{"authors":["<key>"],"kinds":[0,1],"since":1700000000,
+"until":1700086400}`, select with `search --author <key> --kind 1`, then use
+`thread <event-id>`. `run search` plus `set from-run` retains a selection;
+`set expand` continues it after reopening the same SQLite database.
 
 Run `nostr-research-memory --help` for commands and options. Successful
 commands print JSON for scripting and inspection; invalid commands, missing

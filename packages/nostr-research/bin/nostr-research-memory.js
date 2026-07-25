@@ -27,6 +27,7 @@ Commands:
   account <pubkey-or-prefix>   Resolve current metadata for one stored account.
   related event <id-or-prefix> Show inbound and outbound event relationships.
   related account <key-prefix> Show authored events and account references.
+  thread <event-id-or-prefix>  Compose a local conversation investigation.
   run search [search options]   Search local events and record the completed run.
   run accounts [options]       Search local accounts and record the completed run.
   run list                     List immutable recorded research runs.
@@ -108,6 +109,7 @@ function parseArguments(args) {
       '--timeout-ms', '--event-limit', '--id', '--author', '--kind', '--since',
       '--until', '--tag', '--text', '--limit', '--order', '--pubkey',
       '--reason-json', '--relationship', '--direction', '--output',
+      '--depth', '--preview-limit', '--excerpt-limit',
     ].includes(argument)) {
       const value = args[index + 1];
       if (!value || value.startsWith('--')) throw new ResearchMemoryError(`Missing value for ${argument}.`);
@@ -274,10 +276,7 @@ async function main() {
           throw new ResearchMemoryError('account requires exactly one public key or unambiguous prefix.');
         }
         const account = memory.resolveAccount(parsed.commandArguments[0]);
-        printInspection(account, parsed.output ?? 'full', {
-          compact: { type: 'account', id: account.publicKey },
-          ids: [account.publicKey],
-        });
+        printSharedProjection(memory, { type: 'account', id: account.publicKey }, parsed.output ?? 'full');
         return;
       case 'related':
         requireOnlyOptions(parsed, ['--db', '--output']);
@@ -287,6 +286,18 @@ async function main() {
         printRelationships(parsed.commandArguments[0] === 'event'
           ? memory.relatedEvent(parsed.commandArguments[1])
           : memory.relatedAccount(parsed.commandArguments[1]), parsed.output ?? 'compact');
+        return;
+      case 'thread':
+        requireOnlyOptions(parsed, [
+          '--db', '--depth', '--limit', '--preview-limit', '--excerpt-limit', '--output',
+        ]);
+        if (parsed.commandArguments.length !== 1) {
+          throw new ResearchMemoryError('thread requires exactly one event ID or unambiguous prefix.');
+        }
+        printThread(memory, memory.thread(parsed.commandArguments[0], {
+          ...(parsed.depth ? { depth: parseIntegerOption(parsed.depth, 'depth') } : {}),
+          ...(parsed.limit ? { limit: parseIntegerOption(parsed.limit, 'limit') } : {}),
+        }), parsed.output ?? 'compact', parsed);
         return;
       case 'run':
         await handleRunCommand(memory, parsed);
@@ -378,13 +389,13 @@ function handleSetCommand(memory, parsed) {
   } else if (subcommand === 'list') {
     requireOnlyOptions(parsed, ['--db', '--output']);
     requireNoArguments('set list', arguments_);
-    printSetList(memory.listSets(), parsed.output ?? 'compact');
+    printSetList(memory, memory.listSets(), parsed.output ?? 'compact');
   } else if (subcommand === 'inspect') {
     requireOnlyOptions(parsed, ['--db', '--output']);
     if (arguments_.length !== 1) throw new ResearchMemoryError('set inspect requires one set ID.');
     const set = memory.getSet(arguments_[0]);
     printInspection(set, parsed.output ?? 'full', {
-      compact: compactSet(set),
+      compact: memory.project({ type: 'set', id: set.id }, { mode: 'compact' }).results[0],
       ids: set.members.map(({ type, id }) => ({ type, id })),
     });
   } else if (subcommand === 'rename') {
@@ -473,11 +484,16 @@ function printAcquisition(database, result, run, mode) {
     database,
     completionReason: result.completionReason,
     ...(run ? { runId: run.id } : {}),
-    counts: result.counts,
-    relays: result.relays.map(({ relay, outcome, diagnostic }) => ({
-      relay, outcome, ...(diagnostic ? { diagnostic } : {}),
+    requested: result.requested,
+    counts: { ...result.counts, accepted: result.counts.observations },
+    relays: result.relays.map(({
+      relay, outcome, diagnostic, received, invalid, duplicate, newlyStored, observations,
+    }) => ({
+      relay, outcome, received, accepted: observations, invalid, duplicate,
+      observations, newlyStored, ...(diagnostic ? { diagnostic } : {}),
     })),
-    acquiredEventIds: result.acquiredEventIds,
+    resultCount: result.acquiredEventIds.length,
+    resultPreview: result.acquiredEventIds.slice(0, 5),
   };
   const ids = result.acquiredEventIds;
   print(mode === 'full' ? full : mode === 'ids' ? ids : compact, mode, [
@@ -554,6 +570,36 @@ function printRelationships(navigation, mode) {
   print(compact);
 }
 
+function printThread(memory, thread, mode, parsed) {
+  const projectionOptions = {
+    mode,
+    ...(parsed.previewLimit ? {
+      previewLimit: parseIntegerOption(parsed.previewLimit, 'preview-limit'),
+    } : {}),
+    ...(parsed.excerptLimit ? {
+      excerptLimit: parseIntegerOption(parsed.excerptLimit, 'excerpt-limit'),
+    } : {}),
+  };
+  const projected = memory.project(thread.collection, projectionOptions);
+  if (mode === 'ndjson') return print(null, mode, projected);
+  if (mode === 'ids') return print(projected);
+  const summaries = new Map(projected.results.map((result) => [`${result.type}:${result.id}`, result]));
+  const edge = (value) => ({
+    ...value,
+    sourceSummary: summaries.get(`${value.source.type}:${value.source.id}`),
+    targetSummary: summaries.get(`${value.target.type}:${value.target.id}`),
+  });
+  print({
+    start: summaries.get(`event:${thread.start.id}`),
+    ancestors: thread.ancestors.map(edge),
+    directReplies: thread.directReplies.map(edge),
+    descendants: thread.descendants.map(edge),
+    participants: thread.participants.map((item) => summaries.get(`${item.type}:${item.id}`)),
+    ambiguous: thread.ambiguous.map(edge),
+    ...(mode === 'full' ? { evidence: projected } : {}),
+  });
+}
+
 function printRunList(runs, mode) {
   const compact = runs.map(compactRun);
   if (mode === 'full') return print({ runs });
@@ -581,12 +627,21 @@ function compactRun(run) {
   };
 }
 
-function printSetList(sets, mode) {
-  const compact = sets.map(compactSet);
+function printSetList(memory, sets, mode) {
+  const compact = sets.map((set) => (
+    memory.project({ type: 'set', id: set.id }, { mode: 'compact' }).results[0]
+  ));
   if (mode === 'full') return print({ sets });
   if (mode === 'ids') return print(compact.map(({ id }) => id));
   if (mode === 'ndjson') return print(null, mode, compact.map((set) => ({ type: 'set', ...set })));
   print({ sets: compact });
+}
+
+function printSharedProjection(memory, reference, mode) {
+  const projected = memory.project(reference, { mode });
+  if (mode === 'ndjson') return print(null, mode, projected);
+  if (mode === 'ids') return print(projected.map(({ id }) => id));
+  print(projected.results[0]);
 }
 
 function printSetAcknowledgement(set, mode, extra = {}) {

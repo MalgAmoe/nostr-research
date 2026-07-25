@@ -12,6 +12,8 @@ const MAX_QUERY_LIMIT = 1000;
 const DEFAULT_ACQUISITION_TIMEOUT_MS = 10_000;
 const DEFAULT_ACQUISITION_EVENT_LIMIT = 100;
 const DEFAULT_RELAY_CONCURRENCY = 4;
+const SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set', 'run']);
+const RETAINABLE_SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set', 'run']);
 const NAVIGATION_RELATIONSHIP_TYPES = new Set([
   'author',
   'reply-root',
@@ -47,6 +49,20 @@ export function openResearchMemory(databasePath) {
   }
 
   return new ResearchMemory(databasePath);
+}
+
+/** Creates a minimal stable subject reference. */
+export function subject(type, id) {
+  if (!SUBJECT_TYPES.has(type)) {
+    throw new ResearchMemoryError(`Unsupported subject type: ${type}.`);
+  }
+  if (typeof id !== 'string' || id.length === 0) {
+    throw new ResearchMemoryError('Subject ID must be a non-empty string.');
+  }
+  if (['event', 'account'].includes(type) && !EVENT_ID.test(id)) {
+    throw new ResearchMemoryError(`${type} subject ID must be a full 64-character lowercase hexadecimal value.`);
+  }
+  return { type, id };
 }
 
 export class ResearchMemory {
@@ -101,7 +117,7 @@ export class ResearchMemory {
 
       CREATE TABLE IF NOT EXISTS research_set_members (
         set_id TEXT NOT NULL REFERENCES research_sets(set_id) ON DELETE CASCADE,
-        entity_type TEXT NOT NULL CHECK(entity_type IN ('event', 'account')),
+        entity_type TEXT NOT NULL CHECK(entity_type IN ('event', 'account', 'tag', 'set', 'run')),
         entity_id TEXT NOT NULL,
         PRIMARY KEY (set_id, entity_type, entity_id)
       );
@@ -239,6 +255,92 @@ export class ResearchMemory {
     };
   }
 
+  /**
+   * Selects accumulated local evidence and returns a reusable result collection.
+   * This is local-only; it never contacts relays.
+   */
+  select(query = {}) {
+    const outcome = this.searchEvents(query);
+    return resultCollection(
+      outcome.results.map(({ event, observations, matchReasons }) => ({
+        subject: subject('event', event.id),
+        record: { event, observations },
+        reasons: matchReasons,
+        provenance: observations,
+      })),
+      { operation: 'selection', query: outcome.query },
+    );
+  }
+
+  /**
+   * Resolves an addressable local subject. Accounts additionally resolve by
+   * stored name, display name, NIP-05, full key, or unambiguous key prefix.
+   */
+  resolve(reference, type) {
+    this.#assertOpen();
+    if (type !== undefined) {
+      if (!SUBJECT_TYPES.has(type) || typeof reference !== 'string' || reference.length === 0) {
+        throw new ResearchMemoryError('A valid subject type and non-empty identifier are required.');
+      }
+      return this.#resolveTypedSubject({ type, id: reference });
+    }
+    if (reference && typeof reference === 'object') {
+      return this.#resolveTypedSubject(normalizeSubject(reference));
+    }
+    if (typeof reference !== 'string' || reference.length === 0) {
+      throw new ResearchMemoryError('A subject reference or non-empty account identifier is required.');
+    }
+    return this.#resolveAccountSubject(reference);
+  }
+
+  #resolveTypedSubject(reference) {
+    if (reference.type === 'event') {
+      const records = allEventRecords(this.#database);
+      return subject('event', resolveOnePrefix(
+        reference.id, records.map(({ event }) => event.id), 'event ID',
+      ));
+    }
+    if (reference.type === 'account') return this.#resolveAccountSubject(reference.id);
+    if (reference.type === 'set') {
+      return subject('set', this.getSet(reference.id).id);
+    }
+    if (reference.type === 'run') {
+      return subject('run', this.getRun(reference.id).id);
+    }
+    return subject(reference.type, reference.id);
+  }
+
+  #resolveAccountSubject(identifier) {
+    const records = allEventRecords(this.#database);
+    const keys = [...new Set(records.flatMap(({ event }) => [
+      event.pubkey,
+      ...event.tags.filter((tag) => ['p', 'P'].includes(tag[0])).map((tag) => tag[1]),
+    ]).filter((value) => EVENT_ID.test(value)))];
+    if (HEX_PREFIX.test(identifier)) {
+      return subject('account', resolveOnePrefix(identifier, keys, 'account public key'));
+    }
+    const normalized = identifier.toLocaleLowerCase();
+    const matches = [];
+    for (const key of keys) {
+      const metadata = currentMetadata(records.filter(
+        ({ event }) => event.kind === 0 && event.pubkey === key,
+      ));
+      if (!metadata) continue;
+      const profile = parseProfile(metadata.event);
+      if (['name', 'display_name', 'nip05'].some(
+        (field) => typeof profile[field] === 'string'
+          && profile[field].toLocaleLowerCase() === normalized,
+      )) matches.push(key);
+    }
+    if (matches.length === 0) {
+      throw new ResearchMemoryError(`No stored account matches ${identifier}.`);
+    }
+    if (matches.length > 1) {
+      throw new ResearchMemoryError(`Ambiguous stored account identifier ${identifier}: ${matches.length} accounts match.`);
+    }
+    return subject('account', matches[0]);
+  }
+
   /** Resolves the current stored kind-0 metadata event for one public key. */
   resolveAccount(publicKeyOrPrefix) {
     this.#assertOpen();
@@ -306,34 +408,123 @@ export class ResearchMemory {
 
   /** Returns evidence-backed outbound and inbound relationships for an event. */
   relatedEvent(eventIdOrPrefix) {
-    this.#assertOpen();
-    const records = allEventRecords(this.#database);
-    const eventId = resolveOnePrefix(
-      eventIdOrPrefix,
-      records.map(({ event }) => event.id),
-      'event ID',
-    );
-    const subject = records.find(({ event }) => event.id === eventId);
-    if (!subject) throw new ResearchMemoryError(`No stored event found for ID ${eventIdOrPrefix}.`);
-    return buildNavigation('event', eventId, subject, records);
+    const resolved = this.resolve(eventIdOrPrefix, 'event');
+    return navigationFromTraversal(this, this.traverse([resolved], {
+      relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
+      direction: 'both', depth: 1, limit: MAX_QUERY_LIMIT,
+    }));
   }
 
   /** Returns authored events and stored references to an account. */
   relatedAccount(publicKeyOrPrefix) {
+    const resolved = this.resolve(publicKeyOrPrefix, 'account');
+    return navigationFromTraversal(this, this.traverse([resolved], {
+      relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
+      direction: 'both', depth: 1, limit: MAX_QUERY_LIMIT,
+    }));
+  }
+
+  /**
+   * Traverses evidence-derived relationships using deterministic breadth-first
+   * order. Subjects are deduplicated while every distinct explaining edge is
+   * retained.
+   */
+  traverse(starting, options = {}) {
     this.#assertOpen();
-    const records = allEventRecords(this.#database);
-    const accountKeys = records
-      .flatMap(({ event }) => [
-        event.pubkey,
-        ...event.tags.filter((tag) => tag[0].toLowerCase() === 'p').map((tag) => tag[1]),
-      ])
-      .filter((value) => EVENT_ID.test(value));
-    const publicKey = resolveOnePrefix(
-      publicKeyOrPrefix,
-      [...new Set(accountKeys)],
-      'account public key',
+    assertPlainObject(options, 'Traversal options');
+    rejectUnknownKeys(
+      options, new Set(['relationshipTypes', 'direction', 'depth', 'limit']),
+      'traversal option',
     );
-    return buildNavigation('account', publicKey, null, records);
+    const relationshipTypes = normalizeStringList(
+      options.relationshipTypes, 'relationshipTypes', false,
+    );
+    if (!relationshipTypes) throw new ResearchMemoryError('Traversal relationshipTypes are required.');
+    const unsupported = relationshipTypes.filter((type) => !NAVIGATION_RELATIONSHIP_TYPES.has(type));
+    if (unsupported.length) {
+      throw new ResearchMemoryError(`Unsupported traversal relationship types: ${unsupported.join(', ')}.`);
+    }
+    const direction = options.direction ?? 'outbound';
+    if (!['inbound', 'outbound', 'both'].includes(direction)) {
+      throw new ResearchMemoryError('Traversal direction must be "inbound", "outbound", or "both".');
+    }
+    const depth = options.depth ?? 1;
+    if (!Number.isSafeInteger(depth) || depth < 1 || depth > 100) {
+      throw new ResearchMemoryError('Traversal depth must be an integer from 1 to 100.');
+    }
+    const limit = normalizeLimit(options.limit);
+    const starts = expandStartingSubjects(this, starting).map((item) => this.#resolveTypedSubject(item));
+    const records = allEventRecords(this.#database);
+    const queue = starts.map((item) => ({ subject: item, depth: 0 }));
+    const visited = new Map(starts.map((item) => [memberKey(item), {
+      subject: item, reasons: [{ type: 'traversal-start' }], provenance: [],
+    }]));
+    const relationships = [];
+    const edgeKeys = new Set();
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (current.depth >= depth) continue;
+      const navigation = buildNavigation(
+        current.subject.type, current.subject.id,
+        current.subject.type === 'event'
+          ? records.find(({ event }) => event.id === current.subject.id)
+          : null,
+        records,
+      );
+      for (const relation of navigation.relationships) {
+        if (!relationshipTypes.includes(relation.type)) continue;
+        if (direction !== 'both' && relation.direction !== direction) continue;
+        const next = relation.direction === 'outbound'
+          ? subject(relation.target.type, relation.target.id)
+          : subject('event', relation.sourceEventId);
+        const stepDepth = current.depth + 1;
+        const edge = {
+          source: current.subject,
+          target: next,
+          direction: relation.direction,
+          type: relation.type,
+          depth: stepDepth,
+          sourceEventId: relation.sourceEventId,
+          evidence: relation.evidence,
+        };
+        const edgeKey = stableJson(edge);
+        if (!edgeKeys.has(edgeKey)) {
+          edgeKeys.add(edgeKey);
+          relationships.push(edge);
+        }
+        const key = memberKey(next);
+        if (!visited.has(key) && visited.size - starts.length < limit) {
+          visited.set(key, {
+            subject: next,
+            reasons: [{
+              type: 'relationship', relationshipType: relation.type,
+              direction: relation.direction, depth: stepDepth,
+              source: current.subject, sourceEventId: relation.sourceEventId,
+              evidence: relation.evidence,
+            }],
+            provenance: relation.sourceEvent?.observations ?? [],
+          });
+          queue.push({ subject: next, depth: stepDepth });
+        } else if (visited.has(key)) {
+          const item = visited.get(key);
+          const reason = {
+            type: 'relationship', relationshipType: relation.type,
+            direction: relation.direction, depth: stepDepth,
+            source: current.subject, sourceEventId: relation.sourceEventId,
+            evidence: relation.evidence,
+          };
+          if (!item.reasons.some((existing) => stableJson(existing) === stableJson(reason))) {
+            item.reasons.push(reason);
+          }
+        }
+      }
+    }
+    relationships.sort(compareTraversalEdges);
+    return resultCollection([...visited.values()], {
+      operation: 'traversal', starts, relationshipTypes, direction, depth, limit,
+      relationships,
+    });
   }
 
   /** Persists an immutable public account of one completed research operation. */
@@ -501,42 +692,198 @@ export class ResearchMemory {
       throw new ResearchMemoryError('Expansion direction must be "outbound", "inbound", or "both".');
     }
     const limit = normalizeLimit(options.limit);
-    const source = this.getSet(sourceSetId);
+    const traversal = this.traverse([subject('set', sourceSetId)], {
+      relationshipTypes: types, direction, depth: 1, limit,
+    });
+    const starts = new Set(traversal.context.starts.map(memberKey));
+    return this.retain({
+      ...traversal,
+      items: traversal.items.filter(({ subject: item }) => !starts.has(memberKey(item))),
+    }, name, { reason: { type: 'set-expansion', sourceSetId } });
+  }
+
+  /** Retains a reusable result collection as a durable research set. */
+  retain(collection, name, options = {}) {
+    this.#assertOpen();
+    assertResultCollection(collection);
+    assertPlainObject(options, 'Retention options');
+    rejectUnknownKeys(options, new Set(['reason']), 'retention option');
     const created = this.createSet(name);
-    let added = 0;
-    for (const member of source.members) {
-      let navigation;
-      try {
-        navigation = member.type === 'event'
-          ? this.relatedEvent(member.id)
-          : this.relatedAccount(member.id);
-      } catch (error) {
-        if (error instanceof ResearchMemoryError && error.message.startsWith('No stored')) continue;
-        throw error;
-      }
-      for (const relation of navigation.relationships) {
-        if (added >= limit) break;
-        if (!types.includes(relation.type)) continue;
-        if (direction !== 'both' && relation.direction !== direction) continue;
-        const derived = relation.direction === 'outbound'
-          ? relation.target
-          : { type: 'event', id: relation.sourceEventId };
-        if (!['event', 'account'].includes(derived.type)) continue;
-        const before = this.getSet(created.id).members.length;
-        this.addSetMember(created.id, derived, {
-          type: 'relationship',
-          sourceSetId,
-          sourceMember: { type: member.type, id: member.id },
-          relationshipType: relation.type,
-          direction: relation.direction,
-          sourceEventId: relation.sourceEventId,
-          evidence: relation.evidence,
+    for (const item of collection.items) {
+      if (!RETAINABLE_SUBJECT_TYPES.has(item.subject.type)) continue;
+      const reasons = item.reasons.length ? item.reasons : [{ type: 'retained-result' }];
+      for (const reason of reasons) {
+        this.addSetMember(created.id, item.subject, {
+          ...reason,
+          ...(options.reason ? { retentionContext: normalizeReason(options.reason) } : {}),
+          operation: collection.context.operation,
+          provenance: item.provenance,
         });
-        if (this.getSet(created.id).members.length > before) added += 1;
       }
-      if (added >= limit) break;
     }
     return this.getSet(created.id);
+  }
+
+  /**
+   * Projects subjects or reusable results without changing canonical evidence.
+   * Modes are compact, full, ids, and ndjson.
+   */
+  project(value, options = {}) {
+    this.#assertOpen();
+    assertPlainObject(options, 'Projection options');
+    rejectUnknownKeys(options, new Set(['mode', 'excerptLimit', 'previewLimit']), 'projection option');
+    const mode = options.mode ?? 'compact';
+    if (!['compact', 'full', 'ids', 'ndjson'].includes(mode)) {
+      throw new ResearchMemoryError('Projection mode must be compact, full, ids, or ndjson.');
+    }
+    const excerptLimit = normalizeProjectionLimit(options.excerptLimit, 160, 'excerptLimit');
+    const previewLimit = normalizeProjectionLimit(options.previewLimit, 5, 'previewLimit');
+    const collection = coerceCollection(value);
+    const projected = collection.items.map((item) => (
+      this.#projectSubject(item.subject, mode, excerptLimit, previewLimit)
+    ));
+    if (mode === 'ids') return projected;
+    const relationships = (collection.context.relationships ?? []).map((edge) => ({
+      ...edge,
+      sourceSummary: this.#projectSubject(edge.source, 'compact', excerptLimit, previewLimit),
+      targetSummary: this.#projectSubject(edge.target, 'compact', excerptLimit, previewLimit),
+      interpretation: edge.evidence?.interpretation,
+    }));
+    const output = {
+      type: 'result-collection',
+      context: cloneJson(collection.context),
+      results: projected.map((projection, index) => ({
+        ...projection,
+        reasons: cloneJson(collection.items[index].reasons),
+        provenance: cloneJson(collection.items[index].provenance),
+      })),
+      ...(relationships.length ? { relationships } : {}),
+    };
+    if (mode === 'ndjson') {
+      return [
+        { type: 'collection', context: output.context, resultCount: output.results.length },
+        ...output.results,
+        ...relationships.map((relationship) => ({ recordType: 'relationship', ...relationship })),
+      ];
+    }
+    return output;
+  }
+
+  #projectSubject(reference, mode, excerptLimit, previewLimit) {
+    const item = normalizeSubject(reference);
+    if (mode === 'ids') return { type: item.type, id: item.id };
+    if (item.type === 'event') {
+      const record = this.getEvent(item.id);
+      if (!record) return { type: 'event', id: item.id, resolved: false };
+      if (mode === 'full') return { type: 'event', id: item.id, ...record };
+      const account = accountSummaryForKey(this.#database, record.event.pubkey, excerptLimit);
+      const relays = distinctRelays(record.observations);
+      return {
+        type: 'event', id: item.id, kind: record.event.kind,
+        author: account, createdAt: record.event.created_at,
+        contentExcerpt: excerpt(record.event.content, excerptLimit),
+        relayCount: relays.length, relays,
+      };
+    }
+    if (item.type === 'account') {
+      const summary = accountSummaryForKey(this.#database, item.id, excerptLimit);
+      if (mode === 'full') {
+        const records = allEventRecords(this.#database);
+        const metadata = currentMetadata(records.filter(
+          ({ event }) => event.kind === 0 && event.pubkey === item.id,
+        ));
+        return { type: 'account', id: item.id, ...summary, ...(metadata ? {
+          metadataEvent: metadata.event, observations: metadata.observations,
+        } : {}) };
+      }
+      return { type: 'account', id: item.id, ...summary };
+    }
+    if (item.type === 'set') {
+      const set = this.getSet(item.id);
+      if (mode === 'full') return { type: 'set', ...set };
+      const counts = Object.fromEntries(
+        [...SUBJECT_TYPES].map((type) => [
+          type, set.members.filter((member) => member.type === type).length,
+        ]),
+      );
+      return {
+        type: 'set', id: set.id, name: set.name, createdAt: set.createdAt,
+        memberCount: set.members.length, counts,
+        preview: set.members.slice(0, previewLimit).map(
+          (member) => this.#projectSubject(member, 'compact', excerptLimit, previewLimit),
+        ),
+      };
+    }
+    if (item.type === 'run') {
+      const run = this.getRun(item.id);
+      if (mode === 'full') return { type: 'run', ...run };
+      return {
+        type: 'run', id: run.id, operation: run.operation, status: run.status,
+        startedAt: run.startedAt, finishedAt: run.finishedAt, inputs: run.inputs,
+        outcomeCounts: run.operation === 'acquisition'
+          ? run.diagnostics.reduce((counts, diagnostic) => {
+              counts[diagnostic.outcome] = (counts[diagnostic.outcome] ?? 0) + 1;
+              return counts;
+            }, {})
+          : { results: run.results.length, diagnostics: run.diagnostics.length },
+        preview: run.results.slice(0, previewLimit).map(
+          (result) => this.#projectSubject(result, 'compact', excerptLimit, previewLimit),
+        ),
+      };
+    }
+    return { type: 'tag', id: item.id };
+  }
+
+  /**
+   * Composes shared traversal operations into a conversation-oriented view.
+   */
+  thread(eventIdOrPrefix, options = {}) {
+    const start = this.resolve(eventIdOrPrefix, 'event');
+    const depth = options.depth ?? 10;
+    const limit = options.limit ?? DEFAULT_QUERY_LIMIT;
+    const descendants = this.traverse([start], {
+      relationshipTypes: ['reply-root', 'reply-parent'],
+      direction: 'inbound', depth, limit,
+    });
+    const ancestors = this.traverse([start], {
+      relationshipTypes: ['reply-root', 'reply-parent'],
+      direction: 'outbound', depth, limit,
+    });
+    const eventSubjects = uniqueSubjects([
+      start,
+      ...descendants.items.map(({ subject: item }) => item).filter(({ type }) => type === 'event'),
+      ...ancestors.items.map(({ subject: item }) => item).filter(({ type }) => type === 'event'),
+    ]).filter((item) => Boolean(this.getEvent(item.id)));
+    const participants = this.traverse(eventSubjects, {
+      relationshipTypes: ['author', 'mentioned-account'],
+      direction: 'outbound', depth: 1, limit,
+    });
+    const allEdges = [...ancestors.context.relationships, ...descendants.context.relationships];
+    const known = (edge) => edge.evidence?.interpretation === 'known';
+    const directReplies = allEdges.filter((edge) => (
+      known(edge) && edge.direction === 'inbound' && edge.depth === 1
+    ));
+    const deeperDescendants = allEdges.filter((edge) => (
+      known(edge) && edge.direction === 'inbound' && edge.depth > 1
+    ));
+    return {
+      type: 'thread',
+      start,
+      collection: resultCollection(
+        uniqueSubjects([
+          ...eventSubjects,
+          ...participants.items.map(({ subject: item }) => item)
+            .filter(({ type }) => type === 'account'),
+        ]).map((item) => ({ subject: item, reasons: [], provenance: [] })),
+        { operation: 'thread', relationships: [...allEdges, ...participants.context.relationships] },
+      ),
+      ancestors: allEdges.filter((edge) => known(edge) && edge.direction === 'outbound'),
+      directReplies,
+      descendants: deeperDescendants,
+      participants: uniqueSubjects(participants.items.map(({ subject: item }) => item)
+        .filter(({ type }) => type === 'account')),
+      ambiguous: allEdges.filter((edge) => !known(edge)),
+    };
   }
 
   combineSets(operation, leftSetId, rightSetId, name) {
@@ -854,6 +1201,148 @@ function accountResult(publicKey, metadata, matchReasons) {
     observations: metadata.observations,
     matchReasons,
   };
+}
+
+function resultCollection(items, context = {}) {
+  return {
+    type: 'result-collection',
+    items: items.map((item) => ({
+      subject: normalizeSubject(item.subject),
+      ...(item.record ? { record: item.record } : {}),
+      reasons: cloneJson(item.reasons ?? []),
+      provenance: cloneJson(item.provenance ?? []),
+    })),
+    context: cloneJson(context),
+  };
+}
+
+function assertResultCollection(value) {
+  if (!value || value.type !== 'result-collection' || !Array.isArray(value.items)) {
+    throw new ResearchMemoryError('A reusable result collection is required.');
+  }
+  value.items.forEach((item) => normalizeSubject(item.subject));
+}
+
+function coerceCollection(value) {
+  if (value?.type === 'result-collection') {
+    assertResultCollection(value);
+    return value;
+  }
+  const values = Array.isArray(value) ? value : [value];
+  return resultCollection(values.map((item) => ({ subject: normalizeSubject(item) })), {
+    operation: 'projection',
+  });
+}
+
+function normalizeSubject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ResearchMemoryError('Subject reference must be an object.');
+  }
+  return subject(value.type, value.id);
+}
+
+function expandStartingSubjects(memory, starting) {
+  const value = starting?.type === 'result-collection'
+    ? starting.items.map(({ subject: item }) => item)
+    : Array.isArray(starting) ? starting : [starting];
+  const expanded = [];
+  for (const raw of value) {
+    const item = normalizeSubject(raw);
+    if (item.type === 'set') {
+      expanded.push(...memory.getSet(item.id).members.map(({ type, id }) => subject(type, id)));
+    } else if (item.type === 'run') {
+      expanded.push(...memory.getRun(item.id).results.map(({ type, id }) => subject(type, id)));
+    } else {
+      expanded.push(item);
+    }
+  }
+  return uniqueSubjects(expanded);
+}
+
+function navigationFromTraversal(memory, collection) {
+  const start = collection.context.starts[0];
+  return {
+    subject: { ...start },
+    relationships: collection.context.relationships.map((edge) => {
+      const sourceEvent = memory.getEvent(edge.sourceEventId);
+      let resolved = true;
+      if (edge.target.type === 'event') resolved = Boolean(memory.getEvent(edge.target.id));
+      if (edge.target.type === 'account') {
+        try {
+          memory.resolve(edge.target.id, 'account');
+        } catch {
+          resolved = false;
+        }
+      }
+      return {
+        direction: edge.direction,
+        type: edge.type,
+        sourceEventId: edge.sourceEventId,
+        target: { ...edge.target, resolved },
+        evidence: edge.evidence,
+        ...(sourceEvent ? { sourceEvent } : {}),
+        ...(edge.target.type === 'event' && resolved
+          ? { targetEvent: memory.getEvent(edge.target.id) } : {}),
+      };
+    }),
+  };
+}
+
+function compareTraversalEdges(left, right) {
+  return left.depth - right.depth
+    || memberKey(left.source).localeCompare(memberKey(right.source))
+    || left.direction.localeCompare(right.direction)
+    || left.type.localeCompare(right.type)
+    || memberKey(left.target).localeCompare(memberKey(right.target))
+    || left.sourceEventId.localeCompare(right.sourceEventId);
+}
+
+function uniqueSubjects(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = memberKey(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function distinctRelays(observations) {
+  return [...new Set(observations.map(({ relay }) => relay))].sort();
+}
+
+function excerpt(content, maximum) {
+  const singleLine = content.replace(/\s+/gu, ' ').trim();
+  return singleLine.length <= maximum ? singleLine : `${singleLine.slice(0, maximum - 1)}…`;
+}
+
+function accountSummaryForKey(database, publicKey, excerptLimit) {
+  const records = allEventRecords(database);
+  const metadata = currentMetadata(records.filter(
+    ({ event }) => event.kind === 0 && event.pubkey === publicKey,
+  ));
+  const profile = metadata ? parseProfile(metadata.event) : {};
+  const observations = records
+    .filter(({ event }) => event.pubkey === publicKey)
+    .flatMap((record) => record.observations);
+  return {
+    publicKey,
+    name: profile.name,
+    displayName: profile.display_name,
+    nip05: profile.nip05,
+    descriptionExcerpt: typeof profile.about === 'string'
+      ? excerpt(profile.about, excerptLimit) : undefined,
+    metadataEventId: metadata?.event.id,
+    relays: distinctRelays(observations),
+  };
+}
+
+function normalizeProjectionLimit(value, fallback, label) {
+  if (value === undefined) return fallback;
+  if (!Number.isSafeInteger(value) || value < 1 || value > 1000) {
+    throw new ResearchMemoryError(`${label} must be an integer from 1 to 1000.`);
+  }
+  return value;
 }
 
 function buildNavigation(subjectType, subjectId, subject, records) {
@@ -1198,12 +1687,13 @@ function normalizeMember(member) {
   if (!member || typeof member !== 'object' || Array.isArray(member)) {
     throw new ResearchMemoryError('Research set member must be an object.');
   }
-  if (!['event', 'account'].includes(member.type)) {
-    throw new ResearchMemoryError('Research set member type must be "event" or "account".');
+  if (!RETAINABLE_SUBJECT_TYPES.has(member.type)) {
+    throw new ResearchMemoryError('Research set member has an unsupported subject type.');
   }
-  if (typeof member.id !== 'string' || !EVENT_ID.test(member.id)) {
+  if (typeof member.id !== 'string' || member.id.length === 0
+      || (['event', 'account'].includes(member.type) && !EVENT_ID.test(member.id))) {
     throw new ResearchMemoryError(
-      'Research set member ID must be a 64-character lowercase hexadecimal string.',
+      'Research set member ID must be stable; event and account IDs must be full 64-character lowercase hexadecimal values.',
     );
   }
   return { type: member.type, id: member.id };
