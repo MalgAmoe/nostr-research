@@ -17,6 +17,7 @@ export async function acquireRelayEvents(memory, options) {
   const startedAt = new Date().toISOString();
   const relayResults = normalized.relays.map((relay) => ({
     relay,
+    contacted: false,
     outcome: 'pending',
     received: 0,
     invalid: 0,
@@ -55,6 +56,7 @@ export async function acquireRelayEvents(memory, options) {
 
   async function acquireFromRelay(relay, relayResult) {
     await new Promise((resolve) => {
+      relayResult.contacted = true;
       const subscriptionId = `research-${crypto.randomUUID()}`;
       const socket = new WebSocket(relay);
       sockets.add(socket);
@@ -159,8 +161,13 @@ export async function acquireRelayEvents(memory, options) {
   for (const relayResult of relayResults) {
     if (relayResult.outcome === 'pending') relayResult.outcome = completionReason;
   }
-  return {
+  const result = {
     requested: { filter: normalized.filter, relays: normalized.relays },
+    budget: {
+      timeoutMs: normalized.timeoutMs,
+      eventLimit: normalized.eventLimit,
+      concurrency: normalized.concurrency,
+    },
     startedAt,
     finishedAt: new Date().toISOString(),
     completionReason,
@@ -172,6 +179,11 @@ export async function acquireRelayEvents(memory, options) {
     relays: relayResults,
     counts,
   };
+  result.collection = memory.asCollection(result);
+  if (typeof memory.recordAcquisitionCoverage === 'function') {
+    result.coverage = memory.recordAcquisitionCoverage(result);
+  }
+  return result;
 }
 
 function finishSocket(socket, subscriptionId, onClosed) {

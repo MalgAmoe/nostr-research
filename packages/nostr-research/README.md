@@ -215,6 +215,64 @@ reflects public keys evidenced as stored authors or
 account references independently of whether kind-0 profile metadata is
 available.
 
+### Temporary research sessions and coverage
+
+`createResearchSession(memory, initial)` creates an in-process coordinator that
+can begin empty or from a result collection, research run, or research set.
+Its current `selection`, optional `focus`, provisional `exclusions`, named
+branches, history, and `currentAction` are temporary. Meaningful methods are
+`replace`, `setFocus`, `include`, `exclude`, `select`, `traverse`, `branch`,
+`returnToBranch`, `back`, and `checkpoint`. `describe()` exposes the complete
+public state needed by a UI, CLI, or agent without recording incidental UI
+behavior.
+
+```js
+const session = createResearchSession(memory, memory.select({ kinds: [1] }));
+session.setFocus(session.selection.items[0].subject);
+session.branch('starting notes');
+session.traverse({
+  relationshipTypes: ['reply-parent', 'author'],
+  direction: 'both',
+  depth: 2,
+  limit: 100,
+});
+const checkpoint = session.checkpoint('conversation evidence');
+```
+
+Branches and `back()` restore earlier result state without copying or changing
+canonical evidence. Exclusions disappear with the session unless
+`checkpoint(name, { includeExclusions: true })` deliberately preserves them as
+retention context. Checkpoint creation uses the same atomic `retain` operation
+as other durable sets. `view('subject-list', projectionOptions)` and
+`view('account-list', projectionOptions)` are read-only projections; thread
+remains the existing composed memory view.
+
+Every relay acquisition now returns `collection`, which can be passed directly
+to a session, traversal, projection, or retention. It also atomically records
+`coverage` containing the exact requested filter and relays, explicit timeout,
+event and concurrency budgets, whether each relay was actually contacted,
+per-relay outcomes, completion reason, and observed event IDs/times.
+`memory.acquisitionCoverage({ relays, filter })` checks an exact requested
+slice, while `getAcquisitionCoverage` and `listAcquisitionCoverage` expose
+durable records after reopening memory. All coverage responses state
+`exhaustive: false`: an EOSE or completed bounded attempt is not a claim that a
+relay or window was completely indexed.
+
+Caller-controlled planning helpers are:
+
+- `planAcquisitionSlices({ relays, filter, since, until, targetSeconds })` for
+  deterministic inclusive, non-overlapping time slices;
+- `fetchRelayInformation(relay, { timeoutMs, signal })` for optional bounded
+  NIP-11 retrieval;
+- `relayQueryLimit(filter, advertisedInformation)` to cap a filter at an
+  advertised `limitation.max_limit`; and
+- `parseNip65RelayList(event)` to derive attributed read/write relay choices
+  from canonical stored kind-10002 evidence.
+
+NIP-11 and NIP-65 values are advertised information, not verified behavior.
+Acquisition outcomes are observed behavior. No default relays, retries,
+fallbacks, crawling, or relay scores are inferred from either.
+
 ### Research runs and sets
 
 `recordRun(record)` stores an immutable snapshot of a completed `acquisition`,

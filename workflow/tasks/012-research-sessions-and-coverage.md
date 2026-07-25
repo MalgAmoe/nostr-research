@@ -1,6 +1,6 @@
 ---
 id: 012-research-sessions-and-coverage
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/012-research-sessions-and-coverage.validate.sh
 depends_on: 011-reliable-memory-and-results

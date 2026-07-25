@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/src/session.js` cannot initialize a session from the public research-set object returned by `memory.createSet()`, `memory.getSet()`, or `session.checkpoint()`. It only recognizes `{ type: 'set', id }`, while returned sets have `{ id, name, createdAt, members }`. This contradicts the requirement to start from a research set and the README claim. Accept the public research-set return shape directly and add a functional regression using an actual returned set/checkpoint object rather than wrapping its ID with `subject('set', id)`.

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { validateEvent, verifyEvent } from 'nostr-tools';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const EVENT_ID = /^[a-f0-9]{64}$/;
 const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
 const SIGNATURE = /^[a-f0-9]{128}$/;
@@ -121,6 +121,43 @@ export class ResearchMemory {
         results TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS acquisition_attempts (
+        attempt_id TEXT PRIMARY KEY,
+        filter_json TEXT NOT NULL,
+        relays_json TEXT NOT NULL,
+        timeout_ms INTEGER NOT NULL,
+        event_limit INTEGER NOT NULL,
+        concurrency INTEGER NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT NOT NULL,
+        completion_reason TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS acquisition_attempts_by_filter
+        ON acquisition_attempts(filter_json, started_at);
+
+      CREATE TABLE IF NOT EXISTS acquisition_relay_outcomes (
+        attempt_id TEXT NOT NULL REFERENCES acquisition_attempts(attempt_id) ON DELETE CASCADE,
+        relay TEXT NOT NULL,
+        contacted INTEGER NOT NULL,
+        outcome TEXT NOT NULL,
+        received INTEGER NOT NULL,
+        invalid INTEGER NOT NULL,
+        duplicate INTEGER NOT NULL,
+        newly_stored INTEGER NOT NULL,
+        observations INTEGER NOT NULL,
+        diagnostic TEXT,
+        PRIMARY KEY (attempt_id, relay)
+      );
+
+      CREATE TABLE IF NOT EXISTS acquisition_observations (
+        attempt_id TEXT NOT NULL REFERENCES acquisition_attempts(attempt_id) ON DELETE CASCADE,
+        event_id TEXT NOT NULL REFERENCES events(event_id),
+        observation_id INTEGER NOT NULL REFERENCES observations(observation_id),
+        observed_at TEXT NOT NULL,
+        PRIMARY KEY (attempt_id, observation_id)
+      );
+
       CREATE TABLE IF NOT EXISTS research_sets (
         set_id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -174,6 +211,9 @@ export class ResearchMemory {
   reset() {
     this.#assertOpen();
     this.#database.exec(`
+      DROP TABLE IF EXISTS acquisition_observations;
+      DROP TABLE IF EXISTS acquisition_relay_outcomes;
+      DROP TABLE IF EXISTS acquisition_attempts;
       DROP TABLE IF EXISTS observations;
       DROP TABLE IF EXISTS event_relationships;
       DROP TABLE IF EXISTS research_set_reasons;
@@ -600,6 +640,114 @@ export class ResearchMemory {
       operation: 'traversal', starts, relationshipTypes, direction, depth, limit,
       relationships,
     });
+  }
+
+  /**
+   * Atomically records one bounded relay attempt. Coverage is evidence of an
+   * attempt and its observations, never a completeness claim.
+   */
+  recordAcquisitionCoverage(result) {
+    this.#assertOpen();
+    const normalized = normalizeAcquisitionCoverage(result);
+    const attemptId = randomUUID();
+    const insertAttempt = this.#database.prepare(`
+      INSERT INTO acquisition_attempts
+        (attempt_id, filter_json, relays_json, timeout_ms, event_limit, concurrency,
+         started_at, finished_at, completion_reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertRelay = this.#database.prepare(`
+      INSERT INTO acquisition_relay_outcomes
+        (attempt_id, relay, contacted, outcome, received, invalid, duplicate, newly_stored,
+         observations, diagnostic)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertObservation = this.#database.prepare(`
+      INSERT INTO acquisition_observations
+        (attempt_id, event_id, observation_id, observed_at)
+      VALUES (?, ?, ?, ?)
+    `);
+    this.#database.exec('BEGIN');
+    try {
+      insertAttempt.run(
+        attemptId, stableJson(normalized.requested.filter),
+        stableJson([...normalized.requested.relays].sort()), normalized.budget.timeoutMs,
+        normalized.budget.eventLimit, normalized.budget.concurrency,
+        normalized.startedAt, normalized.finishedAt, normalized.completionReason,
+      );
+      for (const relay of normalized.relays) {
+        insertRelay.run(
+          attemptId, relay.relay, relay.contacted ? 1 : 0, relay.outcome, relay.received, relay.invalid,
+          relay.duplicate, relay.newlyStored, relay.observations, relay.diagnostic,
+        );
+      }
+      for (const observed of normalized.acquiredObservations) {
+        for (const observation of observed.observations) {
+          const stored = this.#database.prepare(`
+            SELECT event_id, observed_at FROM observations WHERE observation_id = ?
+          `).get(observation.id);
+          if (!stored || stored.event_id !== observed.eventId
+              || stored.observed_at !== observation.observedAt) {
+            throw new ResearchMemoryError(
+              'Acquisition coverage observations must reference matching stored observations.',
+            );
+          }
+          insertObservation.run(
+            attemptId, observed.eventId, observation.id, observation.observedAt,
+          );
+        }
+      }
+      this.#database.exec('COMMIT');
+    } catch (error) {
+      this.#database.exec('ROLLBACK');
+      throw error;
+    }
+    return this.getAcquisitionCoverage(attemptId);
+  }
+
+  getAcquisitionCoverage(attemptId) {
+    this.#assertOpen();
+    const row = this.#database.prepare(
+      'SELECT * FROM acquisition_attempts WHERE attempt_id = ?',
+    ).get(attemptId);
+    if (!row) throw new ResearchMemoryError(`No acquisition coverage found for ID ${attemptId}.`);
+    return publicAcquisitionCoverage(this.#database, row);
+  }
+
+  listAcquisitionCoverage() {
+    this.#assertOpen();
+    return this.#database.prepare(`
+      SELECT * FROM acquisition_attempts ORDER BY started_at, attempt_id
+    `).all().map((row) => publicAcquisitionCoverage(this.#database, row));
+  }
+
+  /**
+   * Answers whether this exact relay/filter slice was attempted. A true result
+   * reports attempts only; it does not assert exhaustive relay coverage.
+   */
+  acquisitionCoverage(request) {
+    this.#assertOpen();
+    assertPlainObject(request, 'Acquisition coverage request');
+    rejectUnknownKeys(request, new Set(['relays', 'filter']), 'coverage request field');
+    if (!Array.isArray(request.relays) || request.relays.length === 0
+        || request.relays.some((relay) => typeof relay !== 'string' || relay.length === 0)) {
+      throw new ResearchMemoryError('Coverage requires explicit relay URLs.');
+    }
+    assertPlainObject(request.filter, 'Coverage NIP-01 filter');
+    const filterJson = stableJson(request.filter);
+    const relaysJson = stableJson([...request.relays].sort());
+    const rows = this.#database.prepare(`
+      SELECT * FROM acquisition_attempts
+      WHERE filter_json = ? AND relays_json = ?
+      ORDER BY started_at, attempt_id
+    `).all(filterJson, relaysJson);
+    return {
+      attempted: rows.length > 0,
+      exhaustive: false,
+      uncertainty: 'Coverage records bounded attempts and observations, not an exhaustive relay index.',
+      request: cloneJson(request),
+      attempts: rows.map((row) => publicAcquisitionCoverage(this.#database, row)),
+    };
   }
 
   /** Persists an immutable public account of one completed research operation. */
@@ -2020,6 +2168,82 @@ function retainedProvenance(item) {
   return item.provenance;
 }
 
+function normalizeAcquisitionCoverage(result) {
+  assertPlainObject(result, 'Acquisition result');
+  const requested = cloneJson(result.requested);
+  if (!requested || !Array.isArray(requested.relays) || requested.relays.length === 0) {
+    throw new ResearchMemoryError('Acquisition coverage requires requested relays.');
+  }
+  assertPlainObject(requested.filter, 'Acquisition NIP-01 filter');
+  const budget = cloneJson(result.budget);
+  for (const key of ['timeoutMs', 'eventLimit', 'concurrency']) {
+    if (!Number.isSafeInteger(budget?.[key]) || budget[key] <= 0) {
+      throw new ResearchMemoryError(`Acquisition coverage requires a positive ${key} budget.`);
+    }
+  }
+  const startedAt = new Date(result.startedAt).toISOString();
+  const finishedAt = new Date(result.finishedAt).toISOString();
+  if (finishedAt < startedAt) {
+    throw new ResearchMemoryError('Acquisition coverage cannot finish before it starts.');
+  }
+  if (typeof result.completionReason !== 'string' || result.completionReason.length === 0
+      || !Array.isArray(result.relays) || !Array.isArray(result.acquiredObservations)) {
+    throw new ResearchMemoryError('Acquisition coverage is missing outcomes or observations.');
+  }
+  return {
+    requested, budget, startedAt, finishedAt,
+    completionReason: result.completionReason,
+    relays: cloneJson(result.relays),
+    acquiredObservations: cloneJson(result.acquiredObservations),
+  };
+}
+
+function publicAcquisitionCoverage(database, row) {
+  const relayRows = database.prepare(`
+    SELECT relay, contacted, outcome, received, invalid, duplicate, newly_stored,
+      observations, diagnostic
+    FROM acquisition_relay_outcomes WHERE attempt_id = ? ORDER BY relay
+  `).all(row.attempt_id);
+  const observed = database.prepare(`
+    SELECT event_id, observation_id, observed_at
+    FROM acquisition_observations
+    WHERE attempt_id = ? ORDER BY observation_id
+  `).all(row.attempt_id);
+  return {
+    id: row.attempt_id,
+    requested: {
+      filter: JSON.parse(row.filter_json),
+      relays: JSON.parse(row.relays_json),
+    },
+    budget: {
+      timeoutMs: Number(row.timeout_ms),
+      eventLimit: Number(row.event_limit),
+      concurrency: Number(row.concurrency),
+    },
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    completionReason: row.completion_reason,
+    exhaustive: false,
+    uncertainty: 'A bounded attempt was recorded; relay completeness is not implied.',
+    relays: relayRows.map((relay) => ({
+      relay: relay.relay,
+      contacted: Boolean(relay.contacted),
+      outcome: relay.outcome,
+      received: Number(relay.received),
+      invalid: Number(relay.invalid),
+      duplicate: Number(relay.duplicate),
+      newlyStored: Number(relay.newly_stored),
+      observations: Number(relay.observations),
+      diagnostic: relay.diagnostic,
+    })),
+    observedEvents: observed.map((item) => ({
+      eventId: item.event_id,
+      observationId: Number(item.observation_id),
+      observedAt: item.observed_at,
+    })),
+  };
+}
+
 function assertSetExists(database, setId) {
   if (typeof setId !== 'string' || !database.prepare(
     'SELECT 1 FROM research_sets WHERE set_id = ?',
@@ -2062,3 +2286,10 @@ export {
   DEFAULT_ACQUISITION_TIMEOUT_MS,
   DEFAULT_RELAY_CONCURRENCY,
 } from './acquire.js';
+export { createResearchSession, ResearchSession } from './session.js';
+export {
+  fetchRelayInformation,
+  planAcquisitionSlices,
+  parseNip65RelayList,
+  relayQueryLimit,
+} from './planning.js';
