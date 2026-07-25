@@ -24,7 +24,7 @@ export function createNostrRuntime({
     return events;
   };
 
-  async function queryRelay(relay, filter, label) {
+  async function queryRelay(relay, filter, label, { maxWaitMs = maxWait } = {}) {
     const started = performance.now();
     if (!isRelayAllowed(relay)) {
       logUsage("relay_query", { relay, label, state: "muted", count: 0, durationMs: 0 });
@@ -34,8 +34,8 @@ export function createNostrRuntime({
       let timer;
       const timedOut = Symbol("relay-timeout");
       const received = await Promise.race([
-        pool.querySync([relay], filter, { maxWait, label }),
-        new Promise((resolve) => { timer = setTimeout(() => resolve(timedOut), maxWait); }),
+        pool.querySync([relay], filter, { maxWait: maxWaitMs, label }),
+        new Promise((resolve) => { timer = setTimeout(() => resolve(timedOut), maxWaitMs + 250); }),
       ]);
       clearTimeout(timer);
       if (received === timedOut) {

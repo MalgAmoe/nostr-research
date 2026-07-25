@@ -9,6 +9,73 @@ import { mergeSearchResults, pageAdditions, presentCorpus } from "./search-state
 const unique = (events) => [...new Map(events.filter((event) => event?.id).map((event) => [event.id, event])).values()];
 const emptyFacets = () => ({ topic: "", author: "", kind: null, day: "", domain: "", relay: "", media: "" });
 const normalizeView = (value) => ["list", "table", "thread", "timeline", "map", "graph", "compare"].includes(value) ? value : "list";
+const searchable = (value) => String(value ?? "").normalize("NFKC").toLowerCase();
+const searchTerms = (value) => searchable(value).match(/[\p{L}\p{N}_@.-]+/gu) ?? [];
+
+function profileSearchValues(event) {
+  try {
+    const metadata = JSON.parse(event.content || "{}");
+    return [metadata.name, metadata.display_name, metadata.nip05, metadata.about].filter(Boolean).map(searchable);
+  } catch {
+    return [];
+  }
+}
+
+function profileIdentityValues(event) {
+  try {
+    const metadata = JSON.parse(event.content || "{}");
+    return [metadata.name, metadata.display_name, String(metadata.nip05 ?? "").split("@")[0]].filter(Boolean).map((value) => searchable(value).replace(/[^\p{L}\p{N}]/gu, ""));
+  } catch {
+    return [];
+  }
+}
+
+function editDistanceWithinOne(left, right) {
+  if (left === right) return true;
+  if (Math.abs(left.length - right.length) > 1) return false;
+  let edits = 0;
+  for (let leftIndex = 0, rightIndex = 0; leftIndex < left.length || rightIndex < right.length;) {
+    if (left[leftIndex] === right[rightIndex]) { leftIndex += 1; rightIndex += 1; continue; }
+    if (++edits > 1) return false;
+    if (left.length > right.length) leftIndex += 1;
+    else if (right.length > left.length) rightIndex += 1;
+    else { leftIndex += 1; rightIndex += 1; }
+  }
+  return true;
+}
+
+function fuzzyProfileMatch(event, query) {
+  const wanted = searchable(query).replace(/[^\p{L}\p{N}]/gu, "");
+  return wanted.length >= 5 && profileIdentityValues(event).some((value) => editDistanceWithinOne(value, wanted));
+}
+
+function verifySearchCandidates(events, plan, query) {
+  const terms = searchTerms(query);
+  if (!terms.length) return events;
+  if (plan.mode === "NIP-50") {
+    return events.filter((event) => {
+      const content = searchable(event.content);
+      return terms.every((term) => content.includes(term));
+    });
+  }
+  if (plan.mode === "profile name") {
+    return events.filter((event) => event.kind === 0 && (
+      profileSearchValues(event).some((value) => terms.every((term) => value.includes(term))) ||
+      fuzzyProfileMatch(event, query)
+    ));
+  }
+  return events;
+}
+
+function profileMatchScore(event, query) {
+  const wanted = searchable(query);
+  const values = profileSearchValues(event);
+  if (values.some((value) => value === wanted)) return 4;
+  if (values.some((value) => value.startsWith(wanted))) return 3;
+  if (values.some((value) => value.includes(wanted))) return 2;
+  if (fuzzyProfileMatch(event, query)) return 1;
+  return 0;
+}
 
 export function createResearchSession(deps, restored = {}) {
   const [draft, setDraft] = createStore(createResearchDraft({
@@ -126,7 +193,11 @@ export function createResearchSession(deps, restored = {}) {
       if (decoded.type === "nevent") return { filter: { ids: [decoded.data.id] }, relays: decoded.data.relays?.length ? decoded.data.relays : deps.readRelays, mode: "nevent" };
       if (decoded.type === "naddr") return { filter: { authors: [decoded.data.pubkey], kinds: [decoded.data.kind], "#d": [decoded.data.identifier] }, relays: decoded.data.relays?.length ? decoded.data.relays : deps.readRelays, mode: "naddr" };
     }
-    if (mode === "person") throw new Error("Enter a name@domain, npub, nprofile, or 64-character public key.");
+    if (mode === "person") return {
+      filter: { search: text.length > 5 ? text.slice(0, 5) : text, kinds: [0], limit },
+      relays: keywordRelays,
+      mode: "profile name",
+    };
     if (mode === "note") throw new Error("Enter a note, nevent, naddr, or 64-character event ID.");
     return { filter: { search: text, limit }, relays: keywordRelays, mode: "NIP-50" };
   }
@@ -161,16 +232,35 @@ export function createResearchSession(deps, restored = {}) {
       setRelayStates(new Map(plan.relays.map((relay) => [relay, { state: "searching", count: 0 }])));
       await Promise.all(plan.relays.map(async (relay) => {
         const relayStarted = performance.now();
-        const events = await deps.runtime.queryRelay(relay, { ...plan.filter, limit: deps.relayQueryLimit(plan.filter.limit, deps.relayInformation().get(relay)) }, plan.mode);
+        const events = await deps.runtime.queryRelay(
+          relay,
+          { ...plan.filter, limit: deps.relayQueryLimit(plan.filter.limit, deps.relayInformation().get(relay)) },
+          plan.mode,
+          plan.mode === "profile name" ? { maxWaitMs: 11000 } : undefined,
+        );
         if (token !== requestToken) return;
-        deps.rememberEvents(events);
-        incoming = unique([...incoming, ...events]);
-        setCorpus(mergeSearchResults(incoming, previous.corpus, operation).sort((a, b) => b.created_at - a.created_at));
-        setRelayStates((current) => new Map(current).set(relay, { state: events.queryState?.state ?? "ok", detail: events.queryState?.detail, count: events.length, ids: events.map((event) => event.id), duration: Math.round(performance.now() - relayStarted) }));
+        const accepted = verifySearchCandidates(events, plan, text);
+        deps.rememberEvents(accepted);
+        incoming = unique([...incoming, ...accepted]);
+        const combined = mergeSearchResults(incoming, previous.corpus, operation);
+        setCorpus(combined.sort(plan.mode === "profile name"
+          ? (left, right) => profileMatchScore(right, text) - profileMatchScore(left, text) || right.created_at - left.created_at
+          : (left, right) => right.created_at - left.created_at));
+        setRelayStates((current) => new Map(current).set(relay, {
+          state: events.queryState?.state ?? "ok",
+          detail: events.queryState?.detail,
+          count: accepted.length,
+          rejected: events.length - accepted.length,
+          ids: accepted.map((event) => event.id),
+          duration: Math.round(performance.now() - relayStarted),
+        }));
       }));
       if (token !== requestToken) return;
-      if (!incoming.length && operation === "replace" && previous.corpus.length) {
-        restore(); setPageMessage("The queried relays returned no events. Your previous corpus was kept."); return;
+      if (!incoming.length && operation === "replace") {
+        const states = [...relayStates().values()];
+        setPageMessage(states.length && states.every((state) => state.state === "timeout")
+          ? "The search relays timed out before returning a verified match."
+          : "The search relays returned no verified matches.");
       }
       setExecutedQuery({ value: text, mode: text ? mode : "constraints", constraints: compiledConstraints, operation, completedAt: Date.now() });
       deps.recordDecision("search", `${operation} search · ${label}`, `${corpus().length} events from ${plan.relays.length} relay${plan.relays.length === 1 ? "" : "s"}`);

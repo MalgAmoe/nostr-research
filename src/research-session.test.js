@@ -69,6 +69,96 @@ test("successive searches use the latest term and reset corpus combination to re
   });
 });
 
+test("an empty replacement search stays current instead of restoring the previous corpus", async () => {
+  await new Promise((resolve, reject) => createRoot((dispose) => {
+    const previous = { id: "a".repeat(64), pubkey: "b".repeat(64), kind: 1, created_at: 1, content: "first term", tags: [] };
+    const session = createResearchSession({
+      runtime: {
+        sourcesFor: () => [],
+        recordSources: noop,
+        queryRelay: async (_relay, filter) => filter.search === "first" ? [previous] : [],
+      },
+      eventFor: noop, allEvents: () => [], sessionEventLimit: 10, storeEvents: noop,
+      loadEvents: async () => [], searchStoredEvents: async () => [], searchRelays: () => ["wss://search.test"],
+      readRelays: [], relayInformation: () => new Map(), relayQueryLimit: (limit) => limit, inspectRelays: noop,
+      allowedEvents: (events) => events, rememberEvents: (events) => events, recordDecision: noop,
+      recordResearchRun: noop, hydrateProfiles: noop, openSearchRoute: noop, focusComposer: noop,
+      notice: noop, short: String, logUsage: (type, detail) => {
+        if (type !== "search_completed" || detail.query !== "second") return;
+        try {
+          assert.equal(session.draft.text, "second");
+          assert.equal(session.executedQuery().value, "second");
+          assert.deepEqual(session.corpus(), []);
+          assert.equal(session.pageMessage(), "The search relays returned no verified matches.");
+          dispose(); resolve();
+        } catch (error) { dispose(); reject(error); }
+      },
+    });
+
+    session.startRelaySearch({ text: "first", mode: "words" });
+    setTimeout(() => session.startRelaySearch({ text: "second", mode: "words" }), 0);
+  }));
+});
+
+test("plain account names search profile metadata through configured search relays", async () => {
+  await new Promise((resolve, reject) => createRoot((dispose) => {
+    const queries = [];
+    const matching = { id: "a".repeat(64), pubkey: "b".repeat(64), kind: 0, created_at: 2, content: JSON.stringify({ name: "PABLOF7z", display_name: "Pablo" }), tags: [] };
+    const unrelated = { id: "c".repeat(64), pubkey: "d".repeat(64), kind: 0, created_at: 3, content: JSON.stringify({ name: "someone_else" }), tags: [] };
+    const session = createResearchSession({
+      runtime: {
+        sourcesFor: () => [],
+        recordSources: noop,
+        queryRelay: async (relay, filter, mode) => { queries.push({ relay, filter, mode }); return [unrelated, matching]; },
+      },
+      eventFor: noop, allEvents: () => [], sessionEventLimit: 10, storeEvents: noop,
+      loadEvents: async () => [], searchStoredEvents: async () => [], searchRelays: () => ["wss://search.test"],
+      readRelays: ["wss://read.test"],
+      relayInformation: () => new Map(), relayQueryLimit: (limit) => limit, inspectRelays: noop,
+      allowedEvents: (events) => events, rememberEvents: (events) => events, recordDecision: noop,
+      recordResearchRun: noop, hydrateProfiles: noop, openSearchRoute: noop, focusComposer: noop,
+      notice: noop, short: String, logUsage: (type) => {
+        if (type !== "search_completed") return;
+        try {
+          assert.deepEqual(queries, [{
+            relay: "wss://search.test",
+            filter: { search: "pablo", kinds: [0], limit: 100 },
+            mode: "profile name",
+          }]);
+          assert.deepEqual(session.corpus().map((event) => event.id), [matching.id]);
+          dispose(); resolve();
+        } catch (error) { dispose(); reject(error); }
+      },
+    });
+
+    session.startRelaySearch({ text: "pablo7z", mode: "person" });
+  }));
+});
+
+test("keyword search discards relay results that do not contain every requested term", async () => {
+  await new Promise((resolve, reject) => createRoot((dispose) => {
+    const matching = { id: "a".repeat(64), pubkey: "b".repeat(64), kind: 1, created_at: 1, content: "An OPEN protocol for source research", tags: [] };
+    const unrelated = { id: "c".repeat(64), pubkey: "d".repeat(64), kind: 1, created_at: 2, content: "Completely unrelated relay result", tags: [] };
+    const session = createResearchSession({
+      runtime: { sourcesFor: () => [], recordSources: noop, queryRelay: async () => [unrelated, matching] },
+      eventFor: noop, allEvents: () => [], sessionEventLimit: 10, storeEvents: noop,
+      loadEvents: async () => [], searchStoredEvents: async () => [], searchRelays: () => ["wss://search.test"],
+      readRelays: [], relayInformation: () => new Map(), relayQueryLimit: (limit) => limit, inspectRelays: noop,
+      allowedEvents: (events) => events, rememberEvents: (events) => events, recordDecision: noop,
+      recordResearchRun: noop, hydrateProfiles: noop, openSearchRoute: noop, focusComposer: noop,
+      notice: noop, short: String, logUsage: (type) => {
+        if (type !== "search_completed") return;
+        try {
+          assert.deepEqual(session.corpus().map((event) => event.id), [matching.id]);
+          dispose(); resolve();
+        } catch (error) { dispose(); reject(error); }
+      },
+    });
+
+    session.startRelaySearch({ text: "open source", mode: "words" });
+  }));
+});
+
 test("searching wider from a facet replaces the old draft with an exact constraint", () => {
   createRoot((dispose) => {
     const session = createResearchSession({
