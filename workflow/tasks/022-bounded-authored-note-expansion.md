@@ -1,6 +1,6 @@
 ---
 id: 022-bounded-authored-note-expansion
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/022-bounded-authored-note-expansion.validate.sh
 depends_on: 021-concise-expansion-inspection

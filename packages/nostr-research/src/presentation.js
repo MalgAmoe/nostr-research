@@ -297,12 +297,18 @@ function compactExpansion(expansion, resultingSubjectCount) {
   const options = expansion.options ?? {};
   const boundedBy = expansion.boundedBy ?? {};
   const failures = expansionFailures(expansion.requests);
+  const authoredRequests = (expansion.requests ?? []).filter(
+    ({ purpose }) => purpose === 'authored-notes',
+  );
   return {
     subjects: {
       starting: expansion.startingSubjects?.length ?? 0,
       resulting: resultingSubjectCount,
     },
     requests: expansion.requestCount ?? expansion.requests?.length ?? 0,
+    ...(options.authoredLimit === undefined ? {} : {
+      authoredNoteRequests: authoredRequests.length,
+    }),
     filters: expansion.filterCount ?? 0,
     counts: {
       observations: expansion.counts?.observations ?? 0,
@@ -323,6 +329,9 @@ function compactExpansion(expansion, resultingSubjectCount) {
       depth: { limit: options.depth, reached: boundedBy.depth === true },
       traversal: { limit: options.limit, reached: boundedBy.traversalLimit === true },
       events: { limit: options.eventLimit, reached: boundedBy.eventBudget === true },
+      ...(options.authoredLimit === undefined ? {} : {
+        authoredNotesPerAccount: { limit: options.authoredLimit },
+      }),
       timeoutMs: { limit: options.timeoutMs, reached: boundedBy.timeout === true },
       cancellation: { reached: boundedBy.cancellation === true },
     },

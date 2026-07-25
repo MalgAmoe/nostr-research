@@ -7,7 +7,7 @@ const RELATIONSHIP_TYPES = new Set([
 ]);
 const OPTION_KEYS = new Set([
   'relays', 'relationshipTypes', 'direction', 'depth', 'limit',
-  'timeoutMs', 'eventLimit', 'concurrency', 'signal',
+  'authoredLimit', 'timeoutMs', 'eventLimit', 'concurrency', 'signal',
 ]);
 
 /**
@@ -33,6 +33,7 @@ export async function expandResearch(memory, workspace, selection, options) {
   const requestedEventIds = new Set();
   const requestedAccounts = new Set();
   const requestedInboundIds = new Set();
+  const requestedAuthoredAccounts = new Set();
   const requests = [];
   const totals = {
     received: 0, invalid: 0, duplicate: 0, newlyStored: 0, observations: 0,
@@ -48,7 +49,7 @@ export async function expandResearch(memory, workspace, selection, options) {
   const traverse = () => workspace.traverse(starting, traversalOptions);
   const addToWorkspace = (value) => workspace.add(value, { preserve: protectedEvents });
 
-  const acquireFilter = async (makeFilter) => {
+  const acquireFilter = async (makeFilter, request = {}) => {
     const remainingEvents = normalized.eventLimit - totals.observations;
     const remainingTime = normalized.timeoutMs - (Date.now() - startedAt);
     if (remainingEvents <= 0) {
@@ -59,7 +60,8 @@ export async function expandResearch(memory, workspace, selection, options) {
       completionReason = 'timeout';
       return false;
     }
-    const filter = makeFilter(remainingEvents);
+    const requestEventLimit = Math.min(remainingEvents, request.eventLimit ?? remainingEvents);
+    const filter = makeFilter(requestEventLimit);
     const filterKey = JSON.stringify(filter);
     if (requestedFilters.has(filterKey)) return false;
     requestedFilters.add(filterKey);
@@ -67,23 +69,50 @@ export async function expandResearch(memory, workspace, selection, options) {
       relays: normalized.relays,
       filter,
       timeoutMs: Math.max(1, remainingTime),
-      eventLimit: remainingEvents,
+      eventLimit: requestEventLimit,
       concurrency: normalized.concurrency,
       signal: normalized.signal,
     });
     addToWorkspace(result);
     for (const key of Object.keys(totals)) totals[key] += result.counts[key];
     requests.push({
+      purpose: request.purpose ?? 'target-hydration',
+      ...(request.subject ? { subject: structuredClone(request.subject) } : {}),
+      ...(request.ordering ? { ordering: request.ordering } : {}),
       filter,
       completionReason: result.completionReason,
       counts: structuredClone(result.counts),
       relays: structuredClone(result.relays),
     });
-    if (result.completionReason === 'limit') completionReason = 'event-budget';
+    if (result.completionReason === 'limit' && requestEventLimit === remainingEvents) {
+      completionReason = 'event-budget';
+    }
     if (result.completionReason === 'timeout') completionReason = 'timeout';
     if (result.completionReason === 'cancelled') completionReason = 'cancelled';
     return result.counts.newlyStored > 0;
   };
+
+  if (normalized.authoredLimit !== undefined) {
+    const startingAccounts = startingSubjects.filter(({ type }) => type === 'account');
+    for (const account of startingAccounts) {
+      if (completionReason !== 'completed') break;
+      if (requestedAuthoredAccounts.has(account.id)) continue;
+      requestedAuthoredAccounts.add(account.id);
+      await acquireFilter(
+        (requestLimit) => ({
+          authors: [account.id],
+          kinds: [1],
+          limit: Math.min(normalized.authoredLimit, requestLimit),
+        }),
+        {
+          purpose: 'authored-notes',
+          subject: account,
+          eventLimit: normalized.authoredLimit,
+          ordering: 'relay-recent-created-at-descending',
+        },
+      );
+    }
+  }
 
   // A depth-N traversal can expose a new frontier after each hydration. One
   // extra pass lets evidence fetched for the Nth hop participate in the final
@@ -214,13 +243,27 @@ export function normalizeExpansionOptions(memory, workspace, selection, options)
   const limit = boundedInteger(options.limit ?? 50, 'limit', 1, 1000);
   const timeoutMs = positiveInteger(options.timeoutMs ?? 10_000, 'timeoutMs');
   const eventLimit = positiveInteger(options.eventLimit ?? 100, 'eventLimit');
+  let authoredLimit;
+  if (options.authoredLimit !== undefined) {
+    authoredLimit = positiveInteger(options.authoredLimit, 'authoredLimit');
+    if (!relationshipTypes.includes('author')) {
+      throw new ResearchMemoryError(
+        'Expansion authoredLimit requires the "author" relationship.',
+      );
+    }
+    if (direction === 'outbound') {
+      throw new ResearchMemoryError(
+        'Expansion authoredLimit requires an inbound-capable direction.',
+      );
+    }
+  }
   const concurrency = positiveInteger(options.concurrency ?? 4, 'concurrency');
   if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) {
     throw new ResearchMemoryError('Expansion signal must be an AbortSignal.');
   }
   return {
     relays, relationshipTypes, direction, depth, limit,
-    timeoutMs, eventLimit, concurrency, signal: options.signal,
+    authoredLimit, timeoutMs, eventLimit, concurrency, signal: options.signal,
   };
 }
 
@@ -247,6 +290,7 @@ function publicOptions(options) {
     direction: options.direction,
     depth: options.depth,
     limit: options.limit,
+    ...(options.authoredLimit === undefined ? {} : { authoredLimit: options.authoredLimit }),
     timeoutMs: options.timeoutMs,
     eventLimit: options.eventLimit,
     concurrency: options.concurrency,

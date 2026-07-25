@@ -185,6 +185,18 @@ During each workspace add, explicit event starts are preserved and the oldest
 non-start event is evicted first. Evictions remain counted in
 `workspace.describe()`, while all accepted evidence remains in SQLite.
 
+`authoredLimit` explicitly requests a recent kind-1 sample for each account
+that appears in the starting collection. It is disabled when omitted and
+requires `author` traversal with `direction: 'inbound'` or `'both'`. Each
+starting account gets a separate `{ authors: [account], kinds: [1], limit }`
+NIP-01 request, so the bound is per account; its observations also consume the
+operation-wide `eventLimit`. NIP-01 relays apply `limit` after sorting stored
+events from newest to oldest, so this is a relay-recent sample rather than an
+exhaustive history claim. Accounts discovered during expansion are never
+sampled automatically. Returned notes enter the result through ordinary
+inbound `author` relationships and retain their relay provenance. Authored
+requests are labelled `purpose: 'authored-notes'` in the expansion report.
+
 ```js
 const expanded = await research.expand(acceptable, {
   relays: ['wss://relay.example/'],
@@ -192,6 +204,7 @@ const expanded = await research.expand(acceptable, {
     'quoted-event', 'reply-parent', 'reply-root', 'mentioned-account', 'author',
   ],
   direction: 'both',
+  authoredLimit: 10,
   depth: 2,
   limit: 100,
   timeoutMs: 10_000,

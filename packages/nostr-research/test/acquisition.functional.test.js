@@ -231,6 +231,23 @@ test('console expansion rejects invalid bounds and semantics before networking',
       /eventLimit must be a positive integer/,
     );
     await assert.rejects(
+      environment.research.expand(selection, { ...valid, authoredLimit: 0 }),
+      /authoredLimit must be a positive integer/,
+    );
+    await assert.rejects(
+      environment.research.expand(selection, { ...valid, authoredLimit: 2 }),
+      /requires the "author" relationship/,
+    );
+    await assert.rejects(
+      environment.research.expand(selection, {
+        ...valid,
+        relationshipTypes: ['author'],
+        direction: 'outbound',
+        authoredLimit: 2,
+      }),
+      /requires an inbound-capable direction/,
+    );
+    await assert.rejects(
       environment.research.expand(selection, { ...valid, signal: {} }),
       {
         name: 'ResearchMemoryError',
@@ -240,6 +257,243 @@ test('console expansion rejects invalid bounds and semantics before networking',
   } finally {
     environment.close();
     context.memory = null;
+    context.close();
+  }
+});
+
+test('authored-note expansion samples only explicit account starts within per-account and global bounds', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  const aliceKey = Uint8Array.from(Buffer.from('8'.repeat(64), 'hex'));
+  const bobKey = Uint8Array.from(Buffer.from('9'.repeat(64), 'hex'));
+  const carolKey = Uint8Array.from(Buffer.from('a'.repeat(64), 'hex'));
+  const alice = getPublicKey(aliceKey);
+  const bob = getPublicKey(bobKey);
+  const carol = getPublicKey(carolKey);
+  const notes = [
+    ...Array.from({ length: 3 }, (_, index) => finalizeEvent({
+      kind: 1,
+      created_at: 100 + index,
+      tags: index === 2 ? [['p', carol]] : [],
+      content: `alice ${index}`,
+    }, aliceKey)),
+    ...Array.from({ length: 3 }, (_, index) => finalizeEvent({
+      kind: 1, created_at: 200 + index, tags: [], content: `bob ${index}`,
+    }, bobKey)),
+    finalizeEvent({
+      kind: 1, created_at: 300, tags: [], content: 'carol must not be sampled',
+    }, carolKey),
+  ];
+  const profiles = [aliceKey, bobKey, carolKey].map((key, index) => finalizeEvent({
+    kind: 0, created_at: 50, tags: [], content: `{"name":"account-${index}"}`,
+  }, key));
+  const available = [...notes, ...profiles];
+  const receivedFilters = [];
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send, filter) => {
+      receivedFilters.push(filter);
+      const matches = available
+        .filter((candidate) => matchesFilter(candidate, filter))
+        .sort((left, right) => right.created_at - left.created_at)
+        .slice(0, filter.limit);
+      for (const event of matches) send(['EVENT', subscriptionId, event]);
+      send(['EOSE', subscriptionId]);
+    });
+  }, context.directory);
+  const unavailablePort = await reserveClosedPort();
+  const workspace = createResearchWorkspace(context.memory, { capacity: 20 });
+  const environment = createResearchEnvironment(context.memory, workspace);
+  let environmentClosed = false;
+
+  try {
+    const singleStart = workspaceAccountCollection(context.memory, [alice]);
+    const single = await expandResearch(
+      context.memory,
+      singleStart.workspace,
+      singleStart.collection,
+      {
+        relays: [relay.url],
+        relationshipTypes: ['author'],
+        direction: 'inbound',
+        authoredLimit: 1,
+        depth: 1,
+        limit: 10,
+        timeoutMs: 2_000,
+        eventLimit: 5,
+      },
+    );
+    assert.equal(
+      single.items.filter(({ subject: item }) => (
+        item.type === 'event' && context.memory.getEvent(item.id)?.event.kind === 1
+      )).length,
+      1,
+      'one explicit account receives one bounded recent note',
+    );
+    assert.equal(
+      single.context.expansion.requests.filter(
+        ({ purpose }) => purpose === 'authored-notes',
+      ).length,
+      1,
+    );
+    singleStart.workspace.close();
+
+    const starts = workspace.collection([
+      { subject: subject('account', alice) },
+      { subject: subject('account', bob) },
+    ], { operation: 'explicit-account-starts' });
+    const sessionBefore = environment.research.session.selection.items.map((item) => item.subject);
+    const expanded = await environment.research.expand(starts, {
+      relays: [relay.url, `wss://127.0.0.1:${unavailablePort}/`],
+      relationshipTypes: ['author', 'mentioned-account'],
+      direction: 'both',
+      authoredLimit: 2,
+      depth: 2,
+      limit: 20,
+      timeoutMs: 2_000,
+      eventLimit: 10,
+      concurrency: 2,
+    });
+
+    const authoredRequests = expanded.context.expansion.requests.filter(
+      ({ purpose }) => purpose === 'authored-notes',
+    );
+    assert.equal(authoredRequests.length, 2);
+    assert.deepEqual(
+      authoredRequests.map(({ filter }) => filter.authors[0]),
+      [alice, bob],
+      'each explicit starting account receives its own request',
+    );
+    assert.ok(authoredRequests.every(({ filter, ordering }) => (
+      filter.kinds[0] === 1
+      && filter.limit === 2
+      && ordering === 'relay-recent-created-at-descending'
+    )));
+    assert.ok(authoredRequests.every(({ counts }) => counts.observations <= 2));
+    assert.ok(authoredRequests.every(({ relays }) => relays.some(
+      ({ outcome }) => outcome === 'connection-failure',
+    )), 'partial relay failures remain visible per authored request');
+    assert.ok(!receivedFilters.some((filter) => (
+      filter.kinds?.[0] === 1 && filter.authors?.[0] === carol
+    )), 'an account discovered from a sampled note is not sampled');
+
+    const sampledNotes = expanded.items.filter(({ subject: item }) => (
+      item.type === 'event' && context.memory.getEvent(item.id)?.event.kind === 1
+    ));
+    assert.equal(sampledNotes.length, 4);
+    assert.ok(sampledNotes.every((item) => item.reasons.some((reason) => (
+      reason.type === 'relationship'
+      && reason.relationshipType === 'author'
+      && reason.direction === 'inbound'
+    ))));
+    assert.ok(sampledNotes.every((item) => item.provenance.some(
+      ({ relay: source }) => source === relay.url,
+    )));
+    assert.ok(expanded.items.some(({ subject: item }) => (
+      item.type === 'account' && item.id === carol
+    )), 'the mentioned non-starting account is discoverable');
+    assert.equal(expanded.context.expansion.options.authoredLimit, 2);
+    assert.ok(expanded.context.expansion.counts.observations <= 10);
+    assert.deepEqual(
+      environment.research.session.selection.items.map((item) => item.subject),
+      sessionBefore,
+      'authored expansion does not mutate session selection',
+    );
+
+    const retained = environment.research.retain(expanded, 'bounded authored samples');
+    environment.close();
+    environmentClosed = true;
+    context.memory = null;
+    const reopened = openResearchMemory(context.databasePath);
+    try {
+      const saved = reopened.getSet(retained.id);
+      assert.equal(saved.members.filter(({ type }) => type === 'event').length >= 4, true);
+      assert.ok(sampledNotes.every(({ subject: item }) => reopened.getEvent(item.id)));
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    await relay.close();
+    if (!environmentClosed) environment.close();
+    context.close();
+  }
+});
+
+test('authored-note expansion obeys the complete operation budget and stays disabled by default', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  const firstKey = Uint8Array.from(Buffer.from('b'.repeat(64), 'hex'));
+  const secondKey = Uint8Array.from(Buffer.from('c'.repeat(64), 'hex'));
+  const accounts = [getPublicKey(firstKey), getPublicKey(secondKey)];
+  const notes = [firstKey, secondKey].flatMap((key, authorIndex) => (
+    Array.from({ length: 3 }, (_, index) => finalizeEvent({
+      kind: 1,
+      created_at: (authorIndex + 1) * 100 + index,
+      tags: [],
+      content: `sample ${authorIndex}-${index}`,
+    }, key))
+  ));
+  const filters = [];
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send, filter) => {
+      filters.push(filter);
+      const matches = notes
+        .filter((event) => matchesFilter(event, filter))
+        .sort((left, right) => right.created_at - left.created_at)
+        .slice(0, filter.limit);
+      for (const event of matches) send(['EVENT', subscriptionId, event]);
+      send(['EOSE', subscriptionId]);
+    });
+  }, context.directory);
+
+  try {
+    const starts = workspaceAccountCollection(context.memory, accounts);
+    const bounded = await expandResearch(context.memory, starts.workspace, starts.collection, {
+      relays: [relay.url],
+      relationshipTypes: ['author'],
+      direction: 'inbound',
+      authoredLimit: 2,
+      depth: 1,
+      limit: 10,
+      timeoutMs: 2_000,
+      eventLimit: 3,
+    });
+    assert.equal(bounded.context.expansion.counts.observations, 3);
+    assert.equal(bounded.context.expansion.boundedBy.eventBudget, true);
+    assert.deepEqual(
+      bounded.context.expansion.requests
+        .filter(({ purpose }) => purpose === 'authored-notes')
+        .map(({ filter }) => filter.limit),
+      [2, 1],
+    );
+    starts.workspace.close();
+
+    const defaultStart = workspaceAccountCollection(context.memory, [accounts[0]]);
+    const withoutOption = await expandResearch(
+      context.memory,
+      defaultStart.workspace,
+      defaultStart.collection,
+      {
+        relays: [relay.url],
+        relationshipTypes: ['author'],
+        direction: 'inbound',
+        depth: 1,
+        limit: 10,
+        timeoutMs: 2_000,
+        eventLimit: 5,
+      },
+    );
+    assert.equal(
+      withoutOption.context.expansion.requests.some(
+        ({ purpose }) => purpose === 'authored-notes',
+      ),
+      false,
+    );
+    assert.equal(withoutOption.items.some(({ subject: item }) => (
+      item.type === 'event' && context.memory.getEvent(item.id)?.event.kind === 1
+    )), false);
+    defaultStart.workspace.close();
+  } finally {
+    await relay.close();
     context.close();
   }
 });
@@ -488,6 +742,17 @@ function matchesFilter(event, filter) {
   return true;
 }
 
+function workspaceAccountCollection(memory, accounts) {
+  const workspace = createResearchWorkspace(memory, { capacity: 20 });
+  return {
+    workspace,
+    collection: workspace.collection(
+      accounts.map((id) => ({ subject: subject('account', id) })),
+      { operation: 'explicit-account-starts' },
+    ),
+  };
+}
+
 async function startRelay(
   configure,
   certificateDirectory,
@@ -515,12 +780,16 @@ async function startRelay(
     sockets.add(socket);
     const requestHandlers = [];
     const socketCloseHandlers = [];
+    let pendingClientData = Buffer.alloc(0);
     configure({
       onRequest(handler) { requestHandlers.push(handler); },
       onSocketClose(handler) { socketCloseHandlers.push(handler); },
     });
     socket.on('data', (buffer) => {
-      for (const frame of decodeClientFrames(buffer)) {
+      pendingClientData = Buffer.concat([pendingClientData, buffer]);
+      const decoded = decodeClientFrames(pendingClientData);
+      pendingClientData = pendingClientData.subarray(decoded.consumed);
+      for (const frame of decoded.frames) {
         if (frame.opcode === 1 && Array.isArray(frame.message) && frame.message[0] === 'REQ') {
           for (const handler of requestHandlers) {
             handler(frame.message[1], (packet) => sendFrame(socket, packet), frame.message[2]);
@@ -576,7 +845,7 @@ function sendFrame(socket, value) {
 }
 
 function decodeClientFrames(buffer) {
-  const messages = [];
+  const frames = [];
   let offset = 0;
   while (offset + 6 <= buffer.length) {
     const opcode = buffer[offset] & 0x0f;
@@ -595,10 +864,10 @@ function decodeClientFrames(buffer) {
     for (let index = 0; index < payload.length; index += 1) payload[index] ^= mask[index % 4];
     let message = null;
     if (opcode === 1) try { message = JSON.parse(payload.toString()); } catch {}
-    messages.push({ opcode, message });
+    frames.push({ opcode, message });
     offset = payloadStart + length;
   }
-  return messages;
+  return { frames, consumed: offset };
 }
 
 async function eventually(predicate) {

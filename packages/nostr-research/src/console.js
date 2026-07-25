@@ -133,7 +133,11 @@ export function createResearchEnvironment(memory, workspace, progress = process.
       if (suppliedSignal?.aborted) abort();
       progress.write(
         `Expanding through ${options?.relays?.length ?? 0} relay(s), `
-        + `depth ${options?.depth ?? 1}, event limit ${options?.eventLimit ?? 100}...\n`,
+        + `depth ${options?.depth ?? 1}, event limit ${options?.eventLimit ?? 100}`
+        + (options?.authoredLimit === undefined
+          ? ''
+          : `, authored-note limit ${options.authoredLimit} per starting account`)
+        + '...\n',
       );
       try {
         const result = await expandResearch(memory, workspace, selection, {
