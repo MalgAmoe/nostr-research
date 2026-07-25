@@ -15,12 +15,13 @@
   ],
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check bin/nostr-research-memory.js"
+    "check": "node --check src/index.js && node --check src/acquire.js && node --check bin/nostr-research-memory.js"
   },
   "engines": {
     "node": ">=22.5.0"
   },
   "dependencies": {
-    "nostr-tools": "2.23.12"
+    "nostr-tools": "2.23.12",
+    "ws": "8.20.0"
   }
 }

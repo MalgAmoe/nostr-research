@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/src/acquire.js` does not guarantee bounded completion. `finishSocket()` cannot terminate a socket stuck in `CONNECTING`, and does nothing for `CLOSING`; the operation waits for the socket’s `close` event before resolving. A stalled handshake or peer that ignores the closing handshake can therefore outlive timeout/cancellation indefinitely. The delayed-handshake test eventually completes and does not cover either condition. Teardown must forcefully terminate owned connections or otherwise guarantee that timeout/cancellation bounds operation completion and resource closure.

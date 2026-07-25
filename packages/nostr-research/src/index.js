@@ -217,3 +217,10 @@ function normalizeObservation(observation) {
     observedAt: new Date(observedAt).toISOString(),
   };
 }
+
+export {
+  acquireRelayEvents,
+  DEFAULT_ACQUISITION_EVENT_LIMIT,
+  DEFAULT_ACQUISITION_TIMEOUT_MS,
+  DEFAULT_RELAY_CONCURRENCY,
+} from './acquire.js';

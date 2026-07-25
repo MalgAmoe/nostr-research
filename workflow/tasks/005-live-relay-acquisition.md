@@ -1,6 +1,6 @@
 ---
 id: 005-live-relay-acquisition
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/005-live-relay-acquisition.validate.sh
 depends_on: 004-sqlite-memory-foundation
