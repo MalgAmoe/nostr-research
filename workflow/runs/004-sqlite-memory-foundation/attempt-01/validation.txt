@@ -1,0 +1,44 @@
+Exit code: 0
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+(node:23849) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ SQLite memory preserves canonical evidence and independent relay observations (23.726542ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 80.761792
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check bin/nostr-research-memory.js
+
+(node:23888) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{
+  "database": "/var/folders/24/7mvdl8yn13gcc39qcp4hhygm0000gn/T//nostr-research-workflow-23829.sqlite",
+  "events": 0,
+  "observations": 0
+}
+(node:23916) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{
+  "database": "/var/folders/24/7mvdl8yn13gcc39qcp4hhygm0000gn/T//nostr-research-workflow-23829.sqlite",
+  "imported": 2,
+  "relay": "wss://fixture.example",
+  "events": 2,
+  "observations": 2
+}
+(node:23934) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{
+  "database": "/var/folders/24/7mvdl8yn13gcc39qcp4hhygm0000gn/T//nostr-research-workflow-23829.sqlite",
+  "events": 2,
+  "observations": 2
+}

@@ -1,24 +1,17 @@
 {
-  "name": "nostr-research-client",
+  "name": "nostr-research",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "start": "node server.mjs",
-    "dev": "vite",
-    "build": "vite build",
-    "test": "node --test src/*.test.js",
-    "check": "node --check server.mjs && node --check scripts/generate-keys.mjs && npm test && vite build",
-    "keys:generate": "node scripts/generate-keys.mjs"
-  },
-  "dependencies": {
-    "nostr-tools": "2.23.12",
-    "solid-js": "1.9.14"
-  },
-  "devDependencies": {
-    "@tailwindcss/vite": "4.3.2",
-    "tailwindcss": "4.3.2",
-    "vite": "8.1.4",
-    "vite-plugin-solid": "2.11.12"
+    "start": "npm run start --workspace=nostr-research-client",
+    "dev": "npm run dev --workspace=nostr-research-client",
+    "build": "npm run build --workspace=nostr-research-client",
+    "test": "npm run test --workspace=nostr-research-client",
+    "check": "npm run check --workspace=nostr-research-client",
+    "keys:generate": "npm run keys:generate --workspace=nostr-research-client"
   }
 }

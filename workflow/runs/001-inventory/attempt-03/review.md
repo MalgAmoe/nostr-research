@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `workflow/artifacts/capability-inventory.md:240-241` incorrectly says saved corpora are capped at 1,000 event IDs. Saved recipes use `corpus().map(...)` without a cap, and their baseline/run records retain those full IDs ([src/app.jsx](/Users/malg/Documents/Codex/nostr/src/app.jsx:597), [src/app.jsx](/Users/malg/Documents/Codex/nostr/src/app.jsx:608)). Collections are likewise uncapped ([src/app.jsx](/Users/malg/Documents/Codex/nostr/src/app.jsx:661)). Revise the limit description to distinguish uncapped saved recipes/collections/runs from the 1,000-ID browser session, pulse snapshot, and checkpoint caps.

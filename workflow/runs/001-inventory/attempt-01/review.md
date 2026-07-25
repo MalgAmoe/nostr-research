@@ -1,0 +1,5 @@
+CHANGES_REQUIRED
+
+1. `workflow/artifacts/capability-inventory.md` lacks a capability record for private Seed Accounts. It only mentions seeds incidentally in persistence/export text, but does not inventory their caller-visible behavior, inputs/outputs, limits, state, locations, test coverage, assessment, and uncertainty. Add a record covering add/remove via hex/`npub`/`nprofile`, batch activity search (maximum 100 accounts), and Relay Explorer direction use (maximum eight accounts), with evidence from `src/app.jsx:469-486, 741-749`, `src/research-session.js:294-330`, `src/relay-explorer.js:28-57`, and `src/ui/settings-page.jsx:8`.
+
+2. The local archive record does not call out a material query/index contradiction. `searchStoredEvents` accepts dotted terms (`/[\p{L}\p{N}_.-]{3,}/gu`), while `indexTerms` indexes content using `/[\p{L}\p{N}_-]{3,}/gu` and therefore does not index dots. A content query such as `foo.bar` can fail despite being accepted as a search term. Record this unreliable behavior under capability 2.4, with `src/research-store.js:97-140` as evidence.

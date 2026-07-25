@@ -1,0 +1,26 @@
+{
+  "name": "@nostr-research/memory",
+  "version": "0.1.0",
+  "description": "SQLite-backed local research memory for canonical Nostr evidence",
+  "type": "module",
+  "exports": "./src/index.js",
+  "bin": {
+    "nostr-research-memory": "./bin/nostr-research-memory.js"
+  },
+  "files": [
+    "bin",
+    "fixtures",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/index.js && node --check bin/nostr-research-memory.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "nostr-tools": "2.23.12"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "nostr-research-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "vite",
+    "build": "vite build",
+    "test": "node --test src/*.test.js",
+    "check": "node --check server.mjs && node --check scripts/generate-keys.mjs && npm test && vite build",
+    "keys:generate": "node scripts/generate-keys.mjs"
+  },
+  "dependencies": {
+    "nostr-tools": "2.23.12",
+    "solid-js": "1.9.14"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.2",
+    "tailwindcss": "4.3.2",
+    "vite": "8.1.4",
+    "vite-plugin-solid": "2.11.12"
+  }
+}
