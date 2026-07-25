@@ -1,10 +1,11 @@
 ---
 id: 008-agent-friendly-cli-output
-status: ready
+status: in_progress
 max_attempts: 5
 validation: workflow/tasks/008-agent-friendly-cli-output.validate.sh
 depends_on: 007-saved-research
 protected_paths: apps/reference-client CONTEXT.md workflow/artifacts workflow/run.py workflow/prompts
+reviewer_sandbox: workspace-write
 ---
 
 # Make CLI output compact and composable

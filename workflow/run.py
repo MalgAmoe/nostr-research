@@ -158,6 +158,29 @@ def fingerprint_paths(value: str) -> str:
     return digest.hexdigest()
 
 
+def fingerprint_repository_surface() -> str:
+    """Fingerprint repository files a reviewer must not modify."""
+    tracked = run_process(["git", "ls-files", "-z"])
+    untracked = run_process(["git", "ls-files", "--others", "--exclude-standard", "-z"])
+    if tracked.returncode != 0 or untracked.returncode != 0:
+        raise RuntimeError("Could not enumerate the repository review surface.")
+
+    candidates = {
+        item
+        for item in (tracked.stdout + untracked.stdout).split("\0")
+        if item and not item.startswith("workflow/runs/")
+    }
+    digest = hashlib.sha256()
+    for relative in sorted(candidates):
+        path = ROOT / relative
+        digest.update(relative.encode())
+        digest.update(b"\0")
+        if path.is_file():
+            digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def codex_command(sandbox: str, output: Path) -> list[str]:
     return [
         "codex",
@@ -279,11 +302,25 @@ def execute_task(task_path: Path, metadata: dict[str, str]) -> str:
         review_prompt = build_review_prompt(task_path, attempt_dir)
         (attempt_dir / "review-prompt.md").write_text(review_prompt, encoding="utf-8")
         review_output = attempt_dir / "review.md"
-        reviewer = run_process(codex_command("read-only", review_output), stdin=review_prompt)
+        reviewer_sandbox = metadata.get("reviewer_sandbox", "read-only")
+        if reviewer_sandbox not in {"read-only", "workspace-write"}:
+            raise ValueError(f"Unsupported reviewer_sandbox: {reviewer_sandbox}")
+        review_before = fingerprint_repository_surface()
+        reviewer = run_process(codex_command(reviewer_sandbox, review_output), stdin=review_prompt)
+        review_after = fingerprint_repository_surface()
         (attempt_dir / "review-process.log").write_text(reviewer.stdout, encoding="utf-8")
         if reviewer.returncode != 0 or not review_output.exists():
             write_status(task_path, "blocked")
             write_run_state(task_id, "blocked", current, f"Reviewer infrastructure failed with exit code {reviewer.returncode}; see review-process.log.")
+            return "blocked"
+        if review_before != review_after:
+            write_status(task_path, "blocked")
+            write_run_state(
+                task_id,
+                "blocked",
+                current,
+                "Reviewer modified the protected repository surface; inspect the attempt before resuming.",
+            )
             return "blocked"
 
         verdict = verdict_from(review_output.read_text(encoding="utf-8"))

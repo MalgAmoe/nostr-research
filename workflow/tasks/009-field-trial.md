@@ -5,6 +5,7 @@ max_attempts: 4
 validation: workflow/tasks/009-field-trial.validate.sh
 depends_on: 008-agent-friendly-cli-output
 protected_paths: apps packages CONTEXT.md docs package.json package-lock.json README.md workflow/ROADMAP.md workflow/WORKFLOW.md workflow/run.py workflow/prompts workflow/tasks
+reviewer_sandbox: workspace-write
 ---
 
 # Conduct a real Nostr research field trial

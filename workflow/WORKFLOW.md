@@ -73,6 +73,14 @@ filename order.
 those files before and after every worker attempt and fails validation if the
 worker changes them, even when the worktree was already dirty.
 
+`reviewer_sandbox` is optional and defaults to `read-only`. A task that requires
+the reviewer to create a disposable database or other runtime artifact may set
+it to `workspace-write`. The reviewer still may not modify repository source or
+deliverables: the runner fingerprints all tracked and non-ignored untracked
+files outside `workflow/runs/` before and after review and blocks the task if
+that surface changes. Ignored `.data/` databases and system temporary files are
+available for independent runtime verification.
+
 ## Safety and completion
 
 - Workers may only make changes permitted by the selected task.
@@ -81,6 +89,8 @@ worker changes them, even when the worktree was already dirty.
 - Validation success is necessary but not sufficient.
 - A successful Codex process is not evidence that a task is complete.
 - Review output must begin with `PASS`, `CHANGES_REQUIRED`, or `BLOCKED`.
+- Runtime-capable reviewers may create disposable ignored data but may not
+  change repository source, deliverables, or task state.
 - The runner stops when the maximum attempt count is reached.
 - Process failures stop immediately instead of entering the review loop.
 - `CONTEXT.md` is durable project context and is injected into every worker and
