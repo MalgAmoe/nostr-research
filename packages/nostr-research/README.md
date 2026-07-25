@@ -122,6 +122,69 @@ const continued = memory.traverse([{ type: 'set', id: saved.id }], {
 memory.close();
 ```
 
+### Bounded in-memory workspaces
+
+`createResearchWorkspace(memory, { capacity })` attaches one disposable,
+indexed working corpus to an open durable memory. It is the active environment
+for repeated selection and relationship traversal when a caller does not want
+to return to SQLite at each exploratory step:
+
+```js
+import {
+  createResearchSession,
+  createResearchWorkspace,
+  openResearchMemory,
+} from '@nostr-research/memory';
+
+const memory = openResearchMemory('./research.sqlite');
+const workspace = createResearchWorkspace(memory, { capacity: 500 });
+workspace.load({
+  authors: [account.id],
+  kinds: [1],
+  since: 1_700_000_000,
+  order: 'newest',
+  limit: 500,
+});
+
+const notes = workspace.select({ tags: { t: ['nostr'] }, text: ['relay'] });
+const connected = workspace.traverse(notes, {
+  relationshipTypes: ['reply-parent', 'quoted-event', 'mentioned-account'],
+  direction: 'both',
+  depth: 3,
+  limit: 100,
+});
+const session = createResearchSession(workspace, connected);
+const saved = session.checkpoint('bounded relay research');
+
+workspace.close();
+memory.close();
+```
+
+`load(query)` explicitly replaces the corpus with a stored event slice using
+the same event-query constraints as `memory.select`. `add(value)` incrementally
+hydrates stored event subjects, result collections, acquisition output, or
+search output. Canonical event IDs are deduplicated; adding an existing ID
+refreshes its stored observations without changing its FIFO position. When
+capacity is exceeded, the earliest admitted event is evicted deterministically.
+Eviction and `workspace.close()` discard only temporary indexes and records:
+they never delete SQLite evidence.
+
+`workspace.select` and `workspace.traverse` operate only on private in-memory
+indexes for IDs, authors, kinds, tags, and inbound/outbound derived
+relationships. Relationship targets may remain unresolved when their canonical
+events are outside the loaded corpus. `inspect(subject)` returns loaded
+canonical event evidence and relay provenance; `{ loadIfMissing: true }` is an
+explicit request to hydrate a missing stored event. `describe()` reports
+capacity, count, remaining capacity, eviction count, and index counts without
+exposing the corpus or mutable maps.
+
+Workspace collections use the same result vocabulary as durable memory, so
+they can be projected, retained as research sets, or used to start a research
+session. A workspace is the bounded evidence corpus and query/navigation
+engine; a result collection is a reusable operation result; a session is
+temporary interaction state over those operations; and SQLite research memory
+remains the durable source of evidence, observations, sets, runs, and coverage.
+
 `memory.asCollection(output)` adapts structured acquisition output, event or
 account search output, and convenience-navigation output to this same
 collection contract. It consumes public objects directly; callers never need

@@ -51,6 +51,26 @@ export function openResearchMemory(databasePath) {
   return new ResearchMemory(databasePath);
 }
 
+/**
+ * Creates a bounded, disposable in-process corpus attached to durable memory.
+ * Call load() to choose the initial stored slice and close() when finished.
+ */
+export function createResearchWorkspace(memory, options = {}) {
+  if (!memory || typeof memory.select !== 'function'
+    || typeof memory.getEvent !== 'function' || typeof memory.retain !== 'function') {
+    throw new ResearchMemoryError('An open research memory is required.');
+  }
+  assertPlainObject(options, 'Research workspace options');
+  rejectUnknownKeys(options, new Set(['capacity']), 'research workspace option');
+  const capacity = options.capacity;
+  if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > MAX_QUERY_LIMIT) {
+    throw new ResearchMemoryError(
+      `Research workspace capacity must be an integer from 1 to ${MAX_QUERY_LIMIT}.`,
+    );
+  }
+  return new ResearchWorkspace(memory, capacity);
+}
+
 /** Creates a minimal stable subject reference. */
 export function subject(type, id) {
   if (!SUBJECT_TYPES.has(type)) {
@@ -1262,6 +1282,393 @@ export class ResearchMemory {
 
 }
 
+/**
+ * A temporary indexed working corpus. SQLite is consulted only by explicit
+ * loading, hydration, projection, inspection fallback, and retention.
+ */
+class ResearchWorkspace {
+  #memory;
+  #capacity;
+  #closed = false;
+  #records = new Map();
+  #authors = new Map();
+  #kinds = new Map();
+  #tags = new Map();
+  #outbound = new Map();
+  #inbound = new Map();
+  #evictions = 0;
+
+  constructor(memory, capacity) {
+    this.#memory = memory;
+    this.#capacity = capacity;
+  }
+
+  /** Replaces the corpus with one explicitly selected, bounded SQLite slice. */
+  load(query = {}) {
+    this.#assertOpen();
+    assertPlainObject(query, 'Workspace load query');
+    const selected = this.#memory.select({
+      ...query,
+      limit: query.limit ?? this.#capacity,
+    });
+    this.#clearCorpus();
+    const change = this.#addCollection(selected);
+    return {
+      ...change,
+      collection: this.select({ limit: this.#capacity, order: query.order ?? 'newest' }),
+      bounds: this.describe(),
+    };
+  }
+
+  /**
+   * Hydrates stored event subjects or public result output into the corpus.
+   * Existing IDs refresh provenance without consuming capacity or changing
+   * FIFO position.
+   */
+  add(value) {
+    this.#assertOpen();
+    const collection = this.#coerceEvidence(value);
+    const change = this.#addCollection(collection);
+    return { ...change, bounds: this.describe() };
+  }
+
+  /** Selects only loaded events using the durable memory's query semantics. */
+  select(query = {}) {
+    this.#assertOpen();
+    const normalized = normalizeEventQuery(query);
+    const events = [...this.#records.values()].map(({ event }) => event);
+    const ids = resolvePrefixes(normalized.ids, events.map(({ id }) => id), 'event ID');
+    const authors = resolvePrefixes(
+      normalized.authors, events.map(({ pubkey }) => pubkey), 'author public key',
+    );
+    const candidates = this.#candidateIds(normalized, ids, authors);
+    const matches = [];
+    for (const eventId of candidates) {
+      const record = this.#records.get(eventId);
+      const reasons = matchEvent(record.event, normalized, ids, authors);
+      if (reasons) matches.push({ record, reasons });
+    }
+    matches.sort((left, right) => (
+      compareEvents(left.record.event, right.record.event, normalized.order)
+    ));
+    return resultCollection(matches.slice(0, normalized.limit).map(({ record, reasons }) => ({
+      subject: subject('event', record.event.id),
+      record: cloneJson(record),
+      reasons,
+      provenance: record.observations,
+    })), {
+      operation: 'workspace-selection',
+      query: publicEventQuery(normalized),
+    });
+  }
+
+  /**
+   * Traverses relationships derived from loaded source events. Targets may be
+   * unresolved subjects, but only loaded events can contribute or expand
+   * relationship edges.
+   */
+  traverse(starting, options = {}) {
+    this.#assertOpen();
+    const normalized = normalizeTraversal(options);
+    const starts = this.#startingSubjects(starting);
+    const queue = starts.map((item) => ({ subject: item, depth: 0 }));
+    const visited = new Map(starts.map((item) => [memberKey(item), {
+      subject: item, role: 'seed', reasons: [{ type: 'traversal-start' }], provenance: [],
+    }]));
+    const relationships = [];
+    const edgeKeys = new Set();
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (current.depth >= normalized.depth) continue;
+      const relations = [
+        ...(normalized.direction !== 'inbound'
+          ? this.#outbound.get(memberKey(current.subject)) ?? [] : []),
+        ...(normalized.direction !== 'outbound'
+          ? this.#inbound.get(memberKey(current.subject)) ?? [] : []),
+      ];
+      for (const relation of relations) {
+        if (!normalized.relationshipTypes.includes(relation.type)) continue;
+        const next = relation.direction === 'outbound'
+          ? subject(relation.target.type, relation.target.id)
+          : subject('event', relation.sourceEventId);
+        const stepDepth = current.depth + 1;
+        const edge = {
+          source: current.subject,
+          target: next,
+          direction: relation.direction,
+          type: relation.type,
+          depth: stepDepth,
+          sourceEventId: relation.sourceEventId,
+          evidence: relation.evidence,
+        };
+        const edgeKey = stableJson(edge);
+        if (!edgeKeys.has(edgeKey)) {
+          edgeKeys.add(edgeKey);
+          relationships.push(edge);
+        }
+        const key = memberKey(next);
+        const reason = {
+          type: 'relationship',
+          relationshipType: relation.type,
+          direction: relation.direction,
+          depth: stepDepth,
+          source: current.subject,
+          sourceEventId: relation.sourceEventId,
+          evidence: relation.evidence,
+        };
+        if (!visited.has(key) && visited.size - starts.length < normalized.limit) {
+          visited.set(key, {
+            subject: next,
+            role: 'discovery',
+            reasons: [reason],
+            provenance: this.#relationshipProvenance(relation.sourceEventId),
+          });
+          queue.push({ subject: next, depth: stepDepth });
+        } else if (visited.has(key)) {
+          const item = visited.get(key);
+          if (!item.reasons.some((existing) => stableJson(existing) === stableJson(reason))) {
+            item.reasons.push(reason);
+          }
+        }
+      }
+    }
+    relationships.sort(compareTraversalEdges);
+    return resultCollection([...visited.values()], {
+      operation: 'workspace-traversal',
+      starts,
+      relationshipTypes: normalized.relationshipTypes,
+      direction: normalized.direction,
+      depth: normalized.depth,
+      limit: normalized.limit,
+      relationships,
+    });
+  }
+
+  /** Inspects loaded evidence, with an explicit SQLite fallback for an event. */
+  inspect(reference, options = {}) {
+    this.#assertOpen();
+    assertPlainObject(options, 'Workspace inspection options');
+    rejectUnknownKeys(options, new Set(['loadIfMissing']), 'workspace inspection option');
+    const item = normalizeSubject(reference);
+    if (item.type === 'event') {
+      let record = this.#records.get(item.id);
+      let loaded = Boolean(record);
+      if (!record && options.loadIfMissing) {
+        record = this.#memory.getEvent(item.id);
+        if (record) {
+          this.#addCollection(resultCollection([{
+            subject: item, record,
+          }], { operation: 'workspace-inspection-load' }));
+          record = this.#records.get(item.id);
+          loaded = Boolean(record);
+        }
+      }
+      if (!record) return { subject: item, loaded: false, evidence: null, relationships: [] };
+      return {
+        subject: item,
+        loaded,
+        evidence: cloneJson(record),
+        provenance: cloneJson(record.observations),
+        relationships: cloneJson(this.#outbound.get(memberKey(item)) ?? []),
+      };
+    }
+    const related = this.traverse([item], {
+      relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
+      direction: 'both',
+      depth: 1,
+      limit: this.#capacity,
+    });
+    return {
+      subject: item,
+      loaded: related.context.relationships.length > 0,
+      collection: related,
+    };
+  }
+
+  /** Persists a workspace result through the attached SQLite memory. */
+  retain(collection, name, options = {}) {
+    this.#assertOpen();
+    return this.#memory.retain(collection, name, options);
+  }
+
+  /** Keeps result collections compatible with sessions and other consumers. */
+  asCollection(value) {
+    this.#assertOpen();
+    if (value?.type === 'result-collection') {
+      assertResultCollection(value);
+      return value;
+    }
+    return this.#memory.asCollection(value);
+  }
+
+  /** Uses durable projection without making workspace selection/traversal durable queries. */
+  project(value, options = {}) {
+    this.#assertOpen();
+    return this.#memory.project(value, options);
+  }
+
+  /** Returns corpus bounds and index counts without exposing internal maps. */
+  describe() {
+    this.#assertOpen();
+    return {
+      capacity: this.#capacity,
+      eventCount: this.#records.size,
+      remainingCapacity: this.#capacity - this.#records.size,
+      evictions: this.#evictions,
+      authors: this.#authors.size,
+      kinds: this.#kinds.size,
+      tags: this.#tags.size,
+      outboundRelationships: [...this.#outbound.values()]
+        .reduce((total, relations) => total + relations.length, 0),
+      inboundRelationships: [...this.#inbound.values()]
+        .reduce((total, relations) => total + relations.length, 0),
+    };
+  }
+
+  close() {
+    if (!this.#closed) {
+      this.#clearCorpus();
+      this.#closed = true;
+    }
+  }
+
+  #assertOpen() {
+    if (this.#closed) {
+      throw new ResearchMemoryError('This research workspace has already been closed.');
+    }
+  }
+
+  #clearCorpus() {
+    this.#records.clear();
+    this.#authors.clear();
+    this.#kinds.clear();
+    this.#tags.clear();
+    this.#outbound.clear();
+    this.#inbound.clear();
+  }
+
+  #coerceEvidence(value) {
+    if (value?.type === 'result-collection' || value?.collection
+      || value?.results || value?.acquiredObservations) {
+      return this.#memory.asCollection(value);
+    }
+    const values = Array.isArray(value) ? value : [value];
+    return resultCollection(values.map((item) => ({
+      subject: normalizeSubject(item),
+    })), { operation: 'workspace-add' });
+  }
+
+  #addCollection(collection) {
+    assertResultCollection(collection);
+    const added = [];
+    const refreshed = [];
+    const evicted = [];
+    for (const item of collection.items) {
+      if (item.subject.type !== 'event') continue;
+      const stored = this.#memory.getEvent(item.subject.id);
+      if (!stored) {
+        throw new ResearchMemoryError(`No stored event found for ID ${item.subject.id}.`);
+      }
+      if (this.#records.has(stored.event.id)) {
+        this.#records.set(stored.event.id, cloneJson(stored));
+        refreshed.push(stored.event.id);
+        continue;
+      }
+      this.#insertRecord(stored);
+      added.push(stored.event.id);
+      if (this.#records.size > this.#capacity) {
+        const eventId = this.#records.keys().next().value;
+        this.#removeRecord(eventId);
+        this.#evictions += 1;
+        evicted.push(eventId);
+      }
+    }
+    return { added, refreshed, evicted };
+  }
+
+  #insertRecord(record) {
+    const stored = cloneJson(record);
+    const { event } = stored;
+    if (this.#records.has(event.id)) this.#removeRecord(event.id);
+    this.#records.set(event.id, stored);
+    addIndex(this.#authors, event.pubkey, event.id);
+    addIndex(this.#kinds, event.kind, event.id);
+    for (const tag of event.tags) {
+      if (tag.length > 1) addIndex(this.#tags, `${tag[0]}\u0000${tag[1]}`, event.id);
+    }
+    for (const relationship of eventRelationships(event)) {
+      const outbound = {
+        direction: 'outbound',
+        type: relationship.type,
+        sourceEventId: event.id,
+        target: subject(relationship.targetType, relationship.targetId),
+        evidence: relationship.evidence,
+      };
+      addRelation(this.#outbound, memberKey(subject('event', event.id)), outbound);
+      addRelation(this.#inbound, memberKey(outbound.target), {
+        ...outbound,
+        direction: 'inbound',
+      });
+    }
+  }
+
+  #removeRecord(eventId) {
+    const record = this.#records.get(eventId);
+    if (!record) return;
+    this.#records.delete(eventId);
+    removeIndex(this.#authors, record.event.pubkey, eventId);
+    removeIndex(this.#kinds, record.event.kind, eventId);
+    for (const tag of record.event.tags) {
+      if (tag.length > 1) removeIndex(this.#tags, `${tag[0]}\u0000${tag[1]}`, eventId);
+    }
+    const sourceKey = memberKey(subject('event', eventId));
+    for (const relation of this.#outbound.get(sourceKey) ?? []) {
+      const targetKey = memberKey(relation.target);
+      const remaining = (this.#inbound.get(targetKey) ?? [])
+        .filter(({ sourceEventId }) => sourceEventId !== eventId);
+      if (remaining.length) this.#inbound.set(targetKey, remaining);
+      else this.#inbound.delete(targetKey);
+    }
+    this.#outbound.delete(sourceKey);
+  }
+
+  #candidateIds(query, ids, authors) {
+    const sets = [];
+    if (ids) sets.push(ids);
+    if (authors) sets.push(unionIndexes(this.#authors, authors));
+    if (query.kinds) sets.push(unionIndexes(this.#kinds, query.kinds));
+    for (const [name, values] of Object.entries(query.tags)) {
+      sets.push(unionIndexes(this.#tags, values.map((value) => `${name}\u0000${value}`)));
+    }
+    if (sets.length === 0) return [...this.#records.keys()];
+    sets.sort((left, right) => left.size - right.size);
+    return [...sets[0]].filter((eventId) => sets.every((items) => items.has(eventId)));
+  }
+
+  #startingSubjects(starting) {
+    const values = starting?.type === 'result-collection'
+      ? starting.items.map(({ subject: item }) => item)
+      : Array.isArray(starting) ? starting : [starting];
+    return uniqueSubjects(values.map((item) => {
+      const normalized = normalizeSubject(item);
+      if (normalized.type === 'event') {
+        return subject('event', resolveOnePrefix(
+          normalized.id, [...this.#records.keys()], 'workspace event ID',
+        ));
+      }
+      return normalized;
+    }));
+  }
+
+  #relationshipProvenance(eventId) {
+    const observations = this.#records.get(eventId)?.observations ?? [];
+    return observations.length
+      ? cloneJson(observations)
+      : [{ type: 'loaded-event', eventId }];
+  }
+}
+
 /** Returns a fresh copy of the committed fixture events. */
 export function loadFixtureEvents() {
   const fixturePath = new URL('../fixtures/events.json', import.meta.url);
@@ -1496,17 +1903,73 @@ function normalizeLimit(value) {
   return value;
 }
 
+function normalizeTraversal(options) {
+  assertPlainObject(options, 'Traversal options');
+  rejectUnknownKeys(
+    options, new Set(['relationshipTypes', 'direction', 'depth', 'limit']),
+    'traversal option',
+  );
+  const relationshipTypes = normalizeStringList(
+    options.relationshipTypes, 'relationshipTypes', false,
+  );
+  if (!relationshipTypes) throw new ResearchMemoryError('Traversal relationshipTypes are required.');
+  const unsupported = relationshipTypes.filter((type) => !NAVIGATION_RELATIONSHIP_TYPES.has(type));
+  if (unsupported.length) {
+    throw new ResearchMemoryError(`Unsupported traversal relationship types: ${unsupported.join(', ')}.`);
+  }
+  const direction = options.direction ?? 'outbound';
+  if (!['inbound', 'outbound', 'both'].includes(direction)) {
+    throw new ResearchMemoryError('Traversal direction must be "inbound", "outbound", or "both".');
+  }
+  const depth = options.depth ?? 1;
+  if (!Number.isSafeInteger(depth) || depth < 1 || depth > 100) {
+    throw new ResearchMemoryError('Traversal depth must be an integer from 1 to 100.');
+  }
+  return {
+    relationshipTypes,
+    direction,
+    depth,
+    limit: normalizeLimit(options.limit),
+  };
+}
+
 function resolvePrefixes(prefixes, candidates, label) {
   if (!prefixes) return null;
   const resolved = new Set();
+  const uniqueCandidates = [...new Set(candidates)];
   for (const prefix of prefixes) {
-    const matches = candidates.filter((candidate) => candidate.startsWith(prefix));
+    const matches = uniqueCandidates.filter((candidate) => candidate.startsWith(prefix));
     if (matches.length > 1) {
       throw new ResearchMemoryError(`Ambiguous ${label} prefix ${prefix}: ${matches.length} stored values match.`);
     }
     if (matches.length === 1) resolved.add(matches[0]);
   }
   return resolved;
+}
+
+function addIndex(index, key, eventId) {
+  if (!index.has(key)) index.set(key, new Set());
+  index.get(key).add(eventId);
+}
+
+function removeIndex(index, key, eventId) {
+  const values = index.get(key);
+  if (!values) return;
+  values.delete(eventId);
+  if (values.size === 0) index.delete(key);
+}
+
+function unionIndexes(index, keys) {
+  const values = new Set();
+  for (const key of keys) {
+    for (const eventId of index.get(key) ?? []) values.add(eventId);
+  }
+  return values;
+}
+
+function addRelation(index, key, relationship) {
+  if (!index.has(key)) index.set(key, []);
+  index.get(key).push(relationship);
 }
 
 function resolveOnePrefix(prefix, candidates, label) {

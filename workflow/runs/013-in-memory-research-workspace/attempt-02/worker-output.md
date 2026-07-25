@@ -1,0 +1,3 @@
+- Deliverables changed: workspace hydration now always resolves canonical evidence and current observations from SQLite; functional scenario verifies stale collection refresh after a new relay observation.
+- Validation: targeted workspace test passed; full task validation passed (16 tests passed, 4 network tests skipped due to sandbox restrictions); syntax and CLI checks passed.
+- Unresolved uncertainties: none.

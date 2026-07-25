@@ -1,0 +1,3 @@
+PASS
+
+All acceptance criteria are materially satisfied. The workspace is explicitly bounded with deterministic FIFO eviction, uses private in-memory indexes for repeated selection and traversal, preserves canonical evidence and observations, composes with sessions/projection/retention, and never deletes durable SQLite evidence. Documentation clearly distinguishes memory, workspace, result collections, and sessions. The public functional scenario covers capacity, selection, bidirectional traversal, incremental hydration, deduplication, provenance refresh, retention, recreation, and durability after eviction. Validation passed.

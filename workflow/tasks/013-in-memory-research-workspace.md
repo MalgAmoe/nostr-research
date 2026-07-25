@@ -1,6 +1,6 @@
 ---
 id: 013-in-memory-research-workspace
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/013-in-memory-research-workspace.validate.sh
 depends_on: 012-research-sessions-and-coverage

@@ -1,3 +1,28 @@
+# Worker role
+
+You are the implementation worker in a repository-backed workflow.
+
+Read `workflow/WORKFLOW.md` and the selected task completely. Treat the task
+definition, its scope, and its acceptance criteria as authoritative.
+
+Work directly in the repository. Produce every required deliverable. Inspect
+real source and tests rather than relying on assumptions. Do not change task
+status, files under `workflow/runs/`, or the workflow runner.
+Do not stage or commit changes; the runner owns the task commit after review.
+
+If a previous review is supplied, address every applicable finding explicitly.
+Do not merely describe work that should be done: perform the task within its
+stated permissions.
+
+Finish with a concise plain-text report listing:
+
+- deliverables created or changed;
+- validation or checks performed;
+- unresolved uncertainties.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -38,7 +63,6 @@ no presentation layer defines the domain boundary.
 | **event** | A raw, valid Nostr event: immutable source evidence. |
 | **observation** | A record that evidence was encountered through a particular acquisition context, such as a relay and its outcome. |
 | **memory** | The local SQLite-backed research record of evidence, observations, and replaceable derived material. |
-| **workspace** | A bounded, disposable in-process corpus of stored evidence with private indexes for repeated selection and relationship traversal; it is attached to memory and is not a persistence implementation. |
 | **session** | A temporary, in-process research playground coordinating selection, focus, provisional exclusions, branches, and meaningful actions over memory. |
 | **selection** | The session's replaceable result collection: the subjects currently being explored, with reasons and provenance where available. |
 | **focus** | An optional subject receiving attention in a session; it is independent of and does not rewrite the selection. |
@@ -82,15 +106,11 @@ must still decide, through evidence and experimentation where appropriate:
 
 ## Playground boundaries
 
-A workspace is a bounded temporary corpus rebuilt from caller-selected durable
-evidence. It accelerates repeated local selection and traversal but does not
-replace memory or make evicted evidence less durable. A session coordinates
-selection, focus, exclusions, history, and temporary branches over memory
-operations or their workspace equivalents. A result collection is the shared
-operation result passed between these layers. A research set is the explicit
-durable checkpoint of chosen subjects and reasons; a research run is a durable
-account of an operation. Neither a workspace, a session, nor session branches
-are serialized as a whole.
+A session is the smallest UI-independent coordinator over memory operations.
+Its selection, focus, exclusions, history, and temporary branches are
+replaceable process state. A research set is the explicit durable checkpoint
+of chosen subjects and reasons; a research run is a durable account of an
+operation. Neither a session nor its branches are serialized as a whole.
 
 Local selection asks what the current SQLite memory contains and has no network
 side effects. Relay acquisition is separately invoked by a caller, may add
@@ -104,3 +124,106 @@ account's advertised read/write relay choices. These claims remain attributed
 evidence. Per-relay acquisition outcomes are observed behavior, and the
 library does not silently turn either advertised claims or observations into a
 relay quality, trust, or fallback score.
+
+
+# Selected task
+
+---
+id: 013-in-memory-research-workspace
+status: in_progress
+max_attempts: 5
+validation: workflow/tasks/013-in-memory-research-workspace.validate.sh
+depends_on: 012-research-sessions-and-coverage
+protected_paths: workflow/run.py workflow/prompts
+reviewer_sandbox: workspace-write
+---
+
+# Add a bounded in-memory research workspace
+
+## Objective
+
+Make an in-process corpus the active environment for iterative research while
+retaining SQLite as the current durable evidence store.
+
+This is not a second permanent data model and not a generic storage backend.
+It is a bounded, disposable working set that can be rebuilt from memory,
+incrementally updated, and searched or navigated repeatedly without returning
+to SQLite for every step.
+
+## Runtime model
+
+Expose one cohesive public workspace entry point. It must:
+
+- attach to an open `ResearchMemory`;
+- explicitly load a caller-selected, bounded slice of stored canonical events;
+- incrementally accept newly acquired or explicitly selected stored evidence;
+- deduplicate canonical events by event ID;
+- preserve relay observations and relationship interpretation;
+- maintain useful indexes for event ID, author, kind, tags, and inbound/outbound
+  relationships;
+- expose counts and bounds without dumping the corpus; and
+- enforce a caller-visible event capacity with deterministic eviction.
+
+The workspace is temporary. Closing it must not delete durable evidence.
+Opening a new workspace over the same SQLite memory must reproduce the selected
+working corpus.
+
+## Operations
+
+Provide a small composable surface that covers the actual research loop:
+
+- load or add evidence;
+- select events using the existing meaningful query constraints;
+- turn results into the shared result-collection vocabulary;
+- traverse stored relationships in either direction with explicit depth and
+  limits;
+- inspect a subject with canonical evidence and provenance; and
+- retain a chosen collection through the attached durable memory.
+
+Reuse existing query validation, subject vocabulary, relationship semantics,
+and projections where they remain appropriate. Do not create subtly different
+meanings for the same public terms.
+
+The workspace may call SQLite for explicit persistence, corpus loading, or
+evidence detail that was not loaded. Ordinary repeated selection and traversal
+over the loaded corpus must operate on the in-memory structures.
+
+## Boundaries
+
+- SQLite remains the only persistence implementation.
+- Do not introduce a generic database adapter, ORM, HTTP API, worker protocol,
+  UI, ranking system, or discovery heuristic.
+- Do not attempt to hold an unbounded relay or the whole Nostr network.
+- Do not duplicate the complete `ResearchMemory` method surface.
+- Do not expose internal maps as mutable public state.
+- Keep implementation cohesive; do not split every index into its own class.
+
+## Documentation
+
+Document the distinction between durable research memory, the temporary
+in-memory workspace, reusable result collections, and sessions. Update
+`CONTEXT.md` only with vocabulary that is settled by the implementation.
+
+## Verification
+
+Add one public functional scenario that:
+
+- stores a corpus large enough to exercise the capacity;
+- loads a bounded workspace and verifies deterministic contents;
+- performs repeated text/author/tag selection and bidirectional traversal;
+- incrementally introduces new stored evidence and deduplicates it;
+- retains a workspace result;
+- closes and recreates the workspace from SQLite; and
+- proves evicted workspace events remain durable.
+
+Do not add tests for private maps or individual index helpers.
+
+## Acceptance criteria
+
+- In-memory corpus size is explicitly bounded.
+- Selection and traversal over loaded evidence do not query SQLite per step.
+- Results remain compatible with sessions, projection, and retention.
+- Relay observations and relationship explanations remain available.
+- Workspace eviction never deletes SQLite evidence.
+- Existing library and CLI behavior remain usable.
+- Permanent verification stays at the public functional boundary.
