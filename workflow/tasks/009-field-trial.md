@@ -100,7 +100,7 @@ nor a traceable retained real-evidence database is available.
 - Product and workflow code remain unchanged.
 - The evaluation distinguishes software behavior, protocol/data limitations,
   and research-methodology questions.
-- Recommendations follow from observed use rather than the old UI inventory.
+- Recommendations follow from observed library use.
 - At most five next tasks are proposed and clearly prioritized.
 - The report identifies capabilities that should deliberately remain
   unimplemented for now.

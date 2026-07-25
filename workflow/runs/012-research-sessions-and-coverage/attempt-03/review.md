@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `packages/nostr-research/src/session.js:188` does not support public run objects returned by `recordRun()` or `getRun()`. Because those objects contain `results`, they are passed to `memory.asCollection()` before the later `initial.type === 'run'` branch; `asCollection()` rejects durable run result entries shaped as `{ type, id, reasons, provenance }`. Update initialization to recognize public durable runs by their actual API shape and add functional coverage for both `recordRun()` and `getRun()` results.

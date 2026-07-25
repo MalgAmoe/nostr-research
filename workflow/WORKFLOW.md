@@ -1,11 +1,7 @@
 # Repository workflow
 
-This directory is the durable memory for rebuilding the project around a
+This directory is the durable memory for developing the project around a
 UI-independent Nostr research library.
-
-The first Solid application was removed after its experiment was evaluated.
-Future application work should consume the library through deliberate
-playground semantics rather than recreate that prototype.
 
 ## Operating model
 

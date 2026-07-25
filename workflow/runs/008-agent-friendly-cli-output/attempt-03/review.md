@@ -1,3 +1,0 @@
-PASS
-
-All acceptance criteria are materially satisfied. Fixture-backed review confirmed compact search and relationship outputs are substantially smaller than full output, preserve actionable identifiers and reasons, avoid duplicated source events, and retain complete evidence/provenance in full mode. IDs and NDJSON are parseable and composable, list/acknowledgement projections are concise, the root npm launcher works locally, and library/schema/reference-client sources remain unchanged.

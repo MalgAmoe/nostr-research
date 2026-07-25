@@ -1,5 +1,0 @@
-CHANGES_REQUIRED
-
-1. Compact set/run access is not bounded. `listSets()` reloads every member and reason through `getSet()` (`src/index.js:645`), while compact set projection also calls `getSet()` before counting and previewing (`src/index.js:950`). Similarly, `listRuns()` and compact run projection deserialize complete result/diagnostic payloads (`src/index.js:622`, `src/index.js:966`). Implement SQLite count and bounded-preview queries so compact projections and list commands do not load complete sets or runs.
-
-2. The rollback test does not exercise rollback. The cyclic reason fails during prevalidation/serialization before `BEGIN` (`test/reliability.functional.test.js:42` versus `src/index.js:695`). Add a deliberate failure occurring after the bulk transaction begins and verify that the set row, members, and reasons are all absent afterward.

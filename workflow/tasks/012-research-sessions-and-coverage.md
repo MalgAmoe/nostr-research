@@ -4,7 +4,7 @@ status: done
 max_attempts: 5
 validation: workflow/tasks/012-research-sessions-and-coverage.validate.sh
 depends_on: 011-reliable-memory-and-results
-protected_paths: docs/solid-experiment-lessons.md workflow/run.py workflow/prompts
+protected_paths: workflow/run.py workflow/prompts
 reviewer_sandbox: workspace-write
 ---
 
@@ -129,4 +129,3 @@ testing private state.
 - Acquisition returns a reusable result collection.
 - Coverage is durable, bounded, and explicit about uncertainty.
 - Planning primitives remain caller-controlled and relay-considerate.
-

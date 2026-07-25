@@ -17,28 +17,19 @@ domain model.
 
 ## Why
 
-The first client was a Solid/browser experiment. Its useful behaviors were
-interwoven with reactive state, browser APIs, IndexedDB and localStorage,
-routing, notifications, rendering, application callbacks, and module-global
-state. It was later removed after its useful lessons were recorded; it did not
-establish a usable public boundary or settle its heuristics.
-
 A research tool needs durable evidence, source visibility, and repeatable
-local investigation rather than a transient feed session. Starting with SQLite
-allows production callers and functional verification to exercise the same
-storage path, while a UI-independent library permits the reference client,
-CLI, and future interfaces to consume the same research capabilities.
+local investigation. Starting with SQLite allows production callers and
+functional verification to exercise the same storage path, while a
+UI-independent library lets agents, the CLI, and future adapters compose the
+same research capabilities.
 
 ## Consequences
 
-- Library work must expose user-facing behavior through public library or CLI
-  boundaries, not through Solid controllers or browser-only stores.
+- Library work must expose behavior through public library or CLI boundaries.
 - Evidence provenance and reasons for a result or set membership are observable
   output, rather than incidental implementation state.
 - Experimental databases may be discarded and regenerated. No schema
   compatibility or migration commitment exists during this phase.
-- Lessons from application experiments may be retained without retaining their
-  implementation or treating their behavior as authoritative.
 - Functional verification uses real SQLite. Permanent unit tests are limited
   to stable protocol rules, cryptography, and precise algorithms worth
   freezing; tests should not import private helpers or cement internals.

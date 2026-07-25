@@ -4,7 +4,7 @@ status: done
 max_attempts: 5
 validation: workflow/tasks/011-reliable-memory-and-results.validate.sh
 depends_on: 010-composable-research-kernel
-protected_paths: docs/solid-experiment-lessons.md workflow/run.py workflow/prompts
+protected_paths: workflow/run.py workflow/prompts
 reviewer_sandbox: workspace-write
 ---
 
@@ -100,7 +100,6 @@ Update the package documentation to describe:
 
 - Do not add research sessions, new application code, ranking, discovery
   heuristics, aggregations, or relay-planning policy.
-- Do not recreate any removed Solid application code.
 - Do not preserve old experimental database compatibility.
 - Do not split files merely to reduce line counts.
 - Do not add tests for private helpers or every projection variation.
@@ -132,4 +131,3 @@ membership. It must also inspect compact thread output for bounded repetition.
 - Shared result collections remain directly composable.
 - Existing public research behavior and CLI commands remain usable.
 - Permanent tests stay boundary-focused.
-

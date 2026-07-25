@@ -7,12 +7,9 @@ is not being shaped as a conventional feed client. Its job is to help a person
 acquire evidence, inspect it, navigate relationships, preserve useful sets,
 and understand why a result is present.
 
-The product foundation is a UI-independent library. A CLI, functional
-verification, and future user interfaces are consumers of that library; a UI
-does not define the domain boundary. The first Solid application was an
-experiment and has been removed. Its retained lessons may inform future work,
-but its controllers, browser persistence, scoring rules, and module layout are
-not a target architecture.
+The product foundation is a UI-independent library. The CLI, functional
+verification, agents, and any future adapters are consumers of that library;
+no presentation layer defines the domain boundary.
 
 ## Settled principles
 
@@ -80,13 +77,7 @@ must still decide, through evidence and experimentation where appropriate:
 - which current protocol interpretations are normative and which analysis or
   account-search heuristics are optional or excluded;
 - pagination, corpus, portability, telemetry, and relationship semantics; and
-- which future UI workflows, if any, should consume the library.
-
-The removed experiment contained candidate behavior in these areas but did not
-settle them. Its retained lessons are documented in
-`docs/solid-experiment-lessons.md`; its IndexedDB/localStorage persistence,
-Solid state, relay cache policy, and editorial scoring heuristics must not be
-recreated by default.
+- which future adapters, if any, should consume the library.
 
 ## Playground boundaries
 

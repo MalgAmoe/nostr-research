@@ -1,19 +1,13 @@
 # Nostr Research
 
-This repository is rebuilding Nostr research and navigation around a
-UI-independent library. The first Solid application was removed after it
-served its purpose as an interaction experiment.
+This repository develops Nostr research and navigation as a composable,
+UI-independent library.
 
 ```text
 packages/nostr-research/    UI-independent research library and CLI
 workflow/                   Persistent rebuild workflow
 docs/                       Project decisions and supporting material
 ```
-
-The retained lessons from the removed experiment are recorded in
-[`docs/solid-experiment-lessons.md`](docs/solid-experiment-lessons.md). Its
-implementation remains available through Git history, but it is not a target
-architecture for the next application.
 
 ## Run the research CLI
 

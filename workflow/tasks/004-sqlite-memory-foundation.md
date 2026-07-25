@@ -81,5 +81,5 @@ research workflows.
 - The database can be discarded and recreated from fixture sources.
 - CLI failures use non-zero exit status and useful error messages.
 - Public resources are closed cleanly so commands and tests terminate.
-- The package remains small and has no UI or Solid dependency.
+- The package remains small and presentation-independent.
 - Reference-client behavior and source remain unchanged.
