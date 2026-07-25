@@ -101,7 +101,7 @@ acquisition and closes workspace and SQLite resources. Invalid or missing
 startup options fail with a non-zero exit.
 
 The single prepared binding is `research`. Its common conveniences are
-`summary()`, `load(query)`, `acquire(options)`, `events(query)`,
+`summary()`, `load(query)`, `acquire(options)`, `expand(selection, options)`, `events(query)`,
 `accounts(query)`, `currentEvent(account, kind, options)`, `follows(account)`,
 `collection(items, context)`, `show(value, options)`, `facets(collection, options)`,
 `exclude(collection, predicate)`,
@@ -169,6 +169,29 @@ To acquire first, use
 { kinds: [1], limit: 20 }, timeoutMs: 5000, eventLimit: 20 })`, then search the
 workspace. Piped JavaScript uses the same persistent process and can finish
 with `.exit`.
+
+`expand` performs an explicit targeted expansion from a reusable result
+collection. It traverses the workspace, fetches unresolved event IDs, kind-0
+account metadata, and requested inbound replies from supplied relays, then
+hydrates the same workspace and returns an ordinary traversal result. It does
+not read or change session selection. Its result `context.expansion` reports
+the exact options and starts, workspace pressure, filters and per-relay
+diagnostics, acquisition counts, unresolved targets, and terminating bounds.
+
+```js
+const expanded = await research.expand(acceptable, {
+  relays: ['wss://relay.example/'],
+  relationshipTypes: [
+    'quoted-event', 'reply-parent', 'reply-root', 'mentioned-account', 'author',
+  ],
+  direction: 'both',
+  depth: 2,
+  limit: 100,
+  timeoutMs: 10_000,
+  eventLimit: 200,
+  concurrency: 3,
+})
+```
 
 ### Composable research kernel
 

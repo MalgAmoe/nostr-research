@@ -1,6 +1,6 @@
 ---
 id: 019-bounded-targeted-expansion
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/019-bounded-targeted-expansion.validate.sh
 depends_on: 018-bounded-inspection-and-orientation

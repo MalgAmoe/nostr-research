@@ -6,12 +6,16 @@ import { createServer } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { finalizeEvent, getPublicKey } from 'nostr-tools';
 import {
   acquireRelayEvents,
+  createResearchWorkspace,
   loadFixtureEvents,
   openResearchMemory,
   ResearchMemoryError,
+  subject,
 } from '@nostr-research/memory';
+import { createResearchEnvironment } from '../src/console.js';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const loopbackAvailable = await supportsLoopbackListener();
@@ -199,17 +203,165 @@ test('acquisition rejects unusable public inputs before networking', async () =>
   }
 });
 
+test('console expansion rejects invalid bounds and semantics before networking', async () => {
+  const context = createContext();
+  const workspace = createResearchWorkspace(context.memory, { capacity: 2 });
+  const environment = createResearchEnvironment(context.memory, workspace);
+  const selection = workspace.collection([], { operation: 'empty-start' });
+  try {
+    const valid = {
+      relays: ['wss://relay.example/'],
+      relationshipTypes: ['quoted-event'],
+    };
+    await assert.rejects(
+      environment.research.expand(selection, { ...valid, surprise: true }),
+      /Unknown expansion options/,
+    );
+    await assert.rejects(
+      environment.research.expand(selection, { ...valid, relays: [] }),
+      /at least one explicit/,
+    );
+    await assert.rejects(
+      environment.research.expand(selection, { ...valid, relationshipTypes: ['recommends'] }),
+      /Unsupported expansion relationship types/,
+    );
+    await assert.rejects(
+      environment.research.expand(selection, { ...valid, eventLimit: 0 }),
+      /eventLimit must be a positive integer/,
+    );
+  } finally {
+    environment.close();
+    context.memory = null;
+    context.close();
+  }
+});
+
+test('console expansion performs bounded targeted multi-hop acquisition', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  const aliceKey = Uint8Array.from(Buffer.from('4'.repeat(64), 'hex'));
+  const bobKey = Uint8Array.from(Buffer.from('5'.repeat(64), 'hex'));
+  const bob = getPublicKey(bobKey);
+  const secondHop = finalizeEvent({
+    kind: 1, created_at: 100, tags: [], content: 'second hop',
+  }, bobKey);
+  const quoted = finalizeEvent({
+    kind: 1, created_at: 110, tags: [['q', secondHop.id]], content: 'quoted evidence',
+  }, bobKey);
+  const seed = finalizeEvent({
+    kind: 1, created_at: 120, tags: [['q', quoted.id]], content: 'seed',
+  }, aliceKey);
+  const inboundReply = finalizeEvent({
+    kind: 1, created_at: 130, tags: [['e', seed.id, '', 'reply']], content: 'inbound',
+  }, bobKey);
+  const profile = finalizeEvent({
+    kind: 0, created_at: 90, tags: [], content: '{"name":"bob"}',
+  }, bobKey);
+  const available = [quoted, secondHop, inboundReply, profile];
+  context.memory.ingest(seed, {
+    relay: 'wss://seed.example/', observedAt: '2026-07-25T12:00:00.000Z',
+  });
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send, filter) => {
+      for (const event of available.filter((candidate) => matchesFilter(candidate, filter))) {
+        send(['EVENT', subscriptionId, event]);
+      }
+      send(['EOSE', subscriptionId]);
+    });
+  }, context.directory);
+  const unavailablePort = await reserveClosedPort();
+  const workspace = createResearchWorkspace(context.memory, { capacity: 8 });
+  workspace.load({ ids: [seed.id] });
+  const environment = createResearchEnvironment(context.memory, workspace);
+  let environmentClosed = false;
+
+  try {
+    const sessionBefore = environment.research.session.selection.items.map(({ subject: item }) => item);
+    const starting = workspace.select({ ids: [seed.id] });
+    const expanded = await environment.research.expand(starting, {
+      relays: [relay.url, `wss://127.0.0.1:${unavailablePort}/`],
+      relationshipTypes: ['quoted-event', 'reply-parent', 'author'],
+      direction: 'both',
+      depth: 2,
+      limit: 20,
+      timeoutMs: 2_000,
+      eventLimit: 10,
+      concurrency: 2,
+    });
+
+    const ids = new Set(expanded.items.map(({ subject: item }) => item.id));
+    assert.ok(ids.has(quoted.id), 'missing quoted event was reached');
+    assert.ok(ids.has(secondHop.id), 'second-hop quoted event was reached');
+    assert.ok(ids.has(inboundReply.id), 'inbound reply was reached');
+    assert.equal(context.memory.currentEvent(bob, 0).event.id, profile.id);
+    assert.ok(expanded.items.some((item) => item.reasons.some((reason) => (
+      reason.type === 'relationship' && reason.relationshipType === 'quoted-event'
+    ))));
+    assert.ok(expanded.items.some((item) => item.provenance.some(({ relay: source }) => (
+      source === relay.url
+    ))));
+    assert.deepEqual(
+      environment.research.session.selection.items.map(({ subject: item }) => item),
+      sessionBefore,
+      'explicit expansion does not mutate the session selection',
+    );
+
+    const report = expanded.context.expansion;
+    assert.equal(report.options.eventLimit, 10);
+    assert.ok(report.requestCount >= 3);
+    assert.equal(report.filterCount, report.requestCount);
+    assert.ok(report.counts.observations <= 10);
+    assert.ok(report.workspaceBefore.eventCount < report.workspaceAfter.eventCount);
+    assert.equal(report.workspaceAfter.capacity, 8);
+    assert.ok(report.requests.some(({ relays }) => relays.some(({ outcome }) => (
+      outcome === 'connection-failure'
+    ))));
+    assert.equal(report.boundedBy.depth, true);
+    assert.ok(report.unresolvedBefore.events.includes(quoted.id));
+    assert.ok(!report.unresolvedAfter.events.includes(quoted.id));
+
+    const retained = environment.research.retain(expanded, 'expanded evidence');
+    environment.close();
+    environmentClosed = true;
+    context.memory = null;
+    const reopened = openResearchMemory(context.databasePath);
+    try {
+      const saved = reopened.getSet(retained.id);
+      assert.ok(saved.members.some((item) => item.id === secondHop.id));
+      assert.equal(reopened.getEvent(profile.id).event.pubkey, bob);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    await relay.close();
+    if (!environmentClosed) environment.close();
+    context.close();
+  }
+});
+
 function createContext() {
   const directory = mkdtempSync(join(tmpdir(), 'nostr-acquisition-'));
-  const memory = openResearchMemory(join(directory, 'memory.sqlite'));
+  const databasePath = join(directory, 'memory.sqlite');
+  const memory = openResearchMemory(databasePath);
   return {
     directory,
+    databasePath,
     memory,
     close() {
-      memory.close();
+      this.memory?.close();
       rmSync(directory, { recursive: true, force: true });
     },
   };
+}
+
+function matchesFilter(event, filter) {
+  if (filter.ids && !filter.ids.includes(event.id)) return false;
+  if (filter.authors && !filter.authors.includes(event.pubkey)) return false;
+  if (filter.kinds && !filter.kinds.includes(event.kind)) return false;
+  if (filter['#e'] && !event.tags.some((tag) => (
+    tag[0] === 'e' && filter['#e'].includes(tag[1])
+  ))) return false;
+  return true;
 }
 
 async function startRelay(
@@ -247,7 +399,7 @@ async function startRelay(
       for (const frame of decodeClientFrames(buffer)) {
         if (frame.opcode === 1 && Array.isArray(frame.message) && frame.message[0] === 'REQ') {
           for (const handler of requestHandlers) {
-            handler(frame.message[1], (packet) => sendFrame(socket, packet));
+            handler(frame.message[1], (packet) => sendFrame(socket, packet), frame.message[2]);
           }
         } else if (frame.opcode === 8 && !ignoreCloseHandshake) {
           socket.write(Buffer.from([0x88, 0x00]));

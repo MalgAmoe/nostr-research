@@ -1,0 +1,3 @@
+PASS
+
+All acceptance criteria are materially satisfied. The implementation provides explicit, validated, session-independent expansion with global timeout/event budgets, bounded traversal, deduplicated requests, workspace hydration, partial-relay diagnostics, provenance, and detailed expansion context. The real-SQLite local relay scenario covers multi-hop acquisition, inbound replies, profiles, partial failure, retention/reopen, workspace pressure, and unchanged session selection. Full tests, syntax checks, and diff checks pass.
