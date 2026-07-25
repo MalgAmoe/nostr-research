@@ -1,6 +1,6 @@
 ---
 id: 015-console-research-field-trial
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/015-console-research-field-trial.validate.sh
 depends_on: 014-persistent-javascript-research-console

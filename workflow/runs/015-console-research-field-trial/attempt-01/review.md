@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `workflow/artifacts/first-console-field-trial.md` gives the console command only for `.data/first-console-field-trial.sqlite`, but the investigation commands and retained set use `.data/first-research.sqlite`. Add the exact command used to start that investigation process and the exact reopen command. This is required to make the runtime setup reproducible and unambiguously support the same-process and reopen claims.
