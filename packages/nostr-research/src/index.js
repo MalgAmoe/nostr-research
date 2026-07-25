@@ -1492,10 +1492,25 @@ class ResearchWorkspace {
    * Existing IDs refresh provenance without consuming capacity or changing
    * FIFO position.
    */
-  add(value) {
+  add(value, options = {}) {
     this.#assertOpen();
+    assertPlainObject(options, 'Workspace add options');
+    rejectUnknownKeys(options, new Set(['preserve']), 'workspace add option');
+    if (options.preserve !== undefined && !Array.isArray(options.preserve)) {
+      throw new ResearchMemoryError('Workspace add preserve must be an array of event subjects.');
+    }
+    const preserve = new Set((options.preserve ?? []).map((item) => {
+      const normalized = normalizeSubject(item);
+      if (normalized.type !== 'event') {
+        throw new ResearchMemoryError('Workspace preserved subjects must be events.');
+      }
+      return normalized.id;
+    }));
+    if (preserve.size > this.#capacity) {
+      throw new ResearchMemoryError('Workspace capacity cannot accommodate all preserved events.');
+    }
     const collection = this.#coerceEvidence(value);
-    const change = this.#addCollection(collection);
+    const change = this.#addCollection(collection, preserve);
     return { ...change, bounds: this.describe() };
   }
 
@@ -1732,7 +1747,7 @@ class ResearchWorkspace {
     })), { operation: 'workspace-add' });
   }
 
-  #addCollection(collection) {
+  #addCollection(collection, preserve = new Set()) {
     assertResultCollection(collection);
     const added = [];
     const refreshed = [];
@@ -1751,7 +1766,12 @@ class ResearchWorkspace {
       this.#insertRecord(stored);
       added.push(stored.event.id);
       if (this.#records.size > this.#capacity) {
-        const eventId = this.#records.keys().next().value;
+        // FIFO remains the policy, except callers may protect a small explicit
+        // set for the duration of one add. The oldest disposable record goes.
+        const eventId = [...this.#records.keys()].find((id) => !preserve.has(id));
+        if (eventId === undefined) {
+          throw new ResearchMemoryError('Workspace capacity cannot accommodate preserved events.');
+        }
         this.#removeRecord(eventId);
         this.#evictions += 1;
         evicted.push(eventId);
@@ -2935,6 +2955,7 @@ export {
   DEFAULT_ACQUISITION_TIMEOUT_MS,
   DEFAULT_RELAY_CONCURRENCY,
 } from './acquire.js';
+export { expandResearch } from './expansion.js';
 export { createResearchSession, ResearchSession } from './session.js';
 export {
   fetchRelayInformation,

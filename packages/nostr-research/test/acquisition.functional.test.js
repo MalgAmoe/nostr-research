@@ -10,6 +10,7 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools';
 import {
   acquireRelayEvents,
   createResearchWorkspace,
+  expandResearch,
   loadFixtureEvents,
   openResearchMemory,
   ResearchMemoryError,
@@ -229,6 +230,13 @@ test('console expansion rejects invalid bounds and semantics before networking',
       environment.research.expand(selection, { ...valid, eventLimit: 0 }),
       /eventLimit must be a positive integer/,
     );
+    await assert.rejects(
+      environment.research.expand(selection, { ...valid, signal: {} }),
+      {
+        name: 'ResearchMemoryError',
+        message: 'Expansion signal must be an AbortSignal.',
+      },
+    );
   } finally {
     environment.close();
     context.memory = null;
@@ -325,7 +333,7 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
       filter['#e']
       && filter.kinds?.length === 1
       && filter.kinds[0] === 1
-      && filter.limit === filter['#e'].length
+      && filter.limit > filter['#e'].length
     )), 'reply acquisition is restricted to bounded kind-1 notes');
     assert.ok(receivedFilters.some((filter) => (
       filter.authors
@@ -349,6 +357,108 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
   } finally {
     await relay.close();
     if (!environmentClosed) environment.close();
+    context.close();
+  }
+});
+
+test('exported expansion uses the global budget for reply breadth and preserves tiny-workspace seeds', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  const seedKey = Uint8Array.from(Buffer.from('6'.repeat(64), 'hex'));
+  const replyKey = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
+  const seed = finalizeEvent({
+    kind: 1, created_at: 200, tags: [], content: 'conversation seed',
+  }, seedKey);
+  const replies = Array.from({ length: 12 }, (_, index) => finalizeEvent({
+    kind: 1,
+    created_at: 201 + index,
+    tags: [['e', seed.id, '', 'reply']],
+    content: `reply ${index}`,
+  }, replyKey));
+  context.memory.ingest(seed, {
+    relay: 'wss://seed.example/', observedAt: '2026-07-25T12:00:00.000Z',
+  });
+  const receivedFilters = [];
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send, filter) => {
+      receivedFilters.push(filter);
+      for (const event of replies.filter((candidate) => matchesFilter(candidate, filter))) {
+        send(['EVENT', subscriptionId, event]);
+      }
+      send(['EOSE', subscriptionId]);
+    });
+  }, context.directory);
+
+  try {
+    const roomy = createResearchWorkspace(context.memory, { capacity: 20 });
+    roomy.load({ ids: [seed.id] });
+    const broad = await expandResearch(
+      context.memory,
+      roomy,
+      roomy.select({ ids: [seed.id] }),
+      {
+        relays: [relay.url],
+        relationshipTypes: ['reply-parent'],
+        direction: 'inbound',
+        depth: 1,
+        limit: 20,
+        timeoutMs: 2_000,
+        eventLimit: 12,
+      },
+    );
+    assert.equal(
+      broad.items.filter(({ role }) => role === 'discovery').length,
+      12,
+      'one seed can acquire more than ten replies',
+    );
+    assert.equal(broad.context.expansion.counts.observations, 12);
+    assert.equal(broad.context.expansion.boundedBy.eventBudget, true);
+    assert.ok(receivedFilters.some((filter) => (
+      filter['#e']?.length === 1 && filter.kinds?.[0] === 1 && filter.limit === 12
+    )));
+    roomy.close();
+
+    const limited = createResearchWorkspace(context.memory, { capacity: 20 });
+    limited.load({ ids: [seed.id] });
+    const bounded = await expandResearch(
+      context.memory,
+      limited,
+      limited.select({ ids: [seed.id] }),
+      {
+        relays: [relay.url],
+        relationshipTypes: ['reply-parent'],
+        direction: 'inbound',
+        depth: 1,
+        limit: 20,
+        timeoutMs: 2_000,
+        eventLimit: 3,
+      },
+    );
+    assert.equal(bounded.context.expansion.counts.observations, 3);
+    assert.equal(bounded.context.expansion.boundedBy.eventBudget, true);
+    limited.close();
+
+    const tiny = createResearchWorkspace(context.memory, { capacity: 3 });
+    tiny.load({ ids: [seed.id] });
+    const tinyStart = tiny.select({ ids: [seed.id] });
+    const pressured = await expandResearch(context.memory, tiny, tinyStart, {
+      relays: [relay.url],
+      relationshipTypes: ['reply-parent'],
+      direction: 'inbound',
+      depth: 1,
+      limit: 20,
+      timeoutMs: 2_000,
+      eventLimit: 4,
+    });
+    assert.equal(tiny.describe().eventCount, 3);
+    assert.ok(tiny.describe().evictions > 0);
+    assert.equal(tiny.inspect(subject('event', seed.id)).loaded, true);
+    assert.equal(pressured.items[0].subject.id, seed.id);
+    assert.ok(pressured.items.length > 1, 'the preserved seed remains traversable');
+    assert.equal(context.memory.summary().events, 13, 'workspace eviction never removes SQLite evidence');
+    tiny.close();
+  } finally {
+    await relay.close();
     context.close();
   }
 });

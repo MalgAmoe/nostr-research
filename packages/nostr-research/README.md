@@ -170,13 +170,20 @@ To acquire first, use
 workspace. Piped JavaScript uses the same persistent process and can finish
 with `.exit`.
 
-`expand` performs an explicit targeted expansion from a reusable result
+`expandResearch(memory, workspace, selection, options)` is the exported,
+UI-independent operation behind the console's `research.expand` convenience.
+It performs an explicit targeted expansion from a reusable result
 collection. It traverses the workspace, fetches unresolved event IDs, kind-0
 account metadata, and requested inbound replies from supplied relays, then
 hydrates the same workspace and returns an ordinary traversal result. It does
 not read or change session selection. Its result `context.expansion` reports
 the exact options and starts, workspace pressure, filters and per-relay
 diagnostics, acquisition counts, unresolved targets, and terminating bounds.
+Inbound reply requests are single bounded requests whose limit is the
+remaining operation-wide event budget; they are not paginated or exhaustive.
+During each workspace add, explicit event starts are preserved and the oldest
+non-start event is evicted first. Evictions remain counted in
+`workspace.describe()`, while all accepted evidence remains in SQLite.
 
 ```js
 const expanded = await research.expand(acceptable, {

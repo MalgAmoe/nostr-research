@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `src/console.js:128-130` accesses `options.signal.addEventListener()` before the exported operation validates it. An invalid signal therefore throws a raw `TypeError`, bypassing the intended `ResearchMemoryError` validation in `src/expansion.js:218-220`. Update the console delegation so established expansion input validation remains intact, and add public-boundary coverage for an invalid signal.

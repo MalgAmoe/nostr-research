@@ -1,6 +1,6 @@
 ---
 id: 020-correct-reusable-expansion
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/020-correct-reusable-expansion.validate.sh
 depends_on: 019-bounded-targeted-expansion
