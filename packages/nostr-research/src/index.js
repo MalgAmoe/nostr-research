@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { validateEvent, verifyEvent } from 'nostr-tools';
 
 const SCHEMA_VERSION = 1;
@@ -8,6 +9,19 @@ const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
 const SIGNATURE = /^[a-f0-9]{128}$/;
 const DEFAULT_QUERY_LIMIT = 50;
 const MAX_QUERY_LIMIT = 1000;
+const DEFAULT_ACQUISITION_TIMEOUT_MS = 10_000;
+const DEFAULT_ACQUISITION_EVENT_LIMIT = 100;
+const DEFAULT_RELAY_CONCURRENCY = 4;
+const NAVIGATION_RELATIONSHIP_TYPES = new Set([
+  'author',
+  'reply-root',
+  'reply-parent',
+  'mentioned-event',
+  'quoted-event',
+  'mentioned-account',
+  'topic',
+  'other-tag',
+]);
 
 export class ResearchMemoryError extends Error {
   constructor(message) {
@@ -67,6 +81,40 @@ export class ResearchMemory {
 
       CREATE INDEX IF NOT EXISTS observations_by_event
         ON observations(event_id, observation_id);
+
+      CREATE TABLE IF NOT EXISTS research_runs (
+        run_id TEXT PRIMARY KEY,
+        operation TEXT NOT NULL,
+        inputs TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        diagnostics TEXT NOT NULL,
+        results TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS research_sets (
+        set_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS research_set_members (
+        set_id TEXT NOT NULL REFERENCES research_sets(set_id) ON DELETE CASCADE,
+        entity_type TEXT NOT NULL CHECK(entity_type IN ('event', 'account')),
+        entity_id TEXT NOT NULL,
+        PRIMARY KEY (set_id, entity_type, entity_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS research_set_reasons (
+        reason_id INTEGER PRIMARY KEY,
+        set_id TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        FOREIGN KEY (set_id, entity_type, entity_id)
+          REFERENCES research_set_members(set_id, entity_type, entity_id) ON DELETE CASCADE
+      );
     `);
 
     this.#database
@@ -85,6 +133,10 @@ export class ResearchMemory {
     this.#assertOpen();
     this.#database.exec(`
       DROP TABLE IF EXISTS observations;
+      DROP TABLE IF EXISTS research_set_reasons;
+      DROP TABLE IF EXISTS research_set_members;
+      DROP TABLE IF EXISTS research_sets;
+      DROP TABLE IF EXISTS research_runs;
       DROP TABLE IF EXISTS events;
       DROP TABLE IF EXISTS schema_metadata;
     `);
@@ -247,7 +299,7 @@ export class ResearchMemory {
     }
     results.sort((left, right) => left.publicKey.localeCompare(right.publicKey));
     return {
-      query: { publicKeys: normalized.publicKeys, terms: normalized.terms, limit: normalized.limit },
+      query: { publicKeys: normalized.publicKeys, text: normalized.terms, limit: normalized.limit },
       results: results.slice(0, normalized.limit),
     };
   }
@@ -282,6 +334,239 @@ export class ResearchMemory {
       'account public key',
     );
     return buildNavigation('account', publicKey, null, records);
+  }
+
+  /** Persists an immutable public account of one completed research operation. */
+  recordRun(run) {
+    this.#assertOpen();
+    const normalized = normalizeRun(run);
+    const runId = randomUUID();
+    this.#database.prepare(`
+      INSERT INTO research_runs
+        (run_id, operation, inputs, started_at, finished_at, status, diagnostics, results)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      runId, normalized.operation, stableJson(normalized.inputs),
+      normalized.startedAt, normalized.finishedAt, normalized.status,
+      stableJson(normalized.diagnostics), stableJson(normalized.results),
+    );
+    return this.getRun(runId);
+  }
+
+  listRuns() {
+    this.#assertOpen();
+    return this.#database.prepare(
+      'SELECT * FROM research_runs ORDER BY started_at, run_id',
+    ).all().map(publicRun);
+  }
+
+  getRun(runId) {
+    this.#assertOpen();
+    const row = this.#database.prepare('SELECT * FROM research_runs WHERE run_id = ?').get(runId);
+    if (!row) throw new ResearchMemoryError(`No research run found for ID ${runId}.`);
+    return publicRun(row);
+  }
+
+  createSet(name) {
+    this.#assertOpen();
+    const setId = randomUUID();
+    this.#database.prepare(
+      'INSERT INTO research_sets(set_id, name, created_at) VALUES (?, ?, ?)',
+    ).run(setId, normalizeSetName(name), new Date().toISOString());
+    return this.getSet(setId);
+  }
+
+  listSets() {
+    this.#assertOpen();
+    return this.#database.prepare(
+      'SELECT set_id FROM research_sets ORDER BY name, set_id',
+    ).all().map(({ set_id }) => this.getSet(set_id));
+  }
+
+  getSet(setId) {
+    this.#assertOpen();
+    const row = this.#database.prepare('SELECT * FROM research_sets WHERE set_id = ?').get(setId);
+    if (!row) throw new ResearchMemoryError(`No research set found for ID ${setId}.`);
+    const members = this.#database.prepare(`
+      SELECT entity_type, entity_id FROM research_set_members
+      WHERE set_id = ? ORDER BY entity_type, entity_id
+    `).all(setId).map(({ entity_type, entity_id }) => ({
+      type: entity_type,
+      id: entity_id,
+      reasons: this.#database.prepare(`
+        SELECT reason FROM research_set_reasons
+        WHERE set_id = ? AND entity_type = ? AND entity_id = ? ORDER BY reason_id
+      `).all(setId, entity_type, entity_id).map(({ reason }) => JSON.parse(reason)),
+    }));
+    return { id: row.set_id, name: row.name, createdAt: row.created_at, members };
+  }
+
+  renameSet(setId, name) {
+    this.#assertOpen();
+    assertSetExists(this.#database, setId);
+    this.#database.prepare('UPDATE research_sets SET name = ? WHERE set_id = ?')
+      .run(normalizeSetName(name), setId);
+    return this.getSet(setId);
+  }
+
+  deleteSet(setId) {
+    this.#assertOpen();
+    assertSetExists(this.#database, setId);
+    this.#database.prepare('DELETE FROM research_sets WHERE set_id = ?').run(setId);
+    return { id: setId, deleted: true };
+  }
+
+  addSetMember(setId, member, reason = { type: 'explicit' }) {
+    this.#assertOpen();
+    assertSetExists(this.#database, setId);
+    const normalizedMember = normalizeMember(member);
+    const normalizedReason = normalizeReason(reason);
+    this.#database.exec('BEGIN');
+    try {
+      this.#database.prepare(`
+        INSERT OR IGNORE INTO research_set_members(set_id, entity_type, entity_id)
+        VALUES (?, ?, ?)
+      `).run(setId, normalizedMember.type, normalizedMember.id);
+      const encoded = stableJson(normalizedReason);
+      const duplicate = this.#database.prepare(`
+        SELECT 1 FROM research_set_reasons
+        WHERE set_id = ? AND entity_type = ? AND entity_id = ? AND reason = ?
+      `).get(setId, normalizedMember.type, normalizedMember.id, encoded);
+      if (!duplicate) this.#database.prepare(`
+        INSERT INTO research_set_reasons(set_id, entity_type, entity_id, reason)
+        VALUES (?, ?, ?, ?)
+      `).run(setId, normalizedMember.type, normalizedMember.id, encoded);
+      this.#database.exec('COMMIT');
+    } catch (error) {
+      this.#database.exec('ROLLBACK');
+      throw error;
+    }
+    return this.explainSetMember(setId, normalizedMember);
+  }
+
+  removeSetMember(setId, member) {
+    this.#assertOpen();
+    assertSetExists(this.#database, setId);
+    const normalized = normalizeMember(member);
+    const result = this.#database.prepare(`
+      DELETE FROM research_set_members WHERE set_id = ? AND entity_type = ? AND entity_id = ?
+    `).run(setId, normalized.type, normalized.id);
+    return { ...normalized, removed: result.changes === 1 };
+  }
+
+  explainSetMember(setId, member) {
+    const normalized = normalizeMember(member);
+    const set = this.getSet(setId);
+    const found = set.members.find(
+      ({ type, id }) => type === normalized.type && id === normalized.id,
+    );
+    if (!found) {
+      throw new ResearchMemoryError(
+        `Research set ${setId} has no ${normalized.type} member ${normalized.id}.`,
+      );
+    }
+    return { set: { id: set.id, name: set.name }, member: found };
+  }
+
+  createSetFromRun(name, runId) {
+    this.#assertOpen();
+    const run = this.getRun(runId);
+    const set = this.createSet(name);
+    for (const result of run.results) {
+      this.addSetMember(set.id, result, {
+        type: 'run',
+        runId,
+        operation: run.operation,
+        matchReasons: result.reasons,
+        provenance: result.provenance,
+      });
+    }
+    return this.getSet(set.id);
+  }
+
+  expandSet(sourceSetId, name, options = {}) {
+    this.#assertOpen();
+    assertPlainObject(options, 'Expansion options');
+    rejectUnknownKeys(options, new Set(['relationshipTypes', 'direction', 'limit']), 'expansion option');
+    const types = normalizeStringList(options.relationshipTypes, 'relationshipTypes', false);
+    if (!types) throw new ResearchMemoryError('Expansion relationshipTypes are required.');
+    const unsupportedTypes = types.filter((type) => !NAVIGATION_RELATIONSHIP_TYPES.has(type));
+    if (unsupportedTypes.length > 0) {
+      throw new ResearchMemoryError(
+        `Unsupported expansion relationship type${unsupportedTypes.length === 1 ? '' : 's'}: ${unsupportedTypes.join(', ')}.`,
+      );
+    }
+    const direction = options.direction ?? 'outbound';
+    if (!['outbound', 'inbound', 'both'].includes(direction)) {
+      throw new ResearchMemoryError('Expansion direction must be "outbound", "inbound", or "both".');
+    }
+    const limit = normalizeLimit(options.limit);
+    const source = this.getSet(sourceSetId);
+    const created = this.createSet(name);
+    let added = 0;
+    for (const member of source.members) {
+      let navigation;
+      try {
+        navigation = member.type === 'event'
+          ? this.relatedEvent(member.id)
+          : this.relatedAccount(member.id);
+      } catch (error) {
+        if (error instanceof ResearchMemoryError && error.message.startsWith('No stored')) continue;
+        throw error;
+      }
+      for (const relation of navigation.relationships) {
+        if (added >= limit) break;
+        if (!types.includes(relation.type)) continue;
+        if (direction !== 'both' && relation.direction !== direction) continue;
+        const derived = relation.direction === 'outbound'
+          ? relation.target
+          : { type: 'event', id: relation.sourceEventId };
+        if (!['event', 'account'].includes(derived.type)) continue;
+        const before = this.getSet(created.id).members.length;
+        this.addSetMember(created.id, derived, {
+          type: 'relationship',
+          sourceSetId,
+          sourceMember: { type: member.type, id: member.id },
+          relationshipType: relation.type,
+          direction: relation.direction,
+          sourceEventId: relation.sourceEventId,
+          evidence: relation.evidence,
+        });
+        if (this.getSet(created.id).members.length > before) added += 1;
+      }
+      if (added >= limit) break;
+    }
+    return this.getSet(created.id);
+  }
+
+  combineSets(operation, leftSetId, rightSetId, name) {
+    this.#assertOpen();
+    if (!['union', 'intersection', 'difference'].includes(operation)) {
+      throw new ResearchMemoryError('Set operation must be "union", "intersection", or "difference".');
+    }
+    const left = this.getSet(leftSetId);
+    const right = this.getSet(rightSetId);
+    const rightKeys = new Set(right.members.map(memberKey));
+    const selected = operation === 'union'
+      ? [...left.members, ...right.members]
+      : operation === 'intersection'
+        ? left.members.filter((member) => rightKeys.has(memberKey(member)))
+        : left.members.filter((member) => !rightKeys.has(memberKey(member)));
+    const created = this.createSet(name);
+    for (const member of selected) {
+      const sources = [
+        ...(left.members.some((candidate) => memberKey(candidate) === memberKey(member))
+          ? [{ setId: left.id, reasons: left.members.find((candidate) => memberKey(candidate) === memberKey(member)).reasons }]
+          : []),
+        ...(right.members.some((candidate) => memberKey(candidate) === memberKey(member))
+          ? [{ setId: right.id, reasons: right.members.find((candidate) => memberKey(candidate) === memberKey(member)).reasons }]
+          : []),
+      ];
+      this.addSetMember(created.id, member, {
+        type: 'set-operation', operation, leftSetId, rightSetId, sources,
+      });
+    }
+    return this.getSet(created.id);
   }
 
   /** Reports storage-level totals without exposing a schema to callers. */
@@ -725,6 +1010,247 @@ function rejectUnknownKeys(value, allowed, label) {
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) throw new ResearchMemoryError(`Unknown ${label} field: ${key}.`);
   }
+}
+
+function normalizeRun(run) {
+  assertPlainObject(run, 'Research run');
+  rejectUnknownKeys(
+    run,
+    new Set(['operation', 'inputs', 'startedAt', 'finishedAt', 'status', 'diagnostics', 'results']),
+    'research run',
+  );
+  if (!['acquisition', 'event-query', 'account-query'].includes(run.operation)) {
+    throw new ResearchMemoryError(
+      'Research run operation must be "acquisition", "event-query", or "account-query".',
+    );
+  }
+  assertPlainObject(run.inputs, 'Research run inputs');
+  const startedAt = normalizeIsoDate(run.startedAt, 'Research run startedAt');
+  const finishedAt = normalizeIsoDate(run.finishedAt, 'Research run finishedAt');
+  if (Date.parse(finishedAt) < Date.parse(startedAt)) {
+    throw new ResearchMemoryError('Research run finishedAt must not precede startedAt.');
+  }
+  if (typeof run.status !== 'string' || run.status.trim().length === 0) {
+    throw new ResearchMemoryError('Research run status must be a non-empty string.');
+  }
+  const diagnostics = run.diagnostics ?? [];
+  if (!Array.isArray(diagnostics)) {
+    throw new ResearchMemoryError('Research run diagnostics must be an array.');
+  }
+  if (!Array.isArray(run.results)) {
+    throw new ResearchMemoryError('Research run results must be an array.');
+  }
+  const results = run.results.map((result) => {
+    assertPlainObject(result, 'Research run result');
+    rejectUnknownKeys(result, new Set(['type', 'id', 'reasons', 'provenance']), 'research run result');
+    const member = normalizeMember(result);
+    if (result.reasons !== undefined && !Array.isArray(result.reasons)) {
+      throw new ResearchMemoryError('Research run result reasons must be an array.');
+    }
+    if (result.provenance !== undefined && !Array.isArray(result.provenance)) {
+      throw new ResearchMemoryError('Research run result provenance must be an array.');
+    }
+    return {
+      ...member,
+      reasons: cloneJson(result.reasons ?? []),
+      provenance: cloneJson(result.provenance ?? []),
+    };
+  });
+  return {
+    operation: run.operation,
+    inputs: normalizeRunInputs(run.operation, run.inputs),
+    startedAt,
+    finishedAt,
+    status: run.status.trim(),
+    diagnostics: cloneJson(diagnostics),
+    results,
+  };
+}
+
+function normalizeRunInputs(operation, inputs) {
+  if (operation === 'event-query') {
+    return publicEventQuery(normalizeEventQuery({
+      ...inputs,
+      ...(Array.isArray(inputs.text) && inputs.text.length === 0 ? { text: undefined } : {}),
+    }));
+  }
+  if (operation === 'account-query') {
+    const normalized = normalizeAccountQuery({
+      ...inputs,
+      ...(Array.isArray(inputs.text) && inputs.text.length === 0 ? { text: undefined } : {}),
+    });
+    return {
+      publicKeys: normalized.publicKeys,
+      text: normalized.terms,
+      limit: normalized.limit,
+    };
+  }
+  return normalizeAcquisitionRunInputs(inputs);
+}
+
+function normalizeAcquisitionRunInputs(inputs) {
+  rejectUnknownKeys(
+    inputs,
+    new Set(['relays', 'filter', 'timeoutMs', 'eventLimit', 'concurrency']),
+    'acquisition input',
+  );
+  if (!Array.isArray(inputs.relays) || inputs.relays.length === 0) {
+    throw new ResearchMemoryError('Acquisition inputs require at least one explicit wss:// relay.');
+  }
+  const relays = inputs.relays.map((value) => {
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new ResearchMemoryError(`Invalid relay URL: ${value}`);
+    }
+    if (url.protocol !== 'wss:' || url.username || url.password || url.hash) {
+      throw new ResearchMemoryError(`Relay URL must be an explicit wss:// URL: ${value}`);
+    }
+    return url.href;
+  });
+  if (new Set(relays).size !== relays.length) {
+    throw new ResearchMemoryError('Acquisition input relay URLs must not be repeated.');
+  }
+  const filter = normalizeAcquisitionFilter(inputs.filter);
+  return {
+    relays,
+    filter,
+    timeoutMs: normalizePositiveInteger(
+      inputs.timeoutMs ?? DEFAULT_ACQUISITION_TIMEOUT_MS,
+      'Acquisition input timeoutMs',
+    ),
+    eventLimit: normalizePositiveInteger(
+      inputs.eventLimit ?? DEFAULT_ACQUISITION_EVENT_LIMIT,
+      'Acquisition input eventLimit',
+    ),
+    concurrency: normalizePositiveInteger(
+      inputs.concurrency ?? DEFAULT_RELAY_CONCURRENCY,
+      'Acquisition input concurrency',
+    ),
+  };
+}
+
+function normalizeAcquisitionFilter(filter) {
+  assertPlainObject(filter, 'Acquisition input filter');
+  const normalized = cloneJson(filter);
+  for (const [key, value] of Object.entries(normalized)) {
+    if (['ids', 'authors'].includes(key)) {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+        throw new ResearchMemoryError(`Acquisition filter ${key} must be an array of strings.`);
+      }
+    } else if (key === 'kinds') {
+      if (!Array.isArray(value) || value.some((item) => !Number.isSafeInteger(item) || item < 0)) {
+        throw new ResearchMemoryError('Acquisition filter kinds must be an array of non-negative integers.');
+      }
+    } else if (['since', 'until', 'limit'].includes(key)) {
+      if (!Number.isSafeInteger(value) || value < 0) {
+        throw new ResearchMemoryError(`Acquisition filter ${key} must be a non-negative integer.`);
+      }
+    } else if (key.startsWith('#')) {
+      if (key.length !== 2 || !Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+        throw new ResearchMemoryError(
+          `Acquisition filter ${key} must be a single-letter tag with an array of strings.`,
+        );
+      }
+    } else {
+      throw new ResearchMemoryError(`Unsupported acquisition filter field: ${key}`);
+    }
+  }
+  return normalized;
+}
+
+function normalizePositiveInteger(value, label) {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new ResearchMemoryError(`${label} must be a positive integer.`);
+  }
+  return value;
+}
+
+function normalizeIsoDate(value, label) {
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+    throw new ResearchMemoryError(`${label} must be a valid ISO-8601 timestamp.`);
+  }
+  return new Date(value).toISOString();
+}
+
+function publicRun(row) {
+  return {
+    id: row.run_id,
+    operation: row.operation,
+    inputs: JSON.parse(row.inputs),
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    status: row.status,
+    diagnostics: JSON.parse(row.diagnostics),
+    results: JSON.parse(row.results),
+  };
+}
+
+function normalizeSetName(name) {
+  if (typeof name !== 'string' || name.trim().length === 0) {
+    throw new ResearchMemoryError('Research set name must be a non-empty string.');
+  }
+  return name.trim();
+}
+
+function normalizeMember(member) {
+  if (!member || typeof member !== 'object' || Array.isArray(member)) {
+    throw new ResearchMemoryError('Research set member must be an object.');
+  }
+  if (!['event', 'account'].includes(member.type)) {
+    throw new ResearchMemoryError('Research set member type must be "event" or "account".');
+  }
+  if (typeof member.id !== 'string' || !EVENT_ID.test(member.id)) {
+    throw new ResearchMemoryError(
+      'Research set member ID must be a 64-character lowercase hexadecimal string.',
+    );
+  }
+  return { type: member.type, id: member.id };
+}
+
+function normalizeReason(reason) {
+  assertPlainObject(reason, 'Membership reason');
+  if (typeof reason.type !== 'string' || reason.type.trim().length === 0) {
+    throw new ResearchMemoryError('Membership reason type must be a non-empty string.');
+  }
+  return cloneJson(reason);
+}
+
+function assertSetExists(database, setId) {
+  if (typeof setId !== 'string' || !database.prepare(
+    'SELECT 1 FROM research_sets WHERE set_id = ?',
+  ).get(setId)) {
+    throw new ResearchMemoryError(`No research set found for ID ${setId}.`);
+  }
+}
+
+function memberKey(member) {
+  return `${member.type}:${member.id}`;
+}
+
+function cloneJson(value) {
+  try {
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) throw new TypeError('undefined');
+    return JSON.parse(encoded);
+  } catch {
+    throw new ResearchMemoryError('Research records must contain JSON-serializable public data.');
+  }
+}
+
+function stableJson(value) {
+  return JSON.stringify(sortJson(cloneJson(value)));
+}
+
+function sortJson(value) {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, sortJson(value[key])]),
+    );
+  }
+  return value;
 }
 
 export {

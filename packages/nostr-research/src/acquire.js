@@ -27,6 +27,7 @@ export async function acquireRelayEvents(memory, options) {
   }));
   const counts = { received: 0, invalid: 0, duplicate: 0, newlyStored: 0, observations: 0 };
   const acquiredEventIds = [];
+  const acquiredObservations = new Map();
   const acquiredIds = new Set();
   const sockets = new Set();
   let stopReason = null;
@@ -104,6 +105,8 @@ export async function acquireRelayEvents(memory, options) {
           // callbacks cannot exceed the shared operation-wide limit.
           if (counts.observations >= normalized.eventLimit) return stop('limit');
           const ingested = memory.ingest(event, { relay, observedAt: new Date().toISOString() });
+          if (!acquiredObservations.has(event.id)) acquiredObservations.set(event.id, []);
+          acquiredObservations.get(event.id).push(ingested.observation);
           relayResult.observations += 1;
           counts.observations += 1;
           if (ingested.eventStored) {
@@ -162,6 +165,10 @@ export async function acquireRelayEvents(memory, options) {
     finishedAt: new Date().toISOString(),
     completionReason,
     acquiredEventIds,
+    acquiredObservations: acquiredEventIds.map((eventId) => ({
+      eventId,
+      observations: acquiredObservations.get(eventId) ?? [],
+    })),
     relays: relayResults,
     counts,
   };

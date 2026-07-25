@@ -21,6 +21,23 @@ Commands:
   account <pubkey-or-prefix>   Resolve current metadata for one stored account.
   related event <id-or-prefix> Show inbound and outbound event relationships.
   related account <key-prefix> Show authored events and account references.
+  run search [search options]   Search local events and record the completed run.
+  run accounts [options]       Search local accounts and record the completed run.
+  run list                     List immutable recorded research runs.
+  run inspect <run-id>         Inspect one recorded research run.
+  set create <name>            Create a durable named research set.
+  set list                     List saved sets and their members.
+  set inspect <set-id>         Inspect one saved set.
+  set rename <set-id> <name>   Rename a set without changing its identity.
+  set delete <set-id>          Delete a set.
+  set add <set> <type> <id>    Add an event or account member.
+  set remove <set> <type> <id> Remove a member.
+  set from-run <name> <run-id> Create a set from recorded results.
+  set expand <set> <name>      Expand through selected local relationships.
+  set combine <op> <a> <b> <name>
+                               Create union, intersection, or difference.
+  set explain <set> <type> <id>
+                               Explain one event or account membership.
   summary                      Print public storage counts.
 
 import-fixture options:
@@ -33,6 +50,13 @@ acquire options:
   --filter-file <path>         Nostr filter read from an explicitly named JSON file.
   --timeout-ms <integer>       Operation timeout (default: ${DEFAULT_ACQUISITION_TIMEOUT_MS}).
   --event-limit <integer>      Global accepted-event limit (default: ${DEFAULT_ACQUISITION_EVENT_LIMIT}).
+  --record                     Persist the acquisition outcome as a research run.
+
+set options:
+  --reason-json <JSON>         Explicit membership reason (default: {"type":"explicit"}).
+  --relationship <type>        Relationship type for expansion; repeatable.
+  --direction <value>          outbound, inbound, or both (default: outbound).
+  --limit <integer>            Maximum distinct expansion members (default: 50).
 
 search options:
   --id <id-or-prefix>          Event ID constraint; repeat for OR.
@@ -60,6 +84,7 @@ Examples:
 function parseArguments(args) {
   const options = {
     relays: [], ids: [], authors: [], kinds: [], tags: [], texts: [], publicKeys: [],
+    relationships: [],
     providedOptions: new Set(),
   };
   const positionals = [];
@@ -67,10 +92,16 @@ function parseArguments(args) {
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === '--help' || argument === '-h') return { help: true };
+    if (argument === '--record') {
+      options.record = true;
+      options.providedOptions.add(argument);
+      continue;
+    }
     if ([
       '--db', '--relay', '--observed-at', '--filter-json', '--filter-file',
       '--timeout-ms', '--event-limit', '--id', '--author', '--kind', '--since',
       '--until', '--tag', '--text', '--limit', '--order', '--pubkey',
+      '--reason-json', '--relationship', '--direction',
     ].includes(argument)) {
       const value = args[index + 1];
       if (!value || value.startsWith('--')) throw new ResearchMemoryError(`Missing value for ${argument}.`);
@@ -82,6 +113,7 @@ function parseArguments(args) {
       else if (argument === '--tag') options.tags.push(value);
       else if (argument === '--text') options.texts.push(value);
       else if (argument === '--pubkey') options.publicKeys.push(value);
+      else if (argument === '--relationship') options.relationships.push(value);
       else options[argument.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = value;
       index += 1;
     } else if (argument.startsWith('--')) {
@@ -137,6 +169,7 @@ async function main() {
       case 'acquire':
         requireOnlyOptions(parsed, [
           '--db', '--relay', '--filter-json', '--filter-file', '--timeout-ms', '--event-limit',
+          '--record',
         ]);
         requireNoArguments(parsed.command, parsed.commandArguments);
         if ((parsed.filterJson === undefined) === (parsed.filterFile === undefined)) {
@@ -149,13 +182,37 @@ async function main() {
         } catch (error) {
           throw new ResearchMemoryError(`Malformed filter JSON: ${error.message}`);
         }
-        const result = await acquireRelayEvents(memory, {
+        const acquisitionInputs = {
           relays: parsed.relays,
           filter,
-          timeoutMs: parseIntegerOption(parsed.timeoutMs, 'timeout-ms'),
-          eventLimit: parseIntegerOption(parsed.eventLimit, 'event-limit'),
-        });
-        print({ database: parsed.db, ...result });
+          timeoutMs: parseIntegerOption(parsed.timeoutMs, 'timeout-ms')
+            ?? DEFAULT_ACQUISITION_TIMEOUT_MS,
+          eventLimit: parseIntegerOption(parsed.eventLimit, 'event-limit')
+            ?? DEFAULT_ACQUISITION_EVENT_LIMIT,
+        };
+        const result = await acquireRelayEvents(memory, acquisitionInputs);
+        const recordedAcquisition = parsed.record ? memory.recordRun({
+          operation: 'acquisition',
+          inputs: {
+            ...result.requested,
+            timeoutMs: acquisitionInputs.timeoutMs,
+            eventLimit: acquisitionInputs.eventLimit,
+          },
+          startedAt: result.startedAt,
+          finishedAt: result.finishedAt,
+          status: result.completionReason,
+          diagnostics: result.relays.map(({ relay, outcome, diagnostic }) => ({
+            relay, outcome, ...(diagnostic ? { diagnostic } : {}),
+          })),
+          results: result.acquiredEventIds.map((id) => {
+            const acquired = result.acquiredObservations.find(({ eventId }) => eventId === id);
+            return {
+              type: 'event', id, reasons: [{ type: 'acquired' }],
+              provenance: acquired?.observations ?? [],
+            };
+          }),
+        }) : undefined;
+        print({ database: parsed.db, ...result, ...(recordedAcquisition ? { run: recordedAcquisition } : {}) });
         return;
       case 'inspect':
         requireOnlyOptions(parsed, ['--db']);
@@ -215,6 +272,12 @@ async function main() {
           ? memory.relatedEvent(parsed.commandArguments[1])
           : memory.relatedAccount(parsed.commandArguments[1]));
         return;
+      case 'run':
+        await handleRunCommand(memory, parsed);
+        return;
+      case 'set':
+        handleSetCommand(memory, parsed);
+        return;
       case 'summary':
         requireOnlyOptions(parsed, ['--db']);
         requireNoArguments(parsed.command, parsed.commandArguments);
@@ -225,6 +288,171 @@ async function main() {
     }
   } finally {
     memory.close();
+  }
+}
+
+function handleRunCommand(memory, parsed) {
+  const [subcommand, ...arguments_] = parsed.commandArguments;
+  if (subcommand === 'list') {
+    requireOnlyOptions(parsed, ['--db']);
+    requireNoArguments('run list', arguments_);
+    print({ runs: memory.listRuns() });
+    return;
+  }
+  if (subcommand === 'inspect') {
+    requireOnlyOptions(parsed, ['--db']);
+    if (arguments_.length !== 1) throw new ResearchMemoryError('run inspect requires one run ID.');
+    print(memory.getRun(arguments_[0]));
+    return;
+  }
+  if (subcommand === 'search') {
+    requireOnlyOptions(parsed, [
+      '--db', '--id', '--author', '--kind', '--since', '--until', '--tag',
+      '--text', '--limit', '--order',
+    ]);
+    requireNoArguments('run search', arguments_);
+    const startedAt = new Date().toISOString();
+    const outcome = memory.searchEvents(eventQueryFromArguments(parsed));
+    print(memory.recordRun({
+      operation: 'event-query',
+      inputs: outcome.query,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      status: 'completed',
+      diagnostics: [],
+      results: outcome.results.map(({ event, observations, matchReasons }) => ({
+        type: 'event', id: event.id, reasons: matchReasons, provenance: observations,
+      })),
+    }));
+    return;
+  }
+  if (subcommand === 'accounts') {
+    requireOnlyOptions(parsed, ['--db', '--pubkey', '--text', '--limit']);
+    requireNoArguments('run accounts', arguments_);
+    const startedAt = new Date().toISOString();
+    const outcome = memory.searchAccounts(accountQueryFromArguments(parsed));
+    print(memory.recordRun({
+      operation: 'account-query',
+      inputs: outcome.query,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      status: 'completed',
+      diagnostics: [],
+      results: outcome.results.map(({ publicKey, observations, matchReasons }) => ({
+        type: 'account', id: publicKey, reasons: matchReasons, provenance: observations,
+      })),
+    }));
+    return;
+  }
+  throw new ResearchMemoryError(
+    'run requires "search", "accounts", "list", or "inspect".',
+  );
+}
+
+function handleSetCommand(memory, parsed) {
+  const [subcommand, ...arguments_] = parsed.commandArguments;
+  if (subcommand === 'create') {
+    requireOnlyOptions(parsed, ['--db']);
+    if (arguments_.length !== 1) throw new ResearchMemoryError('set create requires one name.');
+    print(memory.createSet(arguments_[0]));
+  } else if (subcommand === 'list') {
+    requireOnlyOptions(parsed, ['--db']);
+    requireNoArguments('set list', arguments_);
+    print({ sets: memory.listSets() });
+  } else if (subcommand === 'inspect') {
+    requireOnlyOptions(parsed, ['--db']);
+    if (arguments_.length !== 1) throw new ResearchMemoryError('set inspect requires one set ID.');
+    print(memory.getSet(arguments_[0]));
+  } else if (subcommand === 'rename') {
+    requireOnlyOptions(parsed, ['--db']);
+    if (arguments_.length !== 2) throw new ResearchMemoryError('set rename requires a set ID and name.');
+    print(memory.renameSet(arguments_[0], arguments_[1]));
+  } else if (subcommand === 'delete') {
+    requireOnlyOptions(parsed, ['--db']);
+    if (arguments_.length !== 1) throw new ResearchMemoryError('set delete requires one set ID.');
+    print(memory.deleteSet(arguments_[0]));
+  } else if (subcommand === 'add') {
+    requireOnlyOptions(parsed, ['--db', '--reason-json']);
+    if (arguments_.length !== 3) {
+      throw new ResearchMemoryError('set add requires a set ID, entity type, and full entity ID.');
+    }
+    print(memory.addSetMember(
+      arguments_[0],
+      { type: arguments_[1], id: arguments_[2] },
+      parsed.reasonJson ? parseJsonOption(parsed.reasonJson, 'reason-json') : { type: 'explicit' },
+    ));
+  } else if (subcommand === 'remove') {
+    requireOnlyOptions(parsed, ['--db']);
+    if (arguments_.length !== 3) {
+      throw new ResearchMemoryError('set remove requires a set ID, entity type, and full entity ID.');
+    }
+    print(memory.removeSetMember(arguments_[0], { type: arguments_[1], id: arguments_[2] }));
+  } else if (subcommand === 'from-run') {
+    requireOnlyOptions(parsed, ['--db']);
+    if (arguments_.length !== 2) throw new ResearchMemoryError('set from-run requires a name and run ID.');
+    print(memory.createSetFromRun(arguments_[0], arguments_[1]));
+  } else if (subcommand === 'expand') {
+    requireOnlyOptions(parsed, ['--db', '--relationship', '--direction', '--limit']);
+    if (arguments_.length !== 2 || parsed.relationships.length === 0) {
+      throw new ResearchMemoryError(
+        'set expand requires a source set ID, new name, and at least one --relationship.',
+      );
+    }
+    print(memory.expandSet(arguments_[0], arguments_[1], {
+      relationshipTypes: parsed.relationships,
+      ...(parsed.direction ? { direction: parsed.direction } : {}),
+      ...(parsed.limit ? { limit: parseIntegerOption(parsed.limit, 'limit') } : {}),
+    }));
+  } else if (subcommand === 'combine') {
+    requireOnlyOptions(parsed, ['--db']);
+    if (arguments_.length !== 4) {
+      throw new ResearchMemoryError(
+        'set combine requires an operation, left set ID, right set ID, and new name.',
+      );
+    }
+    print(memory.combineSets(arguments_[0], arguments_[1], arguments_[2], arguments_[3]));
+  } else if (subcommand === 'explain') {
+    requireOnlyOptions(parsed, ['--db']);
+    if (arguments_.length !== 3) {
+      throw new ResearchMemoryError('set explain requires a set ID, entity type, and entity ID.');
+    }
+    print(memory.explainSetMember(
+      arguments_[0], { type: arguments_[1], id: arguments_[2] },
+    ));
+  } else {
+    throw new ResearchMemoryError(
+      'set requires create, list, inspect, rename, delete, add, remove, from-run, expand, combine, or explain.',
+    );
+  }
+}
+
+function eventQueryFromArguments(parsed) {
+  return {
+    ...(parsed.ids.length ? { ids: parsed.ids } : {}),
+    ...(parsed.authors.length ? { authors: parsed.authors } : {}),
+    ...(parsed.kinds.length ? { kinds: parsed.kinds.map((kind) => parseNonNegativeInteger(kind, 'kind')) } : {}),
+    ...(parsed.since !== undefined ? { since: parseNonNegativeInteger(parsed.since, 'since') } : {}),
+    ...(parsed.until !== undefined ? { until: parseNonNegativeInteger(parsed.until, 'until') } : {}),
+    ...(parsed.tags.length ? { tags: parseTags(parsed.tags) } : {}),
+    ...(parsed.texts.length ? { text: parsed.texts } : {}),
+    ...(parsed.limit !== undefined ? { limit: parseIntegerOption(parsed.limit, 'limit') } : {}),
+    ...(parsed.order !== undefined ? { order: parsed.order } : {}),
+  };
+}
+
+function accountQueryFromArguments(parsed) {
+  return {
+    ...(parsed.publicKeys.length ? { publicKeys: parsed.publicKeys } : {}),
+    ...(parsed.texts.length ? { text: parsed.texts } : {}),
+    ...(parsed.limit !== undefined ? { limit: parseIntegerOption(parsed.limit, 'limit') } : {}),
+  };
+}
+
+function parseJsonOption(value, name) {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new ResearchMemoryError(`Malformed --${name} JSON: ${error.message}`);
   }
 }
 

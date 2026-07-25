@@ -131,6 +131,37 @@ false`. Account resolution reflects public keys evidenced as stored authors or
 account references independently of whether kind-0 profile metadata is
 available.
 
+### Research runs and sets
+
+`recordRun(record)` stores an immutable snapshot of a completed `acquisition`,
+`event-query`, or `account-query`. A record contains normalized public
+`inputs`, ISO `startedAt` and `finishedAt` times, a completion `status`,
+structured `diagnostics`, and event/account `results`. Each result carries its
+match `reasons` and acquisition `provenance`. The returned UUID is stable;
+recording equivalent inputs again creates a different run. `listRuns()` and
+`getRun(id)` return these snapshots and never repeat the operation.
+
+Saved research sets use stable UUIDs and user-facing names. The public
+operations are:
+
+- `createSet`, `listSets`, `getSet`, `renameSet`, and `deleteSet`;
+- `addSetMember` and `removeSetMember`, where a member is
+  `{ type: "event" | "account", id }`;
+- `createSetFromRun(name, runId)`;
+- `expandSet(sourceId, name, { relationshipTypes, direction, limit })`;
+- `combineSets(operation, leftId, rightId, name)` for `union`,
+  `intersection`, and `difference`; and
+- `explainSetMember(setId, member)`.
+
+Full 64-character lowercase hexadecimal identifiers are accepted even when
+their evidence is not present locally. Membership reasons are durable and may
+include explicit selection, a source run with its original reasons and
+provenance, relationship evidence and its source member, or the contributing
+sets in a set operation. Expansion uses only the stored relationships exposed
+by local navigation, requires selected relationship types, and has a bounded
+limit (default 50, maximum 1000). Set combinations create a new set and never
+mutate either input. None of these operations contacts a relay.
+
 ## CLI
 
 All commands operate on the same public library and require a database path:
@@ -150,6 +181,14 @@ nostr-research-memory --db ./research.sqlite accounts --text alice
 nostr-research-memory --db ./research.sqlite account 84bf7562262b
 nostr-research-memory --db ./research.sqlite related event 78c49d12afd4
 nostr-research-memory --db ./research.sqlite related account 84bf7562262b
+nostr-research-memory --db ./research.sqlite run search --kind 1 --text fixture
+nostr-research-memory --db ./research.sqlite run list
+nostr-research-memory --db ./research.sqlite set from-run findings <run-id>
+nostr-research-memory --db ./research.sqlite set add <set-id> event <full-event-id>
+nostr-research-memory --db ./research.sqlite set expand <set-id> replies \
+  --relationship reply-parent --direction outbound --limit 50
+nostr-research-memory --db ./research.sqlite set combine union <left-id> <right-id> combined
+nostr-research-memory --db ./research.sqlite set explain <set-id> event <full-event-id>
 nostr-research-memory --db ./research.sqlite reset
 ```
 
@@ -160,4 +199,12 @@ events, and invalid input exit non-zero with an `Error:` message.
 For acquisition, use exactly one of `--filter-json` or `--filter-file`; the
 latter names a file containing one JSON filter object. Repeated `--relay`
 arguments are required. Output is the same structured result returned by the
-library plus the database path.
+library plus the database path. Add `--record` to `acquire` to preserve the
+operation as a run. `run search` and `run accounts` execute and record local
+queries; `run inspect` reopens one historical result.
+
+The `set` command supports `create`, `list`, `inspect`, `rename`, `delete`,
+`add`, `remove`, `from-run`, `expand`, `combine`, and `explain`. Names
+containing spaces should be shell-quoted. `set add` accepts optional
+`--reason-json`; expansion requires one or more repeatable `--relationship`
+options.

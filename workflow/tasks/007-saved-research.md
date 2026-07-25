@@ -1,6 +1,6 @@
 ---
 id: 007-saved-research
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/007-saved-research.validate.sh
 depends_on: 006-query-and-navigate-memory
