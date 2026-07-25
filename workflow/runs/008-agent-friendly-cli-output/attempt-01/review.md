@@ -1,0 +1,3 @@
+BLOCKED
+
+The mandatory independent fixture-backed compact/full comparison cannot be run because this review environment is read-only and contains no existing SQLite database. Creating the temporary SQLite database fails under the filesystem restrictions. Static inspection found no material defect, and the local root CLI help command resolves correctly, but the required independent end-to-end verification remains unavailable.

@@ -12,6 +12,7 @@
     "build": "npm run build --workspace=nostr-research-client",
     "test": "npm run test --workspace=nostr-research-client",
     "check": "npm run check --workspace=nostr-research-client",
+    "research": "nostr-research-memory",
     "keys:generate": "npm run keys:generate --workspace=nostr-research-client"
   }
 }

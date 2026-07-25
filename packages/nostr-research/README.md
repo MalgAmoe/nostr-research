@@ -166,6 +166,14 @@ mutate either input. None of these operations contacts a relay.
 
 All commands operate on the same public library and require a database path:
 
+From the repository root, `npm run --silent research -- ...` invokes the local
+workspace binary directly. Keep `--silent` so npm's script banner does not
+precede the machine-readable CLI output:
+
+```sh
+npm run --silent research -- --db .data/research.sqlite search --text nostr
+```
+
 ```sh
 nostr-research-memory --db ./research.sqlite init
 nostr-research-memory --db ./research.sqlite import-fixture --relay wss://relay.example
@@ -195,6 +203,18 @@ nostr-research-memory --db ./research.sqlite reset
 Run `nostr-research-memory --help` for commands and options. Successful
 commands print JSON for scripting and inspection; invalid commands, missing
 events, and invalid input exit non-zero with an `Error:` message.
+
+`--output compact|full|ids|ndjson` is accepted before or after the command.
+Search, acquisition, relationship, run-list, and set-list commands default to
+`compact`; evidence inspection defaults to `full`. `compact` bounds event
+content excerpts and avoids repeated evidence, `full` retains canonical events
+and provenance, `ids` emits a JSON identifier array, and `ndjson` emits one
+independently parseable compact record per line.
+
+Node currently reports its built-in SQLite experimental warning on supported
+versions. The CLI leaves that narrowly scoped runtime warning unchanged rather
+than suppressing Node warnings globally; it is written to stderr and does not
+affect machine-readable stdout.
 
 For acquisition, use exactly one of `--filter-json` or `--filter-file`; the
 latter names a file containing one JSON filter object. Repeated `--relay`
