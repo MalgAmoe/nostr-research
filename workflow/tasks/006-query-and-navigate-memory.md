@@ -1,6 +1,6 @@
 ---
 id: 006-query-and-navigate-memory
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/006-query-and-navigate-memory.validate.sh
 depends_on: 005-live-relay-acquisition

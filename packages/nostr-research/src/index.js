@@ -4,7 +4,10 @@ import { validateEvent, verifyEvent } from 'nostr-tools';
 
 const SCHEMA_VERSION = 1;
 const EVENT_ID = /^[a-f0-9]{64}$/;
+const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
 const SIGNATURE = /^[a-f0-9]{128}$/;
+const DEFAULT_QUERY_LIMIT = 50;
+const MAX_QUERY_LIMIT = 1000;
 
 export class ResearchMemoryError extends Error {
   constructor(message) {
@@ -152,6 +155,135 @@ export class ResearchMemory {
     };
   }
 
+  /**
+   * Searches only accumulated local evidence. Different constraint fields are
+   * ANDed, values within one field are ORed, and every submitted text term
+   * must occur (case-insensitively) in event content.
+   */
+  searchEvents(query = {}) {
+    this.#assertOpen();
+    const normalized = normalizeEventQuery(query);
+    const events = allEventRecords(this.#database);
+    const ids = resolvePrefixes(
+      normalized.ids,
+      events.map(({ event }) => event.id),
+      'event ID',
+    );
+    const authors = resolvePrefixes(
+      normalized.authors,
+      [...new Set(events.map(({ event }) => event.pubkey))],
+      'author public key',
+    );
+
+    const matches = [];
+    for (const record of events) {
+      const reasons = matchEvent(record.event, normalized, ids, authors);
+      if (reasons) matches.push({ ...record, matchReasons: reasons });
+    }
+    matches.sort((left, right) => compareEvents(left.event, right.event, normalized.order));
+    return {
+      query: publicEventQuery(normalized),
+      results: matches.slice(0, normalized.limit),
+    };
+  }
+
+  /** Resolves the current stored kind-0 metadata event for one public key. */
+  resolveAccount(publicKeyOrPrefix) {
+    this.#assertOpen();
+    const records = allEventRecords(this.#database);
+    const publicKey = resolveOnePrefix(
+      publicKeyOrPrefix,
+      [...new Set(records.map(({ event }) => event.pubkey))],
+      'account public key',
+    );
+    const metadata = currentMetadata(records.filter(
+      ({ event }) => event.pubkey === publicKey && event.kind === 0,
+    ));
+    if (!metadata) {
+      throw new ResearchMemoryError(`No stored kind-0 metadata event found for account ${publicKey}.`);
+    }
+    return accountResult(publicKey, metadata, [{ type: 'public-key', value: publicKey }]);
+  }
+
+  /** Searches current stored account metadata, never relays or identity services. */
+  searchAccounts(query = {}) {
+    this.#assertOpen();
+    const normalized = normalizeAccountQuery(query);
+    const records = allEventRecords(this.#database);
+    const byAuthor = new Map();
+    for (const record of records) {
+      if (record.event.kind !== 0) continue;
+      const existing = byAuthor.get(record.event.pubkey);
+      if (!existing || compareReplaceable(record, existing) < 0) {
+        byAuthor.set(record.event.pubkey, record);
+      }
+    }
+
+    const results = [];
+    for (const [publicKey, metadata] of byAuthor) {
+      if (normalized.publicKeys && !normalized.publicKeys.some((prefix) => publicKey.startsWith(prefix))) continue;
+      const profile = parseProfile(metadata.event);
+      const reasons = [];
+      if (normalized.publicKeys) {
+        reasons.push({
+          type: 'public-key-prefix',
+          prefixes: normalized.publicKeys.filter((prefix) => publicKey.startsWith(prefix)),
+          value: publicKey,
+        });
+      }
+      let termsMatch = true;
+      for (const term of normalized.terms) {
+        const fields = ['name', 'display_name', 'nip05'].filter(
+          (field) => typeof profile[field] === 'string'
+            && profile[field].toLocaleLowerCase().includes(term.toLocaleLowerCase()),
+        );
+        if (fields.length === 0) {
+          termsMatch = false;
+          break;
+        }
+        reasons.push({ type: 'profile-term', term, fields });
+      }
+      if (termsMatch) results.push(accountResult(publicKey, metadata, reasons));
+    }
+    results.sort((left, right) => left.publicKey.localeCompare(right.publicKey));
+    return {
+      query: { publicKeys: normalized.publicKeys, terms: normalized.terms, limit: normalized.limit },
+      results: results.slice(0, normalized.limit),
+    };
+  }
+
+  /** Returns evidence-backed outbound and inbound relationships for an event. */
+  relatedEvent(eventIdOrPrefix) {
+    this.#assertOpen();
+    const records = allEventRecords(this.#database);
+    const eventId = resolveOnePrefix(
+      eventIdOrPrefix,
+      records.map(({ event }) => event.id),
+      'event ID',
+    );
+    const subject = records.find(({ event }) => event.id === eventId);
+    if (!subject) throw new ResearchMemoryError(`No stored event found for ID ${eventIdOrPrefix}.`);
+    return buildNavigation('event', eventId, subject, records);
+  }
+
+  /** Returns authored events and stored references to an account. */
+  relatedAccount(publicKeyOrPrefix) {
+    this.#assertOpen();
+    const records = allEventRecords(this.#database);
+    const accountKeys = records
+      .flatMap(({ event }) => [
+        event.pubkey,
+        ...event.tags.filter((tag) => tag[0].toLowerCase() === 'p').map((tag) => tag[1]),
+      ])
+      .filter((value) => EVENT_ID.test(value));
+    const publicKey = resolveOnePrefix(
+      publicKeyOrPrefix,
+      [...new Set(accountKeys)],
+      'account public key',
+    );
+    return buildNavigation('account', publicKey, null, records);
+  }
+
   /** Reports storage-level totals without exposing a schema to callers. */
   summary() {
     this.#assertOpen();
@@ -175,6 +307,7 @@ export class ResearchMemory {
       this.#closed = true;
     }
   }
+
 }
 
 /** Returns a fresh copy of the committed fixture events. */
@@ -216,6 +349,382 @@ function normalizeObservation(observation) {
     relay: observation.relay,
     observedAt: new Date(observedAt).toISOString(),
   };
+}
+
+function allEventRecords(database) {
+  return database
+    .prepare('SELECT event_id, raw_event FROM events ORDER BY event_id')
+    .all()
+    .map((row) => {
+      const event = JSON.parse(row.raw_event);
+      return {
+        event,
+        observations: database
+          .prepare(
+            'SELECT observation_id, relay, observed_at FROM observations WHERE event_id = ? ORDER BY observation_id',
+          )
+          .all(row.event_id)
+          .map((observation) => ({
+            id: Number(observation.observation_id),
+            relay: observation.relay,
+            observedAt: observation.observed_at,
+          })),
+      };
+    });
+}
+
+function normalizeEventQuery(query) {
+  assertPlainObject(query, 'Event query');
+  const allowed = new Set(['ids', 'authors', 'kinds', 'since', 'until', 'tags', 'text', 'limit', 'order']);
+  rejectUnknownKeys(query, allowed, 'event query');
+  const ids = normalizeStringList(query.ids, 'ids', true);
+  const authors = normalizeStringList(query.authors, 'authors', true);
+  const kinds = normalizeIntegerList(query.kinds, 'kinds');
+  const since = normalizeTimestamp(query.since, 'since');
+  const until = normalizeTimestamp(query.until, 'until');
+  if (since !== undefined && until !== undefined && since > until) {
+    throw new ResearchMemoryError('Event query since must be less than or equal to until.');
+  }
+  const tags = normalizeTags(query.tags);
+  const terms = normalizeStringList(query.text, 'text', false) ?? [];
+  const limit = normalizeLimit(query.limit);
+  const order = query.order ?? 'newest';
+  if (!['newest', 'oldest'].includes(order)) {
+    throw new ResearchMemoryError('Event query order must be "newest" or "oldest".');
+  }
+  return { ids, authors, kinds, since, until, tags, terms, limit, order };
+}
+
+function normalizeAccountQuery(query) {
+  assertPlainObject(query, 'Account query');
+  rejectUnknownKeys(query, new Set(['publicKeys', 'text', 'limit']), 'account query');
+  return {
+    publicKeys: normalizeStringList(query.publicKeys, 'publicKeys', true),
+    terms: normalizeStringList(query.text, 'text', false) ?? [],
+    limit: normalizeLimit(query.limit),
+  };
+}
+
+function normalizeTags(tags) {
+  if (tags === undefined) return {};
+  assertPlainObject(tags, 'Event query tags');
+  const normalized = {};
+  for (const [name, values] of Object.entries(tags)) {
+    const tagName = name.startsWith('#') ? name.slice(1) : name;
+    if (!/^[A-Za-z]$/.test(tagName)) {
+      throw new ResearchMemoryError(`Tag constraint ${name} must name one single-letter Nostr tag.`);
+    }
+    normalized[tagName] = [
+      ...(normalized[tagName] ?? []),
+      ...normalizeStringList(values, `tags.${name}`, false),
+    ];
+    normalized[tagName] = [...new Set(normalized[tagName])];
+  }
+  return normalized;
+}
+
+function normalizeStringList(value, name, hex) {
+  if (value === undefined) return undefined;
+  const values = Array.isArray(value) ? value : [value];
+  if (values.length === 0) throw new ResearchMemoryError(`${name} must not be empty.`);
+  for (const item of values) {
+    if (typeof item !== 'string' || item.length === 0) {
+      throw new ResearchMemoryError(`${name} values must be non-empty strings.`);
+    }
+    if (hex && !HEX_PREFIX.test(item)) {
+      throw new ResearchMemoryError(`${name} values must be 4 to 64 lowercase hexadecimal characters.`);
+    }
+  }
+  return [...new Set(values)];
+}
+
+function normalizeIntegerList(value, name) {
+  if (value === undefined) return undefined;
+  const values = Array.isArray(value) ? value : [value];
+  if (values.length === 0 || values.some((item) => !Number.isSafeInteger(item) || item < 0)) {
+    throw new ResearchMemoryError(`${name} must contain non-negative safe integers.`);
+  }
+  return [...new Set(values)];
+}
+
+function normalizeTimestamp(value, name) {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new ResearchMemoryError(`${name} must be a non-negative Unix timestamp integer.`);
+  }
+  return value;
+}
+
+function normalizeLimit(value) {
+  if (value === undefined) return DEFAULT_QUERY_LIMIT;
+  if (!Number.isSafeInteger(value) || value < 1 || value > MAX_QUERY_LIMIT) {
+    throw new ResearchMemoryError(`limit must be an integer from 1 to ${MAX_QUERY_LIMIT}.`);
+  }
+  return value;
+}
+
+function resolvePrefixes(prefixes, candidates, label) {
+  if (!prefixes) return null;
+  const resolved = new Set();
+  for (const prefix of prefixes) {
+    const matches = candidates.filter((candidate) => candidate.startsWith(prefix));
+    if (matches.length > 1) {
+      throw new ResearchMemoryError(`Ambiguous ${label} prefix ${prefix}: ${matches.length} stored values match.`);
+    }
+    if (matches.length === 1) resolved.add(matches[0]);
+  }
+  return resolved;
+}
+
+function resolveOnePrefix(prefix, candidates, label) {
+  const normalized = normalizeStringList(prefix, label, true)[0];
+  const matches = [...new Set(candidates)].filter((candidate) => candidate.startsWith(normalized));
+  if (matches.length === 0) throw new ResearchMemoryError(`No stored ${label} matches ${normalized}.`);
+  if (matches.length > 1) {
+    throw new ResearchMemoryError(`Ambiguous ${label} prefix ${normalized}: ${matches.length} stored values match.`);
+  }
+  return matches[0];
+}
+
+function matchEvent(event, query, ids, authors) {
+  const reasons = [];
+  if (ids) {
+    if (!ids.has(event.id)) return null;
+    reasons.push({ type: 'event-id', value: event.id });
+  }
+  if (authors) {
+    if (!authors.has(event.pubkey)) return null;
+    reasons.push({ type: 'author', value: event.pubkey });
+  }
+  if (query.kinds) {
+    if (!query.kinds.includes(event.kind)) return null;
+    reasons.push({ type: 'kind', value: event.kind });
+  }
+  if (query.since !== undefined) {
+    if (event.created_at < query.since) return null;
+    reasons.push({ type: 'created-at-since', value: query.since });
+  }
+  if (query.until !== undefined) {
+    if (event.created_at > query.until) return null;
+    reasons.push({ type: 'created-at-until', value: query.until });
+  }
+  for (const [name, values] of Object.entries(query.tags)) {
+    const matchedValues = values.filter(
+      (value) => event.tags.some((tag) => tag[0] === name && tag[1] === value),
+    );
+    if (matchedValues.length === 0) return null;
+    reasons.push({ type: 'tag', tag: `#${name}`, values: matchedValues });
+  }
+  for (const term of query.terms) {
+    if (!event.content.toLocaleLowerCase().includes(term.toLocaleLowerCase())) return null;
+    reasons.push({ type: 'text', term });
+  }
+  return reasons;
+}
+
+function compareEvents(left, right, order) {
+  const time = order === 'newest'
+    ? right.created_at - left.created_at
+    : left.created_at - right.created_at;
+  return time || left.id.localeCompare(right.id);
+}
+
+function publicEventQuery(query) {
+  return {
+    ids: query.ids,
+    authors: query.authors,
+    kinds: query.kinds,
+    since: query.since,
+    until: query.until,
+    tags: query.tags,
+    text: query.terms,
+    limit: query.limit,
+    order: query.order,
+  };
+}
+
+function parseProfile(event) {
+  try {
+    const profile = JSON.parse(event.content);
+    return profile && typeof profile === 'object' && !Array.isArray(profile) ? profile : {};
+  } catch {
+    return {};
+  }
+}
+
+function compareReplaceable(left, right) {
+  return right.event.created_at - left.event.created_at
+    || left.event.id.localeCompare(right.event.id);
+}
+
+function currentMetadata(records) {
+  return records.sort(compareReplaceable)[0] ?? null;
+}
+
+function accountResult(publicKey, metadata, matchReasons) {
+  return {
+    publicKey,
+    profile: parseProfile(metadata.event),
+    metadataEvent: metadata.event,
+    observations: metadata.observations,
+    matchReasons,
+  };
+}
+
+function buildNavigation(subjectType, subjectId, subject, records) {
+  const byId = new Map(records.map((record) => [record.event.id, record]));
+  const evidencedAccounts = new Set(records.flatMap(({ event }) => [
+    event.pubkey,
+    ...event.tags
+      .filter((tag) => tag[0].toLowerCase() === 'p' && EVENT_ID.test(tag[1]))
+      .map((tag) => tag[1]),
+  ]));
+  const metadataByAuthor = new Map();
+  for (const record of records) {
+    if (record.event.kind !== 0) continue;
+    const existing = metadataByAuthor.get(record.event.pubkey);
+    if (!existing || compareReplaceable(record, existing) < 0) {
+      metadataByAuthor.set(record.event.pubkey, record);
+    }
+  }
+  const relationships = [];
+  for (const record of records) {
+    for (const relation of eventRelationships(record.event)) {
+      const outbound = subjectType === 'event' && record.event.id === subjectId;
+      const inbound = relation.targetType === subjectType && relation.targetId === subjectId;
+      if (!outbound && !inbound) continue;
+      const targetRecord = relation.targetType === 'event' ? byId.get(relation.targetId) : undefined;
+      const targetMetadata = relation.targetType === 'account'
+        ? metadataByAuthor.get(relation.targetId)
+        : undefined;
+      relationships.push({
+        direction: outbound ? 'outbound' : 'inbound',
+        type: relation.type,
+        sourceEventId: record.event.id,
+        target: {
+          type: relation.targetType,
+          id: relation.targetId,
+          resolved: relation.targetType === 'event'
+            ? Boolean(targetRecord)
+            : relation.targetType === 'account'
+              ? evidencedAccounts.has(relation.targetId)
+              : true,
+        },
+        evidence: relation.evidence,
+        sourceEvent: record,
+        ...(targetRecord ? { targetEvent: targetRecord } : {}),
+        ...(targetMetadata ? {
+          targetAccount: accountResult(relation.targetId, targetMetadata, []),
+        } : {}),
+      });
+    }
+  }
+  relationships.sort((left, right) => (
+    left.direction.localeCompare(right.direction)
+    || left.sourceEventId.localeCompare(right.sourceEventId)
+    || left.type.localeCompare(right.type)
+    || left.target.id.localeCompare(right.target.id)
+  ));
+  return {
+    subject: subjectType === 'event'
+      ? { type: 'event', id: subjectId, record: subject }
+      : {
+          type: 'account',
+          id: subjectId,
+          ...(metadataByAuthor.has(subjectId)
+            ? { account: accountResult(subjectId, metadataByAuthor.get(subjectId), []) }
+            : {}),
+        },
+    relationships,
+  };
+}
+
+function eventRelationships(event) {
+  const relationships = [{
+    type: 'author',
+    targetType: 'account',
+    targetId: event.pubkey,
+    evidence: { interpretation: 'known', protocol: 'NIP-01', field: 'pubkey' },
+  }];
+  const eTags = event.tags
+    .map((tag, index) => ({ tag, index }))
+    .filter(({ tag }) => tag[0] === 'e' && EVENT_ID.test(tag[1]));
+  const marked = eTags.filter(({ tag }) => ['root', 'reply', 'mention'].includes(tag[3]));
+  const nip22Root = event.kind === 1111
+    ? event.tags.findIndex((tag) => tag[0] === 'E' && EVENT_ID.test(tag[1]))
+    : -1;
+
+  for (const { tag, index } of eTags) {
+    let type;
+    let interpretation = 'known';
+    let protocol = 'NIP-10';
+    if (nip22Root >= 0 && tag[3] === undefined) {
+      type = 'reply-parent';
+      protocol = 'NIP-22';
+    } else if (tag[3] === 'root') type = 'reply-root';
+    else if (tag[3] === 'reply') type = 'reply-parent';
+    else if (tag[3] === 'mention') type = 'mentioned-event';
+    else if (marked.length === 0) {
+      if (eTags.length === 1 || index === eTags[0].index) type = 'reply-root';
+      else if (index === eTags.at(-1).index) type = 'reply-parent';
+      else type = 'mentioned-event';
+      interpretation = 'best-effort-fallback';
+    } else {
+      type = 'mentioned-event';
+      interpretation = 'best-effort-fallback';
+    }
+    relationships.push(tagRelationship(type, 'event', tag[1], tag, index, protocol, interpretation));
+    if (eTags.length === 1 && marked.length === 0 && nip22Root < 0) {
+      relationships.push(tagRelationship(
+        'reply-parent', 'event', tag[1], tag, index, protocol, interpretation,
+      ));
+    }
+  }
+  if (nip22Root >= 0) {
+    const tag = event.tags[nip22Root];
+    relationships.push(tagRelationship('reply-root', 'event', tag[1], tag, nip22Root, 'NIP-22', 'known'));
+  }
+  event.tags.forEach((tag, index) => {
+    if (tag[0] === 'q' && EVENT_ID.test(tag[1])) {
+      relationships.push(tagRelationship('quoted-event', 'event', tag[1], tag, index, 'NIP-18', 'known'));
+    } else if (['p', 'P'].includes(tag[0]) && EVENT_ID.test(tag[1])) {
+      relationships.push(tagRelationship(
+        'mentioned-account', 'account', tag[1], tag, index,
+        event.kind === 1111 ? 'NIP-22' : 'NIP-01', 'known',
+      ));
+    } else if (tag[0] === 't' && typeof tag[1] === 'string') {
+      relationships.push(tagRelationship('topic', 'tag', tag[1], tag, index, 'NIP-01', 'known'));
+    } else if (tag[0] === 'E' && EVENT_ID.test(tag[1]) && event.kind !== 1111) {
+      relationships.push(tagRelationship(
+        'mentioned-event', 'event', tag[1], tag, index,
+        'NIP-01', 'best-effort-fallback',
+      ));
+    } else if (!['e', 'E', 'q', 'p', 'P', 't'].includes(tag[0]) && typeof tag[1] === 'string') {
+      relationships.push(tagRelationship('other-tag', 'tag', `${tag[0]}:${tag[1]}`, tag, index, 'NIP-01', 'known'));
+    }
+  });
+  return relationships;
+}
+
+function tagRelationship(type, targetType, targetId, tag, tagIndex, protocol, interpretation) {
+  return {
+    type,
+    targetType,
+    targetId,
+    evidence: { interpretation, protocol, tag, tagIndex },
+  };
+}
+
+function assertPlainObject(value, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ResearchMemoryError(`${label} must be an object.`);
+  }
+}
+
+function rejectUnknownKeys(value, allowed, label) {
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) throw new ResearchMemoryError(`Unknown ${label} field: ${key}.`);
+  }
 }
 
 export {

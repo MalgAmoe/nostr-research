@@ -16,6 +16,11 @@ Commands:
   import-fixture [options]     Ingest the reproducible fixture events.
   acquire [options]            Acquire valid events from explicit NIP-01 relays.
   inspect <event-id>           Print one event with its observations.
+  search [options]             Search accumulated local events (never relays).
+  accounts [options]           Search current stored account metadata.
+  account <pubkey-or-prefix>   Resolve current metadata for one stored account.
+  related event <id-or-prefix> Show inbound and outbound event relationships.
+  related account <key-prefix> Show authored events and account references.
   summary                      Print public storage counts.
 
 import-fixture options:
@@ -29,6 +34,22 @@ acquire options:
   --timeout-ms <integer>       Operation timeout (default: ${DEFAULT_ACQUISITION_TIMEOUT_MS}).
   --event-limit <integer>      Global accepted-event limit (default: ${DEFAULT_ACQUISITION_EVENT_LIMIT}).
 
+search options:
+  --id <id-or-prefix>          Event ID constraint; repeat for OR.
+  --author <key-or-prefix>     Author constraint; repeat for OR.
+  --kind <integer>             Event kind constraint; repeat for OR.
+  --since <unix-seconds>       Inclusive lower creation-time bound.
+  --until <unix-seconds>       Inclusive upper creation-time bound.
+  --tag <name=value>           Exact tag constraint (e.g. e=<id>, p=<key>, t=nostr).
+  --text <term>                Case-insensitive content term; repeat for AND.
+  --limit <integer>            Result limit (default: 50, maximum: 1000).
+  --order <newest|oldest>      Deterministic creation-time order.
+
+accounts options:
+  --pubkey <key-or-prefix>     Public-key constraint; repeat for OR.
+  --text <term>                Profile-field term; repeat for AND.
+  --limit <integer>            Result limit (default: 50, maximum: 1000).
+
 Examples:
   nostr-research-memory --db ./research.sqlite init
   nostr-research-memory --db ./research.sqlite import-fixture --relay wss://relay.example
@@ -37,7 +58,10 @@ Examples:
 `;
 
 function parseArguments(args) {
-  const options = { relays: [], providedOptions: new Set() };
+  const options = {
+    relays: [], ids: [], authors: [], kinds: [], tags: [], texts: [], publicKeys: [],
+    providedOptions: new Set(),
+  };
   const positionals = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -45,12 +69,19 @@ function parseArguments(args) {
     if (argument === '--help' || argument === '-h') return { help: true };
     if ([
       '--db', '--relay', '--observed-at', '--filter-json', '--filter-file',
-      '--timeout-ms', '--event-limit',
+      '--timeout-ms', '--event-limit', '--id', '--author', '--kind', '--since',
+      '--until', '--tag', '--text', '--limit', '--order', '--pubkey',
     ].includes(argument)) {
       const value = args[index + 1];
       if (!value || value.startsWith('--')) throw new ResearchMemoryError(`Missing value for ${argument}.`);
       options.providedOptions.add(argument);
       if (argument === '--relay') options.relays.push(value);
+      else if (argument === '--id') options.ids.push(value);
+      else if (argument === '--author') options.authors.push(value);
+      else if (argument === '--kind') options.kinds.push(value);
+      else if (argument === '--tag') options.tags.push(value);
+      else if (argument === '--text') options.texts.push(value);
+      else if (argument === '--pubkey') options.publicKeys.push(value);
       else options[argument.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = value;
       index += 1;
     } else if (argument.startsWith('--')) {
@@ -135,6 +166,55 @@ async function main() {
         if (!record) throw new ResearchMemoryError(`No event found for ID ${parsed.commandArguments[0]}.`);
         print(record);
         return;
+      case 'search':
+        requireOnlyOptions(parsed, [
+          '--db', '--id', '--author', '--kind', '--since', '--until', '--tag',
+          '--text', '--limit', '--order',
+        ]);
+        requireNoArguments(parsed.command, parsed.commandArguments);
+        print({
+          database: parsed.db,
+          ...memory.searchEvents({
+            ...(parsed.ids.length ? { ids: parsed.ids } : {}),
+            ...(parsed.authors.length ? { authors: parsed.authors } : {}),
+            ...(parsed.kinds.length ? { kinds: parsed.kinds.map((kind) => parseNonNegativeInteger(kind, 'kind')) } : {}),
+            ...(parsed.since !== undefined ? { since: parseNonNegativeInteger(parsed.since, 'since') } : {}),
+            ...(parsed.until !== undefined ? { until: parseNonNegativeInteger(parsed.until, 'until') } : {}),
+            ...(parsed.tags.length ? { tags: parseTags(parsed.tags) } : {}),
+            ...(parsed.texts.length ? { text: parsed.texts } : {}),
+            ...(parsed.limit !== undefined ? { limit: parseIntegerOption(parsed.limit, 'limit') } : {}),
+            ...(parsed.order !== undefined ? { order: parsed.order } : {}),
+          }),
+        });
+        return;
+      case 'accounts':
+        requireOnlyOptions(parsed, ['--db', '--pubkey', '--text', '--limit']);
+        requireNoArguments(parsed.command, parsed.commandArguments);
+        print({
+          database: parsed.db,
+          ...memory.searchAccounts({
+            ...(parsed.publicKeys.length ? { publicKeys: parsed.publicKeys } : {}),
+            ...(parsed.texts.length ? { text: parsed.texts } : {}),
+            ...(parsed.limit !== undefined ? { limit: parseIntegerOption(parsed.limit, 'limit') } : {}),
+          }),
+        });
+        return;
+      case 'account':
+        requireOnlyOptions(parsed, ['--db']);
+        if (parsed.commandArguments.length !== 1) {
+          throw new ResearchMemoryError('account requires exactly one public key or unambiguous prefix.');
+        }
+        print(memory.resolveAccount(parsed.commandArguments[0]));
+        return;
+      case 'related':
+        requireOnlyOptions(parsed, ['--db']);
+        if (parsed.commandArguments.length !== 2 || !['event', 'account'].includes(parsed.commandArguments[0])) {
+          throw new ResearchMemoryError('related requires "event <id-or-prefix>" or "account <key-or-prefix>".');
+        }
+        print(parsed.commandArguments[0] === 'event'
+          ? memory.relatedEvent(parsed.commandArguments[1])
+          : memory.relatedAccount(parsed.commandArguments[1]));
+        return;
       case 'summary':
         requireOnlyOptions(parsed, ['--db']);
         requireNoArguments(parsed.command, parsed.commandArguments);
@@ -162,6 +242,26 @@ function parseIntegerOption(value, name) {
     throw new ResearchMemoryError(`--${name} must be a positive integer.`);
   }
   return Number(value);
+}
+
+function parseNonNegativeInteger(value, name) {
+  if (!/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value))) {
+    throw new ResearchMemoryError(`--${name} must be a non-negative integer.`);
+  }
+  return Number(value);
+}
+
+function parseTags(values) {
+  const tags = {};
+  for (const value of values) {
+    const separator = value.indexOf('=');
+    if (separator < 1 || separator === value.length - 1) {
+      throw new ResearchMemoryError('--tag must use name=value with a non-empty name and value.');
+    }
+    const name = value.slice(0, separator);
+    (tags[name] ??= []).push(value.slice(separator + 1));
+  }
+  return tags;
 }
 
 function requireNoArguments(command, arguments_) {
