@@ -1,6 +1,6 @@
 ---
 id: 021-concise-expansion-inspection
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/021-concise-expansion-inspection.validate.sh
 depends_on: 020-correct-reusable-expansion

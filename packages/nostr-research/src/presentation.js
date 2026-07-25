@@ -119,7 +119,7 @@ function showCollection(memory, collection, settings) {
         ? evidenceDetail(collection.items[index], settings.excerptLimit) : {}),
     })),
     omitted: Math.max(0, collection.items.length - preview.items.length),
-    context: compactContext(collection.context),
+    context: compactContext(collection.context, collection.items.length),
     provenance: provenanceSummary(collection.items),
   };
 }
@@ -281,12 +281,83 @@ function provenanceSummary(items) {
   return { observations, relays: [...relays].sort() };
 }
 
-function compactContext(context) {
+function compactContext(context, resultingSubjectCount) {
   if (!context || typeof context !== 'object') return context;
-  const { relationships, ...rest } = context;
+  const { relationships, expansion, ...rest } = context;
   return {
     ...rest,
     ...(Array.isArray(relationships) ? { relationshipCount: relationships.length } : {}),
+    ...(expansion ? {
+      expansion: compactExpansion(expansion, resultingSubjectCount),
+    } : {}),
+  };
+}
+
+function compactExpansion(expansion, resultingSubjectCount) {
+  const options = expansion.options ?? {};
+  const boundedBy = expansion.boundedBy ?? {};
+  const failures = expansionFailures(expansion.requests);
+  return {
+    subjects: {
+      starting: expansion.startingSubjects?.length ?? 0,
+      resulting: resultingSubjectCount,
+    },
+    requests: expansion.requestCount ?? expansion.requests?.length ?? 0,
+    filters: expansion.filterCount ?? 0,
+    counts: {
+      observations: expansion.counts?.observations ?? 0,
+      newlyStored: expansion.counts?.newlyStored ?? 0,
+      duplicate: expansion.counts?.duplicate ?? 0,
+      invalid: expansion.counts?.invalid ?? 0,
+    },
+    workspace: {
+      before: workspaceCapacity(expansion.workspaceBefore),
+      after: workspaceCapacity(expansion.workspaceAfter),
+    },
+    unresolved: {
+      before: unresolvedCounts(expansion.unresolvedBefore),
+      after: unresolvedCounts(expansion.unresolvedAfter),
+    },
+    completionReason: expansion.completionReason,
+    bounds: {
+      depth: { limit: options.depth, reached: boundedBy.depth === true },
+      traversal: { limit: options.limit, reached: boundedBy.traversalLimit === true },
+      events: { limit: options.eventLimit, reached: boundedBy.eventBudget === true },
+      timeoutMs: { limit: options.timeoutMs, reached: boundedBy.timeout === true },
+      cancellation: { reached: boundedBy.cancellation === true },
+    },
+    failures,
+  };
+}
+
+function workspaceCapacity(value) {
+  return { events: value?.eventCount ?? 0, capacity: value?.capacity ?? 0 };
+}
+
+function unresolvedCounts(value) {
+  return {
+    events: Array.isArray(value?.events) ? value.events.length : 0,
+    accounts: Array.isArray(value?.accounts) ? value.accounts.length : 0,
+  };
+}
+
+function expansionFailures(requests) {
+  const failures = [];
+  const seen = new Set();
+  for (const request of requests ?? []) {
+    for (const response of request.relays ?? []) {
+      if (!response.diagnostic) continue;
+      const diagnostic = excerpt(response.diagnostic, 160);
+      const key = JSON.stringify([response.relay, diagnostic]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      failures.push({ relay: response.relay, diagnostic });
+    }
+  }
+  const shown = failures.slice(0, 5);
+  return {
+    items: shown,
+    omitted: failures.length - shown.length,
   };
 }
 
@@ -342,11 +413,15 @@ function boundedInteger(value, fallback, maximum, label, minimum = 1) {
 function enforceSize(value, maximum) {
   const copy = structuredClone(value);
   while (Buffer.byteLength(JSON.stringify(copy)) > maximum && Array.isArray(copy.preview)
-      && copy.preview.length > 1) {
+      && copy.preview.length > (copy.context?.expansion ? 0 : 1)) {
     copy.preview.pop();
     copy.omitted = (copy.omitted ?? 0) + 1;
   }
   if (Buffer.byteLength(JSON.stringify(copy)) <= maximum) return copy;
+  if (copy.context?.expansion) {
+    compactExpansionPresentation(copy, maximum);
+    if (Buffer.byteLength(JSON.stringify(copy)) <= maximum) return copy;
+  }
   return {
     type: copy.type, ...(copy.id ? { id: copy.id } : {}),
     ...(copy.count !== undefined ? { count: copy.count } : {}),
@@ -355,6 +430,27 @@ function enforceSize(value, maximum) {
     context: { bounded: true, note: `Inspection exceeded the ${maximum}-byte approximate bound.` },
     provenance: [],
   };
+}
+
+function compactExpansionPresentation(value, maximum) {
+  value.provenance = [];
+  const failures = value.context.expansion.failures;
+  while (Buffer.byteLength(JSON.stringify(value)) > maximum && failures.items.length > 1) {
+    failures.items.pop();
+    failures.omitted += 1;
+  }
+
+  for (const limit of [120, 80, 48, 32, 20, 12]) {
+    if (Buffer.byteLength(JSON.stringify(value)) <= maximum) return;
+    failures.items = failures.items.map((failure) => ({
+      relay: excerpt(failure.relay, limit),
+      diagnostic: excerpt(failure.diagnostic, limit),
+    }));
+  }
+
+  if (Buffer.byteLength(JSON.stringify(value)) > maximum) {
+    value.context = { expansion: value.context.expansion };
+  }
 }
 
 function increment(map, key) {

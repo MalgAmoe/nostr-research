@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/src/presentation.js`: up to five failures are retained with 160-character diagnostics and unbounded relay strings. At the minimum 1,000-byte size limit, several unique failures can make the summary exceed the bound; `enforceSize()` then replaces the entire expansion dashboard with the generic `{ bounded, note }` context, losing all required operational signals and failures. Make expansion-specific size enforcement progressively compact failures while preserving the dashboard. Update the functional scenario to use several unique relay failures; the current repeated identical failure is deduplicated to one and does not exercise this case.
