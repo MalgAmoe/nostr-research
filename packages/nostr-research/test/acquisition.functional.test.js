@@ -175,6 +175,8 @@ test('timeout and partial connection failure remain observable', async (t) => {
       new Set(result.relays.map(({ outcome }) => outcome)),
       new Set(['timeout', 'connection-failure']),
     );
+    const failedRelay = result.relays.find(({ outcome }) => outcome === 'connection-failure');
+    assert.match(failedRelay.diagnostic, /ECONNREFUSED/);
   } finally {
     await silentRelay.close();
     context.close();

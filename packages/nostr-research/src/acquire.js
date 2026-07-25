@@ -129,8 +129,8 @@ export async function acquireRelayEvents(memory, options) {
           finish('closed', typeof packet[2] === 'string' ? packet[2] : null);
         }
       });
-      socket.addEventListener('error', () => {
-        finish('connection-failure', 'WebSocket connection or protocol error.');
+      socket.addEventListener('error', (event) => {
+        finish('connection-failure', describeWebSocketError(event.error));
       });
       socket.addEventListener('close', (event) => {
         if (!finishing) {
@@ -184,6 +184,12 @@ export async function acquireRelayEvents(memory, options) {
     result.coverage = memory.recordAcquisitionCoverage(result);
   }
   return result;
+}
+
+function describeWebSocketError(error) {
+  if (!(error instanceof Error)) return 'WebSocket connection or protocol error.';
+  const code = typeof error.code === 'string' ? `${error.code}: ` : '';
+  return `${code}${error.message}`;
 }
 
 function finishSocket(socket, subscriptionId, onClosed) {
