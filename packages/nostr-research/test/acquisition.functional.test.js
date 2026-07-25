@@ -14,6 +14,7 @@ import {
   loadFixtureEvents,
   openResearchMemory,
   ResearchMemoryError,
+  resolveReplyContexts,
   subject,
 } from '@nostr-research/memory';
 import { createResearchEnvironment } from '../src/console.js';
@@ -253,6 +254,30 @@ test('console expansion rejects invalid bounds and semantics before networking',
         name: 'ResearchMemoryError',
         message: 'Expansion signal must be an AbortSignal.',
       },
+    );
+    const account = subject('account', '1'.repeat(64));
+    const replyOptions = { relays: ['wss://relay.example/'] };
+    await assert.rejects(
+      environment.research.replyContexts([account], { ...replyOptions, parentLimit: 0 }),
+      /parentLimit must be a positive integer/,
+    );
+    await assert.rejects(
+      environment.research.replyContexts([account], { ...replyOptions, eventLimit: 0 }),
+      /eventLimit must be a positive integer/,
+    );
+    await assert.rejects(
+      environment.research.replyContexts([subject('event', '2'.repeat(64))], replyOptions),
+      /explicit account subjects only/,
+    );
+    await assert.rejects(
+      environment.research.replyContexts([account], {
+        ...replyOptions, relays: ['ws://relay.example/'],
+      }),
+      /explicit wss/,
+    );
+    await assert.rejects(
+      environment.research.replyContexts([account], { ...replyOptions, surprise: true }),
+      /Unknown reply-context options/,
     );
   } finally {
     environment.close();
@@ -494,6 +519,215 @@ test('authored-note expansion obeys the complete operation budget and stays disa
     defaultStart.workspace.close();
   } finally {
     await relay.close();
+    context.close();
+  }
+});
+
+test('bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  const authorKey = Uint8Array.from(Buffer.from('d'.repeat(64), 'hex'));
+  const otherKey = Uint8Array.from(Buffer.from('e'.repeat(64), 'hex'));
+  const author = getPublicKey(authorKey);
+  const storedParent = finalizeEvent({
+    kind: 1, created_at: 10, tags: [], content: 'stored parent',
+  }, otherKey);
+  const acquiredParent = finalizeEvent({
+    kind: 1, created_at: 11, tags: [], content: 'acquired parent',
+  }, otherKey);
+  const root = finalizeEvent({
+    kind: 1, created_at: 9, tags: [], content: 'thread root',
+  }, otherKey);
+  const mention = finalizeEvent({
+    kind: 1, created_at: 8, tags: [], content: 'mere mention',
+  }, otherKey);
+  const unavailableId = 'f'.repeat(64);
+  const parentLimitedId = '0'.repeat(64);
+  const marked = finalizeEvent({
+    kind: 1,
+    created_at: 30,
+    tags: [
+      ['e', root.id, '', 'root'],
+      ['e', mention.id, '', 'mention'],
+      ['e', acquiredParent.id, '', 'reply'],
+    ],
+    content: 'marked reply',
+  }, authorKey);
+  const legacy = finalizeEvent({
+    kind: 1,
+    created_at: 29,
+    tags: [['e', root.id], ['e', mention.id], ['e', storedParent.id]],
+    content: 'legacy reply',
+  }, authorKey);
+  const duplicateParent = finalizeEvent({
+    kind: 1,
+    created_at: 28,
+    tags: [['e', acquiredParent.id, '', 'reply']],
+    content: 'same parent again',
+  }, authorKey);
+  const unavailable = finalizeEvent({
+    kind: 1,
+    created_at: 27,
+    tags: [['e', unavailableId, '', 'reply']],
+    content: 'missing parent',
+  }, authorKey);
+  const parentLimited = finalizeEvent({
+    kind: 1,
+    created_at: 26,
+    tags: [['e', parentLimitedId, '', 'reply']],
+    content: 'parent beyond target limit',
+  }, authorKey);
+  const notReply = finalizeEvent({
+    kind: 1, created_at: 25, tags: [], content: 'not a reply',
+  }, authorKey);
+  const foreign = finalizeEvent({
+    kind: 1, created_at: 40, tags: [['e', acquiredParent.id, '', 'reply']], content: 'foreign',
+  }, otherKey);
+  context.memory.ingest(storedParent, {
+    relay: 'wss://stored.example/', observedAt: '2026-07-26T00:00:00.000Z',
+  });
+  const available = [
+    marked, legacy, duplicateParent, unavailable, parentLimited, notReply, foreign,
+    acquiredParent, root, mention,
+  ];
+  const filters = [];
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send, filter) => {
+      filters.push(filter);
+      const matches = available
+        .filter((event) => matchesFilter(event, filter))
+        .sort((left, right) => right.created_at - left.created_at)
+        .slice(0, filter.limit);
+      for (const event of matches) send(['EVENT', subscriptionId, event]);
+      send(['EOSE', subscriptionId]);
+    });
+  }, context.directory);
+  const unavailablePort = await reserveClosedPort();
+  const workspace = createResearchWorkspace(context.memory, { capacity: 2 });
+  const environment = createResearchEnvironment(context.memory, workspace);
+
+  try {
+    const starts = workspace.collection([
+      { subject: subject('account', author) },
+      { subject: subject('account', author) },
+    ], { operation: 'explicit-accounts' });
+    const sessionBefore = environment.research.session.selection;
+    const result = await environment.research.replyContexts(starts, {
+      relays: [relay.url, `wss://127.0.0.1:${unavailablePort}/`],
+      authoredLimit: 6,
+      parentLimit: 2,
+      timeoutMs: 2_000,
+      eventLimit: 9,
+      concurrency: 2,
+    });
+
+    assert.equal(result.contexts.length, 5);
+    assert.equal(result.collection.type, 'result-collection');
+    assert.ok(
+      result.report.authoredNoteCount > workspace.describe().capacity,
+      'durable reply resolution is independent of bounded workspace eviction',
+    );
+    assert.deepEqual(environment.research.session.selection, sessionBefore);
+    assert.ok(result.contexts.every(({ reply }) => reply.record.event.pubkey === author));
+    assert.ok(!result.contexts.some(({ reply }) => reply.subject.id === notReply.id));
+    assert.equal(
+      result.contexts.find(({ reply }) => reply.subject.id === marked.id).parent.subject.id,
+      acquiredParent.id,
+      'marked reply parent wins over root and mention',
+    );
+    const legacyContext = result.contexts.find(({ reply }) => reply.subject.id === legacy.id);
+    assert.equal(legacyContext.parent.subject.id, storedParent.id);
+    assert.equal(legacyContext.relationship.evidence.interpretation, 'best-effort-fallback');
+    assert.equal(legacyContext.parent.status, 'resolved');
+    assert.ok(legacyContext.parent.provenance.some(({ relay: source }) => (
+      source === 'wss://stored.example/'
+    )));
+    assert.ok(result.contexts
+      .filter(({ parent }) => parent.subject.id === acquiredParent.id)
+      .every(({ parent }) => parent.provenance.some(({ relay: source }) => source === relay.url)));
+    const missing = result.contexts.find(({ reply }) => reply.subject.id === unavailable.id);
+    assert.equal(missing.parent.status, 'unresolved');
+    assert.equal(missing.parent.unresolvedReason, 'unavailable');
+    assert.equal(
+      result.contexts.find(({ reply }) => reply.subject.id === parentLimited.id)
+        .parent.unresolvedReason,
+      'parent-limit',
+    );
+    const parentRequest = result.report.requests.find(({ purpose }) => purpose === 'reply-parents');
+    assert.equal(parentRequest.filter.ids.length, 2);
+    assert.equal(new Set(parentRequest.filter.ids).size, 2);
+    assert.equal(
+      parentRequest.filter.ids.filter((id) => id === acquiredParent.id).length,
+      1,
+      'duplicate references produce one parent target',
+    );
+    assert.ok(result.report.requests.every(({ relays }) => relays.some(
+      ({ outcome }) => outcome === 'connection-failure',
+    )));
+    assert.ok(result.report.counts.observations <= 9);
+    assert.equal(result.report.options.authoredLimit, 6);
+    assert.equal(result.report.options.parentLimit, 2);
+    assert.equal(result.report.unresolvedParentCount, 2);
+    assert.equal(result.report.boundedBy.parentLimit, true);
+    assert.equal(result.contexts
+      .filter(({ parent }) => parent.status === 'resolved')
+      .map(({ reply, parent }) => [reply.record.event.content, parent.record.event.content])
+      .length, 3, 'contexts are ordinary JavaScript data');
+
+    const globallyBounded = await resolveReplyContexts(
+      context.memory,
+      workspace,
+      [subject('account', author)],
+      {
+        relays: [relay.url],
+        authoredLimit: 3,
+        parentLimit: 2,
+        timeoutMs: 2_000,
+        eventLimit: 1,
+      },
+    );
+    assert.equal(globallyBounded.report.counts.observations, 1);
+    assert.equal(globallyBounded.report.boundedBy.eventBudget, true);
+    assert.equal(globallyBounded.report.requestCount, 1);
+
+    const parentBounded = await resolveReplyContexts(
+      context.memory,
+      workspace,
+      [subject('account', author)],
+      {
+        relays: [relay.url],
+        authoredLimit: 5,
+        parentLimit: 1,
+        timeoutMs: 2_000,
+        eventLimit: 6,
+      },
+    );
+    assert.equal(parentBounded.report.requestedParentCount <= 1, true);
+
+    const silentRelay = await startRelay(() => {}, context.directory);
+    try {
+      const timedOut = await resolveReplyContexts(
+        context.memory,
+        workspace,
+        [subject('account', author)],
+        {
+          relays: [silentRelay.url],
+          authoredLimit: 1,
+          parentLimit: 1,
+          timeoutMs: 30,
+          eventLimit: 2,
+        },
+      );
+      assert.equal(timedOut.report.boundedBy.timeout, true);
+    } finally {
+      await silentRelay.close();
+    }
+    assert.ok(filters.filter((filter) => filter.authors?.[0] === author)
+      .every((filter) => filter.limit <= 6));
+  } finally {
+    await relay.close();
+    environment.close();
+    context.memory = null;
     context.close();
   }
 });

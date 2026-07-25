@@ -1,0 +1,134 @@
+Exit code: 1
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+(node:89155) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89155) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+✔ public acquisition handles NIP-01 outcomes, validation, deduplication, provenance, and closure (242.927917ms)
+✔ global limit and cancellation are distinguishable and close owned sockets (166.064875ms)
+✔ timeout force-closes a peer that ignores the WebSocket closing handshake (160.871042ms)
+✔ timeout and partial connection failure remain observable (143.313ms)
+✔ acquisition rejects unusable public inputs before networking (5.572084ms)
+✔ console expansion rejects invalid bounds and semantics before networking (6.542875ms)
+Expanding through 2 relay(s), depth 2, event limit 10, authored-note limit 2 per starting account...
+Expansion completed: 3 request(s), 6 observation(s), 7 workspace event(s).
+✔ authored-note expansion samples only explicit account starts within per-account and global bounds (149.574541ms)
+✔ authored-note expansion obeys the complete operation budget and stays disabled by default (83.360042ms)
+Resolving reply contexts through 2 relay(s), authored limit 6, parent limit 2...
+Reply contexts completed: 5 reply/replies, 2 unresolved parent(s), 7 observation(s).
+✖ bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps (114.359417ms)
+Expanding through 2 relay(s), depth 2, event limit 10...
+Expansion completed: 6 request(s), 4 observation(s), 5 workspace event(s).
+✔ console expansion performs bounded targeted multi-hop acquisition (66.603041ms)
+✔ exported expansion uses the global budget for reply breadth and preserves tiny-workspace seeds (117.192625ms)
+(node:89164) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89189) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89194) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89218) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89220) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89222) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89246) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89248) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89249) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89272) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89273) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89274) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89306) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89375) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ CLI projections remain concise, complete, deterministic, and composable (821.458375ms)
+✔ CLI rejects unsupported output modes with a useful non-zero error (47.202958ms)
+✔ documented root npm launcher emits parseable CLI output without an npm banner (203.316542ms)
+(node:89157) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ one console process preserves JavaScript state and composes a bounded research loop (256.5735ms)
+(node:89158) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ SQLite memory preserves canonical evidence and independent relay observations (62.199459ms)
+(node:89159) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ public console inspection and facets orient a bounded durable investigation (205.055792ms)
+(node:89160) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ replaceable selection and follow interpretation remain stable across reopen (67.58375ms)
+(node:89161) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ public local search composes constraints, explains matches, and preserves provenance (29.014541ms)
+✔ current account metadata uses replaceable semantics and profile search returns source evidence (33.240958ms)
+✔ navigation exposes direction, protocol interpretation, unresolved targets, and provenance (44.742625ms)
+(node:89162) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ large retention is atomic, bounded, durable, and remains directly navigable (1909.432958ms)
+(node:89163) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ selection, bounded traversal, projection, retention, reopen, and continuation compose (64.229459ms)
+(node:89188) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89193) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89217) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89219) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89221) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89245) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:89247) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ recorded query becomes an explainable, expandable, combinable durable research path (398.662209ms)
+(node:89190) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ public session actions remain temporary while checkpoints are durable (51.44175ms)
+✔ sessions start from public runs returned by recordRun and getRun (11.720875ms)
+✔ bounded attempt coverage distinguishes exact attempted slices from uncertainty (11.1955ms)
+✔ advertised NIP-11 limits and stored NIP-65 evidence have stable protocol semantics (1.93025ms)
+(node:89191) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ bounded workspace supports an iterative public research loop over durable evidence (58.63475ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 28
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10507.19625
+
+✖ failing tests:
+
+test at test/acquisition.functional.test.js:526:1
+✖ bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps (114.359417ms)
+  Error [ResearchMemoryError]: Subject reference must be an object.
+      at normalizeSubject (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/index.js:2308:11)
+      at ResearchWorkspace.inspect (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/index.js:1635:18)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:627:51)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+npm error Lifecycle script `test` failed with error:
+npm error code 1
+npm error path /Users/malg/Documents/Codex/nostr/packages/nostr-research
+npm error workspace @nostr-research/memory@0.1.0
+npm error location /Users/malg/Documents/Codex/nostr/packages/nostr-research
+npm error command failed
+npm error command sh -c node --test

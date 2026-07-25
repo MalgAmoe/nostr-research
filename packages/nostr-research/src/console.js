@@ -7,8 +7,10 @@ import {
   expandResearch,
   openResearchMemory,
   ResearchMemoryError,
+  resolveReplyContexts,
 } from './index.js';
 import { normalizeExpansionOptions } from './expansion.js';
+import { normalizeReplyContextOptions } from './reply-contexts.js';
 import { facetResearchCollection, showResearchValue } from './presentation.js';
 
 const DEFAULT_CAPACITY = 500;
@@ -149,6 +151,37 @@ export function createResearchEnvironment(memory, workspace, progress = process.
           `Expansion ${report.completionReason}: ${report.requestCount} request(s), `
           + `${report.counts.observations} observation(s), `
           + `${report.workspaceAfter.eventCount} workspace event(s).\n`,
+        );
+        return result;
+      } finally {
+        suppliedSignal?.removeEventListener('abort', abort);
+        activeAcquisitions.delete(controller);
+      }
+    },
+
+    async replyContexts(accounts, options) {
+      normalizeReplyContextOptions(memory, workspace, accounts, options);
+      const controller = new AbortController();
+      activeAcquisitions.add(controller);
+      const suppliedSignal = options?.signal;
+      const abort = () => controller.abort(suppliedSignal?.reason);
+      suppliedSignal?.addEventListener('abort', abort, { once: true });
+      if (suppliedSignal?.aborted) abort();
+      progress.write(
+        `Resolving reply contexts through ${options?.relays?.length ?? 0} relay(s), `
+        + `authored limit ${options?.authoredLimit ?? 20}, `
+        + `parent limit ${options?.parentLimit ?? 20}...\n`,
+      );
+      try {
+        const result = await resolveReplyContexts(memory, workspace, accounts, {
+          ...options,
+          signal: controller.signal,
+        });
+        progress.write(
+          `Reply contexts ${result.report.completionReason}: `
+          + `${result.report.replyCount} reply/replies, `
+          + `${result.report.unresolvedParentCount} unresolved parent(s), `
+          + `${result.report.counts.observations} observation(s).\n`,
         );
         return result;
       } finally {

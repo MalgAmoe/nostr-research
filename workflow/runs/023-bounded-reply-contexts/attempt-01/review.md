@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/src/reply-contexts.js:51-89` adds acquired events to the bounded workspace, then discovers reply-parent relationships exclusively through `workspace.traverse()`. If `authoredLimit`, account count, or prior workspace contents exceed workspace capacity, authored replies can be evicted before traversal and silently omitted from `contexts`, despite remaining in SQLite and being counted by `authoredNoteCount`. Resolve relationships from durable memory or preserve/hydrate every acquired reply independently of workspace capacity, and add a functional scenario using a workspace smaller than the acquired reply corpus.

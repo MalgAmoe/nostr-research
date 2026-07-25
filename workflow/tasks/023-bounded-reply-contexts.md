@@ -1,6 +1,6 @@
 ---
 id: 023-bounded-reply-contexts
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/023-bounded-reply-contexts.validate.sh
 depends_on: 022-bounded-authored-note-expansion

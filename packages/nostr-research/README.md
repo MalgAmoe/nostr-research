@@ -102,7 +102,8 @@ startup options fail with a non-zero exit.
 
 The single prepared binding is `research`. Its common conveniences are
 `summary()`, `load(query)`, `acquire(options)`, `expand(selection, options)`, `events(query)`,
-`accounts(query)`, `currentEvent(account, kind, options)`, `follows(account)`,
+`accounts(query)`, `replyContexts(accounts, options)`,
+`currentEvent(account, kind, options)`, `follows(account)`,
 `collection(items, context)`, `show(value, options)`, `facets(collection, options)`,
 `exclude(collection, predicate)`,
 `distinctBy(collection, selector)`, `limitPer(collection, selector, limit)`,
@@ -163,6 +164,18 @@ The two-argument traversal is explicit and does not change session selection.
 The one-argument `research.traverse(options)` form deliberately continues and
 updates the current session. `research.follows(account)` likewise requires an
 explicit account and never replaces session selection.
+
+`resolveReplyContexts(memory, workspace, accounts, options)` is the exported
+bounded operation behind `await research.replyContexts(accounts, options)`.
+It samples recent kind-1 notes for explicit account subjects, keeps only notes
+that the library's NIP-10 relationships identify as replies, and resolves each
+direct parent from stored evidence or one bounded parent request. Each entry in
+`contexts` has a complete reply item and either a resolved parent item or an
+explicit unresolved parent with a reason. The reusable `collection` contains
+the deduplicated resolved evidence, while `report` retains options, requests,
+relay outcomes, counts, provenance-related bounds, and unresolved references.
+Authored and parent requests share `timeoutMs` and `eventLimit`, and the
+operation never changes the temporary session selection.
 
 To acquire first, use
 `await research.acquire({ relays: ['wss://relay.example/'], filter:

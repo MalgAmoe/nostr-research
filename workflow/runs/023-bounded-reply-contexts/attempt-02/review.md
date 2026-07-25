@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. The new functional scenario fails at `packages/nostr-research/test/acquisition.functional.test.js:627`. It calls `workspace.inspect()` without a subject, but that public API requires a subject and throws `ResearchMemoryError: Subject reference must be an object.` Replace this capacity check with a valid public source of workspace capacity, then rerun the task validation and complete suite successfully.
