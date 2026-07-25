@@ -4,22 +4,20 @@ Only tasks with complete definitions under `workflow/tasks/` are executable.
 This roadmap records likely later slices without pretending their boundaries
 are settled before the foundation is reviewed.
 
-## 005 — Live acquisition slice
+## Executable foundation
 
-Acquire events from explicitly selected relays, validate and persist them,
-retain relay observations, report relay completion and failures, and distinguish
-newly acquired results from existing local memory. Expose the slice through the
-same public library and CLI used by functional validation.
+Tasks 005–007 are now defined under `workflow/tasks/` and are processed there.
+Their task files, not this roadmap, are authoritative.
 
-The executable task should be written after task 004 passes so its API and
-acceptance criteria reflect the actual storage foundation.
+## 008 — Evaluate the library against the reference client
 
-## 006 — First research navigation slice
+After the acquisition, local-navigation, and saved-research slices pass:
 
-Use accumulated memory to search notes and accounts, inspect events and account
-context, traverse observable replies, mentions, tags, and authors, save a
-research set, expand it, and reopen it with provenance and reasons for
-membership.
+- compare the library capabilities with the reviewed application inventory;
+- identify behavior now superseded by the library;
+- identify missing, questionable, or intentionally rejected behavior;
+- propose the smallest useful reference-client integration boundary;
+- avoid migrating or redesigning the complete UI.
 
-The executable task should be written after the acquisition slice reveals what
-relationship extraction and research-run records are actually needed.
+Task 008 remains provisional until tasks 005–007 reveal the library's actual
+public capabilities and limitations.
