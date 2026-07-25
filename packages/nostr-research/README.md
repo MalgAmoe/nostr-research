@@ -103,7 +103,9 @@ startup options fail with a non-zero exit.
 The single prepared binding is `research`. Its common conveniences are
 `summary()`, `load(query)`, `acquire(options)`, `events(query)`,
 `accounts(query)`, `currentEvent(account, kind, options)`, `follows(account)`,
-`use(result)`, `inspect(subject, options)`,
+`collection(items, context)`, `exclude(collection, predicate)`,
+`distinctBy(collection, selector)`, `limitPer(collection, selector, limit)`,
+`discoveries(collection)`, `use(result)`, `inspect(subject, options)`,
 `traverse(...)`, `compare(left, right)`, and `retain(...)`. The public
 `research.memory`, `research.workspace`, and current `research.session` remain
 available for deeper operations. Returned collections and records are ordinary
@@ -120,17 +122,27 @@ prints one start and one completion progress line without printing events.
 For example:
 
 ```js
-const corpus = research.load({ kinds: [1], order: 'newest', limit: 200 })
-const notes = research.events({ text: ['nostr'], limit: 50 })
-research.use(notes)
-const connected = research.traverse({
+research.load({ kinds: [1], order: 'newest', limit: 200 })
+const found = research.events({ text: ['nostr'], limit: 50 })
+const chosen = research.collection(found.items.filter(item => item.record.event.kind === 1), {
+  operation: 'manual-selection'
+})
+const balanced = research.limitPer(chosen, item => item.record.event.pubkey, 3)
+const acceptable = research.exclude(balanced, item => item.record.event.pubkey === unwantedAccount)
+const connected = research.traverse(acceptable, {
   relationshipTypes: ['reply-parent', 'quoted-event'],
   direction: 'both', depth: 2, limit: 100
 })
-const comparison = research.compare(notes, connected)
-const saved = research.retain('nostr conversation evidence')
+const newEvidence = research.discoveries(connected)
+research.use(newEvidence) // deliberate move into the temporary session
+const saved = research.retain(newEvidence, 'nostr conversation evidence')
 research.memory.getSet(saved.id)
 ```
+
+The two-argument traversal is explicit and does not change session selection.
+The one-argument `research.traverse(options)` form deliberately continues and
+updates the current session. `research.follows(account)` likewise requires an
+explicit account and never replaces session selection.
 
 To acquire first, use
 `await research.acquire({ relays: ['wss://relay.example/'], filter:

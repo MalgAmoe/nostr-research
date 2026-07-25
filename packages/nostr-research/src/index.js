@@ -414,7 +414,10 @@ export class ResearchMemory {
       assertResultCollection(value);
       return value;
     }
-    if (value?.collection?.type === 'result-collection') return value.collection;
+    if (value?.collection?.type === 'result-collection') {
+      assertResultCollection(value.collection);
+      return value.collection;
+    }
     if (Array.isArray(value?.acquiredObservations)) {
       return resultCollection(value.acquiredObservations.map(({ eventId, observations }) => ({
         subject: subject('event', eventId),
@@ -448,6 +451,35 @@ export class ResearchMemory {
       }), { operation: 'adapted-results', query: value.query });
     }
     throw new ResearchMemoryError('Unsupported public result shape.');
+  }
+
+  /** Constructs a normalized reusable collection without accepting invented evidence records. */
+  collection(items, context = {}) {
+    this.#assertOpen();
+    if (!Array.isArray(items)) {
+      throw new ResearchMemoryError('Collection items must be an array.');
+    }
+    assertPlainObject(context, 'Collection context');
+    const normalized = items.map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new ResearchMemoryError('Each collection item must be a result item.');
+      }
+      if (item.role !== undefined && !['seed', 'discovery'].includes(item.role)) {
+        throw new ResearchMemoryError('Collection item role must be "seed" or "discovery".');
+      }
+      if (item.reasons !== undefined && !Array.isArray(item.reasons)) {
+        throw new ResearchMemoryError('Collection item reasons must be an array.');
+      }
+      if (item.provenance !== undefined && !Array.isArray(item.provenance)) {
+        throw new ResearchMemoryError('Collection item provenance must be an array.');
+      }
+      const normalizedSubject = normalizeSubject(item.subject);
+      if (item.record !== undefined) {
+        this.#assertStoredRecord(normalizedSubject, item.record);
+      }
+      return { ...item, subject: normalizedSubject };
+    });
+    return resultCollection(normalized, context);
   }
 
   /**
@@ -1375,6 +1407,39 @@ export class ResearchMemory {
     return loadFixtureEvents().map((event) => this.ingest(event, observation));
   }
 
+  #assertStoredRecord(item, record) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      throw new ResearchMemoryError('An embedded record must be an object.');
+    }
+    const embeddedEvent = item.type === 'event' ? record.event : record.metadataEvent;
+    if (!embeddedEvent || embeddedEvent.id === undefined) {
+      throw new ResearchMemoryError(
+        `Embedded records are not supported for ${item.type} subjects without canonical event evidence.`,
+      );
+    }
+    if (item.type === 'event' && embeddedEvent.id !== item.id) {
+      throw new ResearchMemoryError('Embedded event evidence must match its event subject.');
+    }
+    if (item.type === 'account' && embeddedEvent.pubkey !== item.id) {
+      throw new ResearchMemoryError('Embedded metadata evidence must match its account subject.');
+    }
+    const stored = item.type === 'event'
+      ? this.getEvent(item.id)
+      : currentAccountMetadata(this.#database, item.id);
+    const canonical = item.type === 'event'
+      ? stored
+      : stored && {
+        profile: parseProfile(stored.event),
+        metadataEvent: stored.event,
+        observations: stored.observations,
+      };
+    if (!canonical || stableJson(canonical) !== stableJson(record)) {
+      throw new ResearchMemoryError(
+        'Embedded record must exactly match the canonical record stored in research memory.',
+      );
+    }
+  }
+
   close() {
     if (!this.#closed) {
       this.#database.close();
@@ -1602,6 +1667,12 @@ class ResearchWorkspace {
       return value;
     }
     return this.#memory.asCollection(value);
+  }
+
+  /** Constructs a reusable collection using the attached memory's integrity checks. */
+  collection(items, context = {}) {
+    this.#assertOpen();
+    return this.#memory.collection(items, context);
   }
 
   /** Uses durable projection without making workspace selection/traversal durable queries. */
@@ -2186,7 +2257,7 @@ function resultCollection(items, context = {}) {
     items: items.map((item) => ({
       subject: normalizeSubject(item.subject),
       role: item.role === 'seed' ? 'seed' : 'discovery',
-      ...(item.record ? { record: item.record } : {}),
+      ...(item.record ? { record: cloneJson(item.record) } : {}),
       reasons: cloneJson(item.reasons ?? []),
       provenance: cloneJson(item.provenance ?? []),
     })),

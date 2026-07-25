@@ -133,7 +133,54 @@ export function createResearchEnvironment(memory, workspace, progress = process.
     },
 
     follows(account) {
+      if (account === undefined) {
+        throw new ResearchMemoryError('An explicit account is required for follows.');
+      }
       return memory.follows(account);
+    },
+
+    collection(items, context = {}) {
+      return workspace.collection(items, context);
+    },
+
+    exclude(value, predicate) {
+      return transformCollection(workspace, value, predicate, 'exclude',
+        (items, callback) => items.filter((item, index) => !callback(item, index)));
+    },
+
+    distinctBy(value, selector) {
+      return transformCollection(workspace, value, selector, 'distinct-by', (items, callback) => {
+        const seen = new Set();
+        return items.filter((item, index) => {
+          const key = callback(item, index);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      });
+    },
+
+    limitPer(value, selector, limit) {
+      if (!Number.isSafeInteger(limit) || limit < 0) {
+        throw new ResearchMemoryError('limitPer limit must be a non-negative integer.');
+      }
+      return transformCollection(workspace, value, selector, 'limit-per', (items, callback) => {
+        const counts = new Map();
+        return items.filter((item, index) => {
+          const key = callback(item, index);
+          const count = counts.get(key) ?? 0;
+          counts.set(key, count + 1);
+          return count < limit;
+        });
+      }, { limit });
+    },
+
+    discoveries(value) {
+      const collection = workspace.asCollection(value);
+      return workspace.collection(
+        collection.items.filter((item) => item.role === 'discovery'),
+        transformationContext('discoveries', collection),
+      );
     },
 
     use(value) {
@@ -144,9 +191,26 @@ export function createResearchEnvironment(memory, workspace, progress = process.
       return workspace.inspect(reference, options);
     },
 
-    traverse(valueOrOptions, maybeOptions) {
-      if (maybeOptions === undefined) return session.traverse(valueOrOptions).selection;
-      return workspace.traverse(valueOrOptions, maybeOptions);
+    traverse(...args) {
+      if (args.length === 1) {
+        const [options] = args;
+        if (!isPlainObject(options) || looksLikeCollectionOrSubject(options)) {
+          throw new ResearchMemoryError(
+            'Session traversal requires one options object; explicit traversal requires selection and options.',
+          );
+        }
+        return session.traverse(options).selection;
+      }
+      if (args.length === 2) {
+        const [selection, options] = args;
+        if (!isPlainObject(options)) {
+          throw new ResearchMemoryError('Explicit traversal options must be an object.');
+        }
+        return workspace.traverse(selection, options);
+      }
+      throw new ResearchMemoryError(
+        'traverse expects (options) or (selection, options).',
+      );
     },
 
     compare(left, right) {
@@ -182,6 +246,38 @@ export function createResearchEnvironment(memory, workspace, progress = process.
       memory.close();
     },
   };
+}
+
+function transformCollection(workspace, value, callback, operation, transform, details = {}) {
+  if (typeof callback !== 'function') {
+    throw new ResearchMemoryError(`${operation} requires a callback.`);
+  }
+  const collection = workspace.asCollection(value);
+  return workspace.collection(
+    transform(collection.items, callback),
+    transformationContext(operation, collection, details),
+  );
+}
+
+function transformationContext(operation, collection, details = {}) {
+  return {
+    operation,
+    ...details,
+    inputOperation: collection.context.operation,
+    sourceContext: collection.context.sourceContext ?? collection.context,
+  };
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function looksLikeCollectionOrSubject(value) {
+  return value.type === 'result-collection'
+    || (typeof value.type === 'string' && typeof value.id === 'string')
+    || value.collection !== undefined
+    || value.results !== undefined
+    || value.acquiredObservations !== undefined;
 }
 
 function createBoundedWriter(environment) {

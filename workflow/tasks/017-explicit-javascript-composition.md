@@ -1,6 +1,6 @@
 ---
 id: 017-explicit-javascript-composition
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/017-explicit-javascript-composition.validate.sh
 depends_on: 016-protocol-correct-account-relationships

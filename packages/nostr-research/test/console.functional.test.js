@@ -8,12 +8,15 @@ import { finalizeEvent } from 'nostr-tools';
 import { openResearchMemory } from '@nostr-research/memory';
 
 const CONSOLE = new URL('../bin/nostr-research-console.js', import.meta.url);
-const KEY = Uint8Array.from(Buffer.from('9'.repeat(64), 'hex'));
+const KEYS = ['8', '9'].map(
+  (value) => Uint8Array.from(Buffer.from(value.repeat(64), 'hex')),
+);
 
 test('one console process preserves JavaScript state and composes a bounded research loop', () => {
   const directory = mkdtempSync(join(tmpdir(), 'nostr-console-'));
   const database = join(directory, 'memory.sqlite');
   const eventIds = [];
+  let unwantedAuthor;
   let memory = openResearchMemory(database);
   try {
     for (let index = 0; index < 30; index += 1) {
@@ -22,13 +25,24 @@ test('one console process preserves JavaScript state and composes a bounded rese
         created_at: 1_700_000_000 + index,
         tags: index === 0 ? [] : [['e', eventIds[index - 1], '', 'reply']],
         content: `console evidence ${index}`,
-      }, KEY);
+      }, KEYS[index % KEYS.length]);
+      if (index === 0) unwantedAuthor = event.pubkey;
       eventIds.push(event.id);
       memory.ingest(event, {
         relay: 'wss://console-fixture.example/',
         observedAt: '2026-07-25T00:00:00.000Z',
       });
     }
+    const metadata = finalizeEvent({
+      kind: 0,
+      created_at: 1_700_000_100,
+      tags: [],
+      content: JSON.stringify({ name: 'unwanted profile' }),
+    }, KEYS[0]);
+    memory.ingest(metadata, {
+      relay: 'wss://console-fixture.example/',
+      observedAt: '2026-07-25T00:00:00.000Z',
+    });
     memory.close();
     memory = null;
 
@@ -36,14 +50,49 @@ test('one console process preserves JavaScript state and composes a bounded rese
       "const loaded = research.load({ order: 'oldest', limit: 30 })",
       "await Promise.resolve('AWAIT_OK')",
       "const found = research.events({ text: ['console evidence'], limit: 30 })",
-      'const selected = research.use(found)',
+      "const manual = research.collection(found.items.slice(0, 8), { operation: 'manual-selection', label: 'field trial' })",
+      "let fabricatedRejected = false; try { research.collection([{ ...manual.items[0], record: "
+        + "{ ...manual.items[0].record, event: { ...manual.items[0].record.event, content: 'invented' } } }]) "
+        + "} catch (error) { fabricatedRejected = /exactly match/.test(error.message) }",
+      "let fabricatedProvenanceRejected = false; try { research.collection([{ ...manual.items[0], record: "
+        + "{ ...manual.items[0].record, observations: [{ ...manual.items[0].record.observations[0], "
+        + "relay: 'wss://fabricated.example/' }] } }]) "
+        + "} catch (error) { fabricatedProvenanceRejected = /exactly match/.test(error.message) }",
+      "const account = research.accounts({ text: ['unwanted profile'] }).items[0]",
+      "let fabricatedProfileRejected = false; try { research.collection([{ ...account, record: "
+        + "{ ...account.record, profile: { ...account.record.profile, name: 'fabricated profile' } } }]) "
+        + "} catch (error) { fabricatedProfileRejected = /exactly match/.test(error.message) }",
+      "let invalidRejected = 0; for (const operation of [() => research.exclude(manual, true), "
+        + "() => research.distinctBy(manual, null), () => research.limitPer(manual, item => item, -1), "
+        + "() => research.traverse(manual), () => research.follows()]) "
+        + "{ try { operation() } catch (error) { invalidRejected += 1 } }",
+      'const beforeExplicit = JSON.stringify(research.session.selection)',
+      'const limited = research.limitPer(manual, item => item.record.event.pubkey, 3)',
+      `const unwanted = '${unwantedAuthor}'`,
+      'const excluded = research.exclude(limited, item => item.record.event.pubkey === unwanted)',
+      'const distinct = research.distinctBy(excluded, item => item.subject.id)',
       `const inspected = research.inspect({ type: 'event', id: '${eventIds[0]}' })`,
-      `const walked = research.traverse([{ type: 'event', id: '${eventIds[1]}' }], `
+      `const walked = research.traverse(distinct, `
         + "{ relationshipTypes: ['reply-parent'], direction: 'outbound', depth: 1, limit: 10 })",
-      "const saved = research.retain(walked, 'console retained')",
+      'const discoveries = research.discoveries(walked)',
+      'const explicitUnchanged = beforeExplicit === JSON.stringify(research.session.selection)',
+      "const sessionWalked = research.traverse({ relationshipTypes: ['reply-parent'], "
+        + "direction: 'outbound', depth: 1, limit: 10 })",
+      'const traversalComparison = research.compare(walked, sessionWalked)',
+      'const sessionChanged = beforeExplicit !== JSON.stringify(research.session.selection)',
+      'research.use(discoveries)',
+      "const saved = research.retain(discoveries, 'console retained')",
+      'const retained = research.memory.getSet(saved.id)',
       'found',
       "console.log('SCENARIO:' + JSON.stringify({ persistentCount: loaded.items.length, inspected: inspected.subject.id, "
-        + 'walked: walked.items.length, saved: saved.memberCount }))',
+        + 'manual: manual.items.length, limited: limited.items.length, excluded: excluded.items.length, '
+        + 'distinct: distinct.items.length, walked: walked.items.length, discoveries: discoveries.items.length, '
+        + 'explicitUnchanged, sessionChanged, sessionWalked: sessionWalked.items.length, '
+        + 'sharedTraversalItems: traversalComparison.shared.length, '
+        + 'selectedDiscoveries: research.session.selection.items.length, saved: saved.memberCount, '
+        + 'fabricatedRejected, fabricatedProvenanceRejected, fabricatedProfileRejected, invalidRejected, '
+        + 'reason: retained.members[0].reasons[0].type, '
+        + 'provenance: retained.members[0].reasons[0].provenance.length }))',
       '.exit',
       '',
     ].join('\n');
@@ -64,13 +113,32 @@ test('one console process preserves JavaScript state and composes a bounded rese
     assert.deepEqual(JSON.parse(marker[1]), {
       persistentCount: 30,
       inspected: eventIds[0],
-      walked: 2,
-      saved: 2,
+      manual: 8,
+      limited: 6,
+      excluded: 3,
+      distinct: 3,
+      walked: 6,
+      discoveries: 3,
+      explicitUnchanged: true,
+      sessionChanged: true,
+      sessionWalked: 30,
+      sharedTraversalItems: 6,
+      selectedDiscoveries: 3,
+      saved: 3,
+      fabricatedRejected: true,
+      fabricatedProvenanceRejected: true,
+      fabricatedProfileRejected: true,
+      invalidRejected: 5,
+      reason: 'relationship',
+      provenance: 1,
     });
 
     memory = openResearchMemory(database);
-    assert.equal(memory.summary().events, 30);
-    assert.equal(memory.listSets()[0].memberCount, 2);
+    assert.equal(memory.summary().events, 31);
+    const reopened = memory.getSet(memory.listSets()[0].id);
+    assert.equal(reopened.members.length, 3);
+    assert.equal(reopened.members[0].reasons[0].type, 'relationship');
+    assert.equal(reopened.members[0].reasons[0].provenance.length, 1);
   } finally {
     memory?.close();
     rmSync(directory, { recursive: true, force: true });
