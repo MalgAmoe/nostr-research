@@ -258,11 +258,13 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
     kind: 0, created_at: 90, tags: [], content: '{"name":"bob"}',
   }, bobKey);
   const available = [quoted, secondHop, inboundReply, profile];
+  const receivedFilters = [];
   context.memory.ingest(seed, {
     relay: 'wss://seed.example/', observedAt: '2026-07-25T12:00:00.000Z',
   });
   const relay = await startRelay((connection) => {
     connection.onRequest((subscriptionId, send, filter) => {
+      receivedFilters.push(filter);
       for (const event of available.filter((candidate) => matchesFilter(candidate, filter))) {
         send(['EVENT', subscriptionId, event]);
       }
@@ -319,6 +321,18 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
     assert.equal(report.boundedBy.depth, true);
     assert.ok(report.unresolvedBefore.events.includes(quoted.id));
     assert.ok(!report.unresolvedAfter.events.includes(quoted.id));
+    assert.ok(receivedFilters.some((filter) => (
+      filter['#e']
+      && filter.kinds?.length === 1
+      && filter.kinds[0] === 1
+      && filter.limit === filter['#e'].length
+    )), 'reply acquisition is restricted to bounded kind-1 notes');
+    assert.ok(receivedFilters.some((filter) => (
+      filter.authors
+      && filter.kinds?.length === 1
+      && filter.kinds[0] === 0
+      && filter.limit === filter.authors.length
+    )), 'profile acquisition requests one current candidate per account');
 
     const retained = environment.research.retain(expanded, 'expanded evidence');
     environment.close();

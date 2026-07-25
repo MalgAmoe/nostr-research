@@ -247,7 +247,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
             if (inboundIds.length) {
               inboundIds.forEach((id) => requestedInboundIds.add(id));
               requested = true;
-              await acquireFilter({ '#e': inboundIds });
+              await acquireFilter({ '#e': inboundIds, kinds: [1], limit: inboundIds.length });
             }
           }
 
@@ -255,7 +255,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
           if (accounts.length) {
             accounts.forEach((id) => requestedAccounts.add(id));
             requested = true;
-            await acquireFilter({ authors: accounts, kinds: [0] });
+            await acquireFilter({ authors: accounts, kinds: [0], limit: accounts.length });
           }
           if (completionReason !== 'completed' || !requested) break;
         }
