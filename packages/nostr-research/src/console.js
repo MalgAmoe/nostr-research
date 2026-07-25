@@ -7,6 +7,7 @@ import {
   openResearchMemory,
   ResearchMemoryError,
 } from './index.js';
+import { facetResearchCollection, showResearchValue } from './presentation.js';
 
 const DEFAULT_CAPACITY = 500;
 const PREVIEW_LIMIT = 5;
@@ -191,6 +192,14 @@ export function createResearchEnvironment(memory, workspace, progress = process.
       return workspace.inspect(reference, options);
     },
 
+    show(value, options = {}) {
+      return showResearchValue(memory, workspace, session, value, options);
+    },
+
+    facets(value, options = {}) {
+      return facetResearchCollection(memory, workspace.asCollection(value), options);
+    },
+
     traverse(...args) {
       if (args.length === 1) {
         const [options] = args;
@@ -292,6 +301,11 @@ function createBoundedWriter(environment) {
 }
 
 function boundedView(value, environment) {
+  try {
+    return environment.research.show(value);
+  } catch {
+    // Unknown JavaScript values still receive the generic REPL flood guard.
+  }
   const collection = collectionFrom(value);
   if (collection && collection.items.length > PREVIEW_LIMIT) {
     const previewCollection = {

@@ -1,0 +1,122 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import { finalizeEvent } from 'nostr-tools';
+import { openResearchMemory } from '@nostr-research/memory';
+
+const CONSOLE = new URL('../bin/nostr-research-console.js', import.meta.url);
+const KEYS = ['a', 'b'].map((value) => Uint8Array.from(Buffer.from(value.repeat(64), 'hex')));
+
+test('public console inspection and facets orient a bounded durable investigation', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'nostr-orientation-'));
+  const database = join(directory, 'memory.sqlite');
+  let memory = openResearchMemory(database);
+  const events = [
+    finalizeEvent({
+      kind: 1, created_at: 100, tags: [['t', 'research']],
+      content: `${'very long source evidence '.repeat(1000)} https://example.org/a.png`,
+    }, KEYS[0]),
+    finalizeEvent({
+      kind: 1, created_at: 101, tags: [['t', 'research']],
+      content: `${'another very long note '.repeat(1000)} https://video.example/b.mp4`,
+    }, KEYS[0]),
+    finalizeEvent({
+      kind: 1, created_at: 102, tags: [['p', 'f'.repeat(64)]],
+      content: `${'independent long note '.repeat(1000)} https://example.net/page`,
+    }, KEYS[1]),
+  ];
+  try {
+    for (const event of events) {
+      memory.ingest(event, {
+        relay: 'wss://one.example/', observedAt: '2026-07-25T10:00:00.000Z',
+      });
+    }
+    const repeated = memory.ingest(events[0], {
+      relay: 'wss://two.example/', observedAt: '2026-07-25T10:01:00.000Z',
+    });
+    const coverage = memory.recordAcquisitionCoverage({
+      requested: { relays: ['wss://one.example/', 'wss://two.example/'], filter: { kinds: [1], limit: 3 } },
+      budget: { timeoutMs: 2000, eventLimit: 3, concurrency: 2 },
+      startedAt: '2026-07-25T10:00:00.000Z',
+      finishedAt: '2026-07-25T10:00:02.000Z',
+      completionReason: 'limit',
+      relays: [
+        {
+          relay: 'wss://one.example/', contacted: true, outcome: 'limit',
+          received: 4, invalid: 1, duplicate: 0, newlyStored: 3, observations: 3,
+          diagnostic: null,
+        },
+        {
+          relay: 'wss://two.example/', contacted: true, outcome: 'limit',
+          received: 1, invalid: 0, duplicate: 1, newlyStored: 0, observations: 1,
+          diagnostic: null,
+        },
+      ],
+      acquiredObservations: [{ eventId: events[0].id, observations: [repeated.observation] }],
+    });
+    const run = memory.recordRun({
+      operation: 'event-query', inputs: { kinds: [1] },
+      startedAt: '2026-07-25T10:02:00.000Z', finishedAt: '2026-07-25T10:02:01.000Z',
+      status: 'completed', diagnostics: [],
+      results: events.map((event) => ({
+        type: 'event', id: event.id, reasons: [{ type: 'kind', value: 1 }], provenance: [],
+      })),
+    });
+    const set = memory.retain(memory.select({ kinds: [1] }), 'orientation seed');
+    memory.close();
+    memory = null;
+
+    const source = [
+      'const all = research.load({ kinds: [1], order: "oldest", limit: 10 })',
+      'const facets = research.facets(all, { limit: 10 })',
+      'const chosenAuthor = facets.authors.values[0].id',
+      'const positive = research.collection(all.items.filter(item => item.record.event.pubkey === chosenAuthor), { operation: "author-facet" })',
+      'const balanced = research.limitPer(positive, item => item.record.event.pubkey, 1)',
+      'const negative = research.exclude(all, item => item.record.event.pubkey === chosenAuthor)',
+      `const coverage = research.memory.getAcquisitionCoverage('${coverage.id}')`,
+      'const acquisition = { requested: coverage.requested, budget: coverage.budget, startedAt: coverage.startedAt, finishedAt: coverage.finishedAt, completionReason: coverage.completionReason, relays: coverage.relays, acquiredObservations: coverage.observedEvents.map(item => ({ eventId: item.eventId, observations: [] })), counts: { observations: coverage.observedEvents.length, invalid: 1, duplicate: 1, newlyStored: 3, received: 5 }, coverage }',
+      `const set = research.memory.getSet('${set.id}')`,
+      `const run = research.memory.getRun('${run.id}')`,
+      'const values = [acquisition, coverage, all, all.items[0], all.items[0].record, all.items[0].subject, { type: "account", id: all.items[0].record.event.pubkey }, set, run, research.workspace.describe(), research.session.describe()]',
+      'const shown = values.map(value => research.show(value, { previewLimit: 2, excerptLimit: 80, includeEvidence: true, sizeLimit: 4000 }))',
+      'research.use(research.collection([...balanced.items, ...negative.items], { operation: "positive-negative-direction" }))',
+      "const retained = research.retain('oriented result')",
+      "console.log('ORIENTATION:' + JSON.stringify({ types: shown.map(item => item.type), sizes: shown.map(item => Buffer.byteLength(JSON.stringify(item))), facetEvents: facets.count, authorCount: facets.authors.values[0].count, relayOneCount: facets.observedRelays.values.find(item => item.id === 'wss://one.example/').count, relayTwoCount: facets.observedRelays.values.find(item => item.id === 'wss://two.example/').count, selectedAuthor: chosenAuthor, positive: positive.items.length, negative: negative.items.length, savedId: retained.id, savedCount: retained.memberCount, canonicalLength: research.memory.getEvent(all.items[0].subject.id).event.content.length, shownLength: shown[4].evidence.event.content.length, acquisitionCounts: shown[0].context.counts, uncertainty: shown[1].context.uncertainty }))",
+      '.exit',
+      '',
+    ].join('\n');
+    const result = spawnSync(process.execPath, [CONSOLE.pathname, '--db', database, '--capacity', '10'], {
+      input: source, encoding: 'utf8', timeout: 10_000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const marker = result.stdout.match(/ORIENTATION:(\{.*\})/);
+    assert.ok(marker, result.stdout);
+    const outcome = JSON.parse(marker[1]);
+    assert.deepEqual(outcome.types, [
+      'acquisition', 'acquisition-coverage', 'result-collection', 'event', 'event', 'event',
+      'account', 'set', 'run', 'workspace-summary', 'session-description',
+    ]);
+    assert.ok(outcome.sizes.every((size) => size <= 4000));
+    assert.equal(outcome.facetEvents, 3);
+    assert.equal(outcome.authorCount, 2);
+    assert.equal(outcome.relayOneCount, 3);
+    assert.equal(outcome.relayTwoCount, 1);
+    assert.equal(outcome.positive, 2);
+    assert.equal(outcome.negative, 1);
+    assert.equal(outcome.savedCount, 2);
+    assert.ok(outcome.canonicalLength > 20_000);
+    assert.ok(outcome.shownLength <= 80);
+    assert.equal(outcome.acquisitionCounts.distinctEvents, 1);
+    assert.match(outcome.uncertainty, /not implied/);
+
+    memory = openResearchMemory(database);
+    assert.equal(memory.getSet(outcome.savedId).members.length, 2);
+    assert.equal(memory.getEvent(events[0].id).event.content, events[0].content);
+  } finally {
+    memory?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -103,7 +103,8 @@ startup options fail with a non-zero exit.
 The single prepared binding is `research`. Its common conveniences are
 `summary()`, `load(query)`, `acquire(options)`, `events(query)`,
 `accounts(query)`, `currentEvent(account, kind, options)`, `follows(account)`,
-`collection(items, context)`, `exclude(collection, predicate)`,
+`collection(items, context)`, `show(value, options)`, `facets(collection, options)`,
+`exclude(collection, predicate)`,
 `distinctBy(collection, selector)`, `limitPer(collection, selector, limit)`,
 `discoveries(collection)`, `use(result)`, `inspect(subject, options)`,
 `traverse(...)`, `compare(left, right)`, and `retain(...)`. The public
@@ -112,6 +113,25 @@ available for deeper operations. Returned collections and records are ordinary
 JavaScript values: assign, filter, combine, and pass them into later calls.
 Large collections are only abbreviated when the REPL displays them; assigned
 values remain complete.
+
+`show` is the predictable bounded inspection route for acquisitions and
+coverage, collections, event and account subjects or evidence, research sets
+and runs, workspace summaries, and session descriptions. It uses the shared
+`type`, `id`, `count`, `preview`, `context`, and `provenance` vocabulary where
+those fields apply. Defaults bound previews to five items, excerpts to 160
+characters, and approximate serialized output to 12,000 bytes. Explicit
+controls are `previewLimit` (maximum 20), `excerptLimit` (maximum 1,000),
+`includeEvidence`, and `sizeLimit` (maximum 50,000). Original JavaScript values
+and canonical evidence remain complete.
+
+`facets` counts distinct stored events in the supplied collection by author,
+tag, kind, observed relay, linked source domain, and link/image/video
+presence. Categories carry identities or ordinary query fragments for later
+explicit selection and report `omitted` beyond the configurable category
+limit (default 10, maximum 50). They describe only supplied evidence: they are
+not global trends, scores, or recommendations. Repeated observations of one
+event do not inflate evidence facets; a relay is counted at most once per
+event.
 
 `load` replaces the in-memory corpus with a bounded slice already stored in
 SQLite and makes it the session selection. It never contacts a relay.
@@ -289,6 +309,13 @@ this operation. Projection modes are `compact`, `full`, `ids`, and `ndjson`;
 explicit `excerptLimit` and `previewLimit` bounds are terminal-independent.
 Full projection preserves canonical evidence. Retention saves reasons and
 provenance.
+
+Projection, inspection, and terminal safety are separate responsibilities.
+`memory.project` provides compact or full semantic projections for
+programmatic consumers. `research.show` provides bounded interactive
+inspection. The REPL writer remains the final flood guard for arbitrary
+JavaScript values and does not redefine canonical evidence or projection
+modes.
 
 Every result item has a `role`. Traversal inputs are `seed` items; subjects
 reached through relationships are `discovery` items. Selection and other

@@ -1,6 +1,6 @@
 ---
 id: 018-bounded-inspection-and-orientation
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/018-bounded-inspection-and-orientation.validate.sh
 depends_on: 017-explicit-javascript-composition
