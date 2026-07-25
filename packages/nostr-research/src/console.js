@@ -128,6 +128,14 @@ export function createResearchEnvironment(memory, workspace, progress = process.
       return memory.asCollection(memory.searchAccounts(query));
     },
 
+    currentEvent(account, kind, options = {}) {
+      return memory.currentEvent(account, kind, options);
+    },
+
+    follows(account) {
+      return memory.follows(account);
+    },
+
     use(value) {
       return session.replace(value).selection;
     },

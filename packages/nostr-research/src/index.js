@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { validateEvent, verifyEvent } from 'nostr-tools';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const EVENT_ID = /^[a-f0-9]{64}$/;
 const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
 const SIGNATURE = /^[a-f0-9]{128}$/;
@@ -21,6 +21,7 @@ const NAVIGATION_RELATIONSHIP_TYPES = new Set([
   'mentioned-event',
   'quoted-event',
   'mentioned-account',
+  'follow',
   'topic',
   'other-tag',
 ]);
@@ -97,6 +98,15 @@ export class ResearchMemory {
   }
 
   #createSchema() {
+    this.#database.exec(`
+      CREATE TABLE IF NOT EXISTS schema_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    `);
+    const previousVersion = this.#database.prepare(`
+      SELECT value FROM schema_metadata WHERE key = 'schema_version'
+    `).get()?.value;
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS schema_metadata (
         key TEXT PRIMARY KEY,
@@ -216,9 +226,40 @@ export class ResearchMemory {
         );
     `);
 
+    if (previousVersion !== undefined && Number(previousVersion) < 3) {
+      this.#rebuildEventRelationships();
+    }
     this.#database
       .prepare('INSERT OR REPLACE INTO schema_metadata(key, value) VALUES (?, ?)')
       .run('schema_version', String(SCHEMA_VERSION));
+  }
+
+  #rebuildEventRelationships() {
+    const events = this.#database
+      .prepare('SELECT raw_event FROM events ORDER BY event_id')
+      .all()
+      .map(({ raw_event: rawEvent }) => JSON.parse(rawEvent));
+    const insert = this.#database.prepare(`
+      INSERT INTO event_relationships
+        (source_event_id, relationship_type, target_type, target_id, evidence)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    this.#database.exec('BEGIN');
+    try {
+      this.#database.exec('DELETE FROM event_relationships');
+      for (const event of events) {
+        for (const relationship of eventRelationships(event)) {
+          insert.run(
+            event.id, relationship.type, relationship.targetType,
+            relationship.targetId, stableJson(relationship.evidence),
+          );
+        }
+      }
+      this.#database.exec('COMMIT');
+    } catch (error) {
+      this.#database.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   #assertOpen() {
@@ -494,29 +535,90 @@ export class ResearchMemory {
     return accountResult(publicKey, metadata, [{ type: 'public-key', value: publicKey }]);
   }
 
+  /**
+   * Returns the current locally stored event for one replaceable address, or
+   * null when that address is absent. Selection is local-only and preserves
+   * direct access to every historical event through getEvent().
+   */
+  currentEvent(account, kind, options = {}) {
+    this.#assertOpen();
+    assertPlainObject(options, 'Current event options');
+    rejectUnknownKeys(options, new Set(['d']), 'current event option');
+    if (!isReplaceableKind(kind)) {
+      throw new ResearchMemoryError(
+        'Current event kind must be 0, 3, 10000-19999, or 30000-39999.',
+      );
+    }
+    const owner = account && typeof account === 'object'
+      ? this.resolve(account)
+      : this.resolve(account, 'account');
+    let identifier;
+    if (kind >= 30000 && kind < 40000) {
+      identifier = options.d ?? '';
+      if (typeof identifier !== 'string') {
+        throw new ResearchMemoryError('Current event d must be a string.');
+      }
+    } else if (options.d !== undefined) {
+      throw new ResearchMemoryError('Current event d applies only to kinds 30000-39999.');
+    }
+    return currentReplaceableEvent(this.#database, owner.id, kind, identifier);
+  }
+
+  /**
+   * Selects accounts named by the current stored kind-3 contact list.
+   * A follow is attributed tag evidence, not endorsement or reciprocity.
+   */
+  follows(account) {
+    this.#assertOpen();
+    const owner = account && typeof account === 'object'
+      ? this.resolve(account)
+      : this.resolve(account, 'account');
+    const contactList = currentReplaceableEvent(this.#database, owner.id, 3);
+    if (!contactList) {
+      return resultCollection([], {
+        operation: 'follows',
+        account: owner,
+        currentContactListEventId: null,
+        explanation: 'No current stored kind-3 contact list.',
+        relationships: [],
+      });
+    }
+    const traversed = this.traverse([subject('event', contactList.event.id)], {
+      relationshipTypes: ['follow'],
+      direction: 'outbound',
+      depth: 1,
+      limit: MAX_QUERY_LIMIT,
+    });
+    return resultCollection(
+      traversed.items
+        .filter((item) => item.subject.type === 'account')
+        .map((item) => ({
+          ...item,
+          provenance: contactList.observations,
+        })),
+      {
+        operation: 'follows',
+        account: owner,
+        currentContactListEventId: contactList.event.id,
+        relationships: traversed.context.relationships,
+      },
+    );
+  }
+
   /** Searches current stored account metadata, never relays or identity services. */
   searchAccounts(query = {}) {
     this.#assertOpen();
     const normalized = normalizeAccountQuery(query);
-    const records = hydrateEventRows(this.#database, this.#database.prepare(`
-      SELECT event_id, raw_event FROM events
+    const authors = this.#database.prepare(`
+      SELECT DISTINCT json_extract(raw_event, '$.pubkey') AS public_key FROM events
       WHERE CAST(json_extract(raw_event, '$.kind') AS INTEGER) = 0
-      ORDER BY json_extract(raw_event, '$.pubkey'),
-        CAST(json_extract(raw_event, '$.created_at') AS INTEGER) DESC,
-        event_id
-    `).all());
-    const byAuthor = new Map();
-    for (const record of records) {
-      if (record.event.kind !== 0) continue;
-      const existing = byAuthor.get(record.event.pubkey);
-      if (!existing || compareReplaceable(record, existing) < 0) {
-        byAuthor.set(record.event.pubkey, record);
-      }
-    }
+      ORDER BY public_key
+    `).all().map(({ public_key: publicKey }) => publicKey);
 
     const results = [];
-    for (const [publicKey, metadata] of byAuthor) {
+    for (const publicKey of authors) {
       if (normalized.publicKeys && !normalized.publicKeys.some((prefix) => publicKey.startsWith(prefix))) continue;
+      const metadata = currentReplaceableEvent(this.#database, publicKey, 0);
       const profile = parseProfile(metadata.event);
       const reasons = [];
       if (normalized.publicKeys) {
@@ -1803,14 +1905,34 @@ function selectedEventRecords(database, query, ids, authors) {
 }
 
 function currentAccountMetadata(database, publicKey) {
+  return currentReplaceableEvent(database, publicKey, 0);
+}
+
+function currentReplaceableEvent(database, publicKey, kind, identifier) {
+  const parameters = [publicKey, kind];
+  const parameterized = kind >= 30000 && kind < 40000;
   const row = database.prepare(`
     SELECT event_id, raw_event FROM events
     WHERE json_extract(raw_event, '$.pubkey') = ?
-      AND CAST(json_extract(raw_event, '$.kind') AS INTEGER) = 0
+      AND CAST(json_extract(raw_event, '$.kind') AS INTEGER) = ?
+      ${parameterized ? `AND COALESCE((
+        SELECT json_extract(tag.value, '$[1]')
+        FROM json_each(json_extract(raw_event, '$.tags')) AS tag
+        WHERE json_extract(tag.value, '$[0]') = 'd'
+        ORDER BY CAST(tag.key AS INTEGER)
+        LIMIT 1
+      ), '') = ?` : ''}
     ORDER BY CAST(json_extract(raw_event, '$.created_at') AS INTEGER) DESC, event_id
     LIMIT 1
-  `).get(publicKey);
+  `).get(...parameters, ...(parameterized ? [identifier] : []));
   return row ? hydrateEventRows(database, [row])[0] : null;
+}
+
+function isReplaceableKind(kind) {
+  return Number.isSafeInteger(kind)
+    && (kind === 0 || kind === 3
+      || (kind >= 10000 && kind < 20000)
+      || (kind >= 30000 && kind < 40000));
 }
 
 function normalizeEventQuery(query) {
@@ -2048,15 +2170,6 @@ function parseProfile(event) {
   }
 }
 
-function compareReplaceable(left, right) {
-  return right.event.created_at - left.event.created_at
-    || left.event.id.localeCompare(right.event.id);
-}
-
-function currentMetadata(records) {
-  return records.sort(compareReplaceable)[0] ?? null;
-}
-
 function accountResult(publicKey, metadata, matchReasons) {
   return {
     publicKey,
@@ -2290,9 +2403,11 @@ function eventRelationships(event) {
   event.tags.forEach((tag, index) => {
     if (tag[0] === 'q' && EVENT_ID.test(tag[1])) {
       relationships.push(tagRelationship('quoted-event', 'event', tag[1], tag, index, 'NIP-18', 'known'));
-    } else if (['p', 'P'].includes(tag[0]) && EVENT_ID.test(tag[1])) {
+    } else if (['p', 'P'].includes(tag[0]) && EVENT_ID.test(tag[1])
+      && !(event.kind === 3 && tag[0] !== 'p')) {
       relationships.push(tagRelationship(
-        'mentioned-account', 'account', tag[1], tag, index,
+        event.kind === 3 ? 'follow' : 'mentioned-account',
+        'account', tag[1], tag, index,
         event.kind === 1111 ? 'NIP-22' : 'NIP-01', 'known',
       ));
     } else if (tag[0] === 't' && typeof tag[1] === 'string') {

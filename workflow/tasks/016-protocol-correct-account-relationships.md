@@ -1,6 +1,6 @@
 ---
 id: 016-protocol-correct-account-relationships
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/016-protocol-correct-account-relationships.validate.sh
 depends_on: 015-console-research-field-trial

@@ -102,7 +102,8 @@ startup options fail with a non-zero exit.
 
 The single prepared binding is `research`. Its common conveniences are
 `summary()`, `load(query)`, `acquire(options)`, `events(query)`,
-`accounts(query)`, `use(result)`, `inspect(subject, options)`,
+`accounts(query)`, `currentEvent(account, kind, options)`, `follows(account)`,
+`use(result)`, `inspect(subject, options)`,
 `traverse(...)`, `compare(left, right)`, and `retain(...)`. The public
 `research.memory`, `research.workspace`, and current `research.session` remain
 available for deeper operations. Returned collections and records are ordinary
@@ -173,6 +174,33 @@ const continued = memory.traverse([{ type: 'set', id: saved.id }], {
 });
 memory.close();
 ```
+
+### Raw tags, relationships, and replaceable events
+
+Canonical events and their tag arrays are immutable source evidence.
+Relationships are replaceable interpretations derived from that evidence.
+For example, a valid `p` tag on an ordinary note is exposed as
+`mentioned-account`, while a `p` tag on a kind-3 contact list is exposed as
+`follow`. A follow explanation contains the source kind-3 event ID, exact tag,
+and tag index. It says only that this contact-list event named the account; it
+does not assert trust, endorsement, reciprocity, identity, or present social
+closeness.
+
+`memory.currentEvent(account, kind, options)` selects one current event from
+local evidence for kinds 0 and 3, kinds 10000-19999, and parameterized kinds
+30000-39999. It uses the newest `created_at`, then the lexicographically lowest
+event ID for equal timestamps. For parameterized kinds, pass `{ d: 'value' }`;
+an omitted `d` selects the empty identifier. It returns the canonical event
+and its observations, or `null` when the address is not stored. Historical
+events remain available through `getEvent` and ordinary selection.
+
+`memory.follows(account)` and the console convenience
+`research.follows(account)` resolve the account, select only its current stored
+kind-3 event, and return followed account subjects in a reusable result
+collection. Public keys without authored or metadata events remain navigable
+account subjects. The collection retains exact relationship reasons and the
+contact-list observations; if no contact list is stored it is empty with an
+explanatory context. This operation is local-only and never contacts relays.
 
 ### Bounded in-memory workspaces
 
