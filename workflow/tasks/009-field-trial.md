@@ -1,6 +1,6 @@
 ---
 id: 009-field-trial
-status: in_progress
+status: done
 max_attempts: 4
 validation: workflow/tasks/009-field-trial.validate.sh
 depends_on: 008-agent-friendly-cli-output
