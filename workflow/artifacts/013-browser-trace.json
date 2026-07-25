@@ -1,0 +1,448 @@
+{
+  "capturedAt": "2026-07-25T15:20:16.097Z",
+  "browser": "Codex In-app Browser",
+  "controlledSource": false,
+  "liveRelay": "wss://nos.lol",
+  "database": "/Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+  "checkpoint": {
+    "label": "coherent browser checkpoint (5)",
+    "value": "4dd53043-147b-41a3-8643-277ce964da0d"
+  },
+  "steps": [
+    {
+      "name": "acquired",
+      "url": "http://127.0.0.1:4317/",
+      "visibleState": {
+        "action": "acquire",
+        "cardSubjects": [
+          {
+            "id": "a7e5664d516a52a9f1a516be949a4c7a2e1f9d61a4bd112a88cf00399fc3c2b0",
+            "type": "event"
+          },
+          {
+            "id": "8796db6396c3eb56e7c803f8301684f3328d2bc533ad43c66816f444b7808f56",
+            "type": "event"
+          },
+          {
+            "id": "7d94473d0d1afd175cd1b970a59db33852f018c9646497404a83d95eb503f74d",
+            "type": "event"
+          },
+          {
+            "id": "73ea4d16a9594749a9f5dc2a8a32f27c8ed42a04abc114df0b9e2aa5051c1809",
+            "type": "event"
+          },
+          {
+            "id": "0d9207e84b7dac416cddcdbbb491b54ea3a2aa9e3416748c6f0dac0476fa36c2",
+            "type": "event"
+          }
+        ],
+        "databaseStatus": "Open: /Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+        "documentWidth": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "exclusions": "0",
+        "focus": "none",
+        "relayProgress": "Operation: limit · 5 observations · 5 newly storedwss://nos.lol/limit5 observations · 5 new · 0 invalid",
+        "savedSet": "No saved sets (0)",
+        "selectionContext": "Newly acquired evidence · completion: limit",
+        "selectionCount": "5",
+        "viewport": {
+          "height": 720,
+          "width": 1280
+        }
+      }
+    },
+    {
+      "name": "focused",
+      "url": "http://127.0.0.1:4317/",
+      "visibleState": {
+        "action": "focus",
+        "cardSubjects": [
+          {
+            "id": "a7e5664d516a52a9f1a516be949a4c7a2e1f9d61a4bd112a88cf00399fc3c2b0",
+            "type": "event"
+          },
+          {
+            "id": "8796db6396c3eb56e7c803f8301684f3328d2bc533ad43c66816f444b7808f56",
+            "type": "event"
+          },
+          {
+            "id": "7d94473d0d1afd175cd1b970a59db33852f018c9646497404a83d95eb503f74d",
+            "type": "event"
+          },
+          {
+            "id": "73ea4d16a9594749a9f5dc2a8a32f27c8ed42a04abc114df0b9e2aa5051c1809",
+            "type": "event"
+          },
+          {
+            "id": "0d9207e84b7dac416cddcdbbb491b54ea3a2aa9e3416748c6f0dac0476fa36c2",
+            "type": "event"
+          }
+        ],
+        "databaseStatus": "Open: /Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+        "documentWidth": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "exclusions": "0",
+        "focus": "event:a7e5664d51…9fc3c2b0",
+        "relayProgress": "Operation: limit · 5 observations · 5 newly storedwss://nos.lol/limit5 observations · 5 new · 0 invalid",
+        "savedSet": "No saved sets (0)",
+        "selectionContext": "Newly acquired evidence · completion: limit",
+        "selectionCount": "5",
+        "viewport": {
+          "height": 720,
+          "width": 1280
+        }
+      }
+    },
+    {
+      "name": "excluded",
+      "url": "http://127.0.0.1:4317/",
+      "visibleState": {
+        "action": "exclude",
+        "cardSubjects": [
+          {
+            "id": "8796db6396c3eb56e7c803f8301684f3328d2bc533ad43c66816f444b7808f56",
+            "type": "event"
+          },
+          {
+            "id": "7d94473d0d1afd175cd1b970a59db33852f018c9646497404a83d95eb503f74d",
+            "type": "event"
+          },
+          {
+            "id": "73ea4d16a9594749a9f5dc2a8a32f27c8ed42a04abc114df0b9e2aa5051c1809",
+            "type": "event"
+          },
+          {
+            "id": "0d9207e84b7dac416cddcdbbb491b54ea3a2aa9e3416748c6f0dac0476fa36c2",
+            "type": "event"
+          }
+        ],
+        "databaseStatus": "Open: /Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+        "documentWidth": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "exclusions": "1",
+        "focus": "event:a7e5664d51…9fc3c2b0",
+        "relayProgress": "Operation: limit · 5 observations · 5 newly storedwss://nos.lol/limit5 observations · 5 new · 0 invalid",
+        "savedSet": "No saved sets (0)",
+        "selectionContext": "Newly acquired evidence · completion: limit",
+        "selectionCount": "4",
+        "viewport": {
+          "height": 720,
+          "width": 1280
+        }
+      }
+    },
+    {
+      "name": "re-included",
+      "url": "http://127.0.0.1:4317/",
+      "visibleState": {
+        "action": "include",
+        "cardSubjects": [
+          {
+            "id": "8796db6396c3eb56e7c803f8301684f3328d2bc533ad43c66816f444b7808f56",
+            "type": "event"
+          },
+          {
+            "id": "7d94473d0d1afd175cd1b970a59db33852f018c9646497404a83d95eb503f74d",
+            "type": "event"
+          },
+          {
+            "id": "73ea4d16a9594749a9f5dc2a8a32f27c8ed42a04abc114df0b9e2aa5051c1809",
+            "type": "event"
+          },
+          {
+            "id": "0d9207e84b7dac416cddcdbbb491b54ea3a2aa9e3416748c6f0dac0476fa36c2",
+            "type": "event"
+          },
+          {
+            "id": "a7e5664d516a52a9f1a516be949a4c7a2e1f9d61a4bd112a88cf00399fc3c2b0",
+            "type": "event"
+          }
+        ],
+        "databaseStatus": "Open: /Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+        "documentWidth": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "exclusions": "0",
+        "focus": "event:a7e5664d51…9fc3c2b0",
+        "relayProgress": "Operation: limit · 5 observations · 5 newly storedwss://nos.lol/limit5 observations · 5 new · 0 invalid",
+        "savedSet": "No saved sets (0)",
+        "selectionContext": "Local session selection · session-include",
+        "selectionCount": "5",
+        "viewport": {
+          "height": 720,
+          "width": 1280
+        }
+      }
+    },
+    {
+      "name": "traversed-branch",
+      "url": "http://127.0.0.1:4317/",
+      "visibleState": {
+        "action": "branch",
+        "cardSubjects": [
+          {
+            "id": "8796db6396c3eb56e7c803f8301684f3328d2bc533ad43c66816f444b7808f56",
+            "type": "event"
+          },
+          {
+            "id": "7d94473d0d1afd175cd1b970a59db33852f018c9646497404a83d95eb503f74d",
+            "type": "event"
+          },
+          {
+            "id": "73ea4d16a9594749a9f5dc2a8a32f27c8ed42a04abc114df0b9e2aa5051c1809",
+            "type": "event"
+          },
+          {
+            "id": "0d9207e84b7dac416cddcdbbb491b54ea3a2aa9e3416748c6f0dac0476fa36c2",
+            "type": "event"
+          },
+          {
+            "id": "a7e5664d516a52a9f1a516be949a4c7a2e1f9d61a4bd112a88cf00399fc3c2b0",
+            "type": "event"
+          },
+          {
+            "id": "7e34892ef917f69e5b10cb9d0c20f592df47d01a40062d1c5a972e20302fdbeb",
+            "type": "account"
+          },
+          {
+            "id": "71af9e28e26aaf3dc7204975212712fc0213fd01dafdcccf668c3dc4af64c55e",
+            "type": "account"
+          },
+          {
+            "id": "4e3f3b1e6029ce5399b1f7645178142fb4f585893253183b251ef84f7898962a",
+            "type": "account"
+          },
+          {
+            "id": "47b56086945c9916946484835d5881df4c39d47badf689c460b2989ef4e6941b",
+            "type": "account"
+          },
+          {
+            "id": "35bc3878f14f95d5170962fae7b8ee07c5fabbc4bae2db2b206a77e11d650420",
+            "type": "account"
+          }
+        ],
+        "databaseStatus": "Open: /Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+        "documentWidth": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "exclusions": "0",
+        "focus": "event:a7e5664d51…9fc3c2b0",
+        "relayProgress": "Operation: limit · 5 observations · 5 newly storedwss://nos.lol/limit5 observations · 5 new · 0 invalid",
+        "savedSet": "No saved sets (0)",
+        "selectionContext": "Traversal: author · outbound · depth 1 · branch “authors-coherent”",
+        "selectionCount": "10",
+        "viewport": {
+          "height": 720,
+          "width": 1280
+        }
+      }
+    },
+    {
+      "name": "back",
+      "url": "http://127.0.0.1:4317/",
+      "visibleState": {
+        "action": "back",
+        "cardSubjects": [
+          {
+            "id": "8796db6396c3eb56e7c803f8301684f3328d2bc533ad43c66816f444b7808f56",
+            "type": "event"
+          },
+          {
+            "id": "7d94473d0d1afd175cd1b970a59db33852f018c9646497404a83d95eb503f74d",
+            "type": "event"
+          },
+          {
+            "id": "73ea4d16a9594749a9f5dc2a8a32f27c8ed42a04abc114df0b9e2aa5051c1809",
+            "type": "event"
+          },
+          {
+            "id": "0d9207e84b7dac416cddcdbbb491b54ea3a2aa9e3416748c6f0dac0476fa36c2",
+            "type": "event"
+          },
+          {
+            "id": "a7e5664d516a52a9f1a516be949a4c7a2e1f9d61a4bd112a88cf00399fc3c2b0",
+            "type": "event"
+          }
+        ],
+        "databaseStatus": "Open: /Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+        "documentWidth": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "exclusions": "0",
+        "focus": "event:a7e5664d51…9fc3c2b0",
+        "relayProgress": "Operation: limit · 5 observations · 5 newly storedwss://nos.lol/limit5 observations · 5 new · 0 invalid",
+        "savedSet": "No saved sets (0)",
+        "selectionContext": "Local session selection · session-include",
+        "selectionCount": "5",
+        "viewport": {
+          "height": 720,
+          "width": 1280
+        }
+      }
+    },
+    {
+      "name": "checkpoint",
+      "url": "http://127.0.0.1:4317/",
+      "visibleState": {
+        "action": "retain",
+        "cardSubjects": [
+          {
+            "id": "8796db6396c3eb56e7c803f8301684f3328d2bc533ad43c66816f444b7808f56",
+            "type": "event"
+          },
+          {
+            "id": "7d94473d0d1afd175cd1b970a59db33852f018c9646497404a83d95eb503f74d",
+            "type": "event"
+          },
+          {
+            "id": "73ea4d16a9594749a9f5dc2a8a32f27c8ed42a04abc114df0b9e2aa5051c1809",
+            "type": "event"
+          },
+          {
+            "id": "0d9207e84b7dac416cddcdbbb491b54ea3a2aa9e3416748c6f0dac0476fa36c2",
+            "type": "event"
+          },
+          {
+            "id": "a7e5664d516a52a9f1a516be949a4c7a2e1f9d61a4bd112a88cf00399fc3c2b0",
+            "type": "event"
+          }
+        ],
+        "databaseStatus": "Open: /Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+        "documentWidth": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "exclusions": "0",
+        "focus": "event:a7e5664d51…9fc3c2b0",
+        "relayProgress": "Operation: limit · 5 observations · 5 newly storedwss://nos.lol/limit5 observations · 5 new · 0 invalid",
+        "savedSet": "coherent browser checkpoint (5)",
+        "selectionContext": "Local session selection · session-include",
+        "selectionCount": "5",
+        "viewport": {
+          "height": 720,
+          "width": 1280
+        }
+      }
+    },
+    {
+      "name": "empty-session",
+      "url": "http://127.0.0.1:4317/",
+      "visibleState": {
+        "action": "observe",
+        "cardSubjects": [],
+        "databaseStatus": "Open: /Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+        "documentWidth": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "exclusions": "0",
+        "focus": "none",
+        "relayProgress": "Operation: limit · 5 observations · 5 newly storedwss://nos.lol/limit5 observations · 5 new · 0 invalid",
+        "savedSet": "coherent browser checkpoint (5)",
+        "selectionContext": "Local session selection · session-empty",
+        "selectionCount": "0",
+        "viewport": {
+          "height": 720,
+          "width": 1280
+        }
+      }
+    },
+    {
+      "name": "checkpoint-reopened",
+      "url": "http://127.0.0.1:4317/",
+      "visibleState": {
+        "action": "observe",
+        "cardSubjects": [
+          {
+            "id": "0d9207e84b7dac416cddcdbbb491b54ea3a2aa9e3416748c6f0dac0476fa36c2",
+            "type": "event"
+          },
+          {
+            "id": "73ea4d16a9594749a9f5dc2a8a32f27c8ed42a04abc114df0b9e2aa5051c1809",
+            "type": "event"
+          },
+          {
+            "id": "7d94473d0d1afd175cd1b970a59db33852f018c9646497404a83d95eb503f74d",
+            "type": "event"
+          },
+          {
+            "id": "8796db6396c3eb56e7c803f8301684f3328d2bc533ad43c66816f444b7808f56",
+            "type": "event"
+          },
+          {
+            "id": "a7e5664d516a52a9f1a516be949a4c7a2e1f9d61a4bd112a88cf00399fc3c2b0",
+            "type": "event"
+          }
+        ],
+        "databaseStatus": "Open: /Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+        "documentWidth": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "exclusions": "0",
+        "focus": "none",
+        "relayProgress": "Operation: limit · 5 observations · 5 newly storedwss://nos.lol/limit5 observations · 5 new · 0 invalid",
+        "savedSet": "coherent browser checkpoint (5)",
+        "selectionContext": "Opened durable research set 4dd53043-147b-41a3-8643-277ce964da0d",
+        "selectionCount": "5",
+        "viewport": {
+          "height": 720,
+          "width": 1280
+        }
+      }
+    },
+    {
+      "name": "narrow",
+      "url": "http://127.0.0.1:4317/",
+      "visibleState": {
+        "action": "observe",
+        "cardSubjects": [
+          {
+            "id": "0d9207e84b7dac416cddcdbbb491b54ea3a2aa9e3416748c6f0dac0476fa36c2",
+            "type": "event"
+          },
+          {
+            "id": "73ea4d16a9594749a9f5dc2a8a32f27c8ed42a04abc114df0b9e2aa5051c1809",
+            "type": "event"
+          },
+          {
+            "id": "7d94473d0d1afd175cd1b970a59db33852f018c9646497404a83d95eb503f74d",
+            "type": "event"
+          },
+          {
+            "id": "8796db6396c3eb56e7c803f8301684f3328d2bc533ad43c66816f444b7808f56",
+            "type": "event"
+          },
+          {
+            "id": "a7e5664d516a52a9f1a516be949a4c7a2e1f9d61a4bd112a88cf00399fc3c2b0",
+            "type": "event"
+          }
+        ],
+        "databaseStatus": "Open: /Users/malg/Documents/Codex/nostr/.data/playground-evidence-20260725.sqlite",
+        "documentWidth": {
+          "client": 420,
+          "scroll": 420
+        },
+        "exclusions": "0",
+        "focus": "none",
+        "relayProgress": "Operation: limit · 5 observations · 5 newly storedwss://nos.lol/limit5 observations · 5 new · 0 invalid",
+        "savedSet": "coherent browser checkpoint (5)",
+        "selectionContext": "Opened durable research set 4dd53043-147b-41a3-8643-277ce964da0d",
+        "selectionCount": "5",
+        "viewport": {
+          "height": 800,
+          "width": 420
+        }
+      }
+    }
+  ]
+}

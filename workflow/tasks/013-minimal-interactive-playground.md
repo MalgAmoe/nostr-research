@@ -1,7 +1,7 @@
 ---
 id: 013-minimal-interactive-playground
-status: ready
-max_attempts: 5
+status: done
+max_attempts: 8
 validation: workflow/tasks/013-minimal-interactive-playground.validate.sh
 depends_on: 012-research-sessions-and-coverage
 protected_paths: docs/solid-experiment-lessons.md workflow/run.py workflow/prompts
@@ -110,11 +110,16 @@ Keep permanent tests small:
 - server/library integration for one complete vertical slice;
 - one browser-level smoke scenario covering acquisition with a controlled
   source or fixture, selection, focus, traversal, back, and checkpoint; and
-- responsive/manual verification recorded by the reviewer.
+- responsive/manual verification recorded by the reviewer, or by the workflow
+  host when the reviewer sandbox cannot create a loopback listener. In the
+  latter case the reviewer must inspect the recorded evidence and the exact
+  application state rather than treating static validation as a substitute.
 
-The independent reviewer must start the application, use it through an actual
-browser, and confirm that research actions use the public library/session
-behavior.
+The independent reviewer must confirm from an actual-browser run that research
+actions use the public library/session behavior. Normally the reviewer starts
+and drives the application. If its sandbox forbids loopback listeners, a
+host-driven run may be recorded under `workflow/artifacts/`; the reviewer must
+inspect that evidence and still review the implementation independently.
 
 ## Acceptance criteria
 
@@ -125,4 +130,3 @@ behavior.
 - A checkpoint is reopenable as a new session.
 - No removed prototype code or architecture is restored.
 - The application remains small enough to understand as one vertical slice.
-

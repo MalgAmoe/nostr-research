@@ -1,0 +1,7 @@
+{
+  "name": "@nostr-research/playground",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal local interactive adapter over @nostr-research/memory"
+}

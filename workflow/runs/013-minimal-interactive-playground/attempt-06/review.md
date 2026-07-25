@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. Actual-browser verification is incomplete. `apps/research-playground/server.test.js` skips the browser scenario, while `workflow/artifacts/013-browser-verification.md` references four screenshots and `013-browser-trace.json` that are absent. The existing API snapshot does not prove visible UI interaction. Run `npm run test:playground-browser-evidence` on a host with Safari remote automation enabled and provide the generated screenshots and structured DOM trace for independent review.

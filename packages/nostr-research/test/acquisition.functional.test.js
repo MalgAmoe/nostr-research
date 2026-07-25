@@ -192,6 +192,12 @@ test('acquisition rejects unusable public inputs before networking', async () =>
       acquireRelayEvents(context.memory, { relays: ['wss://localhost:1'], filter: { nope: true } }),
       ResearchMemoryError,
     );
+    await assert.rejects(
+      acquireRelayEvents(context.memory, {
+        relays: ['wss://localhost:1'], filter: {}, onProgress: true,
+      }),
+      /onProgress must be a function/,
+    );
   } finally {
     context.close();
   }

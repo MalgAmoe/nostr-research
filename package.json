@@ -6,8 +6,10 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "npm test --workspace packages/nostr-research",
-    "check": "npm run check --workspace packages/nostr-research",
-    "research": "nostr-research-memory"
+    "test": "npm test --workspace packages/nostr-research && node --test apps/research-playground/server.test.js",
+    "test:playground-browser-evidence": "PLAYGROUND_BROWSER_ARTIFACT_DIR=workflow/artifacts node --test --test-name-pattern='browser completes' apps/research-playground/server.test.js",
+    "check": "npm run check --workspace packages/nostr-research && node --check apps/research-playground/server.js && node --check apps/research-playground/app.js",
+    "research": "nostr-research-memory",
+    "playground": "node apps/research-playground/server.js"
   }
 }
