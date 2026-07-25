@@ -6,7 +6,7 @@ are settled before the foundation is reviewed.
 
 ## Executable work
 
-Tasks 004–015 are defined under `workflow/tasks/` and are processed there.
+Tasks 004–018 are defined under `workflow/tasks/` and are processed there.
 Their task files, not this roadmap, are authoritative.
 
 The completed durable-memory foundation ends with:
@@ -20,5 +20,11 @@ The next executable milestone establishes:
 - 014 — a persistent JavaScript research console; and
 - 015 — an agent-operated console field trial.
 
-Later work must follow evidence from console-driven research rather than
-pre-encode universal discovery rules.
+The evidence-backed console refinement milestone adds:
+
+- 016 — protocol-correct follows and replaceable-event views;
+- 017 — simpler explicit JavaScript composition; and
+- 018 — bounded inspection, transparent facets, and a second field trial.
+
+Later work must continue to follow evidence from console-driven research rather
+than pre-encode universal discovery rules.
