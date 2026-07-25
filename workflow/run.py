@@ -117,6 +117,33 @@ def run_process(command: list[str], *, stdin: str | None = None) -> subprocess.C
     )
 
 
+def worktree_is_clean() -> bool:
+    status = run_process(["git", "status", "--porcelain"])
+    if status.returncode != 0:
+        raise RuntimeError(f"Could not inspect Git worktree:\n{status.stdout}")
+    return not status.stdout.strip()
+
+
+def task_commit_message(task_path: Path, task_id: str) -> str:
+    _, body = parse_task(task_path)
+    title = next(
+        (line.removeprefix("# ").strip() for line in body.splitlines() if line.startswith("# ")),
+        task_id,
+    )
+    return f"workflow({task_id}): {title}"
+
+
+def commit_completed_task(task_path: Path, task_id: str) -> tuple[bool, str]:
+    staged = run_process(["git", "add", "-A"])
+    if staged.returncode != 0:
+        return False, f"Git staging failed:\n{staged.stdout}"
+
+    commit = run_process(["git", "commit", "-m", task_commit_message(task_path, task_id)])
+    if commit.returncode != 0:
+        return False, f"Git commit failed:\n{commit.stdout}"
+    return True, commit.stdout.strip()
+
+
 def fingerprint_paths(value: str) -> str:
     digest = hashlib.sha256()
     for relative in value.split():
@@ -262,7 +289,24 @@ def execute_task(task_path: Path, metadata: dict[str, str]) -> str:
         verdict = verdict_from(review_output.read_text(encoding="utf-8"))
         if verdict == "PASS" and validation_returncode == 0:
             write_status(task_path, "done")
-            write_run_state(task_id, "done", current, "Validation passed and reviewer returned PASS.")
+            write_run_state(
+                task_id,
+                "done",
+                current,
+                "Validation passed and reviewer returned PASS; task committed automatically.",
+            )
+            committed, detail = commit_completed_task(task_path, task_id)
+            if not committed:
+                write_status(task_path, "blocked")
+                write_run_state(
+                    task_id,
+                    "blocked",
+                    current,
+                    f"Review passed, but automatic task commit failed. {detail}",
+                )
+                run_process(["git", "add", "-A"])
+                return "blocked"
+            print(detail)
             return "done"
         if verdict == "BLOCKED":
             write_status(task_path, "blocked")
@@ -297,6 +341,12 @@ def main() -> int:
         print(f"Selected {metadata['id']} ({metadata['status']})")
         if args.dry_run:
             break
+        if metadata["status"] == "ready" and not worktree_is_clean():
+            print(
+                "Refusing to start a ready task with uncommitted changes. "
+                "Commit the queue definition and any other intended baseline first."
+            )
+            return 2
         result = execute_task(task_path, metadata)
         print(f"{metadata['id']}: {result}")
         processed += 1

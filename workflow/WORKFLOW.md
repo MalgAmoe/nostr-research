@@ -16,7 +16,8 @@ unless a later task explicitly authorizes that work.
 4. A fresh read-only Codex reviewer receives the same canonical context and
    evaluates the work against the task's acceptance criteria and validation
    output.
-5. `PASS` marks the task `done`.
+5. `PASS` plus successful validation marks the task `done`, stages the complete
+   task change and audit trail, and creates a task commit.
 6. `CHANGES_REQUIRED` starts another attempt and gives the worker the review.
 7. `BLOCKED` stops the task for human discussion.
 
@@ -84,7 +85,13 @@ worker changes them, even when the worktree was already dirty.
 - Process failures stop immediately instead of entering the review loop.
 - `CONTEXT.md` is durable project context and is injected into every worker and
   reviewer prompt once it exists.
-- Git staging and commits remain manual.
+- A new `ready` task starts only from a clean Git worktree. Queue definitions
+  and other intended baseline changes must therefore be committed before the
+  workflow is launched.
+- An interrupted `in_progress` task may resume with its own uncommitted work.
+- Every successfully reviewed task is committed automatically with its task ID
+  and title. Commit failure blocks the task instead of continuing the queue.
+- Git pushing remains manual.
 
 ## Running
 
