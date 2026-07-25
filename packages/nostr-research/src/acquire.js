@@ -39,12 +39,6 @@ export async function acquireRelayEvents(memory, options) {
     stopReason = reason;
     for (const socket of sockets) socket.__researchFinish(reason);
   };
-  const report = () => normalized.onProgress?.({
-    completionReason: stopReason,
-    counts: structuredClone(counts),
-    relays: structuredClone(relayResults),
-  });
-  report();
 
   const timeout = setTimeout(() => stop('timeout'), normalized.timeoutMs);
   const abort = () => stop('cancelled');
@@ -63,7 +57,6 @@ export async function acquireRelayEvents(memory, options) {
   async function acquireFromRelay(relay, relayResult) {
     await new Promise((resolve) => {
       relayResult.contacted = true;
-      report();
       const subscriptionId = `research-${crypto.randomUUID()}`;
       const socket = new WebSocket(relay);
       sockets.add(socket);
@@ -108,7 +101,6 @@ export async function acquireRelayEvents(memory, options) {
           if (!isCanonicalNostrEvent(event)) {
             relayResult.invalid += 1;
             counts.invalid += 1;
-            report();
             return;
           }
           // This check and ingest are synchronous, so concurrent socket
@@ -131,7 +123,6 @@ export async function acquireRelayEvents(memory, options) {
             acquiredEventIds.push(event.id);
           }
           if (counts.observations >= normalized.eventLimit) stop('limit');
-          report();
         } else if (packet[0] === 'EOSE') {
           finish('eose');
         } else if (packet[0] === 'CLOSED') {
@@ -148,7 +139,6 @@ export async function acquireRelayEvents(memory, options) {
             ? null
             : `Socket closed before relay completion (code ${event.code}).`;
         }
-        report();
         settle();
       });
     });
@@ -244,13 +234,7 @@ function normalizeOptions(options) {
   if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) {
     throw new ResearchMemoryError('signal must be an AbortSignal.');
   }
-  if (options.onProgress !== undefined && typeof options.onProgress !== 'function') {
-    throw new ResearchMemoryError('onProgress must be a function.');
-  }
-  return {
-    relays, filter, timeoutMs, eventLimit, concurrency,
-    signal: options.signal, onProgress: options.onProgress,
-  };
+  return { relays, filter, timeoutMs, eventLimit, concurrency, signal: options.signal };
 }
 
 function normalizeRelay(value) {
