@@ -9,11 +9,10 @@ and understand why a result is present.
 
 The product foundation is a UI-independent library. A CLI, functional
 verification, and future user interfaces are consumers of that library; a UI
-does not define the domain boundary. The current Solid application is a
-behavioral reference during this work. Its code and observed behavior may be
-retained, recreated, or rejected deliberately; neither its Solid controllers,
-browser persistence, nor its present module layout is an implicit target
-architecture.
+does not define the domain boundary. The first Solid application was an
+experiment and has been removed. Its retained lessons may inform future work,
+but its controllers, browser persistence, scoring rules, and module layout are
+not a target architecture.
 
 ## Settled principles
 
@@ -78,7 +77,8 @@ must still decide, through evidence and experimentation where appropriate:
 - pagination, corpus, portability, telemetry, and relationship semantics; and
 - which future UI workflows, if any, should consume the library.
 
-The current application contains useful behavior in all of these areas, but it
-does not settle them. In particular, its IndexedDB/localStorage persistence,
-Solid state, hidden array metadata, relay cache policy, and editorial scoring
-heuristics must not be copied into the library by default.
+The removed experiment contained candidate behavior in these areas but did not
+settle them. Its retained lessons are documented in
+`docs/solid-experiment-lessons.md`; its IndexedDB/localStorage persistence,
+Solid state, relay cache policy, and editorial scoring heuristics must not be
+recreated by default.

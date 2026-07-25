@@ -9,15 +9,16 @@ are settled before the foundation is reviewed.
 Tasks 005–010 are now defined under `workflow/tasks/` and are processed there.
 Their task files, not this roadmap, are authoritative.
 
-## 011 — Evaluate the library against the reference client
+## 011 — Stabilize the research playground foundation
 
 After the composable research kernel passes:
 
-- compare the library capabilities with the reviewed application inventory;
-- identify behavior now superseded by the library;
-- identify missing, questionable, or intentionally rejected behavior;
-- propose the smallest useful reference-client integration boundary;
-- avoid migrating or redesigning the complete UI.
+- repair atomic retention for realistic corpora;
+- deepen the shared result vocabulary and SQLite evidence access;
+- define minimal temporary research-session semantics;
+- make acquisition coverage explicit enough for polite continuation; and
+- prepare one small new interactive playground slice over those capabilities.
 
-Task 011 remains provisional until task 010 demonstrates that account and
-conversation research share a small, reusable operation vocabulary.
+Task 011 remains provisional until the recent live research trials are turned
+into a bounded task definition. The removed Solid experiment must not be
+restored or used as a reference implementation.

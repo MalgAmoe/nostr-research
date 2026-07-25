@@ -17,11 +17,11 @@ domain model.
 
 ## Why
 
-The current reference client is a Solid/browser application. Its useful
-behaviors are interwoven with reactive state, browser APIs, IndexedDB and
-localStorage, routing, notifications, rendering, application callbacks, and
-module-global state. Its pure helpers and tests document candidate behavior,
-but they do not establish a usable public boundary or settle its heuristics.
+The first client was a Solid/browser experiment. Its useful behaviors were
+interwoven with reactive state, browser APIs, IndexedDB and localStorage,
+routing, notifications, rendering, application callbacks, and module-global
+state. It was later removed after its useful lessons were recorded; it did not
+establish a usable public boundary or settle its heuristics.
 
 A research tool needs durable evidence, source visibility, and repeatable
 local investigation rather than a transient feed session. Starting with SQLite
@@ -37,8 +37,8 @@ CLI, and future interfaces to consume the same research capabilities.
   output, rather than incidental implementation state.
 - Experimental databases may be discarded and regenerated. No schema
   compatibility or migration commitment exists during this phase.
-- Current Solid behavior is evaluated as a reference: it can be retained,
-  cleanly recreated, or intentionally rejected.
+- Lessons from application experiments may be retained without retaining their
+  implementation or treating their behavior as authoritative.
 - Functional verification uses real SQLite. Permanent unit tests are limited
   to stable protocol rules, cryptography, and precise algorithms worth
   freezing; tests should not import private helpers or cement internals.

@@ -3,16 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "start": "npm run start --workspace=nostr-research-client",
-    "dev": "npm run dev --workspace=nostr-research-client",
-    "build": "npm run build --workspace=nostr-research-client",
-    "test": "npm run test --workspace=nostr-research-client",
-    "check": "npm run check --workspace=nostr-research-client",
-    "research": "nostr-research-memory",
-    "keys:generate": "npm run keys:generate --workspace=nostr-research-client"
+    "test": "npm test --workspace packages/nostr-research",
+    "check": "npm run check --workspace packages/nostr-research",
+    "research": "nostr-research-memory"
   }
 }

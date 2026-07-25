@@ -3,9 +3,9 @@
 This directory is the durable memory for rebuilding the project around a
 UI-independent Nostr research library.
 
-The current application remains the reference implementation during the first
-milestone. Workflow tasks may inspect it, but they must not move or rewrite it
-unless a later task explicitly authorizes that work.
+The first Solid application was removed after its experiment was evaluated.
+Future application work should consume the library through deliberate
+playground semantics rather than recreate that prototype.
 
 ## Operating model
 
@@ -40,15 +40,12 @@ workflow/
   runs/        prompts, outputs, validation, and reviews per attempt
 ```
 
-The intended later repository shape is:
+The current repository shape is:
 
 ```text
-apps/reference-client/      packaged reference client
 packages/nostr-research/    clean UI-independent library
 workflow/                   persistent agent workflow
 ```
-
-The application is not moved until an inventory task has passed review.
 
 ## Task format
 

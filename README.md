@@ -1,28 +1,19 @@
 # Nostr Research
 
-This repository separates the existing reference client from the future
-UI-independent research library.
+This repository is rebuilding Nostr research and navigation around a
+UI-independent library. The first Solid application was removed after it
+served its purpose as an interaction experiment.
 
 ```text
-apps/reference-client/      Existing Solid reference client
-packages/nostr-research/    Reserved for the UI-independent library
+packages/nostr-research/    UI-independent research library and CLI
 workflow/                   Persistent rebuild workflow
 docs/                       Project decisions and supporting material
 ```
 
-## Run the reference client
-
-Requires Node.js 20+.
-
-```sh
-npm install
-npm run build
-npm start
-```
-
-For development with hot reload, run `npm run dev` alongside `npm start`.
-The reference client's detailed usage notes are in
-[`apps/reference-client/README.md`](apps/reference-client/README.md).
+The retained lessons from the removed experiment are recorded in
+[`docs/solid-experiment-lessons.md`](docs/solid-experiment-lessons.md). Its
+implementation remains available through Git history, but it is not a target
+architecture for the next application.
 
 ## Run the research CLI
 
