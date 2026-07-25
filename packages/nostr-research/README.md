@@ -85,6 +85,58 @@ owns when a relay completes or a global stop condition occurs.
 The package uses Node's built-in `node:sqlite` support and requires Node 22.5
 or newer. SQLite files are generated artifacts and are ignored by Git.
 
+## Persistent JavaScript console
+
+Start the research console from the repository root with an explicit database
+and bounded workspace capacity:
+
+```sh
+npm run --silent research-console -- --db .data/research.sqlite --capacity 500
+```
+
+This is Node's JavaScript REPL, not a command language. It keeps variables,
+the workspace, and a temporary session alive between expressions, and supports
+top-level `await`. End it with `.exit` or Ctrl-D; the console cancels active
+acquisition and closes workspace and SQLite resources. Invalid or missing
+startup options fail with a non-zero exit.
+
+The single prepared binding is `research`. Its common conveniences are
+`summary()`, `load(query)`, `acquire(options)`, `events(query)`,
+`accounts(query)`, `use(result)`, `inspect(subject, options)`,
+`traverse(...)`, `compare(left, right)`, and `retain(...)`. The public
+`research.memory`, `research.workspace`, and current `research.session` remain
+available for deeper operations. Returned collections and records are ordinary
+JavaScript values: assign, filter, combine, and pass them into later calls.
+Large collections are only abbreviated when the REPL displays them; assigned
+values remain complete.
+
+`load` replaces the in-memory corpus with a bounded slice already stored in
+SQLite and makes it the session selection. It never contacts a relay.
+`acquire` requires explicit relay URLs, filter, and caller-chosen budgets; it
+stores accepted evidence durably and adds it to the bounded workspace. It
+prints one start and one completion progress line without printing events.
+
+For example:
+
+```js
+const corpus = research.load({ kinds: [1], order: 'newest', limit: 200 })
+const notes = research.events({ text: ['nostr'], limit: 50 })
+research.use(notes)
+const connected = research.traverse({
+  relationshipTypes: ['reply-parent', 'quoted-event'],
+  direction: 'both', depth: 2, limit: 100
+})
+const comparison = research.compare(notes, connected)
+const saved = research.retain('nostr conversation evidence')
+research.memory.getSet(saved.id)
+```
+
+To acquire first, use
+`await research.acquire({ relays: ['wss://relay.example/'], filter:
+{ kinds: [1], limit: 20 }, timeoutMs: 5000, eventLimit: 20 })`, then search the
+workspace. Piped JavaScript uses the same persistent process and can finish
+with `.exit`.
+
 ### Composable research kernel
 
 The public vocabulary is `resolve -> select/acquire -> traverse -> project ->

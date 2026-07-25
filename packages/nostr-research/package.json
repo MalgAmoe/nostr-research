@@ -5,7 +5,8 @@
   "type": "module",
   "exports": "./src/index.js",
   "bin": {
-    "nostr-research-memory": "./bin/nostr-research-memory.js"
+    "nostr-research-memory": "./bin/nostr-research-memory.js",
+    "nostr-research-console": "./bin/nostr-research-console.js"
   },
   "files": [
     "bin",
@@ -15,7 +16,7 @@
   ],
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/acquire.js && node --check src/session.js && node --check src/planning.js && node --check bin/nostr-research-memory.js"
+    "check": "node --check src/index.js && node --check src/acquire.js && node --check src/session.js && node --check src/planning.js && node --check src/console.js && node --check bin/nostr-research-memory.js && node --check bin/nostr-research-console.js"
   },
   "engines": {
     "node": ">=22.5.0"

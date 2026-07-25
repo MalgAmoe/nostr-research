@@ -8,6 +8,7 @@
   "scripts": {
     "test": "npm test --workspace packages/nostr-research",
     "check": "npm run check --workspace packages/nostr-research",
-    "research": "nostr-research-memory"
+    "research": "nostr-research-memory",
+    "research-console": "node packages/nostr-research/bin/nostr-research-console.js"
   }
 }

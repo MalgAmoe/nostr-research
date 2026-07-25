@@ -1,6 +1,6 @@
 ---
 id: 014-persistent-javascript-research-console
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/014-persistent-javascript-research-console.validate.sh
 depends_on: 013-in-memory-research-workspace
