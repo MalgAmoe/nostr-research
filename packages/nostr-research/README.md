@@ -5,6 +5,11 @@ record of valid Nostr evidence and where it was encountered. It intentionally
 contains no UI, ranking, recommendations, or trust scoring. Its bounded
 acquisition operation is deliberately separate from local querying.
 
+SQLite is the package's current concrete implementation and its one real
+storage path. The tables and indexes are internal implementation details, not
+a promised public data model or backend abstraction. Experimental databases
+may be discarded and regenerated while the research model is still evolving.
+
 ## Library
 
 ```js
@@ -117,6 +122,11 @@ const continued = memory.traverse([{ type: 'set', id: saved.id }], {
 memory.close();
 ```
 
+`memory.asCollection(output)` adapts structured acquisition output, event or
+account search output, and convenience-navigation output to this same
+collection contract. It consumes public objects directly; callers never need
+to parse rendered output.
+
 Traversal is deterministic and breadth-first. It deduplicates subjects while
 retaining distinct explaining edges, with explicit depth and distinct-result
 bounds. `relatedEvent`, `relatedAccount`, and `expandSet` are conveniences over
@@ -124,6 +134,20 @@ this operation. Projection modes are `compact`, `full`, `ids`, and `ndjson`;
 explicit `excerptLimit` and `previewLimit` bounds are terminal-independent.
 Full projection preserves canonical evidence. Retention saves reasons and
 provenance.
+
+Every result item has a `role`. Traversal inputs are `seed` items; subjects
+reached through relationships are `discovery` items. Selection and other
+collections use `discovery` unless they become explicit seeds of a later
+traversal. This distinction survives projection and lets callers compose
+collections directly without inferring origins from rendered text.
+
+Compact projection bounds excerpts and previews and emits one `subjects` map
+for relationship endpoint summaries; each relationship carries stable
+`sourceRef` and `targetRef` keys instead of repeating both summaries. Its size
+grows with distinct subjects and edges rather than duplicating complete
+endpoints for every edge. Full projection is intentionally more expensive: it
+hydrates canonical evidence and complete explanations for the requested
+collection. Neither mode changes stored evidence.
 
 `memory.thread(eventId, { depth, limit })` composes shared traversals and
 separates the start, known ancestors, direct replies, deeper descendants,
@@ -198,8 +222,10 @@ available.
 `inputs`, ISO `startedAt` and `finishedAt` times, a completion `status`,
 structured `diagnostics`, and event/account `results`. Each result carries its
 match `reasons` and acquisition `provenance`. The returned UUID is stable;
-recording equivalent inputs again creates a different run. `listRuns()` and
-`getRun(id)` return these snapshots and never repeat the operation.
+recording equivalent inputs again creates a different run. `getRun(id)`
+returns the complete snapshot and never repeats the operation. `listRuns()`
+returns bounded metadata and result/diagnostic counts without deserializing
+the stored result and diagnostic arrays.
 
 Saved research sets use stable UUIDs and user-facing names. The public
 operations are:
@@ -221,6 +247,18 @@ sets in a set operation. Expansion uses only the stored relationships exposed
 by local navigation, requires selected relationship types, and has a bounded
 limit (default 50, maximum 1000). Set combinations create a new set and never
 mutate either input. None of these operations contacts a relay.
+
+Every operation that creates a populated set—`retain`, `createSetFromRun`,
+`expandSet`, and `combineSets`—prevalidates and deduplicates its members and
+reasons, then writes the set, members, and reasons in one SQLite transaction.
+Any validation or insertion failure leaves no new set or partial membership.
+`retain` also accepts an optional `AbortSignal`; cancellation observed during
+the bulk write rolls back that transaction.
+These operations return a bounded acknowledgement with counts and at most ten
+preview members; use `getSet(id)` when complete membership and reasons are
+needed. `listSets()` likewise returns counts and at most five preview member
+references instead of expanding complete membership. Interactive
+`addSetMember` remains a separate single-member edit.
 
 ## CLI
 

@@ -98,6 +98,18 @@ export class ResearchMemory {
       CREATE INDEX IF NOT EXISTS observations_by_event
         ON observations(event_id, observation_id);
 
+      CREATE TABLE IF NOT EXISTS event_relationships (
+        source_event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+        relationship_type TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        evidence TEXT NOT NULL,
+        PRIMARY KEY (source_event_id, relationship_type, target_type, target_id, evidence)
+      );
+
+      CREATE INDEX IF NOT EXISTS relationships_by_target
+        ON event_relationships(target_type, target_id, relationship_type, source_event_id);
+
       CREATE TABLE IF NOT EXISTS research_runs (
         run_id TEXT PRIMARY KEY,
         operation TEXT NOT NULL,
@@ -131,6 +143,20 @@ export class ResearchMemory {
         FOREIGN KEY (set_id, entity_type, entity_id)
           REFERENCES research_set_members(set_id, entity_type, entity_id) ON DELETE CASCADE
       );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS research_set_reason_identity
+        ON research_set_reasons(set_id, entity_type, entity_id, reason);
+
+      CREATE INDEX IF NOT EXISTS events_by_created_at
+        ON events(CAST(json_extract(raw_event, '$.created_at') AS INTEGER), event_id);
+
+      CREATE INDEX IF NOT EXISTS events_by_author_kind_created
+        ON events(
+          json_extract(raw_event, '$.pubkey'),
+          CAST(json_extract(raw_event, '$.kind') AS INTEGER),
+          CAST(json_extract(raw_event, '$.created_at') AS INTEGER),
+          event_id
+        );
     `);
 
     this.#database
@@ -149,6 +175,7 @@ export class ResearchMemory {
     this.#assertOpen();
     this.#database.exec(`
       DROP TABLE IF EXISTS observations;
+      DROP TABLE IF EXISTS event_relationships;
       DROP TABLE IF EXISTS research_set_reasons;
       DROP TABLE IF EXISTS research_set_members;
       DROP TABLE IF EXISTS research_sets;
@@ -175,6 +202,19 @@ export class ResearchMemory {
       const inserted = this.#database
         .prepare('INSERT OR IGNORE INTO events(event_id, raw_event) VALUES (?, ?)')
         .run(event.id, rawEvent);
+      if (inserted.changes === 1) {
+        const insertRelationship = this.#database.prepare(`
+          INSERT INTO event_relationships
+            (source_event_id, relationship_type, target_type, target_id, evidence)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+        for (const relationship of eventRelationships(event)) {
+          insertRelationship.run(
+            event.id, relationship.type, relationship.targetType,
+            relationship.targetId, stableJson(relationship.evidence),
+          );
+        }
+      }
       const observationResult = this.#database
         .prepare('INSERT INTO observations(event_id, relay, observed_at) VALUES (?, ?, ?)')
         .run(event.id, normalizedObservation.relay, normalizedObservation.observedAt);
@@ -231,27 +271,21 @@ export class ResearchMemory {
   searchEvents(query = {}) {
     this.#assertOpen();
     const normalized = normalizeEventQuery(query);
-    const events = allEventRecords(this.#database);
-    const ids = resolvePrefixes(
-      normalized.ids,
-      events.map(({ event }) => event.id),
-      'event ID',
+    const ids = resolveStoredPrefixes(this.#database, normalized.ids, 'event_id', 'event ID');
+    const authors = resolveStoredPrefixes(
+      this.#database, normalized.authors,
+      "json_extract(raw_event, '$.pubkey')", 'author public key',
     );
-    const authors = resolvePrefixes(
-      normalized.authors,
-      [...new Set(events.map(({ event }) => event.pubkey))],
-      'author public key',
-    );
+    const events = selectedEventRecords(this.#database, normalized, ids, authors);
 
     const matches = [];
     for (const record of events) {
       const reasons = matchEvent(record.event, normalized, ids, authors);
       if (reasons) matches.push({ ...record, matchReasons: reasons });
     }
-    matches.sort((left, right) => compareEvents(left.event, right.event, normalized.order));
     return {
       query: publicEventQuery(normalized),
-      results: matches.slice(0, normalized.limit),
+      results: matches,
     };
   }
 
@@ -270,6 +304,49 @@ export class ResearchMemory {
       })),
       { operation: 'selection', query: outcome.query },
     );
+  }
+
+  /** Adapts public acquisition, search, account, or navigation output for composition. */
+  asCollection(value) {
+    this.#assertOpen();
+    if (value?.type === 'result-collection') {
+      assertResultCollection(value);
+      return value;
+    }
+    if (value?.collection?.type === 'result-collection') return value.collection;
+    if (Array.isArray(value?.acquiredObservations)) {
+      return resultCollection(value.acquiredObservations.map(({ eventId, observations }) => ({
+        subject: subject('event', eventId),
+        reasons: [{ type: 'acquisition', requested: value.requested }],
+        provenance: observations,
+      })), { operation: 'acquisition', completionReason: value.completionReason });
+    }
+    if (Array.isArray(value?.results)) {
+      return resultCollection(value.results.map((item) => {
+        if (item.event) {
+          return {
+            subject: subject('event', item.event.id),
+            record: { event: item.event, observations: item.observations ?? [] },
+            reasons: item.matchReasons ?? [],
+            provenance: item.observations ?? [],
+          };
+        }
+        if (item.publicKey) {
+          return {
+            subject: subject('account', item.publicKey),
+            record: {
+              profile: item.profile,
+              metadataEvent: item.metadataEvent,
+              observations: item.observations ?? [],
+            },
+            reasons: item.matchReasons ?? [],
+            provenance: item.observations ?? [],
+          };
+        }
+        throw new ResearchMemoryError('Unsupported public result shape.');
+      }), { operation: 'adapted-results', query: value.query });
+    }
+    throw new ResearchMemoryError('Unsupported public result shape.');
   }
 
   /**
@@ -295,9 +372,8 @@ export class ResearchMemory {
 
   #resolveTypedSubject(reference) {
     if (reference.type === 'event') {
-      const records = allEventRecords(this.#database);
-      return subject('event', resolveOnePrefix(
-        reference.id, records.map(({ event }) => event.id), 'event ID',
+      return subject('event', resolveStoredPrefix(
+        this.#database, reference.id, 'event_id', 'event ID',
       ));
     }
     if (reference.type === 'account') return this.#resolveAccountSubject(reference.id);
@@ -311,20 +387,23 @@ export class ResearchMemory {
   }
 
   #resolveAccountSubject(identifier) {
-    const records = allEventRecords(this.#database);
-    const keys = [...new Set(records.flatMap(({ event }) => [
-      event.pubkey,
-      ...event.tags.filter((tag) => ['p', 'P'].includes(tag[0])).map((tag) => tag[1]),
-    ]).filter((value) => EVENT_ID.test(value)))];
+    const keys = this.#database.prepare(`
+      SELECT DISTINCT value FROM (
+        SELECT json_extract(raw_event, '$.pubkey') AS value FROM events
+        UNION ALL
+        SELECT json_extract(tag.value, '$[1]') AS value
+        FROM events, json_each(json_extract(raw_event, '$.tags')) AS tag
+        WHERE json_extract(tag.value, '$[0]') IN ('p', 'P')
+      ) WHERE length(value) = 64
+      ORDER BY value
+    `).all().map(({ value }) => value);
     if (HEX_PREFIX.test(identifier)) {
       return subject('account', resolveOnePrefix(identifier, keys, 'account public key'));
     }
     const normalized = identifier.toLocaleLowerCase();
     const matches = [];
     for (const key of keys) {
-      const metadata = currentMetadata(records.filter(
-        ({ event }) => event.kind === 0 && event.pubkey === key,
-      ));
+      const metadata = currentAccountMetadata(this.#database, key);
       if (!metadata) continue;
       const profile = parseProfile(metadata.event);
       if (['name', 'display_name', 'nip05'].some(
@@ -344,15 +423,11 @@ export class ResearchMemory {
   /** Resolves the current stored kind-0 metadata event for one public key. */
   resolveAccount(publicKeyOrPrefix) {
     this.#assertOpen();
-    const records = allEventRecords(this.#database);
-    const publicKey = resolveOnePrefix(
-      publicKeyOrPrefix,
-      [...new Set(records.map(({ event }) => event.pubkey))],
-      'account public key',
+    const publicKey = resolveStoredPrefix(
+      this.#database, publicKeyOrPrefix,
+      "json_extract(raw_event, '$.pubkey')", 'account public key',
     );
-    const metadata = currentMetadata(records.filter(
-      ({ event }) => event.pubkey === publicKey && event.kind === 0,
-    ));
+    const metadata = currentAccountMetadata(this.#database, publicKey);
     if (!metadata) {
       throw new ResearchMemoryError(`No stored kind-0 metadata event found for account ${publicKey}.`);
     }
@@ -363,7 +438,13 @@ export class ResearchMemory {
   searchAccounts(query = {}) {
     this.#assertOpen();
     const normalized = normalizeAccountQuery(query);
-    const records = allEventRecords(this.#database);
+    const records = hydrateEventRows(this.#database, this.#database.prepare(`
+      SELECT event_id, raw_event FROM events
+      WHERE CAST(json_extract(raw_event, '$.kind') AS INTEGER) = 0
+      ORDER BY json_extract(raw_event, '$.pubkey'),
+        CAST(json_extract(raw_event, '$.created_at') AS INTEGER) DESC,
+        event_id
+    `).all());
     const byAuthor = new Map();
     for (const record of records) {
       if (record.event.kind !== 0) continue;
@@ -454,10 +535,9 @@ export class ResearchMemory {
     }
     const limit = normalizeLimit(options.limit);
     const starts = expandStartingSubjects(this, starting).map((item) => this.#resolveTypedSubject(item));
-    const records = allEventRecords(this.#database);
     const queue = starts.map((item) => ({ subject: item, depth: 0 }));
     const visited = new Map(starts.map((item) => [memberKey(item), {
-      subject: item, reasons: [{ type: 'traversal-start' }], provenance: [],
+      subject: item, role: 'seed', reasons: [{ type: 'traversal-start' }], provenance: [],
     }]));
     const relationships = [];
     const edgeKeys = new Set();
@@ -465,14 +545,9 @@ export class ResearchMemory {
     while (queue.length > 0) {
       const current = queue.shift();
       if (current.depth >= depth) continue;
-      const navigation = buildNavigation(
-        current.subject.type, current.subject.id,
-        current.subject.type === 'event'
-          ? records.find(({ event }) => event.id === current.subject.id)
-          : null,
-        records,
-      );
-      for (const relation of navigation.relationships) {
+      for (const relation of relationshipsForSubject(
+        this.#database, current.subject.type, current.subject.id,
+      )) {
         if (!relationshipTypes.includes(relation.type)) continue;
         if (direction !== 'both' && relation.direction !== direction) continue;
         const next = relation.direction === 'outbound'
@@ -496,14 +571,14 @@ export class ResearchMemory {
         const key = memberKey(next);
         if (!visited.has(key) && visited.size - starts.length < limit) {
           visited.set(key, {
-            subject: next,
+            subject: next, role: 'discovery',
             reasons: [{
               type: 'relationship', relationshipType: relation.type,
               direction: relation.direction, depth: stepDepth,
               source: current.subject, sourceEventId: relation.sourceEventId,
               evidence: relation.evidence,
             }],
-            provenance: relation.sourceEvent?.observations ?? [],
+            provenance: [{ type: 'stored-event-observations', eventId: relation.sourceEventId }],
           });
           queue.push({ subject: next, depth: stepDepth });
         } else if (visited.has(key)) {
@@ -546,9 +621,13 @@ export class ResearchMemory {
 
   listRuns() {
     this.#assertOpen();
-    return this.#database.prepare(
-      'SELECT * FROM research_runs ORDER BY started_at, run_id',
-    ).all().map(publicRun);
+    return this.#database.prepare(`
+      SELECT run_id, operation, inputs, started_at, finished_at, status,
+        json_array_length(diagnostics) AS diagnostic_count,
+        json_array_length(results) AS result_count
+      FROM research_runs
+      ORDER BY started_at, run_id
+    `).all().map(publicRunSummary);
   }
 
   getRun(runId) {
@@ -569,27 +648,116 @@ export class ResearchMemory {
 
   listSets() {
     this.#assertOpen();
-    return this.#database.prepare(
-      'SELECT set_id FROM research_sets ORDER BY name, set_id',
-    ).all().map(({ set_id }) => this.getSet(set_id));
+    const summaries = this.#database.prepare(`
+      SELECT s.set_id, s.name, s.created_at,
+        COUNT(DISTINCT m.entity_type || ':' || m.entity_id) AS member_count,
+        COUNT(DISTINCT r.reason_id) AS reason_count,
+        COUNT(DISTINCT CASE WHEN m.entity_type = 'event' THEN m.entity_id END) AS event_count,
+        COUNT(DISTINCT CASE WHEN m.entity_type = 'account' THEN m.entity_id END) AS account_count,
+        COUNT(DISTINCT CASE WHEN m.entity_type = 'tag' THEN m.entity_id END) AS tag_count,
+        COUNT(DISTINCT CASE WHEN m.entity_type = 'set' THEN m.entity_id END) AS set_count,
+        COUNT(DISTINCT CASE WHEN m.entity_type = 'run' THEN m.entity_id END) AS run_count
+      FROM research_sets AS s
+      LEFT JOIN research_set_members AS m ON m.set_id = s.set_id
+      LEFT JOIN research_set_reasons AS r ON r.set_id = s.set_id
+        AND r.entity_type = m.entity_type AND r.entity_id = m.entity_id
+      GROUP BY s.set_id
+      ORDER BY s.name, s.set_id
+    `).all().map(publicSetSummary);
+    const preview = this.#database.prepare(`
+      SELECT entity_type AS type, entity_id AS id
+      FROM research_set_members
+      WHERE set_id = ?
+      ORDER BY entity_type, entity_id
+      LIMIT 5
+    `);
+    return summaries.map((set) => ({ ...set, preview: preview.all(set.id) }));
   }
 
   getSet(setId) {
     this.#assertOpen();
     const row = this.#database.prepare('SELECT * FROM research_sets WHERE set_id = ?').get(setId);
     if (!row) throw new ResearchMemoryError(`No research set found for ID ${setId}.`);
-    const members = this.#database.prepare(`
-      SELECT entity_type, entity_id FROM research_set_members
-      WHERE set_id = ? ORDER BY entity_type, entity_id
-    `).all(setId).map(({ entity_type, entity_id }) => ({
-      type: entity_type,
-      id: entity_id,
-      reasons: this.#database.prepare(`
-        SELECT reason FROM research_set_reasons
-        WHERE set_id = ? AND entity_type = ? AND entity_id = ? ORDER BY reason_id
-      `).all(setId, entity_type, entity_id).map(({ reason }) => JSON.parse(reason)),
-    }));
+    const members = [];
+    for (const reasonRow of this.#database.prepare(`
+      SELECT m.entity_type, m.entity_id, r.reason
+      FROM research_set_members AS m
+      LEFT JOIN research_set_reasons AS r
+        ON r.set_id = m.set_id
+        AND r.entity_type = m.entity_type
+        AND r.entity_id = m.entity_id
+      WHERE m.set_id = ?
+      ORDER BY m.entity_type, m.entity_id, r.reason_id
+    `).all(setId)) {
+      const previous = members.at(-1);
+      const member = previous?.type === reasonRow.entity_type
+        && previous.id === reasonRow.entity_id
+        ? previous
+        : (() => {
+            const created = {
+              type: reasonRow.entity_type, id: reasonRow.entity_id, reasons: [],
+            };
+            members.push(created);
+            return created;
+          })();
+      if (reasonRow.reason !== null) member.reasons.push(JSON.parse(reasonRow.reason));
+    }
     return { id: row.set_id, name: row.name, createdAt: row.created_at, members };
+  }
+
+  #createPopulatedSet(name, entries, options = {}) {
+    const normalizedName = normalizeSetName(name);
+    const deduplicated = new Map();
+    for (const entry of entries) {
+      const member = normalizeMember(entry.member);
+      const key = memberKey(member);
+      const stored = deduplicated.get(key) ?? { member, reasons: new Map() };
+      for (const reason of entry.reasons) {
+        const encoded = stableJson(normalizeReason(reason));
+        stored.reasons.set(encoded, encoded);
+      }
+      deduplicated.set(key, stored);
+    }
+
+    const setId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const insertSet = this.#database.prepare(
+      'INSERT INTO research_sets(set_id, name, created_at) VALUES (?, ?, ?)',
+    );
+    const insertMember = this.#database.prepare(`
+      INSERT INTO research_set_members(set_id, entity_type, entity_id) VALUES (?, ?, ?)
+    `);
+    const insertReason = this.#database.prepare(`
+      INSERT INTO research_set_reasons(set_id, entity_type, entity_id, reason)
+      VALUES (?, ?, ?, ?)
+    `);
+    let reasonCount = 0;
+    this.#database.exec('BEGIN');
+    try {
+      insertSet.run(setId, normalizedName, createdAt);
+      for (const { member, reasons } of deduplicated.values()) {
+        if (options.signal?.aborted) {
+          throw new ResearchMemoryError('Populated set creation was interrupted.');
+        }
+        insertMember.run(setId, member.type, member.id);
+        for (const encoded of reasons.values()) {
+          insertReason.run(setId, member.type, member.id, encoded);
+          reasonCount += 1;
+        }
+      }
+      this.#database.exec('COMMIT');
+    } catch (error) {
+      this.#database.exec('ROLLBACK');
+      throw error;
+    }
+    return {
+      id: setId,
+      name: normalizedName,
+      createdAt,
+      memberCount: deduplicated.size,
+      reasonCount,
+      preview: [...deduplicated.values()].slice(0, 10).map(({ member }) => member),
+    };
   }
 
   renameSet(setId, name) {
@@ -662,17 +830,16 @@ export class ResearchMemory {
   createSetFromRun(name, runId) {
     this.#assertOpen();
     const run = this.getRun(runId);
-    const set = this.createSet(name);
-    for (const result of run.results) {
-      this.addSetMember(set.id, result, {
+    return this.#createPopulatedSet(name, run.results.map((result) => ({
+      member: result,
+      reasons: [{
         type: 'run',
         runId,
         operation: run.operation,
         matchReasons: result.reasons,
         provenance: result.provenance,
-      });
-    }
-    return this.getSet(set.id);
+      }],
+    })));
   }
 
   expandSet(sourceSetId, name, options = {}) {
@@ -707,21 +874,26 @@ export class ResearchMemory {
     this.#assertOpen();
     assertResultCollection(collection);
     assertPlainObject(options, 'Retention options');
-    rejectUnknownKeys(options, new Set(['reason']), 'retention option');
-    const created = this.createSet(name);
-    for (const item of collection.items) {
-      if (!RETAINABLE_SUBJECT_TYPES.has(item.subject.type)) continue;
-      const reasons = item.reasons.length ? item.reasons : [{ type: 'retained-result' }];
-      for (const reason of reasons) {
-        this.addSetMember(created.id, item.subject, {
-          ...reason,
-          ...(options.reason ? { retentionContext: normalizeReason(options.reason) } : {}),
-          operation: collection.context.operation,
-          provenance: item.provenance,
-        });
-      }
+    rejectUnknownKeys(options, new Set(['reason', 'signal']), 'retention option');
+    if (options.signal !== undefined
+      && (!options.signal || typeof options.signal !== 'object'
+        || typeof options.signal.aborted !== 'boolean')) {
+      throw new ResearchMemoryError('Retention signal must be an AbortSignal.');
     }
-    return this.getSet(created.id);
+    const retentionContext = options.reason ? normalizeReason(options.reason) : undefined;
+    return this.#createPopulatedSet(name, collection.items
+      .filter((item) => RETAINABLE_SUBJECT_TYPES.has(item.subject.type))
+      .map((item) => ({
+        member: item.subject,
+        reasons: (item.reasons.length ? item.reasons : [{ type: 'retained-result' }]).map(
+          (reason) => ({
+          ...reason,
+          ...(retentionContext ? { retentionContext } : {}),
+          operation: collection.context.operation,
+          provenance: retainedProvenance(item),
+          }),
+        ),
+      })), { signal: options.signal });
   }
 
   /**
@@ -743,10 +915,17 @@ export class ResearchMemory {
       this.#projectSubject(item.subject, mode, excerptLimit, previewLimit)
     ));
     if (mode === 'ids') return projected;
+    const relationshipSubjects = uniqueSubjects((collection.context.relationships ?? [])
+      .flatMap((edge) => [edge.source, edge.target]));
+    const subjectSummaries = mode === 'compact' || mode === 'ndjson'
+      ? relationshipSubjects.map((item) => (
+          this.#projectSubject(item, 'compact', excerptLimit, previewLimit)
+        ))
+      : [];
     const relationships = (collection.context.relationships ?? []).map((edge) => ({
       ...edge,
-      sourceSummary: this.#projectSubject(edge.source, 'compact', excerptLimit, previewLimit),
-      targetSummary: this.#projectSubject(edge.target, 'compact', excerptLimit, previewLimit),
+      sourceRef: memberKey(edge.source),
+      targetRef: memberKey(edge.target),
       interpretation: edge.evidence?.interpretation,
     }));
     const output = {
@@ -754,9 +933,15 @@ export class ResearchMemory {
       context: cloneJson(collection.context),
       results: projected.map((projection, index) => ({
         ...projection,
+        role: collection.items[index].role ?? 'discovery',
         reasons: cloneJson(collection.items[index].reasons),
         provenance: cloneJson(collection.items[index].provenance),
       })),
+      ...(subjectSummaries.length ? {
+        subjects: Object.fromEntries(subjectSummaries.map((summary) => [
+          memberKey(summary), summary,
+        ])),
+      } : {}),
       ...(relationships.length ? { relationships } : {}),
     };
     if (mode === 'ndjson') {
@@ -788,10 +973,7 @@ export class ResearchMemory {
     if (item.type === 'account') {
       const summary = accountSummaryForKey(this.#database, item.id, excerptLimit);
       if (mode === 'full') {
-        const records = allEventRecords(this.#database);
-        const metadata = currentMetadata(records.filter(
-          ({ event }) => event.kind === 0 && event.pubkey === item.id,
-        ));
+        const metadata = currentAccountMetadata(this.#database, item.id);
         return { type: 'account', id: item.id, ...summary, ...(metadata ? {
           metadataEvent: metadata.event, observations: metadata.observations,
         } : {}) };
@@ -799,34 +981,26 @@ export class ResearchMemory {
       return { type: 'account', id: item.id, ...summary };
     }
     if (item.type === 'set') {
-      const set = this.getSet(item.id);
-      if (mode === 'full') return { type: 'set', ...set };
-      const counts = Object.fromEntries(
-        [...SUBJECT_TYPES].map((type) => [
-          type, set.members.filter((member) => member.type === type).length,
-        ]),
-      );
+      if (mode === 'full') return { type: 'set', ...this.getSet(item.id) };
+      const set = compactSetRecord(this.#database, item.id, previewLimit);
       return {
         type: 'set', id: set.id, name: set.name, createdAt: set.createdAt,
-        memberCount: set.members.length, counts,
-        preview: set.members.slice(0, previewLimit).map(
+        memberCount: set.memberCount, counts: set.counts,
+        preview: set.preview.map(
           (member) => this.#projectSubject(member, 'compact', excerptLimit, previewLimit),
         ),
       };
     }
     if (item.type === 'run') {
-      const run = this.getRun(item.id);
-      if (mode === 'full') return { type: 'run', ...run };
+      if (mode === 'full') return { type: 'run', ...this.getRun(item.id) };
+      const run = compactRunRecord(this.#database, item.id, previewLimit);
       return {
         type: 'run', id: run.id, operation: run.operation, status: run.status,
         startedAt: run.startedAt, finishedAt: run.finishedAt, inputs: run.inputs,
         outcomeCounts: run.operation === 'acquisition'
-          ? run.diagnostics.reduce((counts, diagnostic) => {
-              counts[diagnostic.outcome] = (counts[diagnostic.outcome] ?? 0) + 1;
-              return counts;
-            }, {})
-          : { results: run.results.length, diagnostics: run.diagnostics.length },
-        preview: run.results.slice(0, previewLimit).map(
+          ? run.outcomeCounts
+          : { results: run.resultCount, diagnostics: run.diagnosticCount },
+        preview: run.preview.map(
           (result) => this.#projectSubject(result, 'compact', excerptLimit, previewLimit),
         ),
       };
@@ -899,8 +1073,7 @@ export class ResearchMemory {
       : operation === 'intersection'
         ? left.members.filter((member) => rightKeys.has(memberKey(member)))
         : left.members.filter((member) => !rightKeys.has(memberKey(member)));
-    const created = this.createSet(name);
-    for (const member of selected) {
+    return this.#createPopulatedSet(name, selected.map((member) => {
       const sources = [
         ...(left.members.some((candidate) => memberKey(candidate) === memberKey(member))
           ? [{ setId: left.id, reasons: left.members.find((candidate) => memberKey(candidate) === memberKey(member)).reasons }]
@@ -909,11 +1082,10 @@ export class ResearchMemory {
           ? [{ setId: right.id, reasons: right.members.find((candidate) => memberKey(candidate) === memberKey(member)).reasons }]
           : []),
       ];
-      this.addSetMember(created.id, member, {
+      return { member, reasons: [{
         type: 'set-operation', operation, leftSetId, rightSetId, sources,
-      });
-    }
-    return this.getSet(created.id);
+      }] };
+    }));
   }
 
   /** Reports storage-level totals without exposing a schema to callers. */
@@ -983,26 +1155,107 @@ function normalizeObservation(observation) {
   };
 }
 
-function allEventRecords(database) {
-  return database
-    .prepare('SELECT event_id, raw_event FROM events ORDER BY event_id')
-    .all()
-    .map((row) => {
-      const event = JSON.parse(row.raw_event);
-      return {
-        event,
-        observations: database
-          .prepare(
-            'SELECT observation_id, relay, observed_at FROM observations WHERE event_id = ? ORDER BY observation_id',
-          )
-          .all(row.event_id)
-          .map((observation) => ({
-            id: Number(observation.observation_id),
-            relay: observation.relay,
-            observedAt: observation.observed_at,
-          })),
-      };
+function observationsForEventIds(database, eventIds) {
+  const byEvent = new Map(eventIds.map((eventId) => [eventId, []]));
+  if (eventIds.length === 0) return byEvent;
+  const placeholders = eventIds.map(() => '?').join(',');
+  for (const row of database.prepare(`
+    SELECT observation_id, event_id, relay, observed_at
+    FROM observations
+    WHERE event_id IN (${placeholders})
+    ORDER BY event_id, observation_id
+  `).all(...eventIds)) {
+    byEvent.get(row.event_id).push({
+      id: Number(row.observation_id), relay: row.relay, observedAt: row.observed_at,
     });
+  }
+  return byEvent;
+}
+
+function hydrateEventRows(database, rows) {
+  const observations = observationsForEventIds(database, rows.map(({ event_id }) => event_id));
+  return rows.map((row) => ({
+    event: JSON.parse(row.raw_event),
+    observations: observations.get(row.event_id) ?? [],
+  }));
+}
+
+function resolveStoredPrefixes(database, prefixes, expression, label) {
+  if (!prefixes) return null;
+  const resolved = new Set();
+  for (const prefix of prefixes) {
+    const rows = database.prepare(`
+      SELECT DISTINCT ${expression} AS value FROM events
+      WHERE ${expression} >= ? AND ${expression} < ?
+      ORDER BY value LIMIT 2
+    `).all(prefix, `${prefix}g`);
+    if (rows.length > 1) {
+      throw new ResearchMemoryError(`Ambiguous ${label} prefix ${prefix}: multiple stored values match.`);
+    }
+    if (rows.length === 1) resolved.add(rows[0].value);
+  }
+  return resolved;
+}
+
+function resolveStoredPrefix(database, prefix, expression, label) {
+  const normalized = normalizeStringList(prefix, label, true)[0];
+  const resolved = resolveStoredPrefixes(database, [normalized], expression, label);
+  if (resolved.size === 0) {
+    throw new ResearchMemoryError(`No stored ${label} matches ${normalized}.`);
+  }
+  return [...resolved][0];
+}
+
+function selectedEventRecords(database, query, ids, authors) {
+  const clauses = [];
+  const parameters = [];
+  const addList = (expression, values) => {
+    if (!values) return;
+    clauses.push(`${expression} IN (${[...values].map(() => '?').join(',')})`);
+    parameters.push(...values);
+  };
+  addList('event_id', ids);
+  addList("json_extract(raw_event, '$.pubkey')", authors);
+  addList("CAST(json_extract(raw_event, '$.kind') AS INTEGER)", query.kinds);
+  if (query.since !== undefined) {
+    clauses.push("CAST(json_extract(raw_event, '$.created_at') AS INTEGER) >= ?");
+    parameters.push(query.since);
+  }
+  if (query.until !== undefined) {
+    clauses.push("CAST(json_extract(raw_event, '$.created_at') AS INTEGER) <= ?");
+    parameters.push(query.until);
+  }
+  for (const [name, values] of Object.entries(query.tags)) {
+    clauses.push(`EXISTS (
+      SELECT 1 FROM json_each(json_extract(raw_event, '$.tags')) AS tag
+      WHERE json_extract(tag.value, '$[0]') = ?
+        AND json_extract(tag.value, '$[1]') IN (${values.map(() => '?').join(',')})
+    )`);
+    parameters.push(name, ...values);
+  }
+  for (const term of query.terms) {
+    clauses.push("instr(lower(json_extract(raw_event, '$.content')), lower(?)) > 0");
+    parameters.push(term);
+  }
+  const direction = query.order === 'newest' ? 'DESC' : 'ASC';
+  const rows = database.prepare(`
+    SELECT event_id, raw_event FROM events
+    ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
+    ORDER BY CAST(json_extract(raw_event, '$.created_at') AS INTEGER) ${direction}, event_id
+    LIMIT ?
+  `).all(...parameters, query.limit);
+  return hydrateEventRows(database, rows);
+}
+
+function currentAccountMetadata(database, publicKey) {
+  const row = database.prepare(`
+    SELECT event_id, raw_event FROM events
+    WHERE json_extract(raw_event, '$.pubkey') = ?
+      AND CAST(json_extract(raw_event, '$.kind') AS INTEGER) = 0
+    ORDER BY CAST(json_extract(raw_event, '$.created_at') AS INTEGER) DESC, event_id
+    LIMIT 1
+  `).get(publicKey);
+  return row ? hydrateEventRows(database, [row])[0] : null;
 }
 
 function normalizeEventQuery(query) {
@@ -1208,6 +1461,7 @@ function resultCollection(items, context = {}) {
     type: 'result-collection',
     items: items.map((item) => ({
       subject: normalizeSubject(item.subject),
+      role: item.role === 'seed' ? 'seed' : 'discovery',
       ...(item.record ? { record: item.record } : {}),
       reasons: cloneJson(item.reasons ?? []),
       provenance: cloneJson(item.provenance ?? []),
@@ -1263,6 +1517,7 @@ function navigationFromTraversal(memory, collection) {
   const start = collection.context.starts[0];
   return {
     subject: { ...start },
+    collection,
     relationships: collection.context.relationships.map((edge) => {
       const sourceEvent = memory.getEvent(edge.sourceEventId);
       let resolved = true;
@@ -1317,14 +1572,15 @@ function excerpt(content, maximum) {
 }
 
 function accountSummaryForKey(database, publicKey, excerptLimit) {
-  const records = allEventRecords(database);
-  const metadata = currentMetadata(records.filter(
-    ({ event }) => event.kind === 0 && event.pubkey === publicKey,
-  ));
+  const metadata = currentAccountMetadata(database, publicKey);
   const profile = metadata ? parseProfile(metadata.event) : {};
-  const observations = records
-    .filter(({ event }) => event.pubkey === publicKey)
-    .flatMap((record) => record.observations);
+  const relays = database.prepare(`
+    SELECT DISTINCT o.relay
+    FROM events AS e
+    JOIN observations AS o ON o.event_id = e.event_id
+    WHERE json_extract(e.raw_event, '$.pubkey') = ?
+    ORDER BY o.relay
+  `).all(publicKey).map(({ relay }) => relay);
   return {
     publicKey,
     name: profile.name,
@@ -1333,8 +1589,38 @@ function accountSummaryForKey(database, publicKey, excerptLimit) {
     descriptionExcerpt: typeof profile.about === 'string'
       ? excerpt(profile.about, excerptLimit) : undefined,
     metadataEventId: metadata?.event.id,
-    relays: distinctRelays(observations),
+    relays,
   };
+}
+
+function relationshipsForSubject(database, subjectType, subjectId) {
+  const rows = database.prepare(`
+    SELECT source_event_id, relationship_type, target_type, target_id, evidence,
+      CASE WHEN source_event_id = ? AND ? = 'event' THEN 'outbound' ELSE 'inbound' END AS direction
+    FROM event_relationships
+    WHERE (source_event_id = ? AND ? = 'event')
+       OR (target_type = ? AND target_id = ?)
+    ORDER BY direction, source_event_id, relationship_type, target_id
+  `).all(subjectId, subjectType, subjectId, subjectType, subjectType, subjectId);
+  return rows.map((row) => ({
+    direction: row.direction,
+    type: row.relationship_type,
+    sourceEventId: row.source_event_id,
+    target: {
+      type: row.target_type,
+      id: row.target_id,
+      resolved: row.target_type === 'event'
+        ? Boolean(database.prepare('SELECT 1 FROM events WHERE event_id = ?').get(row.target_id))
+        : row.target_type === 'account'
+          ? Boolean(database.prepare(`
+              SELECT 1 FROM events
+              WHERE json_extract(raw_event, '$.pubkey') = ?
+              LIMIT 1
+            `).get(row.target_id))
+          : true,
+    },
+    evidence: JSON.parse(row.evidence),
+  }));
 }
 
 function normalizeProjectionLimit(value, fallback, label) {
@@ -1343,74 +1629,6 @@ function normalizeProjectionLimit(value, fallback, label) {
     throw new ResearchMemoryError(`${label} must be an integer from 1 to 1000.`);
   }
   return value;
-}
-
-function buildNavigation(subjectType, subjectId, subject, records) {
-  const byId = new Map(records.map((record) => [record.event.id, record]));
-  const evidencedAccounts = new Set(records.flatMap(({ event }) => [
-    event.pubkey,
-    ...event.tags
-      .filter((tag) => tag[0].toLowerCase() === 'p' && EVENT_ID.test(tag[1]))
-      .map((tag) => tag[1]),
-  ]));
-  const metadataByAuthor = new Map();
-  for (const record of records) {
-    if (record.event.kind !== 0) continue;
-    const existing = metadataByAuthor.get(record.event.pubkey);
-    if (!existing || compareReplaceable(record, existing) < 0) {
-      metadataByAuthor.set(record.event.pubkey, record);
-    }
-  }
-  const relationships = [];
-  for (const record of records) {
-    for (const relation of eventRelationships(record.event)) {
-      const outbound = subjectType === 'event' && record.event.id === subjectId;
-      const inbound = relation.targetType === subjectType && relation.targetId === subjectId;
-      if (!outbound && !inbound) continue;
-      const targetRecord = relation.targetType === 'event' ? byId.get(relation.targetId) : undefined;
-      const targetMetadata = relation.targetType === 'account'
-        ? metadataByAuthor.get(relation.targetId)
-        : undefined;
-      relationships.push({
-        direction: outbound ? 'outbound' : 'inbound',
-        type: relation.type,
-        sourceEventId: record.event.id,
-        target: {
-          type: relation.targetType,
-          id: relation.targetId,
-          resolved: relation.targetType === 'event'
-            ? Boolean(targetRecord)
-            : relation.targetType === 'account'
-              ? evidencedAccounts.has(relation.targetId)
-              : true,
-        },
-        evidence: relation.evidence,
-        sourceEvent: record,
-        ...(targetRecord ? { targetEvent: targetRecord } : {}),
-        ...(targetMetadata ? {
-          targetAccount: accountResult(relation.targetId, targetMetadata, []),
-        } : {}),
-      });
-    }
-  }
-  relationships.sort((left, right) => (
-    left.direction.localeCompare(right.direction)
-    || left.sourceEventId.localeCompare(right.sourceEventId)
-    || left.type.localeCompare(right.type)
-    || left.target.id.localeCompare(right.target.id)
-  ));
-  return {
-    subject: subjectType === 'event'
-      ? { type: 'event', id: subjectId, record: subject }
-      : {
-          type: 'account',
-          id: subjectId,
-          ...(metadataByAuthor.has(subjectId)
-            ? { account: accountResult(subjectId, metadataByAuthor.get(subjectId), []) }
-            : {}),
-        },
-    relationships,
-  };
 }
 
 function eventRelationships(event) {
@@ -1676,6 +1894,90 @@ function publicRun(row) {
   };
 }
 
+function publicRunSummary(row) {
+  return {
+    id: row.run_id,
+    operation: row.operation,
+    inputs: JSON.parse(row.inputs),
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    status: row.status,
+    diagnosticCount: Number(row.diagnostic_count),
+    resultCount: Number(row.result_count),
+  };
+}
+
+function publicSetSummary(row) {
+  return {
+    id: row.set_id,
+    name: row.name,
+    createdAt: row.created_at,
+    memberCount: Number(row.member_count),
+    reasonCount: Number(row.reason_count),
+    counts: {
+      event: Number(row.event_count),
+      account: Number(row.account_count),
+      tag: Number(row.tag_count),
+      set: Number(row.set_count),
+      run: Number(row.run_count),
+    },
+  };
+}
+
+function compactSetRecord(database, setId, previewLimit) {
+  const row = database.prepare(`
+    SELECT s.set_id, s.name, s.created_at,
+      COUNT(DISTINCT m.entity_type || ':' || m.entity_id) AS member_count,
+      COUNT(DISTINCT r.reason_id) AS reason_count,
+      COUNT(DISTINCT CASE WHEN m.entity_type = 'event' THEN m.entity_id END) AS event_count,
+      COUNT(DISTINCT CASE WHEN m.entity_type = 'account' THEN m.entity_id END) AS account_count,
+      COUNT(DISTINCT CASE WHEN m.entity_type = 'tag' THEN m.entity_id END) AS tag_count,
+      COUNT(DISTINCT CASE WHEN m.entity_type = 'set' THEN m.entity_id END) AS set_count,
+      COUNT(DISTINCT CASE WHEN m.entity_type = 'run' THEN m.entity_id END) AS run_count
+    FROM research_sets AS s
+    LEFT JOIN research_set_members AS m ON m.set_id = s.set_id
+    LEFT JOIN research_set_reasons AS r ON r.set_id = s.set_id
+      AND r.entity_type = m.entity_type AND r.entity_id = m.entity_id
+    WHERE s.set_id = ?
+    GROUP BY s.set_id
+  `).get(setId);
+  if (!row) throw new ResearchMemoryError(`No research set found for ID ${setId}.`);
+  return {
+    ...publicSetSummary(row),
+    preview: database.prepare(`
+      SELECT entity_type AS type, entity_id AS id
+      FROM research_set_members
+      WHERE set_id = ?
+      ORDER BY entity_type, entity_id
+      LIMIT ?
+    `).all(setId, previewLimit),
+  };
+}
+
+function compactRunRecord(database, runId, previewLimit) {
+  const row = database.prepare(`
+    SELECT run_id, operation, inputs, started_at, finished_at, status,
+      json_array_length(diagnostics) AS diagnostic_count,
+      json_array_length(results) AS result_count
+    FROM research_runs WHERE run_id = ?
+  `).get(runId);
+  if (!row) throw new ResearchMemoryError(`No research run found for ID ${runId}.`);
+  const summary = publicRunSummary(row);
+  const outcomeCounts = summary.operation === 'acquisition'
+    ? Object.fromEntries(database.prepare(`
+        SELECT json_extract(value, '$.outcome') AS outcome, COUNT(*) AS count
+        FROM json_each((SELECT diagnostics FROM research_runs WHERE run_id = ?))
+        GROUP BY outcome
+      `).all(runId).map(({ outcome, count }) => [outcome, Number(count)]))
+    : undefined;
+  const preview = database.prepare(`
+    SELECT value
+    FROM json_each((SELECT results FROM research_runs WHERE run_id = ?))
+    LIMIT ?
+  `).all(runId, previewLimit).map(({ value }) => JSON.parse(value));
+  return { ...summary, outcomeCounts, preview };
+}
+
 function normalizeSetName(name) {
   if (typeof name !== 'string' || name.trim().length === 0) {
     throw new ResearchMemoryError('Research set name must be a non-empty string.');
@@ -1705,6 +2007,17 @@ function normalizeReason(reason) {
     throw new ResearchMemoryError('Membership reason type must be a non-empty string.');
   }
   return cloneJson(reason);
+}
+
+function retainedProvenance(item) {
+  if (item.subject.type === 'event' && item.provenance.length > 0) {
+    return [{ type: 'stored-event-observations', eventId: item.subject.id }];
+  }
+  const metadataEventId = item.record?.metadataEvent?.id;
+  if (item.subject.type === 'account' && metadataEventId && item.provenance.length > 0) {
+    return [{ type: 'stored-event-observations', eventId: metadataEventId }];
+  }
+  return item.provenance;
 }
 
 function assertSetExists(database, setId) {

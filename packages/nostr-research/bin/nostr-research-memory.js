@@ -429,7 +429,11 @@ function handleSetCommand(memory, parsed) {
   } else if (subcommand === 'from-run') {
     requireOnlyOptions(parsed, ['--db', '--output']);
     if (arguments_.length !== 2) throw new ResearchMemoryError('set from-run requires a name and run ID.');
-    printSetAcknowledgement(memory.createSetFromRun(arguments_[0], arguments_[1]), parsed.output ?? 'compact');
+    const created = memory.createSetFromRun(arguments_[0], arguments_[1]);
+    printSetAcknowledgement(
+      (parsed.output ?? 'compact') === 'full' ? memory.getSet(created.id) : created,
+      parsed.output ?? 'compact',
+    );
   } else if (subcommand === 'expand') {
     requireOnlyOptions(parsed, ['--db', '--relationship', '--direction', '--limit', '--output']);
     if (arguments_.length !== 2 || parsed.relationships.length === 0) {
@@ -437,11 +441,15 @@ function handleSetCommand(memory, parsed) {
         'set expand requires a source set ID, new name, and at least one --relationship.',
       );
     }
-    printSetAcknowledgement(memory.expandSet(arguments_[0], arguments_[1], {
+    const created = memory.expandSet(arguments_[0], arguments_[1], {
       relationshipTypes: parsed.relationships,
       ...(parsed.direction ? { direction: parsed.direction } : {}),
       ...(parsed.limit ? { limit: parseIntegerOption(parsed.limit, 'limit') } : {}),
-    }), parsed.output ?? 'compact');
+    });
+    printSetAcknowledgement(
+      (parsed.output ?? 'compact') === 'full' ? memory.getSet(created.id) : created,
+      parsed.output ?? 'compact',
+    );
   } else if (subcommand === 'combine') {
     requireOnlyOptions(parsed, ['--db', '--output']);
     if (arguments_.length !== 4) {
@@ -449,8 +457,9 @@ function handleSetCommand(memory, parsed) {
         'set combine requires an operation, left set ID, right set ID, and new name.',
       );
     }
+    const created = memory.combineSets(arguments_[0], arguments_[1], arguments_[2], arguments_[3]);
     printSetAcknowledgement(
-      memory.combineSets(arguments_[0], arguments_[1], arguments_[2], arguments_[3]),
+      (parsed.output ?? 'compact') === 'full' ? memory.getSet(created.id) : created,
       parsed.output ?? 'compact',
     );
   } else if (subcommand === 'explain') {
@@ -622,15 +631,13 @@ function compactRun(run) {
     status: run.status,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
-    resultCount: run.results.length,
-    diagnosticCount: run.diagnostics.length,
+    resultCount: run.resultCount ?? run.results.length,
+    diagnosticCount: run.diagnosticCount ?? run.diagnostics.length,
   };
 }
 
 function printSetList(memory, sets, mode) {
-  const compact = sets.map((set) => (
-    memory.project({ type: 'set', id: set.id }, { mode: 'compact' }).results[0]
-  ));
+  const compact = sets;
   if (mode === 'full') return print({ sets });
   if (mode === 'ids') return print(compact.map(({ id }) => id));
   if (mode === 'ndjson') return print(null, mode, compact.map((set) => ({ type: 'set', ...set })));
@@ -652,6 +659,16 @@ function printSetAcknowledgement(set, mode, extra = {}) {
 }
 
 function compactSet(set) {
+  if (!set.members) {
+    return {
+      id: set.id,
+      name: set.name,
+      createdAt: set.createdAt,
+      memberCount: set.memberCount,
+      reasonCount: set.reasonCount,
+      preview: set.preview,
+    };
+  }
   return {
     id: set.id,
     name: set.name,

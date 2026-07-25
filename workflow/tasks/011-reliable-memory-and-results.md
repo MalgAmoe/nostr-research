@@ -1,6 +1,6 @@
 ---
 id: 011-reliable-memory-and-results
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/011-reliable-memory-and-results.validate.sh
 depends_on: 010-composable-research-kernel
