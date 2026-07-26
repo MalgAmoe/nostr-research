@@ -20,3 +20,10 @@ belongs to a separate future milestone.
 
 New tasks should be derived from console-driven research. The project should
 not pre-encode universal discovery or quality rules without field evidence.
+
+The next cleanup milestone is queued as three dependent tasks:
+
+- make observation and distinct-event acquisition budgets explicit;
+- remove inactive run, coverage-history, set-algebra, and alias surfaces; and
+- make console selection changes explicit and simplify session/presentation
+  around the reduced research model.
