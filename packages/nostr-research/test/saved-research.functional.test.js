@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import test from 'node:test';
 import { finalizeEvent } from 'nostr-tools';
 import { openResearchMemory } from '@nostr-research/memory';
 
 const PRIVATE_KEY = Uint8Array.from(Buffer.from('4'.repeat(64), 'hex'));
-const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'nostr-research-memory.js');
 
 test('recorded query becomes an explainable, expandable, combinable durable research path', () => {
   const directory = mkdtempSync(join(tmpdir(), 'nostr-saved-research-'));
@@ -27,33 +24,46 @@ test('recorded query becomes an explainable, expandable, combinable durable rese
     content: 'saved research reply',
   }, PRIVATE_KEY);
 
-  let memory = openResearchMemory(database);
-  memory.ingest(root, { relay: 'wss://evidence.example', observedAt: '2026-01-01T00:00:00Z' });
-  memory.ingest(reply, { relay: 'wss://evidence.example', observedAt: '2026-01-01T00:01:00Z' });
-  memory.close();
-
+  let memory;
   try {
-    const run = cli(database, 'run', 'search', '--id', reply.id, '--output', 'full');
+    memory = openResearchMemory(database);
+    memory.ingest(root, { relay: 'wss://evidence.example', observedAt: '2026-01-01T00:00:00Z' });
+    memory.ingest(reply, { relay: 'wss://evidence.example', observedAt: '2026-01-01T00:01:00Z' });
+    const outcome = memory.searchEvents({ ids: [reply.id] });
+    const run = memory.recordRun({
+      operation: 'event-query',
+      inputs: outcome.query,
+      startedAt: '2026-01-01T00:02:00Z',
+      finishedAt: '2026-01-01T00:02:01Z',
+      status: 'completed',
+      diagnostics: [],
+      results: outcome.results.map((result) => ({
+        type: 'event',
+        id: result.event.id,
+        reasons: result.matchReasons,
+        provenance: result.observations,
+      })),
+    });
     assert.equal(run.operation, 'event-query');
     assert.deepEqual(run.results.map(({ id }) => id), [reply.id]);
     assert.equal(run.results[0].provenance[0].relay, 'wss://evidence.example');
 
-    const selected = cli(database, 'set', 'from-run', 'selected', run.id, '--output', 'full');
-    const expanded = cli(
-      database, 'set', 'expand', selected.id, 'parents',
-      '--relationship', 'reply-parent', '--output', 'full',
+    const selected = memory.createSetFromRun('selected', run.id);
+    const expandedResult = memory.expandSet(
+      selected.id, 'parents',
+      { relationshipTypes: ['reply-parent'], direction: 'outbound' },
     );
+    const expanded = memory.getSet(expandedResult.id);
     assert.deepEqual(expanded.members.map(({ id }) => id), [root.id]);
     assert.equal(expanded.members[0].reasons[0].type, 'relationship');
 
-    const manual = cli(database, 'set', 'create', 'manual', '--output', 'full');
-    cli(database, 'set', 'add', manual.id, 'event', 'f'.repeat(64));
-    const combined = cli(
-      database, 'set', 'combine', 'union', expanded.id, manual.id, 'combined',
-      '--output', 'full',
-    );
+    const manual = memory.createSet('manual');
+    memory.addSetMember(manual.id, { type: 'event', id: 'f'.repeat(64) });
+    const combinedResult = memory.combineSets('union', expanded.id, manual.id, 'combined');
+    const combined = memory.getSet(combinedResult.id);
     assert.deepEqual(combined.members.map(({ id }) => id).sort(), [root.id, 'f'.repeat(64)].sort());
 
+    memory.close();
     memory = openResearchMemory(database);
     const reopened = memory.getSet(combined.id);
     assert.equal(reopened.name, 'combined');
@@ -70,11 +80,3 @@ test('recorded query becomes an explainable, expandable, combinable durable rese
     rmSync(directory, { recursive: true, force: true });
   }
 });
-
-function cli(database, ...arguments_) {
-  return JSON.parse(execFileSync(
-    process.execPath,
-    [CLI, '--db', database, ...arguments_],
-    { encoding: 'utf8' },
-  ));
-}

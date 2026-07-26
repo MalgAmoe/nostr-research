@@ -496,20 +496,8 @@ durable records after reopening memory. All coverage responses state
 `exhaustive: false`: an EOSE or completed bounded attempt is not a claim that a
 relay or window was completely indexed.
 
-Caller-controlled planning helpers are:
-
-- `planAcquisitionSlices({ relays, filter, since, until, targetSeconds })` for
-  deterministic inclusive, non-overlapping time slices;
-- `fetchRelayInformation(relay, { timeoutMs, signal })` for optional bounded
-  NIP-11 retrieval;
-- `relayQueryLimit(filter, advertisedInformation)` to cap a filter at an
-  advertised `limitation.max_limit`; and
-- `parseNip65RelayList(event)` to derive attributed read/write relay choices
-  from canonical stored kind-10002 evidence.
-
-NIP-11 and NIP-65 values are advertised information, not verified behavior.
-Acquisition outcomes are observed behavior. No default relays, retries,
-fallbacks, crawling, or relay scores are inferred from either.
+Acquisition outcomes describe observed behavior. The library does not infer
+default relays, retries, fallback crawling, relay scores, or completeness.
 
 ### Research runs and sets
 
@@ -555,78 +543,3 @@ preview members; use `getSet(id)` when complete membership and reasons are
 needed. `listSets()` likewise returns counts and at most five preview member
 references instead of expanding complete membership. Interactive
 `addSetMember` remains a separate single-member edit.
-
-## CLI
-
-All commands operate on the same public library and require a database path:
-
-From the repository root, `npm run --silent research -- ...` invokes the local
-workspace binary directly. Keep `--silent` so npm's script banner does not
-precede the machine-readable CLI output:
-
-```sh
-npm run --silent research -- --db .data/research.sqlite search --text nostr
-```
-
-```sh
-nostr-research-memory --db ./research.sqlite init
-nostr-research-memory --db ./research.sqlite import-fixture --relay wss://relay.example
-nostr-research-memory --db ./research.sqlite acquire \
-  --relay wss://relay.damus.io \
-  --relay wss://nos.lol \
-  --filter-json '{"kinds":[1],"limit":10}' \
-  --timeout-ms 5000 --event-limit 10
-nostr-research-memory --db ./research.sqlite summary
-nostr-research-memory --db ./research.sqlite inspect 78c49d12afd45ddadb9b547051c344352060a9aa9a1665de8fd8695b4aa8d30c
-nostr-research-memory --db ./research.sqlite search --kind 1 --tag t=nostr --text fixture --limit 20
-nostr-research-memory --db ./research.sqlite accounts --text alice
-nostr-research-memory --db ./research.sqlite account 84bf7562262b
-nostr-research-memory --db ./research.sqlite related event 78c49d12afd4
-nostr-research-memory --db ./research.sqlite related account 84bf7562262b
-nostr-research-memory --db ./research.sqlite thread 78c49d12afd4 --depth 5 --limit 100
-nostr-research-memory --db ./research.sqlite run search --kind 1 --text fixture
-nostr-research-memory --db ./research.sqlite run list
-nostr-research-memory --db ./research.sqlite set from-run findings <run-id>
-nostr-research-memory --db ./research.sqlite set add <set-id> event <full-event-id>
-nostr-research-memory --db ./research.sqlite set expand <set-id> replies \
-  --relationship reply-parent --direction outbound --limit 50
-nostr-research-memory --db ./research.sqlite set combine union <left-id> <right-id> combined
-nostr-research-memory --db ./research.sqlite set explain <set-id> event <full-event-id>
-nostr-research-memory --db ./research.sqlite reset
-```
-
-For an account-to-conversation investigation, resolve with `account
-alice@example.org`, acquire bounded evidence using explicit relays and a filter
-such as `{"authors":["<key>"],"kinds":[0,1],"since":1700000000,
-"until":1700086400}`, select with `search --author <key> --kind 1`, then use
-`thread <event-id>`. `run search` plus `set from-run` retains a selection;
-`set expand` continues it after reopening the same SQLite database.
-
-Run `nostr-research-memory --help` for commands and options. Successful
-commands print JSON for scripting and inspection; invalid commands, missing
-events, and invalid input exit non-zero with an `Error:` message.
-
-`--output compact|full|ids|ndjson` is accepted before or after the command.
-Search, acquisition, relationship, run-list, and set-list commands default to
-`compact`; evidence inspection defaults to `full`. `compact` bounds event
-content excerpts and avoids repeated evidence, `full` retains canonical events
-and provenance, `ids` emits a JSON identifier array, and `ndjson` emits one
-independently parseable compact record per line.
-
-Node currently reports its built-in SQLite experimental warning on supported
-versions. The CLI leaves that narrowly scoped runtime warning unchanged rather
-than suppressing Node warnings globally; it is written to stderr and does not
-affect machine-readable stdout.
-
-For acquisition, use exactly one of `--filter-json` or `--filter-file`; the
-latter names a file containing one JSON filter object. Repeated `--relay`
-arguments are required. Output is the same structured result returned by the
-library plus the database path. Add `--record` to `acquire` to preserve the
-operation as a run. `run search` and `run accounts` execute and record local
-queries; `run inspect` reopens one historical result.
-
-The `set` command supports `create`, `list`, `inspect`, `rename`, `delete`,
-`add`, `remove`, `from-run`, `expand`, `combine`, and `explain`. Names
-containing spaces should be shell-quoted. `set add` accepts optional
-`--reason-json`; expansion requires one or more repeatable `--relationship`
-options.

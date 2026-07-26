@@ -1,30 +1,17 @@
-# Provisional roadmap
+# Workflow status
 
-Only tasks with complete definitions under `workflow/tasks/` are executable.
-This roadmap records likely later slices without pretending their boundaries
-are settled before the foundation is reviewed.
+Task definitions under `workflow/tasks/` are the authoritative record of
+completed and ready work. Worker and reviewer runs remain committed as the
+durable execution and review history for those tasks.
 
-## Executable work
+The completed foundation provides:
 
-Tasks 004–018 are defined under `workflow/tasks/` and are processed there.
-Their task files, not this roadmap, are authoritative.
+- canonical Nostr evidence in durable SQLite memory;
+- bounded live relay acquisition with explicit coverage;
+- composable search, selection, traversal, expansion, and retention;
+- a persistent JavaScript console for agent-operated research;
+- protocol-correct account relationships and replaceable events;
+- bounded inspection, authored-note expansion, and reply contexts.
 
-The completed durable-memory foundation ends with:
-
-- 011 — reliable research memory and shared results;
-- 012 — temporary research sessions and acquisition coverage.
-
-The next executable milestone establishes:
-
-- 013 — a bounded in-memory research workspace over durable memory;
-- 014 — a persistent JavaScript research console; and
-- 015 — an agent-operated console field trial.
-
-The evidence-backed console refinement milestone adds:
-
-- 016 — protocol-correct follows and replaceable-event views;
-- 017 — simpler explicit JavaScript composition; and
-- 018 — bounded inspection, transparent facets, and a second field trial.
-
-Later work must continue to follow evidence from console-driven research rather
-than pre-encode universal discovery rules.
+New tasks should be derived from console-driven research. The project should
+not pre-encode universal discovery or quality rules without field evidence.

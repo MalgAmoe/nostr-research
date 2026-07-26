@@ -6,11 +6,7 @@ import test from 'node:test';
 import { finalizeEvent } from 'nostr-tools';
 import {
   createResearchSession,
-  fetchRelayInformation,
   openResearchMemory,
-  parseNip65RelayList,
-  planAcquisitionSlices,
-  relayQueryLimit,
   subject,
 } from '@nostr-research/memory';
 
@@ -126,10 +122,10 @@ test('bounded attempt coverage distinguishes exact attempted slices from uncerta
     const ingested = memory.ingest(event, {
       relay: 'wss://one.example/', observedAt: '2026-01-01T00:00:00.000Z',
     });
-    const slices = planAcquisitionSlices({
-      relays: ['wss://one.example/'], filter: { kinds: [1] },
-      since: 0, until: 19, targetSeconds: 10,
-    });
+    const slices = [
+      { relays: ['wss://one.example/'], filter: { kinds: [1], since: 0, until: 9 } },
+      { relays: ['wss://one.example/'], filter: { kinds: [1], since: 10, until: 19 } },
+    ];
     for (const [index, slice] of slices.entries()) {
       memory.recordAcquisitionCoverage({
         requested: { relays: slice.relays, filter: slice.filter },
@@ -158,34 +154,4 @@ test('bounded attempt coverage distinguishes exact attempted slices from uncerta
     memory.close();
     rmSync(directory, { recursive: true, force: true });
   }
-});
-
-test('advertised NIP-11 limits and stored NIP-65 evidence have stable protocol semantics', async () => {
-  const relayInformation = await fetchRelayInformation('wss://relay.example/', {
-    fetch: async () => ({
-      ok: true,
-      json: async () => ({ limitation: { max_limit: 25 } }),
-    }),
-  });
-  assert.deepEqual(
-    relayQueryLimit({ kinds: [1], limit: 100 }, relayInformation),
-    { kinds: [1], limit: 25 },
-  );
-  const relayList = finalizeEvent({
-    kind: 10002, created_at: 20,
-    tags: [
-      ['r', 'wss://both.example'],
-      ['r', 'wss://read.example', 'read'],
-      ['r', 'wss://write.example', 'write'],
-      ['r', 'not a relay'],
-    ],
-    content: '',
-  }, SECRET);
-  const parsed = parseNip65RelayList(relayList);
-  assert.deepEqual(parsed.relays, [
-    { relay: 'wss://both.example/', read: true, write: true },
-    { relay: 'wss://read.example/', read: true, write: false },
-    { relay: 'wss://write.example/', read: false, write: true },
-  ]);
-  assert.equal(parsed.evidence.advertisedBy, relayList.pubkey);
 });
