@@ -42,14 +42,18 @@ test('declarative session preserves handles, revisions, preflight, and partial o
     const selected = await session.execute({
       commandId: 'select-empty',
       command: 'select',
-      parameters: { kinds: [1] },
+      parameters: { scope: 'corpus', kinds: [1] },
       resultId: 'notes',
     });
     assert.deepEqual(selected, {
       ok: true,
       commandId: 'select-empty',
       sessionRevision: 1,
-      result: { handle: { id: 'notes', kind: 'events', count: 0, revision: 1 } },
+      result: {
+        handle: {
+          id: 'notes', kind: 'events', count: 0, revision: 1, scope: 'corpus',
+        },
+      },
       warnings: [],
     });
 
@@ -57,7 +61,7 @@ test('declarative session preserves handles, revisions, preflight, and partial o
       commandId: 'stale',
       ifRevision: 0,
       command: 'select',
-      parameters: {},
+      parameters: { scope: 'corpus' },
     });
     assert.equal(conflict.error.code, 'REVISION_CONFLICT');
     assert.equal(conflict.sessionRevision, 1);
@@ -65,7 +69,7 @@ test('declarative session preserves handles, revisions, preflight, and partial o
     const duplicate = await session.execute({
       commandId: 'duplicate',
       command: 'select',
-      parameters: {},
+      parameters: { scope: 'corpus' },
       resultId: 'notes',
     });
     assert.equal(duplicate.error.code, 'DUPLICATE_RESULT');
@@ -75,7 +79,7 @@ test('declarative session preserves handles, revisions, preflight, and partial o
       commandId: 'replace',
       ifRevision: 1,
       command: 'select',
-      parameters: {},
+      parameters: { scope: 'corpus' },
       resultId: 'notes',
       replace: true,
     });
@@ -175,10 +179,18 @@ test('declarative session preserves handles, revisions, preflight, and partial o
     assert.equal(partial.ok, true);
     assert.equal(partial.sessionRevision, 4);
     assert.deepEqual(partial.result.handle, {
-      id: 'acquired', kind: 'events', count: 1, revision: 4,
+      id: 'acquired', kind: 'events', count: 1, revision: 4, scope: 'acquisition',
     });
     assert.equal(partial.result.external.status, 'partial');
     assert.deepEqual(partial.result.external.completeness.boundsReached, ['observation-budget']);
+    assert.equal(partial.result.external.completeness.duplicateObservations, 0);
+    assert.deepEqual(partial.result.external.completeness.relays, {
+      attempted: 1,
+      complete: 0,
+      incomplete: 1,
+      outcomes: [{ outcome: 'observation-budget', count: 1 }],
+      omittedOutcomes: 0,
+    });
     assert.equal(context.memory.describe().eventCount, 1);
 
     const unsafe = await session.execute({
@@ -314,6 +326,13 @@ test('a named public plan composes bounded acquisition, algebra, hydration, and 
   const metadata = finalizeEvent({
     kind: 0, created_at: 31, tags: [], content: '{"name":"listener"}',
   }, key);
+  const unrelated = finalizeEvent({
+    kind: 1, created_at: 100, tags: [], content: 'resident but outside this acquisition',
+  }, Uint8Array.from(Buffer.from('d'.repeat(64), 'hex')));
+  context.memory.ingest(unrelated, {
+    relay: 'wss://resident.example/',
+    observedAt: '2026-07-26T10:00:00.000Z',
+  });
   const relay = await startRelay((connection) => {
     connection.onRequest((subscriptionId, send, filter) => {
       for (const event of [note, metadata]) {
@@ -338,7 +357,7 @@ test('a named public plan composes bounded acquisition, algebra, hydration, and 
       id: 'notes',
       operation: 'select',
       input: 'orient',
-      parameters: { kinds: [1], limit: 5 },
+      parameters: { kinds: [1], limit: 1 },
     },
     {
       id: 'direction',
@@ -410,6 +429,10 @@ test('a named public plan composes bounded acquisition, algebra, hydration, and 
       ],
     );
     assert.equal(report.stages[0].result.budget.observationLimit, 5);
+    assert.deepEqual(
+      report.stages[1].result.items.map(({ subject }) => subject.id),
+      [note.id],
+    );
     assert.equal(report.stages[6].result.budget.distinctEventLimit, 2);
     assert.equal(context.memory.inspect({ type: 'account', id: publicKey }).resident, true);
     const retained = context.memory.getSet(report.stages[7].result.id);

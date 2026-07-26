@@ -1,7 +1,7 @@
 ---
 id: 039-scoped-working-buffers
-status: ready
-max_attempts: 4
+status: done
+max_attempts: 8
 validation: workflow/tasks/039-scoped-working-buffers.validate.sh
 depends_on: 038-jsonl-session-field-trial
 protected_paths: workflow/run.py workflow/prompts
@@ -55,11 +55,63 @@ memory model.
 
 ## Verification
 
-- Permanent tests expected: yes, one public session-boundary functional
-  scenario may protect acquisition scope and concise output.
+- Permanent tests expected: no new acquisition test. Existing public
+  functional scenarios may be adapted where the changed explicit scope is
+  already exercised.
 - Stable public behavior protected: scoped versus corpus selection, handle
   lifecycle, bounded response envelope.
-- Temporary task validation or field evidence: a bounded live acquisition
-  demonstrating concise default output and opt-in coverage.
+- Temporary task validation or field evidence: a bounded loopback or live
+  acquisition through the real public session command, demonstrating the
+  complete named-acquisition -> scoped-selection -> concise-default ->
+  opt-in-coverage -> non-destructive-replacement workflow.
 - Explicitly excluded test levels or mechanisms: relay-network tests,
   WebSocket/TCP/TLS behavior, private helper unit tests, UI tests.
+
+## Reassessment after attempt 2
+
+The original verification wording allowed a permanent deterministic
+session-boundary scenario while also excluding relay-network tests. Those
+requirements conflict for the public `acquire` command, which necessarily owns
+relay I/O. Do not add a production acquisition-injection seam merely to make
+this test deterministic.
+
+Remove the fabricated acquisition report and direct internal presentation
+assertions introduced during attempts 1-2. Verify the complete public command
+chain as temporary loopback/live task evidence instead. This is a changed
+verification premise, not a request to mechanically repeat the previous test
+approach.
+
+The worker sandbox could not bind the required listener. The primary agent
+therefore performed this temporary verification from the outer execution
+environment and recorded the result in:
+
+`workflow/runs/039-scoped-working-buffers/manual-public-command-evidence.md`
+
+Review this evidence instead of requesting a production test seam or another
+permanent relay-network test.
+
+## Reassessment after attempt 4
+
+The first review after runtime evidence identified two new product defects:
+
+1. scoped selection applied query limits to the full corpus before intersecting
+   acquisition subjects, allowing unrelated corpus events to consume the
+   bound and affect prefix ambiguity;
+2. the concise acquisition envelope omitted bounded duplicate-observation
+   counts and successful relay outcome/completeness summaries.
+
+These findings were not repetitions of the earlier verification blocker.
+Correct both at their existing plan/interpreter boundaries, add only the
+smallest stable deterministic coverage warranted for scoped local selection
+semantics, and rerun validation. The attempt limit was extended because the
+diagnosis changed, not to retry an unchanged failure.
+
+## Reassessment after attempt 6
+
+The reporting corrections passed validation, but review found two new cleanup
+inconsistencies: an older README paragraph still describes acquisition input
+as corpus-wide, and the presentation projection duplicates the raw
+added/refreshed length accounting instead of using distinct mutually exclusive
+subjects. Update the stale documentation and centralize or reuse the corrected
+accounting so the two public projections cannot disagree. No broader change is
+authorized.

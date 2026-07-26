@@ -222,7 +222,7 @@ test('a local-only named plan can query resident memory without implicit acquisi
       {
         id: 'resident-notes',
         operation: 'select',
-        parameters: { kinds: [1], limit: 5 },
+        parameters: { scope: 'corpus', kinds: [1], limit: 5 },
       },
       {
         id: 'resident-only',
@@ -263,7 +263,7 @@ test('a local-only named plan can query resident memory without implicit acquisi
     );
     await assert.rejects(
       executeResearchPlan(memory, [
-        { id: 'resident', operation: 'select', parameters: { kinds: [1] } },
+        { id: 'resident', operation: 'select', parameters: { scope: 'corpus', kinds: [1] } },
         {
           id: 'misleading',
           operation: 'select',

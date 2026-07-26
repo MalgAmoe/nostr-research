@@ -18,7 +18,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   const selected = await session.execute({
     commandId: 'select',
     command: 'select',
-    parameters: { ids: [event.id] },
+    parameters: { scope: 'corpus', ids: [event.id] },
     resultId: 'finding',
   });
   assert.equal(selected.sessionRevision, 1);
@@ -138,7 +138,7 @@ test('declarative show bounds grouped and summarized named results', async () =>
   await session.execute({
     commandId: 'notes',
     command: 'select',
-    parameters: { ids: [event.id] },
+    parameters: { scope: 'corpus', ids: [event.id] },
     resultId: 'notes',
   });
   await session.execute({

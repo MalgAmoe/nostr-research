@@ -154,14 +154,21 @@ export function preflightResearchOperation(memory, operation, input = undefined)
       throw new ResearchMemoryError('Research acquire operation must not have an input.');
     }
     normalizeAcquisitionOptions(parameters);
-    return { kind: 'events', itemKind: 'events', resultKind: 'acquisition-report' };
+    return {
+      kind: 'events', itemKind: 'events', resultKind: 'acquisition-report',
+      scope: 'acquisition',
+    };
   }
   if (name === 'select') {
     if (input && input.resultKind !== 'acquisition-report') {
       throw new ResearchMemoryError('Research select input must be an acquisition result.');
     }
-    memory.validateSelection(parameters);
-    return { kind: 'events', itemKind: 'events', resultKind: 'events' };
+    const query = normalizeSelectionScope(parameters, Boolean(input));
+    memory.validateSelection(query);
+    return {
+      kind: 'events', itemKind: 'events', resultKind: 'events',
+      scope: input ? 'acquisition' : 'corpus',
+    };
   }
   if (!input) throw new ResearchMemoryError(`Research ${name} operation requires an input.`);
   if (LOCAL_TRANSFORMS.has(name)) {
@@ -190,7 +197,64 @@ export function preflightResearchOperation(memory, operation, input = undefined)
 export async function executeResearchOperation(memory, operation, input = undefined) {
   const { operation: name, parameters } = operation;
   if (name === 'acquire') return acquireRelayEvents(memory, parameters);
-  if (name === 'select') return memory.select(parameters);
+  if (name === 'select') {
+    const query = normalizeSelectionScope(parameters, input !== undefined);
+    if (input === undefined) return memory.select(query);
+    const scoped = memory.asCollection(input);
+    const scopedItems = new Map(scoped.items.map((item) => [item.subject.id, item]));
+    const residentItems = scoped.items.filter(({ subject, record }) => (
+      subject.type === 'event' && record?.event
+    ));
+    const scopedIds = residentItems.map(({ subject }) => subject.id);
+    if (scopedIds.length === 0) {
+      return {
+        ...scoped,
+        kind: 'events',
+        itemKind: 'events',
+        items: [],
+        context: scopedSelectionContext(scoped, query),
+      };
+    }
+    const requestedIds = resolveScopedPrefixes(query.ids, scopedIds, 'event ID');
+    const selectedIds = requestedIds ?? scopedIds;
+    const requestedAuthors = resolveScopedPrefixes(
+      query.authors,
+      residentItems.map(({ record }) => record.event.pubkey),
+      'author public key',
+    );
+    if (selectedIds.length === 0 || requestedAuthors?.length === 0) {
+      return {
+        ...scoped,
+        kind: 'events',
+        itemKind: 'events',
+        items: [],
+        context: scopedSelectionContext(scoped, query),
+      };
+    }
+    const selected = memory.select({
+      ...query,
+      ids: selectedIds,
+      ...(requestedAuthors === null ? {} : { authors: requestedAuthors }),
+    });
+    return {
+      ...selected,
+      items: selected.items
+        .filter(({ subject }) => scopedItems.has(subject.id))
+        .map((item) => ({
+          subject: item.subject,
+          role: item.role,
+          record: item.record,
+          reasons: [
+            ...(scopedItems.get(item.subject.id)?.reasons ?? []),
+            ...item.reasons,
+          ],
+          provenance: item.provenance,
+        })),
+      context: {
+        ...scopedSelectionContext(scoped, selected.context.query),
+      },
+    };
+  }
   if (LOCAL_TRANSFORMS.has(name)) {
     return memory.transform(input, { operation: name, ...parameters });
   }
@@ -273,6 +337,52 @@ function planResultKind(operation, result) {
   if (operation === 'hydrate') return 'hydration-report';
   if (operation === 'retain') return 'retained-selection';
   return result.kind ?? result.type;
+}
+
+function normalizeSelectionScope(parameters, hasInput) {
+  if (!isPlainObject(parameters)) {
+    throw new ResearchMemoryError('Research select parameters must be an object.');
+  }
+  const { scope, ...query } = parameters;
+  if (hasInput) {
+    if (scope !== undefined && scope !== 'acquisition') {
+      throw new ResearchMemoryError(
+        'Research select with an acquisition input must use acquisition scope.',
+      );
+    }
+    return query;
+  }
+  if (scope !== 'corpus') {
+    throw new ResearchMemoryError(
+      'Whole-corpus selection requires parameters.scope to be corpus.',
+    );
+  }
+  return query;
+}
+
+function resolveScopedPrefixes(prefixes, candidates, label) {
+  if (prefixes === undefined) return null;
+  const uniqueCandidates = [...new Set(candidates)];
+  const resolved = new Set();
+  for (const prefix of prefixes) {
+    const matches = uniqueCandidates.filter((candidate) => candidate.startsWith(prefix));
+    if (matches.length > 1) {
+      throw new ResearchMemoryError(
+        `Ambiguous ${label} prefix ${prefix}: ${matches.length} scoped values match.`,
+      );
+    }
+    if (matches.length === 1) resolved.add(matches[0]);
+  }
+  return [...resolved];
+}
+
+function scopedSelectionContext(scoped, query) {
+  return {
+    operation: 'selection',
+    scope: 'acquisition',
+    sourceOperation: scoped.context.operation,
+    query: cloneJson(query),
+  };
 }
 
 function assertJsonData(value, label) {

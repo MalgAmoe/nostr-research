@@ -7,6 +7,8 @@ import {
   preflightResearchPlan,
 } from './plan.js';
 import {
+  acquisitionCorpusAccounting,
+  facetResearchCollection,
   explainResearchMembership,
   presentHandleList,
   presentSessionStatus,
@@ -305,9 +307,9 @@ export class DeclarativeResearchSession {
               outputs.get(id), descriptors.get(id), result, this.#revision,
             ),
           } : {}),
-          ...(EXTERNAL.has(operation) ? {
-            external: externalStatus(result, operation, this.#memory),
-          } : {}),
+          ...(EXTERNAL.has(operation)
+            ? externalPresentation(result, operation, this.#memory)
+            : {}),
         })),
       }),
     };
@@ -410,12 +412,28 @@ function presentResult(result, id, descriptor, revision, operation, memory) {
     ? { kind: descriptor.kind, count: resultCount(result) }
     : handleMetadata(id, descriptor, result, revision);
   return EXTERNAL.has(operation)
-    ? { handle: metadata, external: externalStatus(result, operation, memory) }
+    ? {
+        handle: metadata,
+        ...externalPresentation(result, operation, memory),
+      }
     : { handle: metadata };
 }
 
+function externalPresentation(result, operation, memory) {
+  return {
+    external: externalStatus(result, operation, memory),
+    preview: showResearchValue(memory, null, result.collection, {
+      previewLimit: 5, excerptLimit: 160, sizeLimit: 8_000,
+    }),
+    facets: facetResearchCollection(memory, result.collection, { limit: 5 }),
+  };
+}
+
 function handleMetadata(id, descriptor, value, revision) {
-  return { id, kind: descriptor.kind, count: resultCount(value), revision };
+  return {
+    id, kind: descriptor.kind, count: resultCount(value), revision,
+    ...(descriptor.scope ? { scope: descriptor.scope } : {}),
+  };
 }
 
 function readOnly(run) {
@@ -462,10 +480,21 @@ function stableSubjectCollection(collection) {
 function externalStatus(result, operation, memory) {
   let boundsReached = result.completionReason === 'completed'
     ? [] : [result.completionReason];
-  const unsuccessfulRelays = result.coverage.relays
+  const contactedRelays = result.coverage.relays.filter(({ contacted }) => contacted);
+  const relayOutcomeCounts = new Map();
+  for (const { outcome } of contactedRelays) {
+    relayOutcomeCounts.set(outcome, (relayOutcomeCounts.get(outcome) ?? 0) + 1);
+  }
+  const allRelayOutcomes = [...relayOutcomeCounts]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([outcome, count]) => ({ outcome, count }));
+  const relayOutcomes = allRelayOutcomes.slice(0, 5);
+  const completeRelays = relayOutcomeCounts.get('eose') ?? 0;
+  const allUnsuccessfulRelays = contactedRelays
     .filter(({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOMES.has(outcome))
     .map(({ relay, outcome }) => ({ relay, outcome }));
-  if (unsuccessfulRelays.length) boundsReached.push('relay-errors');
+  if (allUnsuccessfulRelays.length) boundsReached.push('relay-errors');
+  const unsuccessfulRelays = allUnsuccessfulRelays.slice(0, 5);
   const hydration = operation === 'hydrate';
   const requestedAuthors = hydration && Array.isArray(result.requested?.filter?.authors)
     ? new Set(result.requested.filter.authors) : null;
@@ -482,6 +511,7 @@ function externalStatus(result, operation, memory) {
   const resolved = resolvedAuthors?.size ?? null;
   const missing = requested === null ? null : Math.max(0, requested - resolved);
   if (missing > 0 && boundsReached.length === 0) boundsReached = ['unresolved-subjects'];
+  const corpusChanges = acquisitionCorpusAccounting(result.additions);
   return {
     status: boundsReached.length ? 'partial' : 'complete',
     completeness: {
@@ -495,10 +525,38 @@ function externalStatus(result, operation, memory) {
         distinctEventLimit: result.budget.distinctEventLimit,
       },
       observed: result.counts.acceptedObservations,
+      duplicateObservations: result.counts.duplicateObservations,
       distinctEvents: result.counts.distinctEventsAcquired,
+      relays: {
+        attempted: contactedRelays.length,
+        complete: completeRelays,
+        incomplete: contactedRelays.length - completeRelays,
+        outcomes: relayOutcomes,
+        omittedOutcomes: allRelayOutcomes.length - relayOutcomes.length,
+      },
       unsuccessfulRelays,
+      omittedUnsuccessfulRelays: allUnsuccessfulRelays.length - unsuccessfulRelays.length,
     },
-    coverage: cloneJson(result.coverage),
+    scope: {
+      type: 'acquisition',
+      subjects: result.collection?.items?.length ?? result.counts.distinctEventsAcquired,
+    },
+    corpus: {
+      before: corpusStatus(result.corpusBefore),
+      after: corpusStatus(result.corpusAfter),
+      ...corpusChanges,
+    },
+  };
+}
+
+function corpusStatus(value) {
+  if (!value) return null;
+  return {
+    eventCount: value.eventCount,
+    capacity: value.capacity,
+    remainingCapacity: value.remainingCapacity,
+    pressure: value.capacity === 0 ? 0 : value.eventCount / value.capacity,
+    evictions: value.evictions,
   };
 }
 

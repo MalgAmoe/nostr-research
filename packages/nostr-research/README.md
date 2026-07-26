@@ -146,9 +146,10 @@ acquire, hydrate, retain, or evict evidence.
 named stages. The complete plan is validated before any stage runs. Each stage
 has an `id`, one `operation`, plain `parameters`, and an `input` naming an
 earlier stage when it consumes or explicitly follows that result. `acquire`
-has no input. `select` either has no input or names an earlier `acquire` stage
-solely as an ordering dependency. It always queries the authoritative current
-resident corpus; it is not scoped to event IDs in the acquisition report.
+has no input. `select` must explicitly name an earlier `acquire` stage to query
+only that acquisition's subjects, or omit `input` and set
+`parameters.scope` to `"corpus"` to query the authoritative current resident
+corpus.
 The only supported operations are `acquire`, `select`, `filter`, `group`,
 `summarize`, `move`, `hydrate`, and `retain`.
 
@@ -333,6 +334,13 @@ explicitly replaces an existing named result. Plans accept the documented
 research-plan array and an optional `outputs` map from stage IDs to result IDs.
 They use the same operation interpreter as in-process callers.
 
+`select` always makes its scope explicit. With an acquisition result as
+`input`, it selects only among that attempt's stable event subjects (and may
+set `scope: "acquisition"`). Without an input it must set
+`scope: "corpus"` to query all currently resident evidence. Reusing a
+`resultId` requires `replace: true`; replacement advances that working handle
+without deleting or rewriting corpus evidence.
+
 Observation commands are `show`, `inspect`, `explain`, `list`, and `status`.
 `show` and `explain` consume a named input. `inspect` receives its stable
 `subject` in `parameters`. Projection parameters are `previewLimit`,
@@ -343,6 +351,8 @@ than emitting unbounded values.
 Lifecycle commands are `release`, `reset`, and `close`, with empty
 `parameters`. `release` removes only its named handle. `reset` clears handles
 and all process-local memory. `close` also ends the session. Empty and partial
-external results remain successful responses: their `external.completeness`,
-per-relay `coverage`, `boundsReached`, and warnings describe why they must not
-be treated as exhaustive evidence.
+external results remain successful responses. Their concise default envelope
+reports scope, bounds, corpus pressure and eviction effects, a bounded preview,
+bounded facets, and warnings. Detailed relay and observation coverage is
+available explicitly with `show` and `mode: "coverage"`; each list is bounded
+by `previewLimit` and reports omitted counts.

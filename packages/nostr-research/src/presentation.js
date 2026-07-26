@@ -12,7 +12,7 @@ export function showResearchValue(memory, session, value, options = {}) {
   let shown;
 
   if (value?.type === 'research-plan-report') shown = showPlanReport(memory, value, settings);
-  else if (isAcquisition(value)) shown = showAcquisition(value, settings);
+  else if (isAcquisition(value)) shown = showAcquisition(memory, value, settings);
   else if (value?.type === 'result-collection') shown = showCollection(memory, value, settings);
   else if (value?.type === 'typed-collection') shown = showTypedCollection(memory, value, settings);
   else if (value?.type === 'facets') shown = showFacets(value, settings);
@@ -95,6 +95,18 @@ export function presentSessionStatus(memory, status, options = {}) {
     activeOperationCount: status.activeOperationCount,
     handleCount: status.handleCount,
   }, settings.sizeLimit);
+}
+
+export function acquisitionCorpusAccounting(additions = {}) {
+  const addedSubjects = new Set(additions.added ?? []);
+  const refreshedSubjects = new Set(
+    (additions.refreshed ?? []).filter((id) => !addedSubjects.has(id)),
+  );
+  return {
+    added: addedSubjects.size,
+    refreshed: refreshedSubjects.size,
+    evicted: additions.evicted?.length ?? 0,
+  };
 }
 
 export function facetResearchCollection(memory, value, options = {}) {
@@ -334,25 +346,53 @@ function showSession(memory, value, settings) {
   };
 }
 
-function showAcquisition(value, settings) {
+function showAcquisition(memory, value, settings) {
   const distinctEvents = new Set((value.acquiredObservations ?? []).map((item) => item.eventId)).size;
+  const corpusChanges = acquisitionCorpusAccounting(value.additions);
+  if (settings.mode === 'coverage') {
+    const relays = value.coverage?.relays ?? [];
+    const observedEvents = value.coverage?.observedEvents ?? [];
+    return {
+      type: 'acquisition-coverage',
+      count: distinctEvents,
+      requested: structuredClone(value.coverage?.requested ?? value.requested),
+      budget: structuredClone(value.coverage?.budget ?? value.budget),
+      completionReason: value.completionReason,
+      exhaustive: false,
+      uncertainty: value.coverage?.uncertainty,
+      relays: structuredClone(relays.slice(0, settings.previewLimit)),
+      omittedRelays: Math.max(0, relays.length - settings.previewLimit),
+      observedEvents: structuredClone(observedEvents.slice(0, settings.previewLimit)),
+      omittedObservedEvents: Math.max(0, observedEvents.length - settings.previewLimit),
+    };
+  }
+  const collection = value.collection ?? memory.asCollection(value);
   return {
     type: 'acquisition',
     count: distinctEvents,
-    preview: settings.mode === 'summary' ? [] : value.relays.slice(0, settings.previewLimit),
+    scope: { type: 'acquisition', subjects: collection.items.length },
+    preview: settings.mode === 'summary'
+      ? [] : showCollection(memory, collection, settings).preview,
     omitted: settings.mode === 'summary'
-      ? value.relays.length : Math.max(0, value.relays.length - settings.previewLimit),
+      ? collection.items.length : Math.max(0, collection.items.length - settings.previewLimit),
     context: {
       requested: value.requested, budget: value.budget,
       completionReason: value.completionReason,
       startedAt: value.startedAt, finishedAt: value.finishedAt,
       counts: { ...value.counts, distinctEventsAcquired: distinctEvents },
+      corpus: {
+        before: corpusCapacity(value.corpusBefore),
+        after: corpusCapacity(value.corpusAfter),
+        ...corpusChanges,
+      },
       exhaustive: false,
       uncertainty: value.coverage?.uncertainty
         ?? 'A bounded attempt was made; exhaustive relay indexing is not implied.',
     },
-    provenance: settings.includeEvidence
-      ? value.acquiredObservations.slice(0, settings.previewLimit) : [],
+    facets: facetResearchCollection(memory, collection, {
+      limit: Math.min(settings.previewLimit, DEFAULT_FACET_LIMIT),
+    }),
+    provenance: [],
   };
 }
 
@@ -558,8 +598,8 @@ function urlsIn(text) {
 
 function inspectionOptions(options) {
   assertOptions(options, ['mode', 'previewLimit', 'excerptLimit', 'includeEvidence', 'sizeLimit']);
-  if (options.mode !== undefined && !['summary', 'preview'].includes(options.mode)) {
-    throw new TypeError('mode must be summary or preview.');
+  if (options.mode !== undefined && !['summary', 'preview', 'coverage'].includes(options.mode)) {
+    throw new TypeError('mode must be summary, preview, or coverage.');
   }
   return {
     mode: options.mode ?? 'preview',

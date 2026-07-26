@@ -25,7 +25,8 @@ test('JSONL executable provides one persistent bounded process workflow', async 
   const commands = [
     '{"commandId":"broken",',
     JSON.stringify({
-      commandId: 'select', command: 'select', parameters: { kinds: [1] }, resultId: 'notes',
+      commandId: 'select', command: 'select',
+      parameters: { scope: 'corpus', kinds: [1] }, resultId: 'notes',
     }),
     JSON.stringify({
       commandId: 'show', command: 'show', input: 'notes',
@@ -55,7 +56,8 @@ test('JSONL executable provides one persistent bounded process workflow', async 
       commandId: 'released', command: 'show', input: 'notes', parameters: {},
     }),
     JSON.stringify({
-      commandId: 'again', command: 'select', parameters: {}, resultId: 'again',
+      commandId: 'again', command: 'select',
+      parameters: { scope: 'corpus' }, resultId: 'again',
     }),
     JSON.stringify({
       commandId: 'reset', ifRevision: 3, command: 'reset', parameters: {},
