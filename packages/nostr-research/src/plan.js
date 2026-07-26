@@ -18,33 +18,23 @@ const LOCAL_TRANSFORMS = new Set(['filter', 'group', 'summarize', 'move']);
  * no judgments, performs no implicit acquisition, and does not activate a
  * session selection.
  */
-export async function executeResearchPlan(memory, plan) {
+export async function executeResearchPlan(memory, plan, execution = {}) {
   if (!memory || typeof memory.asCollection !== 'function') {
     throw new ResearchMemoryError('An open research memory is required.');
   }
-  const normalized = normalizePlan(plan);
-  preflightPlan(memory, normalized);
+  const normalized = normalizeResearchPlan(plan);
+  preflightResearchPlan(memory, normalized);
   const outputs = new Map();
   const stages = [];
 
   for (const stage of normalized) {
     const input = stage.input === undefined ? undefined : outputs.get(stage.input);
-    let result;
-    if (stage.operation === 'acquire') {
-      result = await acquireRelayEvents(memory, stage.parameters);
-    } else if (stage.operation === 'select') {
-      result = memory.select(stage.parameters);
-    } else if (LOCAL_TRANSFORMS.has(stage.operation)) {
-      result = memory.transform(input, {
-        operation: stage.operation,
-        ...stage.parameters,
-      });
-    } else if (stage.operation === 'hydrate') {
-      result = await hydrateAccounts(memory, input, stage.parameters);
-    } else {
-      const { name, options = {} } = stage.parameters;
-      result = memory.retain(input, name, options);
-    }
+    const result = await executeResearchOperation(memory, {
+      ...stage,
+      parameters: execution.signal && ['acquire', 'hydrate'].includes(stage.operation)
+        ? { ...stage.parameters, signal: execution.signal }
+        : stage.parameters,
+    }, input);
     outputs.set(stage.id, result);
     stages.push({
       id: stage.id,
@@ -62,45 +52,22 @@ export async function executeResearchPlan(memory, plan) {
   };
 }
 
-function preflightPlan(memory, plan) {
+export function preflightResearchPlan(memory, plan) {
   const outputs = new Map();
   for (const stage of plan) {
     const input = stage.input === undefined ? undefined : outputs.get(stage.input);
-    let output;
-    if (stage.operation === 'acquire') {
-      normalizeAcquisitionOptions(stage.parameters);
-      output = { kind: 'events', itemKind: 'events', resultKind: 'acquisition-report' };
-    } else if (stage.operation === 'select') {
-      if (input && input.resultKind !== 'acquisition-report') {
-        throw new ResearchMemoryError(
-          `Research plan select stage ${stage.id} input must name an acquisition stage.`,
-        );
-      }
-      memory.validateSelection(stage.parameters);
-      output = { kind: 'events', itemKind: 'events', resultKind: 'events' };
-    } else if (LOCAL_TRANSFORMS.has(stage.operation)) {
-      const transformed = memory.validateTransform({
-        operation: stage.operation, ...stage.parameters,
-      }, input.kind, input.itemKind);
-      output = { ...transformed, resultKind: transformed.kind };
-    } else if (stage.operation === 'hydrate') {
-      if (input.kind !== 'accounts') {
-        throw new ResearchMemoryError(
-          `Research plan hydrate stage ${stage.id} requires an accounts collection.`,
-        );
-      }
-      normalizeHydrationOptions(stage.parameters);
-      output = { kind: 'events', itemKind: 'events', resultKind: 'hydration-report' };
-    } else {
-      const { name, options = {} } = stage.parameters;
-      memory.validateRetention(name, options, input.kind);
-      output = { ...input, resultKind: 'retained-selection' };
+    if (stage.operation === 'select' && input && input.resultKind !== 'acquisition-report') {
+      throw new ResearchMemoryError(
+        `Research plan select stage ${stage.id} input must name an acquisition stage.`,
+      );
     }
+    const output = preflightResearchOperation(memory, stage, input);
     outputs.set(stage.id, output);
   }
+  return outputs;
 }
 
-function normalizePlan(plan) {
+export function normalizeResearchPlan(plan) {
   assertJsonData(plan, 'Research plan');
   if (!Array.isArray(plan) || plan.length === 0) {
     throw new ResearchMemoryError('Research plan must be a non-empty array of stages.');
@@ -171,6 +138,134 @@ function normalizePlan(plan) {
       parameters: cloneJson(stage.parameters),
     };
   });
+}
+
+/**
+ * Validates one normalized operation against an input descriptor without
+ * performing local mutation or contacting a relay.
+ */
+export function preflightResearchOperation(memory, operation, input = undefined) {
+  const { operation: name, parameters } = operation;
+  if (!OPERATIONS.has(name) || !isPlainObject(parameters)) {
+    throw new ResearchMemoryError(`Unsupported research operation: ${name}.`);
+  }
+  if (name === 'acquire') {
+    if (input !== undefined) {
+      throw new ResearchMemoryError('Research acquire operation must not have an input.');
+    }
+    normalizeAcquisitionOptions(parameters);
+    return { kind: 'events', itemKind: 'events', resultKind: 'acquisition-report' };
+  }
+  if (name === 'select') {
+    if (input && input.resultKind !== 'acquisition-report') {
+      throw new ResearchMemoryError('Research select input must be an acquisition result.');
+    }
+    memory.validateSelection(parameters);
+    return { kind: 'events', itemKind: 'events', resultKind: 'events' };
+  }
+  if (!input) throw new ResearchMemoryError(`Research ${name} operation requires an input.`);
+  if (LOCAL_TRANSFORMS.has(name)) {
+    const transformed = memory.validateTransform(
+      { operation: name, ...parameters }, input.kind, input.itemKind,
+    );
+    return { ...transformed, resultKind: transformed.kind };
+  }
+  if (name === 'hydrate') {
+    if (input.kind !== 'accounts') {
+      throw new ResearchMemoryError('Research hydrate operation requires an accounts collection.');
+    }
+    normalizeHydrationOptions(parameters);
+    return { kind: 'events', itemKind: 'events', resultKind: 'hydration-report' };
+  }
+  const { name: retainedName, options = {} } = parameters;
+  rejectUnknownParameterKeys(
+    { id: 'operation', operation: 'retain', parameters },
+    new Set(['name', 'options']),
+  );
+  memory.validateRetention(retainedName, options, input.kind);
+  return { ...input, resultKind: 'retained-selection' };
+}
+
+/** Executes one preflighted operation through the same path used by plans. */
+export async function executeResearchOperation(memory, operation, input = undefined) {
+  const { operation: name, parameters } = operation;
+  if (name === 'acquire') return acquireRelayEvents(memory, parameters);
+  if (name === 'select') return memory.select(parameters);
+  if (LOCAL_TRANSFORMS.has(name)) {
+    return memory.transform(input, { operation: name, ...parameters });
+  }
+  if (name === 'hydrate') {
+    const normalized = normalizeHydrationOptions(parameters);
+    const accounts = memory.asCollection(input).items
+      .filter(({ subject }) => subject.type === 'account');
+    if (accounts.length === 0) return emptyHydrationReport(memory, normalized);
+    return hydrateAccounts(memory, input, parameters);
+  }
+  const { name: retainedName, options = {} } = parameters;
+  return memory.retain(input, retainedName, options);
+}
+
+function emptyHydrationReport(memory, options) {
+  const timestamp = new Date().toISOString();
+  const requested = {
+    filter: { authors: [], kinds: options.kinds },
+    relays: options.relays,
+  };
+  const budget = {
+    timeoutMs: options.timeoutMs,
+    observationLimit: options.observationLimit,
+    distinctEventLimit: options.distinctEventLimit,
+    concurrency: options.concurrency,
+  };
+  const counts = {
+    receivedPackets: 0,
+    invalid: 0,
+    nonMatching: 0,
+    acceptedObservations: 0,
+    duplicateObservations: 0,
+    newlyStoredCorpusEvents: 0,
+    distinctEventsAcquired: 0,
+  };
+  const corpus = memory.describe();
+  const result = {
+    requested,
+    budget,
+    startedAt: timestamp,
+    finishedAt: timestamp,
+    completionReason: 'no-account-subjects',
+    acquiredEventIds: [],
+    acquiredObservations: [],
+    relays: options.relays.map((relay) => ({
+      relay,
+      contacted: false,
+      outcome: 'no-account-subjects',
+      receivedPackets: 0,
+      invalid: 0,
+      nonMatching: 0,
+      duplicateObservations: 0,
+      newlyStoredCorpusEvents: 0,
+      acceptedObservations: 0,
+      distinctEventsAcquired: 0,
+      diagnostic: 'The input collection contained no account subjects.',
+    })),
+    counts,
+    additions: { added: [], refreshed: [], evicted: [] },
+    corpusBefore: corpus,
+    corpusAfter: corpus,
+  };
+  result.collection = memory.asCollection(result);
+  result.coverage = {
+    requested,
+    budget,
+    startedAt: timestamp,
+    finishedAt: timestamp,
+    completionReason: result.completionReason,
+    exhaustive: false,
+    uncertainty: 'No relay attempt was made because the input contained no account subjects.',
+    relays: cloneJson(result.relays),
+    observedEvents: [],
+  };
+  return result;
 }
 
 function planResultKind(operation, result) {

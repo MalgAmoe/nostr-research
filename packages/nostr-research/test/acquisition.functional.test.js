@@ -10,6 +10,7 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools';
 import {
   acquireRelayEvents,
   createInMemoryResearchMemory,
+  createDeclarativeResearchSession,
   executeResearchPlan,
   expandResearch,
   hydrateAccounts,
@@ -22,6 +23,177 @@ import { loadFixtureEvents } from '../test-support/fixtures.js';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const loopbackAvailable = await supportsLoopbackListener();
+
+test('declarative session preserves handles, revisions, preflight, and partial outcomes', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  const session = createDeclarativeResearchSession(context.memory);
+  const [event] = loadFixtureEvents();
+  let requests = 0;
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send) => {
+      requests += 1;
+      send(['EVENT', subscriptionId, event]);
+      // The observation bound deliberately ends this attempt without EOSE.
+    });
+  }, context.directory);
+
+  try {
+    const selected = await session.execute({
+      commandId: 'select-empty',
+      command: 'select',
+      parameters: { kinds: [1] },
+      resultId: 'notes',
+    });
+    assert.deepEqual(selected, {
+      ok: true,
+      commandId: 'select-empty',
+      sessionRevision: 1,
+      result: { handle: { id: 'notes', kind: 'events', count: 0, revision: 1 } },
+      warnings: [],
+    });
+
+    const conflict = await session.execute({
+      commandId: 'stale',
+      ifRevision: 0,
+      command: 'select',
+      parameters: {},
+    });
+    assert.equal(conflict.error.code, 'REVISION_CONFLICT');
+    assert.equal(conflict.sessionRevision, 1);
+
+    const duplicate = await session.execute({
+      commandId: 'duplicate',
+      command: 'select',
+      parameters: {},
+      resultId: 'notes',
+    });
+    assert.equal(duplicate.error.code, 'DUPLICATE_RESULT');
+    assert.equal(duplicate.sessionRevision, 1);
+
+    const replaced = await session.execute({
+      commandId: 'replace',
+      ifRevision: 1,
+      command: 'select',
+      parameters: {},
+      resultId: 'notes',
+      replace: true,
+    });
+    assert.equal(replaced.ok, true);
+    assert.equal(replaced.sessionRevision, 2);
+    assert.equal(replaced.result.handle.revision, 2);
+
+    const invalidPlan = await session.execute({
+      commandId: 'preflight',
+      command: 'plan',
+      plan: [
+        {
+          id: 'remote',
+          operation: 'acquire',
+          parameters: {
+            relays: [relay.url], filter: {}, timeoutMs: 1_000,
+            observationLimit: 1, distinctEventLimit: 1,
+          },
+        },
+        {
+          id: 'counts',
+          operation: 'summarize',
+          input: 'remote',
+          parameters: { aggregations: [{ name: 'count', operation: 'count' }] },
+        },
+        {
+          id: 'bad-retain',
+          operation: 'retain',
+          input: 'counts',
+          parameters: { name: 'not subjects' },
+        },
+      ],
+      outputs: { remote: 'remote' },
+    });
+    assert.equal(invalidPlan.error.code, 'TYPE_MISMATCH');
+    assert.equal(invalidPlan.sessionRevision, 2);
+    assert.equal(requests, 0);
+    assert.equal(context.memory.describe().eventCount, 0);
+    assert.deepEqual(context.memory.listSets(), []);
+
+    const emptyHydration = await session.execute({
+      commandId: 'empty-hydration-after-acquire',
+      ifRevision: 2,
+      command: 'plan',
+      plan: [
+        {
+          id: 'remote',
+          operation: 'acquire',
+          parameters: {
+            relays: [relay.url], filter: { kinds: [event.kind] }, timeoutMs: 1_000,
+            observationLimit: 1, distinctEventLimit: 2,
+          },
+        },
+        {
+          id: 'empty-events',
+          operation: 'select',
+          input: 'remote',
+          parameters: { kinds: [999_999] },
+        },
+        {
+          id: 'empty-accounts',
+          operation: 'move',
+          input: 'empty-events',
+          parameters: { to: 'authors' },
+        },
+        {
+          id: 'profiles',
+          operation: 'hydrate',
+          input: 'empty-accounts',
+          parameters: {
+            relays: [relay.url], timeoutMs: 1_000,
+            observationLimit: 1, distinctEventLimit: 1,
+          },
+        },
+      ],
+      outputs: { 'empty-accounts': 'empty-accounts' },
+    });
+    assert.equal(emptyHydration.ok, true);
+    assert.equal(emptyHydration.sessionRevision, 3);
+    assert.equal(emptyHydration.result.stages[3].external.status, 'partial');
+    assert.deepEqual(
+      emptyHydration.result.stages[3].external.completeness.boundsReached,
+      ['no-account-subjects'],
+    );
+    assert.equal(context.memory.describe().eventCount, 1);
+
+    const partial = await session.execute({
+      commandId: 'partial',
+      ifRevision: 3,
+      command: 'acquire',
+      parameters: {
+        relays: [relay.url], filter: { kinds: [event.kind] }, timeoutMs: 1_000,
+        observationLimit: 1, distinctEventLimit: 2,
+      },
+      resultId: 'acquired',
+    });
+    assert.equal(partial.ok, true);
+    assert.equal(partial.sessionRevision, 4);
+    assert.deepEqual(partial.result.handle, {
+      id: 'acquired', kind: 'events', count: 1, revision: 4,
+    });
+    assert.equal(partial.result.external.status, 'partial');
+    assert.deepEqual(partial.result.external.completeness.boundsReached, ['observation-budget']);
+    assert.equal(context.memory.describe().eventCount, 1);
+
+    const unsafe = await session.execute({
+      commandId: 'no-code',
+      command: 'retain',
+      input: 'notes',
+      parameters: { name: 'x', callback: '() => process.exit()' },
+    });
+    assert.equal(unsafe.error.code, 'INVALID_OPERATION');
+    assert.equal(unsafe.sessionRevision, 4);
+  } finally {
+    await session.close();
+    await relay.close();
+  }
+});
 
 test('public acquisition handles NIP-01 outcomes, validation, deduplication, provenance, and closure', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');

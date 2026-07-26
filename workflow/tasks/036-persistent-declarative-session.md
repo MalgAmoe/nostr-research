@@ -1,6 +1,6 @@
 ---
 id: 036-persistent-declarative-session
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/036-persistent-declarative-session.validate.sh
 depends_on: 035-plan-and-algebra-correctness
