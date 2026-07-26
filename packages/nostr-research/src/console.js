@@ -69,8 +69,7 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
     summary() {
       const state = session.describe();
       return {
-        memory: memory.summary(),
-        corpus: memory.describe(),
+        memory: memory.describe(),
         session: {
           selectionCount: state.selection.items.length,
           focus: state.focus,
@@ -80,12 +79,6 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
           canGoBack: state.canGoBack,
         },
       };
-    },
-
-    load(query = {}) {
-      const selected = memory.load(query);
-      session = createResearchSession(memory, selected);
-      return selected;
     },
 
     async acquire(options) {
@@ -190,7 +183,9 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
     },
 
     events(query = {}) {
-      return memory.select(query);
+      const selected = memory.select(query);
+      session = createResearchSession(memory, selected);
+      return selected;
     },
 
     accounts(query = {}) {

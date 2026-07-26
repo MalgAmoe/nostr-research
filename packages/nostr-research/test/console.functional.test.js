@@ -35,7 +35,7 @@ test('one console process preserves JavaScript state and composes a bounded rese
     const source = [
       `const fixtures = ${JSON.stringify(events)}`,
       "for (const event of fixtures) research.memory.ingest(event, { relay: 'wss://console-fixture.example/', observedAt: '2026-07-25T00:00:00.000Z' })",
-      "const loaded = research.load({ order: 'oldest', limit: 30 })",
+      "const loaded = research.events({ order: 'oldest', limit: 30 })",
       "await Promise.resolve('AWAIT_OK')",
       "const found = research.events({ text: ['console evidence'], limit: 30 })",
       "const manual = research.collection(found.items.slice(0, 8), { operation: 'manual-selection', label: 'field trial' })",
@@ -127,7 +127,7 @@ test('one console process preserves JavaScript state and composes a bounded rese
       timeout: 10_000,
     });
     assert.equal(fresh.status, 0, fresh.stderr);
-    assert.match(fresh.stdout, /FRESH:\{"events":0,"observations":0\}/);
+    assert.match(fresh.stdout, /FRESH:\{"capacity":50,"eventCount":0,/);
 
   } finally {
     // The subprocess owns and closes its process-local corpus.

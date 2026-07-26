@@ -216,9 +216,24 @@ export async function acquireRelayEvents(memory, options) {
     corpusAfter: typeof memory.describe === 'function' ? memory.describe() : null,
   };
   result.collection = memory.asCollection(result);
-  if (typeof memory.recordAcquisitionCoverage === 'function') {
-    result.coverage = memory.recordAcquisitionCoverage(result);
-  }
+  result.coverage = {
+    requested: {
+      filter: result.requested.filter,
+      relays: [...result.requested.relays].sort(),
+    },
+    budget: result.budget,
+    startedAt: result.startedAt,
+    finishedAt: result.finishedAt,
+    completionReason: result.completionReason,
+    exhaustive: false,
+    uncertainty: 'A bounded attempt was made; relay completeness is not implied.',
+    relays: [...result.relays].sort((a, b) => a.relay.localeCompare(b.relay)),
+    observedEvents: result.acquiredObservations.flatMap(({ eventId, observations }) => (
+      observations.map((item) => ({
+        eventId, observationId: item.id, relay: item.relay, observedAt: item.observedAt,
+      }))
+    )).sort((a, b) => a.observationId - b.observationId),
+  };
   return result;
 }
 

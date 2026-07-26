@@ -2,8 +2,8 @@
 
 `@nostr-research/memory` is a UI-independent research library for canonical
 Nostr evidence. The active runtime is one capacity-bounded, process-local
-corpus. Events, observations, derived relationships, acquisition coverage,
-runs, and retained sets all belong to that owner.
+corpus. Events, observations, derived relationships, and retained selections
+all belong to that owner.
 
 ```js
 import {
@@ -31,16 +31,15 @@ memory.close(); // clears all resident state
 Capacity uses deterministic FIFO eviction. `describe()` reports capacity,
 resident counts, index counts, pressure, and total evictions; ingestion and
 acquisition results identify additions, refreshes, and evictions. Eviction
-removes resident evidence and its derived indexes, while retained sets keep
+removes resident evidence and its derived indexes, while retained selections keep
 their stable subject references. `inspect(subject)` reports `resident: false`
 when a retained event reference no longer has canonical evidence in the
 corpus.
 
-Local operations never contact relays. `select`, `searchEvents`,
-`searchAccounts`, `currentEvent`, `follows`, `traverse`, `thread`, `project`,
-facets, sessions, runs, and retained-set operations all use the same resident
-corpus. `load(query)` is a local selection convenience; it neither rebuilds a
-second corpus nor performs acquisition.
+Local operations never contact relays. `select` is the canonical local event
+selection operation. Account resolution, `searchAccounts`, `currentEvent`,
+`follows`, `traverse`, `thread`, `project`, facets, sessions, and retained
+selection operations all use the same resident corpus.
 
 Relay acquisition is explicit:
 
@@ -59,8 +58,9 @@ The observation limit bounds accepted valid `EVENT` messages across all
 relays; the distinct-event limit bounds unique canonical event IDs. Duplicate
 relay observations consume only the observation budget. The result reports
 received packets, accepted and duplicate observations, distinct acquired
-events, newly stored corpus events, the stopping bound, provenance, coverage,
-and corpus changes.
+events, newly stored corpus events, the stopping bound, provenance, complete
+attempt coverage, and corpus changes. Attempt coverage is returned directly;
+the corpus does not keep a global acquisition history.
 Cancellation uses an `AbortSignal`.
 
 Targeted operations also receive the single corpus:
@@ -101,16 +101,16 @@ nostr-research-console --capacity 500
 
 The Node REPL keeps one memory and one temporary session alive between
 expressions. Top-level `await` is available. The prepared `research` object
-provides `load`, `acquire`, `events`, `accounts`, `facets`, `traverse`,
+provides `acquire`, `events`, `accounts`, `facets`, `traverse`,
 `expand`, `replyContexts`, `inspect`, `show`, `use`, `retain`, and collection
 helpers. `research.memory` remains the advanced route; there is no workspace
 object or database option. `.exit` or Ctrl-D cancels active acquisition and
 closes and clears the corpus.
 
 There is deliberately no database format, persistence interface, or reopen
-behavior. Retained groups, research runs, and acquisition coverage live only
-while this memory is open. Calling `reset()` or `close()`, or ending the Node
-process, loses all resident state. A fresh process always starts empty.
+behavior. Retained selections live only while this memory is open. Calling
+`reset()` or `close()`, or ending the Node process, loses all resident state.
+A fresh process always starts empty.
 
 Removing the remaining Node dependencies (`node:fs`, `node:crypto`, `ws`, and
 the Node test and console infrastructure) is a separate future milestone.

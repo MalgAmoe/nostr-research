@@ -17,7 +17,6 @@ export function showResearchValue(memory, session, value, options = {}) {
   else if (isSessionDescription(value)) shown = showSession(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
   else if (isResearchSet(value)) shown = showSet(memory, value, settings);
-  else if (isResearchRun(value)) shown = showRun(memory, value, settings);
   else if (isSubject(value?.subject)) shown = showSubject(
     memory, value.subject, settings, value.record,
   );
@@ -154,21 +153,6 @@ function showSet(memory, value, settings) {
   };
 }
 
-function showRun(memory, value, settings) {
-  const projected = memory.project({ type: 'run', id: value.id }, {
-    mode: 'compact', excerptLimit: settings.excerptLimit, previewLimit: settings.previewLimit,
-  }).results[0];
-  return {
-    type: 'run', id: value.id, count: value.resultCount ?? value.results?.length,
-    preview: projected.preview,
-    context: {
-      operation: value.operation, status: value.status,
-      inputs: value.inputs, startedAt: value.startedAt, finishedAt: value.finishedAt,
-    },
-    provenance: settings.includeEvidence ? value.diagnostics ?? [] : [],
-  };
-}
-
 function showCorpus(value) {
   return {
     type: 'corpus-summary', count: value.eventCount,
@@ -202,7 +186,6 @@ function showAcquisition(value, settings) {
   const distinctEvents = new Set((value.acquiredObservations ?? []).map((item) => item.eventId)).size;
   return {
     type: 'acquisition',
-    id: value.coverage?.id,
     count: distinctEvents,
     preview: value.relays.slice(0, settings.previewLimit),
     omitted: Math.max(0, value.relays.length - settings.previewLimit),
@@ -223,7 +206,7 @@ function showAcquisition(value, settings) {
 function showCoverage(value, settings) {
   const distinctEvents = new Set(value.observedEvents.map((item) => item.eventId)).size;
   return {
-    type: 'acquisition-coverage', id: value.id, count: distinctEvents,
+    type: 'acquisition-coverage', count: distinctEvents,
     preview: value.relays.slice(0, settings.previewLimit),
     omitted: Math.max(0, value.relays.length - settings.previewLimit),
     context: {
@@ -489,7 +472,7 @@ function excerpt(value, maximum) {
 }
 
 function isSubject(value) {
-  return value && ['event', 'account', 'set', 'run', 'tag'].includes(value.type)
+  return value && ['event', 'account', 'set', 'tag'].includes(value.type)
     && typeof value.id === 'string';
 }
 
@@ -500,7 +483,7 @@ function isAcquisition(value) {
 
 function isCoverage(value) {
   return value && value.requested && value.budget && Array.isArray(value.observedEvents)
-    && Array.isArray(value.relays) && typeof value.id === 'string';
+    && Array.isArray(value.relays);
 }
 
 function isEventRecord(value) {
@@ -519,12 +502,6 @@ function isAccountResult(value) {
 function isResearchSet(value) {
   return value && typeof value.id === 'string' && typeof value.name === 'string'
     && (Array.isArray(value.members) || Number.isInteger(value.memberCount));
-}
-
-function isResearchRun(value) {
-  return value && typeof value.id === 'string' && typeof value.operation === 'string'
-    && typeof value.status === 'string'
-    && (Array.isArray(value.results) || Number.isInteger(value.resultCount));
 }
 
 function isCorpusSummary(value) {

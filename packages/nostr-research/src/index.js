@@ -7,12 +7,8 @@ const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
 const SIGNATURE = /^[a-f0-9]{128}$/;
 const DEFAULT_QUERY_LIMIT = 50;
 const MAX_QUERY_LIMIT = 1000;
-const DEFAULT_ACQUISITION_TIMEOUT_MS = 10_000;
-const DEFAULT_ACQUISITION_OBSERVATION_LIMIT = 100;
-const DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT = 100;
-const DEFAULT_RELAY_CONCURRENCY = 4;
-const SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set', 'run']);
-const RETAINABLE_SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set', 'run']);
+const SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set']);
+const RETAINABLE_SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set']);
 const NAVIGATION_RELATIONSHIP_TYPES = new Set([
   'author',
   'reply-root',
@@ -169,8 +165,6 @@ export class InMemoryResearchMemory {
   #corpus = new IndexedEventCorpus();
   #nextObservationId = 1;
   #evictions = 0;
-  #coverage = new Map();
-  #runs = new Map();
   #sets = new Map();
 
   constructor(capacity) {
@@ -238,7 +232,7 @@ export class InMemoryResearchMemory {
     return record ? cloneJson(record) : null;
   }
 
-  searchEvents(query = {}) {
+  select(query = {}) {
     this.#assertOpen();
     const normalized = normalizeEventQuery(query);
     const events = [...this.#corpus.records.values()].map(({ event }) => event);
@@ -258,26 +252,13 @@ export class InMemoryResearchMemory {
       }
     }
     results.sort((left, right) => compareEvents(left.event, right.event, normalized.order));
-    return {
-      query: publicEventQuery(normalized),
-      results: cloneJson(results.slice(0, normalized.limit)),
-    };
-  }
-
-  select(query = {}) {
-    const result = this.searchEvents(query);
-    return resultCollection(result.results.map(({ event, observations, matchReasons }) => ({
+    return resultCollection(results.slice(0, normalized.limit)
+      .map(({ event, observations, matchReasons }) => ({
       subject: subject('event', event.id),
       record: { event, observations },
       reasons: matchReasons,
       provenance: observations,
-    })), { operation: 'selection', query: result.query });
-  }
-
-  /** Selects resident evidence without rebuilding or contacting another corpus. */
-  load(query = {}) {
-    this.#assertOpen();
-    return this.select({ ...query, limit: query.limit ?? this.#capacity });
+    })), { operation: 'selection', query: publicEventQuery(normalized) });
   }
 
   collection(items, context = {}) {
@@ -310,18 +291,14 @@ export class InMemoryResearchMemory {
       })), { operation: 'acquisition', completionReason: value.completionReason });
     }
     if (Array.isArray(value?.results)) {
-      return resultCollection(value.results.map((item) => item.event ? ({
-        subject: subject('event', item.event.id),
-        record: { event: item.event, observations: item.observations ?? [] },
-        reasons: item.matchReasons ?? [], provenance: item.observations ?? [],
-      }) : ({
+      return resultCollection(value.results.map((item) => ({
         subject: subject('account', item.publicKey),
         record: {
           profile: item.profile, metadataEvent: item.metadataEvent,
           observations: item.observations ?? [],
         },
         reasons: item.matchReasons ?? [], provenance: item.observations ?? [],
-      })), { operation: 'adapted-results', query: value.query });
+      })), { operation: 'account-search', query: value.query });
     }
     throw new ResearchMemoryError('Unsupported public result shape.');
   }
@@ -346,7 +323,6 @@ export class InMemoryResearchMemory {
     }
     if (item.type === 'account') return this.#resolveAccountSubject(item.id);
     if (item.type === 'set') return subject('set', this.getSet(item.id).id);
-    if (item.type === 'run') return subject('run', this.getRun(item.id).id);
     return subject(item.type, item.id);
   }
 
@@ -543,22 +519,6 @@ export class InMemoryResearchMemory {
     });
   }
 
-  relatedEvent(id) {
-    const resolved = this.resolve(id, 'event');
-    return navigationFromTraversal(this, this.traverse([resolved], {
-      relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
-      direction: 'both', depth: 1, limit: MAX_QUERY_LIMIT,
-    }));
-  }
-
-  relatedAccount(id) {
-    const resolved = this.resolve(id, 'account');
-    return navigationFromTraversal(this, this.traverse([resolved], {
-      relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
-      direction: 'both', depth: 1, limit: MAX_QUERY_LIMIT,
-    }));
-  }
-
   thread(eventIdOrPrefix, options = {}) {
     const start = this.resolve(eventIdOrPrefix, 'event');
     const depth = options.depth ?? 10;
@@ -612,101 +572,6 @@ export class InMemoryResearchMemory {
       direction: 'both', depth: 1, limit: this.#capacity,
     });
     return { subject: item, resident: collection.context.relationships.length > 0, collection };
-  }
-
-  recordAcquisitionCoverage(result) {
-    this.#assertOpen();
-    const normalized = normalizeAcquisitionCoverage(result);
-    for (const observed of normalized.acquiredObservations) {
-      const resident = this.#corpus.records.get(observed.eventId);
-      // Coverage describes the bounded attempt itself. Capacity pressure may
-      // legitimately evict evidence acquired earlier in that same attempt.
-      if (!resident) continue;
-      for (const observation of observed.observations) {
-        const stored = resident.observations.find(({ id }) => id === observation.id);
-        if (!stored || stored.observedAt !== observation.observedAt) {
-          throw new ResearchMemoryError(
-            'Acquisition coverage observations must reference matching stored observations.',
-          );
-        }
-      }
-    }
-    const id = randomUUID();
-    const record = {
-      id, requested: {
-        filter: normalized.requested.filter,
-        relays: [...normalized.requested.relays].sort(),
-      },
-      budget: normalized.budget, startedAt: normalized.startedAt,
-      finishedAt: normalized.finishedAt, completionReason: normalized.completionReason,
-      exhaustive: false,
-      uncertainty: 'A bounded attempt was recorded; relay completeness is not implied.',
-      relays: [...normalized.relays].sort((a, b) => a.relay.localeCompare(b.relay)),
-      observedEvents: normalized.acquiredObservations.flatMap(({ eventId, observations }) => (
-        observations.map((item) => ({
-          eventId, observationId: item.id, observedAt: item.observedAt,
-        }))
-      )).sort((a, b) => a.observationId - b.observationId),
-    };
-    this.#coverage.set(id, cloneJson(record));
-    return cloneJson(record);
-  }
-
-  getAcquisitionCoverage(id) {
-    this.#assertOpen();
-    const value = this.#coverage.get(id);
-    if (!value) throw new ResearchMemoryError(`No acquisition coverage found for ID ${id}.`);
-    return cloneJson(value);
-  }
-
-  listAcquisitionCoverage() {
-    this.#assertOpen();
-    return [...this.#coverage.values()]
-      .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id))
-      .map(cloneJson);
-  }
-
-  acquisitionCoverage(request) {
-    this.#assertOpen();
-    assertPlainObject(request, 'Acquisition coverage request');
-    const filter = stableJson(request.filter);
-    const relays = stableJson([...request.relays].sort());
-    const attempts = this.listAcquisitionCoverage().filter((item) => (
-      stableJson(item.requested.filter) === filter && stableJson(item.requested.relays) === relays
-    ));
-    return {
-      attempted: attempts.length > 0, exhaustive: false,
-      uncertainty: 'Coverage records bounded attempts and observations, not an exhaustive relay index.',
-      request: cloneJson(request), attempts,
-    };
-  }
-
-  recordRun(run) {
-    this.#assertOpen();
-    const record = { id: randomUUID(), ...normalizeRun(run) };
-    this.#runs.set(record.id, cloneJson(record));
-    return cloneJson(record);
-  }
-
-  getRun(id) {
-    this.#assertOpen();
-    const run = this.#runs.get(id);
-    if (!run) throw new ResearchMemoryError(`No research run found for ID ${id}.`);
-    return cloneJson(run);
-  }
-
-  listRuns() {
-    this.#assertOpen();
-    return [...this.#runs.values()]
-      .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id))
-      .map(({ diagnostics, results, ...run }) => ({
-        ...cloneJson(run), diagnosticCount: diagnostics.length, resultCount: results.length,
-      }));
-  }
-
-  createSet(name) {
-    const created = this.#createPopulatedSet(name, []);
-    return this.getSet(created.id);
   }
 
   #createPopulatedSet(name, entries, options = {}) {
@@ -778,55 +643,6 @@ export class InMemoryResearchMemory {
     return { id, deleted: true };
   }
 
-  addSetMember(id, member, reason = { type: 'explicit' }) {
-    const set = this.getSet(id);
-    const normalized = normalizeMember(member);
-    let found = set.members.find((item) => memberKey(item) === memberKey(normalized));
-    if (!found) {
-      found = { ...normalized, reasons: [] };
-      set.members.push(found);
-      set.members.sort((a, b) => memberKey(a).localeCompare(memberKey(b)));
-    }
-    const normalizedReason = normalizeReason(reason);
-    if (!found.reasons.some((item) => stableJson(item) === stableJson(normalizedReason))) {
-      found.reasons.push(normalizedReason);
-    }
-    this.#sets.set(id, set);
-    return { set: { id, name: set.name }, member: cloneJson(found) };
-  }
-
-  removeSetMember(id, member) {
-    const set = this.getSet(id);
-    const normalized = normalizeMember(member);
-    const before = set.members.length;
-    set.members = set.members.filter((item) => memberKey(item) !== memberKey(normalized));
-    this.#sets.set(id, set);
-    return { ...normalized, removed: before !== set.members.length };
-  }
-
-  explainSetMember(id, member) {
-    const set = this.getSet(id);
-    const normalized = normalizeMember(member);
-    const found = set.members.find((item) => memberKey(item) === memberKey(normalized));
-    if (!found) {
-      throw new ResearchMemoryError(
-        `Research set ${id} has no ${normalized.type} member ${normalized.id}.`,
-      );
-    }
-    return { set: { id, name: set.name }, member: cloneJson(found) };
-  }
-
-  createSetFromRun(name, runId) {
-    const run = this.getRun(runId);
-    return this.#createPopulatedSet(name, run.results.map((result) => ({
-      member: result,
-      reasons: [{
-        type: 'run', runId, operation: run.operation,
-        matchReasons: result.reasons, provenance: result.provenance,
-      }],
-    })));
-  }
-
   retain(collection, name, options = {}) {
     assertResultCollection(collection);
     assertPlainObject(options, 'Retention options');
@@ -841,42 +657,6 @@ export class InMemoryResearchMemory {
             operation: collection.context.operation, provenance: retainedProvenance(item),
           })),
       })), { signal: options.signal });
-  }
-
-  expandSet(sourceSetId, name, options = {}) {
-    const traversal = this.traverse([subject('set', sourceSetId)], {
-      relationshipTypes: options.relationshipTypes,
-      direction: options.direction ?? 'outbound', depth: 1, limit: options.limit,
-    });
-    const starts = new Set(traversal.context.starts.map(memberKey));
-    return this.retain({
-      ...traversal, items: traversal.items.filter((item) => !starts.has(memberKey(item.subject))),
-    }, name, { reason: { type: 'set-expansion', sourceSetId } });
-  }
-
-  combineSets(operation, leftId, rightId, name) {
-    if (!['union', 'intersection', 'difference'].includes(operation)) {
-      throw new ResearchMemoryError('Set operation must be "union", "intersection", or "difference".');
-    }
-    const left = this.getSet(leftId);
-    const right = this.getSet(rightId);
-    const rightKeys = new Set(right.members.map(memberKey));
-    const selected = operation === 'union' ? [...left.members, ...right.members]
-      : operation === 'intersection'
-        ? left.members.filter((item) => rightKeys.has(memberKey(item)))
-        : left.members.filter((item) => !rightKeys.has(memberKey(item)));
-    return this.#createPopulatedSet(name, selected.map((member) => {
-      const key = memberKey(member);
-      const sources = [
-        ...left.members.filter((candidate) => memberKey(candidate) === key)
-          .map((candidate) => ({ setId: left.id, reasons: candidate.reasons })),
-        ...right.members.filter((candidate) => memberKey(candidate) === key)
-          .map((candidate) => ({ setId: right.id, reasons: candidate.reasons })),
-      ];
-      return { member, reasons: [{
-        type: 'set-operation', operation, leftSetId: leftId, rightSetId: rightId, sources,
-      }] };
-    }));
   }
 
   project(value, options = {}) {
@@ -915,8 +695,6 @@ export class InMemoryResearchMemory {
         projection = mode === 'full'
           ? { type: 'set', ...this.getSet(reference.id) }
           : { type: 'set', ...this.#setSummary(this.getSet(reference.id)) };
-      } else if (reference.type === 'run') {
-        projection = { type: 'run', ...this.getRun(reference.id) };
       } else projection = reference;
       return {
         ...projection, role: item.role ?? 'discovery',
@@ -969,15 +747,6 @@ export class InMemoryResearchMemory {
     return this.#corpus.describe(this.#capacity, this.#evictions);
   }
 
-  summary() {
-    this.#assertOpen();
-    return {
-      events: this.#corpus.records.size,
-      observations: [...this.#corpus.records.values()]
-        .reduce((sum, record) => sum + record.observations.length, 0),
-    };
-  }
-
   importFixtures(observation) {
     return loadFixtureEvents().map((event) => this.ingest(event, observation));
   }
@@ -985,7 +754,7 @@ export class InMemoryResearchMemory {
   reset() {
     this.#assertOpen();
     this.#corpus.clear();
-    this.#coverage.clear(); this.#runs.clear(); this.#sets.clear();
+    this.#sets.clear();
     this.#nextObservationId = 1; this.#evictions = 0;
   }
 
@@ -1347,43 +1116,11 @@ function expandStartingSubjects(memory, starting) {
     const item = normalizeSubject(raw);
     if (item.type === 'set') {
       expanded.push(...memory.getSet(item.id).members.map(({ type, id }) => subject(type, id)));
-    } else if (item.type === 'run') {
-      expanded.push(...memory.getRun(item.id).results.map(({ type, id }) => subject(type, id)));
     } else {
       expanded.push(item);
     }
   }
   return uniqueSubjects(expanded);
-}
-
-function navigationFromTraversal(memory, collection) {
-  const start = collection.context.starts[0];
-  return {
-    subject: { ...start },
-    collection,
-    relationships: collection.context.relationships.map((edge) => {
-      const sourceEvent = memory.getEvent(edge.sourceEventId);
-      let resolved = true;
-      if (edge.target.type === 'event') resolved = Boolean(memory.getEvent(edge.target.id));
-      if (edge.target.type === 'account') {
-        try {
-          memory.resolve(edge.target.id, 'account');
-        } catch {
-          resolved = false;
-        }
-      }
-      return {
-        direction: edge.direction,
-        type: edge.type,
-        sourceEventId: edge.sourceEventId,
-        target: { ...edge.target, resolved },
-        evidence: edge.evidence,
-        ...(sourceEvent ? { sourceEvent } : {}),
-        ...(edge.target.type === 'event' && resolved
-          ? { targetEvent: memory.getEvent(edge.target.id) } : {}),
-      };
-    }),
-  };
 }
 
 function compareTraversalEdges(left, right) {
@@ -1512,172 +1249,6 @@ function rejectUnknownKeys(value, allowed, label) {
   }
 }
 
-function normalizeRun(run) {
-  assertPlainObject(run, 'Research run');
-  rejectUnknownKeys(
-    run,
-    new Set(['operation', 'inputs', 'startedAt', 'finishedAt', 'status', 'diagnostics', 'results']),
-    'research run',
-  );
-  if (!['acquisition', 'event-query', 'account-query'].includes(run.operation)) {
-    throw new ResearchMemoryError(
-      'Research run operation must be "acquisition", "event-query", or "account-query".',
-    );
-  }
-  assertPlainObject(run.inputs, 'Research run inputs');
-  const startedAt = normalizeIsoDate(run.startedAt, 'Research run startedAt');
-  const finishedAt = normalizeIsoDate(run.finishedAt, 'Research run finishedAt');
-  if (Date.parse(finishedAt) < Date.parse(startedAt)) {
-    throw new ResearchMemoryError('Research run finishedAt must not precede startedAt.');
-  }
-  if (typeof run.status !== 'string' || run.status.trim().length === 0) {
-    throw new ResearchMemoryError('Research run status must be a non-empty string.');
-  }
-  const diagnostics = run.diagnostics ?? [];
-  if (!Array.isArray(diagnostics)) {
-    throw new ResearchMemoryError('Research run diagnostics must be an array.');
-  }
-  if (!Array.isArray(run.results)) {
-    throw new ResearchMemoryError('Research run results must be an array.');
-  }
-  const results = run.results.map((result) => {
-    assertPlainObject(result, 'Research run result');
-    rejectUnknownKeys(result, new Set(['type', 'id', 'reasons', 'provenance']), 'research run result');
-    const member = normalizeMember(result);
-    if (result.reasons !== undefined && !Array.isArray(result.reasons)) {
-      throw new ResearchMemoryError('Research run result reasons must be an array.');
-    }
-    if (result.provenance !== undefined && !Array.isArray(result.provenance)) {
-      throw new ResearchMemoryError('Research run result provenance must be an array.');
-    }
-    return {
-      ...member,
-      reasons: cloneJson(result.reasons ?? []),
-      provenance: cloneJson(result.provenance ?? []),
-    };
-  });
-  return {
-    operation: run.operation,
-    inputs: normalizeRunInputs(run.operation, run.inputs),
-    startedAt,
-    finishedAt,
-    status: run.status.trim(),
-    diagnostics: cloneJson(diagnostics),
-    results,
-  };
-}
-
-function normalizeRunInputs(operation, inputs) {
-  if (operation === 'event-query') {
-    return publicEventQuery(normalizeEventQuery({
-      ...inputs,
-      ...(Array.isArray(inputs.text) && inputs.text.length === 0 ? { text: undefined } : {}),
-    }));
-  }
-  if (operation === 'account-query') {
-    const normalized = normalizeAccountQuery({
-      ...inputs,
-      ...(Array.isArray(inputs.text) && inputs.text.length === 0 ? { text: undefined } : {}),
-    });
-    return {
-      publicKeys: normalized.publicKeys,
-      text: normalized.terms,
-      limit: normalized.limit,
-    };
-  }
-  return normalizeAcquisitionRunInputs(inputs);
-}
-
-function normalizeAcquisitionRunInputs(inputs) {
-  rejectUnknownKeys(
-    inputs,
-    new Set(['relays', 'filter', 'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency']),
-    'acquisition input',
-  );
-  if (!Array.isArray(inputs.relays) || inputs.relays.length === 0) {
-    throw new ResearchMemoryError('Acquisition inputs require at least one explicit wss:// relay.');
-  }
-  const relays = inputs.relays.map((value) => {
-    let url;
-    try {
-      url = new URL(value);
-    } catch {
-      throw new ResearchMemoryError(`Invalid relay URL: ${value}`);
-    }
-    if (url.protocol !== 'wss:' || url.username || url.password || url.hash) {
-      throw new ResearchMemoryError(`Relay URL must be an explicit wss:// URL: ${value}`);
-    }
-    return url.href;
-  });
-  if (new Set(relays).size !== relays.length) {
-    throw new ResearchMemoryError('Acquisition input relay URLs must not be repeated.');
-  }
-  const filter = normalizeAcquisitionFilter(inputs.filter);
-  return {
-    relays,
-    filter,
-    timeoutMs: normalizePositiveInteger(
-      inputs.timeoutMs ?? DEFAULT_ACQUISITION_TIMEOUT_MS,
-      'Acquisition input timeoutMs',
-    ),
-    observationLimit: normalizePositiveInteger(
-      inputs.observationLimit ?? DEFAULT_ACQUISITION_OBSERVATION_LIMIT,
-      'Acquisition input observationLimit',
-    ),
-    distinctEventLimit: normalizePositiveInteger(
-      inputs.distinctEventLimit ?? DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT,
-      'Acquisition input distinctEventLimit',
-    ),
-    concurrency: normalizePositiveInteger(
-      inputs.concurrency ?? DEFAULT_RELAY_CONCURRENCY,
-      'Acquisition input concurrency',
-    ),
-  };
-}
-
-function normalizeAcquisitionFilter(filter) {
-  assertPlainObject(filter, 'Acquisition input filter');
-  const normalized = cloneJson(filter);
-  for (const [key, value] of Object.entries(normalized)) {
-    if (['ids', 'authors'].includes(key)) {
-      if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
-        throw new ResearchMemoryError(`Acquisition filter ${key} must be an array of strings.`);
-      }
-    } else if (key === 'kinds') {
-      if (!Array.isArray(value) || value.some((item) => !Number.isSafeInteger(item) || item < 0)) {
-        throw new ResearchMemoryError('Acquisition filter kinds must be an array of non-negative integers.');
-      }
-    } else if (['since', 'until', 'limit'].includes(key)) {
-      if (!Number.isSafeInteger(value) || value < 0) {
-        throw new ResearchMemoryError(`Acquisition filter ${key} must be a non-negative integer.`);
-      }
-    } else if (key.startsWith('#')) {
-      if (key.length !== 2 || !Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
-        throw new ResearchMemoryError(
-          `Acquisition filter ${key} must be a single-letter tag with an array of strings.`,
-        );
-      }
-    } else {
-      throw new ResearchMemoryError(`Unsupported acquisition filter field: ${key}`);
-    }
-  }
-  return normalized;
-}
-
-function normalizePositiveInteger(value, label) {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new ResearchMemoryError(`${label} must be a positive integer.`);
-  }
-  return value;
-}
-
-function normalizeIsoDate(value, label) {
-  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
-    throw new ResearchMemoryError(`${label} must be a valid ISO-8601 timestamp.`);
-  }
-  return new Date(value).toISOString();
-}
-
 function normalizeSetName(name) {
   if (typeof name !== 'string' || name.trim().length === 0) {
     throw new ResearchMemoryError('Research set name must be a non-empty string.');
@@ -1718,36 +1289,6 @@ function retainedProvenance(item) {
     return [{ type: 'stored-event-observations', eventId: metadataEventId }];
   }
   return item.provenance;
-}
-
-function normalizeAcquisitionCoverage(result) {
-  assertPlainObject(result, 'Acquisition result');
-  const requested = cloneJson(result.requested);
-  if (!requested || !Array.isArray(requested.relays) || requested.relays.length === 0) {
-    throw new ResearchMemoryError('Acquisition coverage requires requested relays.');
-  }
-  assertPlainObject(requested.filter, 'Acquisition NIP-01 filter');
-  const budget = cloneJson(result.budget);
-  for (const key of ['timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency']) {
-    if (!Number.isSafeInteger(budget?.[key]) || budget[key] <= 0) {
-      throw new ResearchMemoryError(`Acquisition coverage requires a positive ${key} budget.`);
-    }
-  }
-  const startedAt = new Date(result.startedAt).toISOString();
-  const finishedAt = new Date(result.finishedAt).toISOString();
-  if (finishedAt < startedAt) {
-    throw new ResearchMemoryError('Acquisition coverage cannot finish before it starts.');
-  }
-  if (typeof result.completionReason !== 'string' || result.completionReason.length === 0
-      || !Array.isArray(result.relays) || !Array.isArray(result.acquiredObservations)) {
-    throw new ResearchMemoryError('Acquisition coverage is missing outcomes or observations.');
-  }
-  return {
-    requested, budget, startedAt, finishedAt,
-    completionReason: result.completionReason,
-    relays: cloneJson(result.relays),
-    acquiredObservations: cloneJson(result.acquiredObservations),
-  };
 }
 
 function memberKey(member) {

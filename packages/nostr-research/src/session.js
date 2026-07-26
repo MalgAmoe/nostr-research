@@ -191,16 +191,9 @@ function initialCollection(memory, initial) {
       subject: subject(item.type, item.id), reasons: item.reasons,
     })), { operation: 'research-set', setId: initial.id });
   }
-  if (initial.type === 'run' || isPublicResearchRun(initial)) {
-    const run = memory.getRun(initial.id);
-    return collection(run.results.map((item) => ({
-      subject: subject(item.type, item.id),
-      reasons: item.reasons, provenance: item.provenance,
-    })), { operation: 'research-run', runId: initial.id });
-  }
   if (initial.type === 'result-collection' || initial.collection || initial.results
       || initial.acquiredObservations) return memory.asCollection(initial);
-  throw new ResearchMemoryError('Session initial value must be a result collection, run, or research set.');
+  throw new ResearchMemoryError('Session initial value must be a result collection or retained selection.');
 }
 
 function isPublicResearchSet(value) {
@@ -210,18 +203,6 @@ function isPublicResearchSet(value) {
     && typeof value.createdAt === 'string'
     && (Array.isArray(value.members)
       || (Number.isInteger(value.memberCount) && Array.isArray(value.preview)));
-}
-
-function isPublicResearchRun(value) {
-  return value && typeof value === 'object'
-    && typeof value.id === 'string'
-    && typeof value.operation === 'string'
-    && value.inputs && typeof value.inputs === 'object' && !Array.isArray(value.inputs)
-    && typeof value.startedAt === 'string'
-    && typeof value.finishedAt === 'string'
-    && typeof value.status === 'string'
-    && Array.isArray(value.diagnostics)
-    && Array.isArray(value.results);
 }
 
 function initialSource(initial) {

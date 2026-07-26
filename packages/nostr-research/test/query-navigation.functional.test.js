@@ -23,7 +23,7 @@ test('public local search composes constraints, explains matches, and preserves 
     ingest(memory, fixtures.reply, 'wss://two.example');
     ingest(memory, fixtures.quote, 'wss://two.example');
 
-    const found = memory.searchEvents({
+    const found = memory.select({
       authors: [bob.slice(0, 12)],
       kinds: [1],
       since: fixtures.reply.created_at,
@@ -33,28 +33,28 @@ test('public local search composes constraints, explains matches, and preserves 
       limit: 5,
       order: 'oldest',
     });
-    assert.deepEqual(found.results.map(({ event }) => event.id), [fixtures.reply.id]);
+    assert.deepEqual(found.items.map(({ record }) => record.event.id), [fixtures.reply.id]);
     assert.deepEqual(
-      found.results[0].matchReasons.map(({ type }) => type),
+      found.items[0].reasons.map(({ type }) => type),
       ['author', 'kind', 'created-at-since', 'created-at-until', 'tag', 'text', 'text'],
     );
     assert.deepEqual(
-      found.results[0].observations.map(({ relay }) => relay),
+      found.items[0].provenance.map(({ relay }) => relay),
       ['wss://one.example', 'wss://two.example'],
     );
 
     assert.deepEqual(
-      memory.searchEvents({ ids: fixtures.root.id.slice(0, 12), limit: 1 }).results[0].event,
+      memory.select({ ids: fixtures.root.id.slice(0, 12), limit: 1 }).items[0].record.event,
       JSON.parse(JSON.stringify(fixtures.root)),
     );
     assert.deepEqual(
-      memory.searchEvents({ tags: { t: ['Research'], '#t': ['missing'] } })
-        .results.map(({ event }) => event.id),
+      memory.select({ tags: { t: ['Research'], '#t': ['missing'] } })
+        .items.map(({ subject: item }) => item.id),
       [fixtures.reply.id, fixtures.root.id],
     );
-    assert.throws(() => memory.searchEvents({ authors: ['abc'] }), /4 to 64/);
-    assert.throws(() => memory.searchEvents({ since: 20, until: 10 }), ResearchMemoryError);
-    assert.throws(() => memory.searchEvents({ limit: 0 }), ResearchMemoryError);
+    assert.throws(() => memory.select({ authors: ['abc'] }), /4 to 64/);
+    assert.throws(() => memory.select({ since: 20, until: 10 }), ResearchMemoryError);
+    assert.throws(() => memory.select({ limit: 0 }), ResearchMemoryError);
   });
 });
 
@@ -75,66 +75,6 @@ test('current account metadata uses replaceable semantics and profile search ret
       'profile-term', 'profile-term',
     ]);
     assert.throws(() => memory.resolveAccount(carol), /No stored account public key matches/);
-  });
-});
-
-test('navigation exposes direction, protocol interpretation, unresolved targets, and provenance', () => {
-  withMemory((memory) => {
-    const fixtures = makeFixtures();
-    for (const event of [
-      fixtures.aliceCurrent, fixtures.bobMetadata, fixtures.root, fixtures.reply, fixtures.quote,
-      fixtures.nip22, fixtures.uppercaseETag,
-    ]) ingest(memory, event, 'wss://graph.example');
-
-    const replyNavigation = memory.relatedEvent(fixtures.reply.id.slice(0, 12));
-    const outbound = replyNavigation.relationships.filter(({ direction }) => direction === 'outbound');
-    assert.equal(
-      outbound.find((relation) => relation.type === 'author').target.resolved,
-      true,
-    );
-    assert.ok(outbound.some((relation) => (
-      relation.type === 'reply-root'
-      && relation.target.id === fixtures.root.id
-      && relation.evidence.protocol === 'NIP-10'
-      && relation.evidence.interpretation === 'known'
-    )));
-    assert.ok(outbound.some((relation) => relation.type === 'mentioned-account' && relation.target.id === carol));
-    assert.ok(outbound.some((relation) => (
-      relation.type === 'quoted-event'
-      && relation.target.resolved === false
-      && relation.sourceEvent.observations[0].relay === 'wss://graph.example'
-    )));
-
-    const rootNavigation = memory.relatedEvent(fixtures.root.id);
-    assert.ok(rootNavigation.relationships.some((relation) => (
-      relation.direction === 'inbound'
-      && relation.sourceEventId === fixtures.reply.id
-      && relation.type === 'reply-root'
-    )));
-    assert.ok(rootNavigation.relationships.some((relation) => (
-      relation.direction === 'inbound'
-      && relation.sourceEventId === fixtures.nip22.id
-      && relation.evidence.protocol === 'NIP-22'
-    )));
-
-    const accountNavigation = memory.relatedAccount(bob.slice(0, 12));
-    assert.ok(accountNavigation.relationships.some((relation) => (
-      relation.direction === 'inbound'
-      && relation.type === 'author'
-      && relation.sourceEventId === fixtures.reply.id
-    )));
-
-    const nonCommentNavigation = memory.relatedEvent(fixtures.uppercaseETag.id);
-    assert.ok(nonCommentNavigation.relationships.some((relation) => (
-      relation.direction === 'outbound'
-      && relation.type === 'mentioned-event'
-      && relation.target.id === fixtures.root.id
-      && relation.evidence.protocol === 'NIP-01'
-      && relation.evidence.interpretation === 'best-effort-fallback'
-    )));
-    assert.ok(!nonCommentNavigation.relationships.some((relation) => (
-      relation.evidence.protocol === 'NIP-22'
-    )));
   });
 });
 

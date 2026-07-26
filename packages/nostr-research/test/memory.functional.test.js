@@ -22,7 +22,7 @@ test('process-local memory preserves canonical evidence and independent relay ob
 
     assert.equal(first.eventStored, true);
     assert.equal(second.eventStored, false);
-    assert.deepEqual(memory.summary(), { events: 1, observations: 2 });
+    assert.equal(memory.describe().eventCount, 1);
     assert.deepEqual(memory.getEvent(event.id), {
       event,
       observations: [
@@ -43,12 +43,12 @@ test('process-local memory preserves canonical evidence and independent relay ob
       () => memory.ingest({ ...event, tags: [['t', 42]] }, { relay: 'wss://invalid.example' }),
       InvalidNostrEventError,
     );
-    assert.deepEqual(memory.summary(), { events: 1, observations: 2 });
+    assert.equal(memory.describe().eventCount, 1);
 
     memory.reset();
-    assert.deepEqual(memory.summary(), { events: 0, observations: 0 });
+    assert.equal(memory.describe().eventCount, 0);
     memory.importFixtures({ relay: 'wss://fixture-import.example', observedAt: '2024-01-03T00:00:00Z' });
-    assert.deepEqual(memory.summary(), { events: 2, observations: 2 });
+    assert.equal(memory.describe().eventCount, 2);
   } finally {
     memory.close();
   }

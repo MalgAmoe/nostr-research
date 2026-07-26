@@ -22,5 +22,6 @@ The console keeps one bounded, process-local research corpus in memory and
 makes acquisition, search, expansion, inspection, filtering, and checkpoints
 available as JavaScript operations. Persistence and a database format are
 deliberately absent: closing or resetting the corpus, or exiting the process,
-loses all resident evidence, retained groups, runs, and acquisition coverage.
+loses all resident evidence and retained selections. Acquisition attempt
+coverage is returned to its caller and is not stored as global history.
 See the package README for the console bindings and examples.

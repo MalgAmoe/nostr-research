@@ -50,13 +50,17 @@ test('replaceable selection and follow interpretation remain stable in one proce
     assert.equal(memory.currentEvent(alice, 30023, { d: 'other' }).event.id, otherArticle.id);
     assert.equal(memory.currentEvent(alice, 10000), null);
 
-    const contactRelationships = memory.relatedEvent(contactCurrent.id).relationships;
+    const contactRelationships = memory.traverse([subject('event', contactCurrent.id)], {
+      relationshipTypes: ['follow', 'mentioned-account'], direction: 'outbound', depth: 1,
+    }).context.relationships;
     assert.deepEqual(
       contactRelationships.filter(({ type }) => type === 'follow').map(({ target }) => target.id),
       [bob, unresolved],
     );
     assert.ok(!contactRelationships.some(({ type }) => type === 'mentioned-account'));
-    assert.ok(memory.relatedEvent(mention.id).relationships.some(({ type, target }) => (
+    assert.ok(memory.traverse([subject('event', mention.id)], {
+      relationshipTypes: ['follow', 'mentioned-account'], direction: 'outbound', depth: 1,
+    }).context.relationships.some(({ type, target }) => (
       type === 'mentioned-account' && target.id === bob
     )));
 
@@ -78,8 +82,8 @@ test('replaceable selection and follow interpretation remain stable in one proce
       [bob, unresolved],
     );
     assert.deepEqual(
-      memory.searchEvents({ authors: [alice], kinds: [3], limit: 10 })
-        .results.map(({ event }) => event.id).sort(),
+      memory.select({ authors: [alice], kinds: [3], limit: 10 })
+        .items.map(({ subject: item }) => item.id).sort(),
       [contactOld.id, contactCurrent.id].sort(),
     );
     assert.equal(memory.getEvent(contactOld.id).event.content, 'old contacts');

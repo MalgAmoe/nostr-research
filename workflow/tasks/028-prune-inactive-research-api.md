@@ -1,6 +1,6 @@
 ---
 id: 028-prune-inactive-research-api
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/028-prune-inactive-research-api.validate.sh
 depends_on: 027-explicit-acquisition-budgets

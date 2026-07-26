@@ -64,6 +64,25 @@ test('public acquisition handles NIP-01 outcomes, validation, deduplication, pro
       distinctEventsAcquired: 1,
     });
     assert.deepEqual(result.acquiredEventIds, [firstEvent.id]);
+    assert.deepEqual(result.coverage.requested, {
+      filter: { kinds: [1], limit: 5 },
+      relays: [firstRelay.url, secondRelay.url].sort(),
+    });
+    assert.deepEqual(result.coverage.budget, result.budget);
+    assert.equal(result.coverage.completionReason, 'completed');
+    assert.equal(result.coverage.exhaustive, false);
+    assert.match(result.coverage.uncertainty, /not implied/);
+    assert.deepEqual(
+      result.coverage.observedEvents.map(({ eventId, relay }) => ({ eventId, relay })),
+      [
+        { eventId: firstEvent.id, relay: firstRelay.url },
+        { eventId: firstEvent.id, relay: secondRelay.url },
+      ],
+    );
+    assert.deepEqual(
+      result.coverage.relays.map(({ outcome }) => outcome),
+      ['eose', 'eose'],
+    );
     assert.deepEqual(
       context.memory.getEvent(firstEvent.id).observations.map(({ relay }) => relay).sort(),
       [firstRelay.url, secondRelay.url].sort(),
@@ -992,7 +1011,7 @@ test('exported expansion uses the global budget for reply breadth and preserves 
     assert.equal(tiny.inspect(subject('event', seed.id)).resident, true);
     assert.equal(pressured.items[0].subject.id, seed.id);
     assert.ok(pressured.items.length > 1, 'the preserved seed remains traversable');
-    assert.equal(tiny.summary().events, 3, 'eviction bounds the sole resident corpus');
+    assert.equal(tiny.describe().eventCount, 3, 'eviction bounds the sole resident corpus');
     tiny.close();
   } finally {
     await relay.close();
