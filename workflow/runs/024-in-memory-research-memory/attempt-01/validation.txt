@@ -1,0 +1,84 @@
+Exit code: 0
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/acquire.js && node --check src/expansion.js && node --check src/reply-contexts.js && node --check src/session.js && node --check src/presentation.js && node --check src/console.js && node --check bin/nostr-research-console.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+(node:9617) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:9617) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+✔ public acquisition handles NIP-01 outcomes, validation, deduplication, provenance, and closure (212.628ms)
+✔ global limit and cancellation are distinguishable and close owned sockets (247.238916ms)
+✔ timeout force-closes a peer that ignores the WebSocket closing handshake (204.771875ms)
+✔ timeout and partial connection failure remain observable (131.126166ms)
+✔ acquisition rejects unusable public inputs before networking (12.887209ms)
+✔ console expansion rejects invalid bounds and semantics before networking (9.443166ms)
+Expanding through 2 relay(s), depth 2, event limit 10, authored-note limit 2 per starting account...
+Expansion completed: 3 request(s), 6 observation(s), 7 workspace event(s).
+✔ authored-note expansion samples only explicit account starts within per-account and global bounds (114.889042ms)
+✔ authored-note expansion obeys the complete operation budget and stays disabled by default (78.587417ms)
+Resolving reply contexts through 2 relay(s), authored limit 6, parent limit 2...
+Reply contexts completed: 5 reply/replies, 2 unresolved parent(s), 7 observation(s).
+✔ bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps (136.520959ms)
+Expanding through 2 relay(s), depth 2, event limit 10...
+Expansion completed: 6 request(s), 4 observation(s), 5 workspace event(s).
+✔ console expansion performs bounded targeted multi-hop acquisition (93.436375ms)
+✔ exported expansion uses the global budget for reply breadth and preserves tiny-workspace seeds (225.247208ms)
+(node:9618) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ one console process preserves JavaScript state and composes a bounded research loop (295.430125ms)
+(node:9619) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ in-process memory matches the SQLite oracle across the research surface (90.801917ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (12.239583ms)
+(node:9620) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ SQLite memory preserves canonical evidence and independent relay observations (84.273084ms)
+(node:9621) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ public console inspection and facets orient a bounded durable investigation (206.616958ms)
+(node:9622) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ replaceable selection and follow interpretation remain stable across reopen (56.872292ms)
+(node:9623) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ public local search composes constraints, explains matches, and preserves provenance (45.922542ms)
+✔ current account metadata uses replaceable semantics and profile search returns source evidence (32.300458ms)
+✔ navigation exposes direction, protocol interpretation, unresolved targets, and provenance (52.331625ms)
+(node:9624) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ large retention is atomic, bounded, durable, and remains directly navigable (2068.333584ms)
+(node:9625) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ selection, bounded traversal, projection, retention, reopen, and continuation compose (71.258416ms)
+(node:9648) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ recorded query becomes an explainable, expandable, combinable durable research path (53.641792ms)
+(node:9650) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ public session actions remain temporary while checkpoints are durable (58.593042ms)
+✔ sessions start from public runs returned by recordRun and getRun (18.60275ms)
+✔ bounded attempt coverage distinguishes exact attempted slices from uncertainty (16.69775ms)
+(node:9651) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ bounded workspace supports an iterative public research loop over durable evidence (69.123458ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10584.23925

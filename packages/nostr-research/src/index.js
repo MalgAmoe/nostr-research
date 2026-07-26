@@ -52,6 +52,19 @@ export function openResearchMemory(databasePath) {
   return new ResearchMemory(databasePath);
 }
 
+/** Creates a capacity-bounded, process-local research memory. */
+export function createInMemoryResearchMemory(options = {}) {
+  assertPlainObject(options, 'In-memory research memory options');
+  rejectUnknownKeys(options, new Set(['capacity']), 'in-memory research memory option');
+  const capacity = options.capacity;
+  if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > MAX_QUERY_LIMIT) {
+    throw new ResearchMemoryError(
+      `In-memory research memory capacity must be an integer from 1 to ${MAX_QUERY_LIMIT}.`,
+    );
+  }
+  return new InMemoryResearchMemory(capacity);
+}
+
 /**
  * Creates a bounded, disposable in-process corpus attached to durable memory.
  * Call load() to choose the initial stored slice and close() when finished.
@@ -1450,6 +1463,915 @@ export class ResearchMemory {
 }
 
 /**
+ * The promoted indexed corpus proven by ResearchWorkspace. Both the
+ * migration-era workspace and the prospective memory use this one owner for
+ * canonical records and every index derived from them.
+ */
+class IndexedEventCorpus {
+  records = new Map();
+  authors = new Map();
+  kinds = new Map();
+  tags = new Map();
+  outbound = new Map();
+  inbound = new Map();
+
+  insert(record) {
+    const stored = cloneJson(record);
+    const { event } = stored;
+    const relationships = eventRelationships(event);
+    if (this.records.has(event.id)) this.remove(event.id);
+    this.records.set(event.id, stored);
+    addIndex(this.authors, event.pubkey, event.id);
+    addIndex(this.kinds, event.kind, event.id);
+    for (const tag of event.tags) {
+      if (tag.length > 1) addIndex(this.tags, `${tag[0]}\u0000${tag[1]}`, event.id);
+    }
+    for (const relationship of relationships) {
+      const outbound = {
+        direction: 'outbound',
+        type: relationship.type,
+        sourceEventId: event.id,
+        target: subject(relationship.targetType, relationship.targetId),
+        evidence: cloneJson(relationship.evidence),
+      };
+      addRelation(this.outbound, memberKey(subject('event', event.id)), outbound);
+      addRelation(this.inbound, memberKey(outbound.target), {
+        ...outbound,
+        direction: 'inbound',
+      });
+    }
+    return stored;
+  }
+
+  remove(eventId) {
+    const record = this.records.get(eventId);
+    if (!record) return;
+    this.records.delete(eventId);
+    removeIndex(this.authors, record.event.pubkey, eventId);
+    removeIndex(this.kinds, record.event.kind, eventId);
+    for (const tag of record.event.tags) {
+      if (tag.length > 1) removeIndex(this.tags, `${tag[0]}\u0000${tag[1]}`, eventId);
+    }
+    const sourceKey = memberKey(subject('event', eventId));
+    for (const relation of this.outbound.get(sourceKey) ?? []) {
+      const targetKey = memberKey(relation.target);
+      const remaining = (this.inbound.get(targetKey) ?? [])
+        .filter(({ sourceEventId }) => sourceEventId !== eventId);
+      if (remaining.length) this.inbound.set(targetKey, remaining);
+      else this.inbound.delete(targetKey);
+    }
+    this.outbound.delete(sourceKey);
+  }
+
+  candidateIds(query, ids, authors) {
+    const sets = [];
+    if (ids) sets.push(ids);
+    if (authors) sets.push(unionIndexes(this.authors, authors));
+    if (query.kinds) sets.push(unionIndexes(this.kinds, query.kinds));
+    for (const [name, values] of Object.entries(query.tags)) {
+      sets.push(unionIndexes(this.tags, values.map((value) => `${name}\u0000${value}`)));
+    }
+    if (!sets.length) return [...this.records.keys()];
+    sets.sort((left, right) => left.size - right.size);
+    return [...sets[0]].filter((id) => sets.every((set) => set.has(id)));
+  }
+
+  clear() {
+    this.records.clear();
+    this.authors.clear();
+    this.kinds.clear();
+    this.tags.clear();
+    this.outbound.clear();
+    this.inbound.clear();
+  }
+
+  describe(capacity, evictions) {
+    return {
+      capacity,
+      eventCount: this.records.size,
+      remainingCapacity: capacity - this.records.size,
+      evictions,
+      authors: this.authors.size,
+      kinds: this.kinds.size,
+      tags: this.tags.size,
+      outboundRelationships: [...this.outbound.values()]
+        .reduce((total, relations) => total + relations.length, 0),
+      inboundRelationships: [...this.inbound.values()]
+        .reduce((total, relations) => total + relations.length, 0),
+    };
+  }
+}
+
+/**
+ * The prospective single-corpus implementation. SQLite remains a migration
+ * oracle until the runtime cut-over.
+ */
+export class InMemoryResearchMemory {
+  #capacity;
+  #closed = false;
+  #corpus = new IndexedEventCorpus();
+  #nextObservationId = 1;
+  #evictions = 0;
+  #coverage = new Map();
+  #runs = new Map();
+  #sets = new Map();
+
+  constructor(capacity) {
+    if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > MAX_QUERY_LIMIT) {
+      throw new ResearchMemoryError(
+        `In-memory research memory capacity must be an integer from 1 to ${MAX_QUERY_LIMIT}.`,
+      );
+    }
+    this.#capacity = capacity;
+  }
+
+  #assertOpen() {
+    if (this.#closed) throw new ResearchMemoryError('This research memory has already been closed.');
+  }
+
+  ingest(event, observation) {
+    this.#assertOpen();
+    assertCanonicalEvent(event);
+    const normalized = normalizeObservation(observation);
+    // Validation and relationship derivation must complete before owned state changes.
+    const canonical = cloneJson(event);
+    // Derive before insertion so invalid relationship material cannot cause a
+    // partial mutation. IndexedEventCorpus derives again from the owned clone.
+    eventRelationships(canonical);
+    const stored = this.#corpus.records.has(canonical.id);
+    if (!stored) this.#corpus.insert({ event: canonical, observations: [] });
+    const recorded = { id: this.#nextObservationId++, ...normalized };
+    this.#corpus.records.get(canonical.id).observations.push(recorded);
+    const evicted = [];
+    if (this.#corpus.records.size > this.#capacity) {
+      const oldest = this.#corpus.records.keys().next().value;
+      this.#corpus.remove(oldest);
+      this.#evictions += 1;
+      evicted.push(oldest);
+    }
+    return {
+      eventId: canonical.id,
+      eventStored: !stored,
+      observation: cloneJson(recorded),
+      ...(evicted.length ? { evicted } : {}),
+    };
+  }
+
+  getEvent(eventId) {
+    this.#assertOpen();
+    if (typeof eventId !== 'string' || !EVENT_ID.test(eventId)) {
+      throw new ResearchMemoryError('Event ID must be a 64-character lowercase hexadecimal string.');
+    }
+    const record = this.#corpus.records.get(eventId);
+    return record ? cloneJson(record) : null;
+  }
+
+  searchEvents(query = {}) {
+    this.#assertOpen();
+    const normalized = normalizeEventQuery(query);
+    const events = [...this.#corpus.records.values()].map(({ event }) => event);
+    const ids = resolvePrefixes(normalized.ids, events.map(({ id }) => id), 'event ID');
+    const authors = resolvePrefixes(
+      normalized.authors, events.map(({ pubkey }) => pubkey), 'author public key',
+    );
+    const candidates = this.#corpus.candidateIds(normalized, ids, authors);
+    const results = [];
+    for (const eventId of candidates) {
+      const { event, observations } = this.#corpus.records.get(eventId);
+      const matchReasons = matchEvent(event, normalized, ids, authors);
+      if (matchReasons) {
+        results.push({
+          event, observations, matchReasons,
+        });
+      }
+    }
+    results.sort((left, right) => compareEvents(left.event, right.event, normalized.order));
+    return {
+      query: publicEventQuery(normalized),
+      results: cloneJson(results.slice(0, normalized.limit)),
+    };
+  }
+
+  select(query = {}) {
+    const result = this.searchEvents(query);
+    return resultCollection(result.results.map(({ event, observations, matchReasons }) => ({
+      subject: subject('event', event.id),
+      record: { event, observations },
+      reasons: matchReasons,
+      provenance: observations,
+    })), { operation: 'selection', query: result.query });
+  }
+
+  collection(items, context = {}) {
+    this.#assertOpen();
+    if (!Array.isArray(items)) throw new ResearchMemoryError('Collection items must be an array.');
+    assertPlainObject(context, 'Collection context');
+    const normalized = items.map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new ResearchMemoryError('Each collection item must be a result item.');
+      }
+      const normalizedSubject = normalizeSubject(item.subject);
+      if (item.record !== undefined) this.#assertStoredRecord(normalizedSubject, item.record);
+      return { ...cloneJson(item), subject: normalizedSubject };
+    });
+    return resultCollection(normalized, context);
+  }
+
+  asCollection(value) {
+    this.#assertOpen();
+    if (value?.type === 'result-collection') {
+      assertResultCollection(value);
+      return cloneJson(value);
+    }
+    if (value?.collection?.type === 'result-collection') return this.asCollection(value.collection);
+    if (Array.isArray(value?.acquiredObservations)) {
+      return resultCollection(value.acquiredObservations.map(({ eventId, observations }) => ({
+        subject: subject('event', eventId),
+        reasons: [{ type: 'acquisition', requested: value.requested }],
+        provenance: observations,
+      })), { operation: 'acquisition', completionReason: value.completionReason });
+    }
+    if (Array.isArray(value?.results)) {
+      return resultCollection(value.results.map((item) => item.event ? ({
+        subject: subject('event', item.event.id),
+        record: { event: item.event, observations: item.observations ?? [] },
+        reasons: item.matchReasons ?? [], provenance: item.observations ?? [],
+      }) : ({
+        subject: subject('account', item.publicKey),
+        record: {
+          profile: item.profile, metadataEvent: item.metadataEvent,
+          observations: item.observations ?? [],
+        },
+        reasons: item.matchReasons ?? [], provenance: item.observations ?? [],
+      })), { operation: 'adapted-results', query: value.query });
+    }
+    throw new ResearchMemoryError('Unsupported public result shape.');
+  }
+
+  resolve(reference, type) {
+    this.#assertOpen();
+    if (type !== undefined) return this.#resolveTyped({ type, id: reference });
+    if (reference && typeof reference === 'object') return this.#resolveTyped(normalizeSubject(reference));
+    if (typeof reference !== 'string' || !reference.length) {
+      throw new ResearchMemoryError('A subject reference or non-empty account identifier is required.');
+    }
+    return this.#resolveAccountSubject(reference);
+  }
+
+  #resolveTyped(item) {
+    if (item.type === 'event') {
+      return subject('event', resolveOnePrefix(item.id, [...this.#corpus.records.keys()], 'event ID'));
+    }
+    if (item.type === 'account') return this.#resolveAccountSubject(item.id);
+    if (item.type === 'set') return subject('set', this.getSet(item.id).id);
+    if (item.type === 'run') return subject('run', this.getRun(item.id).id);
+    return subject(item.type, item.id);
+  }
+
+  #accountKeys() {
+    const keys = new Set(this.#corpus.authors.keys());
+    for (const relations of this.#corpus.outbound.values()) {
+      for (const relation of relations) if (relation.target.type === 'account') keys.add(relation.target.id);
+    }
+    return [...keys].sort();
+  }
+
+  #resolveAccountSubject(identifier) {
+    const keys = this.#accountKeys();
+    if (HEX_PREFIX.test(identifier)) {
+      return subject('account', resolveOnePrefix(identifier, keys, 'account public key'));
+    }
+    const wanted = identifier.toLocaleLowerCase();
+    const matches = keys.filter((key) => {
+      const metadata = this.#currentByKey(key, 0);
+      if (!metadata) return false;
+      const profile = parseProfile(metadata.event);
+      return ['name', 'display_name', 'nip05'].some(
+        (field) => typeof profile[field] === 'string'
+          && profile[field].toLocaleLowerCase() === wanted,
+      );
+    });
+    if (!matches.length) throw new ResearchMemoryError(`No stored account matches ${identifier}.`);
+    if (matches.length > 1) {
+      throw new ResearchMemoryError(
+        `Ambiguous stored account identifier ${identifier}: ${matches.length} accounts match.`,
+      );
+    }
+    return subject('account', matches[0]);
+  }
+
+  #currentByKey(publicKey, kind, d = '') {
+    const candidates = [...(this.#corpus.authors.get(publicKey) ?? [])]
+      .map((id) => this.#corpus.records.get(id))
+      .filter(({ event }) => event.kind === kind
+        && (kind < 30000 || (event.tags.find((tag) => tag[0] === 'd')?.[1] ?? '') === d))
+      .sort((left, right) => right.event.created_at - left.event.created_at
+        || left.event.id.localeCompare(right.event.id));
+    return candidates[0] ? cloneJson(candidates[0]) : null;
+  }
+
+  resolveAccount(publicKeyOrPrefix) {
+    const publicKey = resolveOnePrefix(
+      publicKeyOrPrefix, [...this.#corpus.authors.keys()], 'account public key',
+    );
+    const metadata = this.#currentByKey(publicKey, 0);
+    if (!metadata) {
+      throw new ResearchMemoryError(`No stored kind-0 metadata event found for account ${publicKey}.`);
+    }
+    return accountResult(publicKey, metadata, [{ type: 'public-key', value: publicKey }]);
+  }
+
+  currentEvent(account, kind, options = {}) {
+    this.#assertOpen();
+    assertPlainObject(options, 'Current event options');
+    rejectUnknownKeys(options, new Set(['d']), 'current event option');
+    if (!isReplaceableKind(kind)) {
+      throw new ResearchMemoryError(
+        'Current event kind must be 0, 3, 10000-19999, or 30000-39999.',
+      );
+    }
+    const owner = account && typeof account === 'object'
+      ? this.resolve(account) : this.resolve(account, 'account');
+    if (kind >= 30000 && kind < 40000 && options.d !== undefined && typeof options.d !== 'string') {
+      throw new ResearchMemoryError('Current event d must be a string.');
+    }
+    if (kind < 30000 && options.d !== undefined) {
+      throw new ResearchMemoryError('Current event d applies only to kinds 30000-39999.');
+    }
+    return this.#currentByKey(owner.id, kind, options.d ?? '');
+  }
+
+  searchAccounts(query = {}) {
+    this.#assertOpen();
+    const normalized = normalizeAccountQuery(query);
+    const results = [];
+    for (const publicKey of [...this.#corpus.kinds.get(0) ?? []]
+      .map((id) => this.#corpus.records.get(id).event.pubkey)
+      .filter((key, i, all) => all.indexOf(key) === i).sort()) {
+      if (normalized.publicKeys
+        && !normalized.publicKeys.some((prefix) => publicKey.startsWith(prefix))) continue;
+      const metadata = this.#currentByKey(publicKey, 0);
+      const profile = parseProfile(metadata.event);
+      const matchReasons = [];
+      if (normalized.publicKeys) matchReasons.push({
+        type: 'public-key-prefix',
+        prefixes: normalized.publicKeys.filter((prefix) => publicKey.startsWith(prefix)),
+        value: publicKey,
+      });
+      let matched = true;
+      for (const term of normalized.terms) {
+        const fields = ['name', 'display_name', 'nip05'].filter(
+          (field) => typeof profile[field] === 'string'
+            && profile[field].toLocaleLowerCase().includes(term.toLocaleLowerCase()),
+        );
+        if (!fields.length) { matched = false; break; }
+        matchReasons.push({ type: 'profile-term', term, fields });
+      }
+      if (matched) results.push(accountResult(publicKey, metadata, matchReasons));
+    }
+    return {
+      query: { publicKeys: normalized.publicKeys, text: normalized.terms, limit: normalized.limit },
+      results: cloneJson(results.slice(0, normalized.limit)),
+    };
+  }
+
+  follows(account) {
+    const owner = account && typeof account === 'object'
+      ? this.resolve(account) : this.resolve(account, 'account');
+    const contact = this.#currentByKey(owner.id, 3);
+    if (!contact) return resultCollection([], {
+      operation: 'follows', account: owner, currentContactListEventId: null,
+      explanation: 'No current stored kind-3 contact list.', relationships: [],
+    });
+    const traversed = this.traverse([subject('event', contact.event.id)], {
+      relationshipTypes: ['follow'], direction: 'outbound', depth: 1, limit: MAX_QUERY_LIMIT,
+    });
+    return resultCollection(traversed.items.filter(({ subject: item }) => item.type === 'account')
+      .map((item) => ({ ...item, provenance: contact.observations })), {
+      operation: 'follows', account: owner, currentContactListEventId: contact.event.id,
+      relationships: traversed.context.relationships,
+    });
+  }
+
+  traverse(starting, options = {}) {
+    this.#assertOpen();
+    const normalized = normalizeTraversal(options);
+    const starts = expandStartingSubjects(this, starting).map((item) => this.#resolveTyped(item));
+    const queue = starts.map((item) => ({ subject: item, depth: 0 }));
+    const visited = new Map(starts.map((item) => [memberKey(item), {
+      subject: item, role: 'seed', reasons: [{ type: 'traversal-start' }], provenance: [],
+    }]));
+    const relationships = [];
+    const edgeKeys = new Set();
+    while (queue.length) {
+      const current = queue.shift();
+      if (current.depth >= normalized.depth) continue;
+      const relations = [
+        ...(normalized.direction !== 'inbound'
+          ? this.#corpus.outbound.get(memberKey(current.subject)) ?? [] : []),
+        ...(normalized.direction !== 'outbound'
+          ? this.#corpus.inbound.get(memberKey(current.subject)) ?? [] : []),
+      ].sort((left, right) => (
+        left.direction.localeCompare(right.direction)
+        || left.sourceEventId.localeCompare(right.sourceEventId)
+        || left.type.localeCompare(right.type)
+        || left.target.id.localeCompare(right.target.id)
+      ));
+      for (const relation of relations) {
+        if (!normalized.relationshipTypes.includes(relation.type)) continue;
+        const next = relation.direction === 'outbound'
+          ? relation.target : subject('event', relation.sourceEventId);
+        const depth = current.depth + 1;
+        const edge = {
+          source: current.subject, target: next, direction: relation.direction,
+          type: relation.type, depth, sourceEventId: relation.sourceEventId,
+          evidence: relation.evidence,
+        };
+        if (!edgeKeys.has(stableJson(edge))) {
+          edgeKeys.add(stableJson(edge));
+          relationships.push(edge);
+        }
+        const reason = {
+          type: 'relationship', relationshipType: relation.type,
+          direction: relation.direction, depth, source: current.subject,
+          sourceEventId: relation.sourceEventId, evidence: relation.evidence,
+        };
+        const key = memberKey(next);
+        if (!visited.has(key) && visited.size - starts.length < normalized.limit) {
+          visited.set(key, {
+            subject: next, role: 'discovery', reasons: [reason],
+            provenance: [{
+              type: 'stored-event-observations', eventId: relation.sourceEventId,
+            }],
+          });
+          queue.push({ subject: next, depth });
+        } else if (visited.has(key)) {
+          const item = visited.get(key);
+          if (!item.reasons.some((existing) => stableJson(existing) === stableJson(reason))) {
+            item.reasons.push(reason);
+          }
+        }
+      }
+    }
+    relationships.sort(compareTraversalEdges);
+    return resultCollection([...visited.values()], {
+      operation: 'traversal', starts, relationshipTypes: normalized.relationshipTypes,
+      direction: normalized.direction, depth: normalized.depth,
+      limit: normalized.limit, relationships,
+    });
+  }
+
+  relatedEvent(id) {
+    const resolved = this.resolve(id, 'event');
+    return navigationFromTraversal(this, this.traverse([resolved], {
+      relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
+      direction: 'both', depth: 1, limit: MAX_QUERY_LIMIT,
+    }));
+  }
+
+  relatedAccount(id) {
+    const resolved = this.resolve(id, 'account');
+    return navigationFromTraversal(this, this.traverse([resolved], {
+      relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
+      direction: 'both', depth: 1, limit: MAX_QUERY_LIMIT,
+    }));
+  }
+
+  thread(eventIdOrPrefix, options = {}) {
+    const start = this.resolve(eventIdOrPrefix, 'event');
+    const depth = options.depth ?? 10;
+    const limit = options.limit ?? DEFAULT_QUERY_LIMIT;
+    const descendants = this.traverse([start], {
+      relationshipTypes: ['reply-root', 'reply-parent'], direction: 'inbound', depth, limit,
+    });
+    const ancestors = this.traverse([start], {
+      relationshipTypes: ['reply-root', 'reply-parent'], direction: 'outbound', depth, limit,
+    });
+    const eventSubjects = uniqueSubjects([start, ...descendants.items.map((item) => item.subject),
+      ...ancestors.items.map((item) => item.subject)])
+      .filter((item) => item.type === 'event' && this.#corpus.records.has(item.id));
+    const participants = this.traverse(eventSubjects, {
+      relationshipTypes: ['author', 'mentioned-account'], direction: 'outbound', depth: 1, limit,
+    });
+    const allEdges = [...ancestors.context.relationships, ...descendants.context.relationships];
+    const known = (edge) => edge.evidence?.interpretation === 'known';
+    return {
+      type: 'thread', start,
+      collection: resultCollection(uniqueSubjects([
+        ...eventSubjects, ...participants.items.map((item) => item.subject)
+          .filter(({ type }) => type === 'account'),
+      ]).map((item) => ({ subject: item, reasons: [], provenance: [] })), {
+        operation: 'thread', relationships: [...allEdges, ...participants.context.relationships],
+      }),
+      ancestors: allEdges.filter((edge) => known(edge) && edge.direction === 'outbound'),
+      directReplies: allEdges.filter((edge) => known(edge)
+        && edge.direction === 'inbound' && edge.depth === 1),
+      descendants: allEdges.filter((edge) => known(edge)
+        && edge.direction === 'inbound' && edge.depth > 1),
+      participants: uniqueSubjects(participants.items.map((item) => item.subject)
+        .filter(({ type }) => type === 'account')),
+      ambiguous: allEdges.filter((edge) => !known(edge)),
+    };
+  }
+
+  inspect(reference) {
+    const item = normalizeSubject(reference);
+    if (item.type === 'event') {
+      const record = this.getEvent(item.id);
+      return {
+        subject: item, loaded: Boolean(record), evidence: record,
+        provenance: record?.observations ?? [],
+        relationships: cloneJson(this.#corpus.outbound.get(memberKey(item)) ?? []),
+      };
+    }
+    const collection = this.traverse([item], {
+      relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
+      direction: 'both', depth: 1, limit: this.#capacity,
+    });
+    return { subject: item, loaded: collection.context.relationships.length > 0, collection };
+  }
+
+  recordAcquisitionCoverage(result) {
+    this.#assertOpen();
+    const normalized = normalizeAcquisitionCoverage(result);
+    for (const observed of normalized.acquiredObservations) {
+      for (const observation of observed.observations) {
+        const stored = this.#corpus.records.get(observed.eventId)?.observations
+          .find(({ id }) => id === observation.id);
+        if (!stored || stored.observedAt !== observation.observedAt) {
+          throw new ResearchMemoryError(
+            'Acquisition coverage observations must reference matching stored observations.',
+          );
+        }
+      }
+    }
+    const id = randomUUID();
+    const record = {
+      id, requested: {
+        filter: normalized.requested.filter,
+        relays: [...normalized.requested.relays].sort(),
+      },
+      budget: normalized.budget, startedAt: normalized.startedAt,
+      finishedAt: normalized.finishedAt, completionReason: normalized.completionReason,
+      exhaustive: false,
+      uncertainty: 'A bounded attempt was recorded; relay completeness is not implied.',
+      relays: [...normalized.relays].sort((a, b) => a.relay.localeCompare(b.relay)),
+      observedEvents: normalized.acquiredObservations.flatMap(({ eventId, observations }) => (
+        observations.map((item) => ({
+          eventId, observationId: item.id, observedAt: item.observedAt,
+        }))
+      )).sort((a, b) => a.observationId - b.observationId),
+    };
+    this.#coverage.set(id, cloneJson(record));
+    return cloneJson(record);
+  }
+
+  getAcquisitionCoverage(id) {
+    this.#assertOpen();
+    const value = this.#coverage.get(id);
+    if (!value) throw new ResearchMemoryError(`No acquisition coverage found for ID ${id}.`);
+    return cloneJson(value);
+  }
+
+  listAcquisitionCoverage() {
+    this.#assertOpen();
+    return [...this.#coverage.values()]
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id))
+      .map(cloneJson);
+  }
+
+  acquisitionCoverage(request) {
+    this.#assertOpen();
+    assertPlainObject(request, 'Acquisition coverage request');
+    const filter = stableJson(request.filter);
+    const relays = stableJson([...request.relays].sort());
+    const attempts = this.listAcquisitionCoverage().filter((item) => (
+      stableJson(item.requested.filter) === filter && stableJson(item.requested.relays) === relays
+    ));
+    return {
+      attempted: attempts.length > 0, exhaustive: false,
+      uncertainty: 'Coverage records bounded attempts and observations, not an exhaustive relay index.',
+      request: cloneJson(request), attempts,
+    };
+  }
+
+  recordRun(run) {
+    this.#assertOpen();
+    const record = { id: randomUUID(), ...normalizeRun(run) };
+    this.#runs.set(record.id, cloneJson(record));
+    return cloneJson(record);
+  }
+
+  getRun(id) {
+    this.#assertOpen();
+    const run = this.#runs.get(id);
+    if (!run) throw new ResearchMemoryError(`No research run found for ID ${id}.`);
+    return cloneJson(run);
+  }
+
+  listRuns() {
+    this.#assertOpen();
+    return [...this.#runs.values()]
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id))
+      .map(({ diagnostics, results, ...run }) => ({
+        ...cloneJson(run), diagnosticCount: diagnostics.length, resultCount: results.length,
+      }));
+  }
+
+  createSet(name) {
+    const created = this.#createPopulatedSet(name, []);
+    return this.getSet(created.id);
+  }
+
+  #createPopulatedSet(name, entries, options = {}) {
+    this.#assertOpen();
+    const members = new Map();
+    for (const entry of entries) {
+      if (options.signal?.aborted) {
+        throw new ResearchMemoryError('Populated set creation was interrupted.');
+      }
+      const member = normalizeMember(entry.member);
+      const key = memberKey(member);
+      const found = members.get(key) ?? { ...member, reasons: [] };
+      for (const reason of entry.reasons) {
+        const normalized = normalizeReason(reason);
+        if (!found.reasons.some((item) => stableJson(item) === stableJson(normalized))) {
+          found.reasons.push(normalized);
+        }
+      }
+      members.set(key, found);
+    }
+    const record = {
+      id: randomUUID(), name: normalizeSetName(name), createdAt: new Date().toISOString(),
+      members: [...members.values()].sort((a, b) => memberKey(a).localeCompare(memberKey(b))),
+    };
+    this.#sets.set(record.id, cloneJson(record));
+    const summary = this.#setSummary(record, 10);
+    return {
+      id: summary.id, name: summary.name, createdAt: summary.createdAt,
+      memberCount: summary.memberCount, reasonCount: summary.reasonCount,
+      preview: summary.preview,
+    };
+  }
+
+  #setSummary(set, previewLimit = 5) {
+    const counts = Object.fromEntries([...RETAINABLE_SUBJECT_TYPES].map((type) => [type, 0]));
+    for (const member of set.members) counts[member.type] += 1;
+    return {
+      id: set.id, name: set.name, createdAt: set.createdAt,
+      memberCount: set.members.length,
+      reasonCount: set.members.reduce((total, item) => total + item.reasons.length, 0),
+      counts, preview: set.members.slice(0, previewLimit).map(({ type, id }) => ({ type, id })),
+    };
+  }
+
+  getSet(id) {
+    this.#assertOpen();
+    const set = this.#sets.get(id);
+    if (!set) throw new ResearchMemoryError(`No research set found for ID ${id}.`);
+    return cloneJson(set);
+  }
+
+  listSets() {
+    this.#assertOpen();
+    return [...this.#sets.values()]
+      .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+      .map((set) => this.#setSummary(set));
+  }
+
+  renameSet(id, name) {
+    const set = this.getSet(id);
+    set.name = normalizeSetName(name);
+    this.#sets.set(id, set);
+    return cloneJson(set);
+  }
+
+  deleteSet(id) {
+    this.getSet(id);
+    this.#sets.delete(id);
+    return { id, deleted: true };
+  }
+
+  addSetMember(id, member, reason = { type: 'explicit' }) {
+    const set = this.getSet(id);
+    const normalized = normalizeMember(member);
+    let found = set.members.find((item) => memberKey(item) === memberKey(normalized));
+    if (!found) {
+      found = { ...normalized, reasons: [] };
+      set.members.push(found);
+      set.members.sort((a, b) => memberKey(a).localeCompare(memberKey(b)));
+    }
+    const normalizedReason = normalizeReason(reason);
+    if (!found.reasons.some((item) => stableJson(item) === stableJson(normalizedReason))) {
+      found.reasons.push(normalizedReason);
+    }
+    this.#sets.set(id, set);
+    return { set: { id, name: set.name }, member: cloneJson(found) };
+  }
+
+  removeSetMember(id, member) {
+    const set = this.getSet(id);
+    const normalized = normalizeMember(member);
+    const before = set.members.length;
+    set.members = set.members.filter((item) => memberKey(item) !== memberKey(normalized));
+    this.#sets.set(id, set);
+    return { ...normalized, removed: before !== set.members.length };
+  }
+
+  explainSetMember(id, member) {
+    const set = this.getSet(id);
+    const normalized = normalizeMember(member);
+    const found = set.members.find((item) => memberKey(item) === memberKey(normalized));
+    if (!found) {
+      throw new ResearchMemoryError(
+        `Research set ${id} has no ${normalized.type} member ${normalized.id}.`,
+      );
+    }
+    return { set: { id, name: set.name }, member: cloneJson(found) };
+  }
+
+  createSetFromRun(name, runId) {
+    const run = this.getRun(runId);
+    return this.#createPopulatedSet(name, run.results.map((result) => ({
+      member: result,
+      reasons: [{
+        type: 'run', runId, operation: run.operation,
+        matchReasons: result.reasons, provenance: result.provenance,
+      }],
+    })));
+  }
+
+  retain(collection, name, options = {}) {
+    assertResultCollection(collection);
+    assertPlainObject(options, 'Retention options');
+    const retentionContext = options.reason ? normalizeReason(options.reason) : undefined;
+    return this.#createPopulatedSet(name, collection.items
+      .filter((item) => RETAINABLE_SUBJECT_TYPES.has(item.subject.type))
+      .map((item) => ({
+        member: item.subject,
+        reasons: (item.reasons.length ? item.reasons : [{ type: 'retained-result' }])
+          .map((reason) => ({
+            ...reason, ...(retentionContext ? { retentionContext } : {}),
+            operation: collection.context.operation, provenance: retainedProvenance(item),
+          })),
+      })), { signal: options.signal });
+  }
+
+  expandSet(sourceSetId, name, options = {}) {
+    const traversal = this.traverse([subject('set', sourceSetId)], {
+      relationshipTypes: options.relationshipTypes,
+      direction: options.direction ?? 'outbound', depth: 1, limit: options.limit,
+    });
+    const starts = new Set(traversal.context.starts.map(memberKey));
+    return this.retain({
+      ...traversal, items: traversal.items.filter((item) => !starts.has(memberKey(item.subject))),
+    }, name, { reason: { type: 'set-expansion', sourceSetId } });
+  }
+
+  combineSets(operation, leftId, rightId, name) {
+    if (!['union', 'intersection', 'difference'].includes(operation)) {
+      throw new ResearchMemoryError('Set operation must be "union", "intersection", or "difference".');
+    }
+    const left = this.getSet(leftId);
+    const right = this.getSet(rightId);
+    const rightKeys = new Set(right.members.map(memberKey));
+    const selected = operation === 'union' ? [...left.members, ...right.members]
+      : operation === 'intersection'
+        ? left.members.filter((item) => rightKeys.has(memberKey(item)))
+        : left.members.filter((item) => !rightKeys.has(memberKey(item)));
+    return this.#createPopulatedSet(name, selected.map((member) => {
+      const key = memberKey(member);
+      const sources = [
+        ...left.members.filter((candidate) => memberKey(candidate) === key)
+          .map((candidate) => ({ setId: left.id, reasons: candidate.reasons })),
+        ...right.members.filter((candidate) => memberKey(candidate) === key)
+          .map((candidate) => ({ setId: right.id, reasons: candidate.reasons })),
+      ];
+      return { member, reasons: [{
+        type: 'set-operation', operation, leftSetId: leftId, rightSetId: rightId, sources,
+      }] };
+    }));
+  }
+
+  project(value, options = {}) {
+    this.#assertOpen();
+    const mode = options.mode ?? 'compact';
+    if (!['compact', 'full', 'ids', 'ndjson'].includes(mode)) {
+      throw new ResearchMemoryError('Projection mode must be compact, full, ids, or ndjson.');
+    }
+    const collection = coerceCollection(value);
+    const results = collection.items.map((item) => {
+      const reference = item.subject;
+      let projection;
+      if (mode === 'ids') projection = reference;
+      else if (reference.type === 'event') {
+        const record = this.getEvent(reference.id);
+        projection = record ? (mode === 'full'
+          ? { type: 'event', id: reference.id, ...record }
+          : {
+              type: 'event', id: reference.id, kind: record.event.kind,
+              author: this.#accountSummary(record.event.pubkey, options.excerptLimit ?? 160),
+              createdAt: record.event.created_at,
+              contentExcerpt: excerpt(record.event.content, options.excerptLimit ?? 160),
+              relayCount: distinctRelays(record.observations).length,
+              relays: distinctRelays(record.observations),
+            }) : { type: 'event', id: reference.id, resolved: false };
+      } else if (reference.type === 'account') {
+        const summary = this.#accountSummary(reference.id, options.excerptLimit ?? 160);
+        const metadata = mode === 'full' ? this.#currentByKey(reference.id, 0) : null;
+        projection = {
+          type: 'account', id: reference.id, ...summary,
+          ...(metadata ? {
+            metadataEvent: metadata.event, observations: metadata.observations,
+          } : {}),
+        };
+      } else if (reference.type === 'set') {
+        projection = mode === 'full'
+          ? { type: 'set', ...this.getSet(reference.id) }
+          : { type: 'set', ...this.#setSummary(this.getSet(reference.id)) };
+      } else if (reference.type === 'run') {
+        projection = { type: 'run', ...this.getRun(reference.id) };
+      } else projection = reference;
+      return {
+        ...projection, role: item.role ?? 'discovery',
+        reasons: cloneJson(item.reasons), provenance: cloneJson(item.provenance),
+      };
+    });
+    if (mode === 'ids') return results.map(({ type, id }) => ({ type, id }));
+    const output = {
+      type: 'result-collection', context: cloneJson(collection.context), results,
+      ...((collection.context.relationships ?? []).length
+        ? { relationships: cloneJson(collection.context.relationships) } : {}),
+    };
+    return mode === 'ndjson'
+      ? [{ type: 'collection', context: output.context, resultCount: results.length }, ...results]
+      : output;
+  }
+
+  #accountSummary(publicKey, excerptLimit = 160) {
+    const metadata = this.#currentByKey(publicKey, 0);
+    const profile = metadata ? parseProfile(metadata.event) : {};
+    const observations = [...(this.#corpus.authors.get(publicKey) ?? [])]
+      .flatMap((eventId) => this.#corpus.records.get(eventId)?.observations ?? []);
+    return {
+      publicKey, name: profile.name, displayName: profile.display_name, nip05: profile.nip05,
+      descriptionExcerpt: typeof profile.about === 'string'
+        ? excerpt(profile.about, excerptLimit) : undefined,
+      metadataEventId: metadata?.event.id,
+      relays: distinctRelays(observations),
+    };
+  }
+
+  #assertStoredRecord(item, record) {
+    const canonical = item.type === 'event' ? this.getEvent(item.id)
+      : (() => {
+          const metadata = this.#currentByKey(item.id, 0);
+          return metadata && {
+            profile: parseProfile(metadata.event), metadataEvent: metadata.event,
+            observations: metadata.observations,
+          };
+        })();
+    if (!canonical || stableJson(canonical) !== stableJson(record)) {
+      throw new ResearchMemoryError(
+        'Embedded record must exactly match the canonical record stored in research memory.',
+      );
+    }
+  }
+
+  describe() {
+    this.#assertOpen();
+    return this.#corpus.describe(this.#capacity, this.#evictions);
+  }
+
+  summary() {
+    this.#assertOpen();
+    return {
+      events: this.#corpus.records.size,
+      observations: [...this.#corpus.records.values()]
+        .reduce((sum, record) => sum + record.observations.length, 0),
+    };
+  }
+
+  importFixtures(observation) {
+    return loadFixtureEvents().map((event) => this.ingest(event, observation));
+  }
+
+  reset() {
+    this.#assertOpen();
+    this.#corpus.clear();
+    this.#coverage.clear(); this.#runs.clear(); this.#sets.clear();
+    this.#nextObservationId = 1; this.#evictions = 0;
+  }
+
+  close() {
+    if (!this.#closed) {
+      this.reset();
+      this.#closed = true;
+    }
+  }
+}
+
+/**
  * A temporary indexed working corpus. SQLite is consulted only by explicit
  * loading, hydration, projection, inspection fallback, and retention.
  */
@@ -1457,12 +2379,7 @@ class ResearchWorkspace {
   #memory;
   #capacity;
   #closed = false;
-  #records = new Map();
-  #authors = new Map();
-  #kinds = new Map();
-  #tags = new Map();
-  #outbound = new Map();
-  #inbound = new Map();
+  #corpus = new IndexedEventCorpus();
   #evictions = 0;
 
   constructor(memory, capacity) {
@@ -1518,15 +2435,15 @@ class ResearchWorkspace {
   select(query = {}) {
     this.#assertOpen();
     const normalized = normalizeEventQuery(query);
-    const events = [...this.#records.values()].map(({ event }) => event);
+    const events = [...this.#corpus.records.values()].map(({ event }) => event);
     const ids = resolvePrefixes(normalized.ids, events.map(({ id }) => id), 'event ID');
     const authors = resolvePrefixes(
       normalized.authors, events.map(({ pubkey }) => pubkey), 'author public key',
     );
-    const candidates = this.#candidateIds(normalized, ids, authors);
+    const candidates = this.#corpus.candidateIds(normalized, ids, authors);
     const matches = [];
     for (const eventId of candidates) {
-      const record = this.#records.get(eventId);
+      const record = this.#corpus.records.get(eventId);
       const reasons = matchEvent(record.event, normalized, ids, authors);
       if (reasons) matches.push({ record, reasons });
     }
@@ -1565,9 +2482,9 @@ class ResearchWorkspace {
       if (current.depth >= normalized.depth) continue;
       const relations = [
         ...(normalized.direction !== 'inbound'
-          ? this.#outbound.get(memberKey(current.subject)) ?? [] : []),
+          ? this.#corpus.outbound.get(memberKey(current.subject)) ?? [] : []),
         ...(normalized.direction !== 'outbound'
-          ? this.#inbound.get(memberKey(current.subject)) ?? [] : []),
+          ? this.#corpus.inbound.get(memberKey(current.subject)) ?? [] : []),
       ];
       for (const relation of relations) {
         if (!normalized.relationshipTypes.includes(relation.type)) continue;
@@ -1634,7 +2551,7 @@ class ResearchWorkspace {
     rejectUnknownKeys(options, new Set(['loadIfMissing']), 'workspace inspection option');
     const item = normalizeSubject(reference);
     if (item.type === 'event') {
-      let record = this.#records.get(item.id);
+      let record = this.#corpus.records.get(item.id);
       let loaded = Boolean(record);
       if (!record && options.loadIfMissing) {
         record = this.#memory.getEvent(item.id);
@@ -1642,7 +2559,7 @@ class ResearchWorkspace {
           this.#addCollection(resultCollection([{
             subject: item, record,
           }], { operation: 'workspace-inspection-load' }));
-          record = this.#records.get(item.id);
+          record = this.#corpus.records.get(item.id);
           loaded = Boolean(record);
         }
       }
@@ -1652,7 +2569,7 @@ class ResearchWorkspace {
         loaded,
         evidence: cloneJson(record),
         provenance: cloneJson(record.observations),
-        relationships: cloneJson(this.#outbound.get(memberKey(item)) ?? []),
+        relationships: cloneJson(this.#corpus.outbound.get(memberKey(item)) ?? []),
       };
     }
     const related = this.traverse([item], {
@@ -1699,19 +2616,7 @@ class ResearchWorkspace {
   /** Returns corpus bounds and index counts without exposing internal maps. */
   describe() {
     this.#assertOpen();
-    return {
-      capacity: this.#capacity,
-      eventCount: this.#records.size,
-      remainingCapacity: this.#capacity - this.#records.size,
-      evictions: this.#evictions,
-      authors: this.#authors.size,
-      kinds: this.#kinds.size,
-      tags: this.#tags.size,
-      outboundRelationships: [...this.#outbound.values()]
-        .reduce((total, relations) => total + relations.length, 0),
-      inboundRelationships: [...this.#inbound.values()]
-        .reduce((total, relations) => total + relations.length, 0),
-    };
+    return this.#corpus.describe(this.#capacity, this.#evictions);
   }
 
   close() {
@@ -1728,12 +2633,7 @@ class ResearchWorkspace {
   }
 
   #clearCorpus() {
-    this.#records.clear();
-    this.#authors.clear();
-    this.#kinds.clear();
-    this.#tags.clear();
-    this.#outbound.clear();
-    this.#inbound.clear();
+    this.#corpus.clear();
   }
 
   #coerceEvidence(value) {
@@ -1758,85 +2658,26 @@ class ResearchWorkspace {
       if (!stored) {
         throw new ResearchMemoryError(`No stored event found for ID ${item.subject.id}.`);
       }
-      if (this.#records.has(stored.event.id)) {
-        this.#records.set(stored.event.id, cloneJson(stored));
+      if (this.#corpus.records.has(stored.event.id)) {
+        this.#corpus.records.set(stored.event.id, cloneJson(stored));
         refreshed.push(stored.event.id);
         continue;
       }
-      this.#insertRecord(stored);
+      this.#corpus.insert(stored);
       added.push(stored.event.id);
-      if (this.#records.size > this.#capacity) {
+      if (this.#corpus.records.size > this.#capacity) {
         // FIFO remains the policy, except callers may protect a small explicit
         // set for the duration of one add. The oldest disposable record goes.
-        const eventId = [...this.#records.keys()].find((id) => !preserve.has(id));
+        const eventId = [...this.#corpus.records.keys()].find((id) => !preserve.has(id));
         if (eventId === undefined) {
           throw new ResearchMemoryError('Workspace capacity cannot accommodate preserved events.');
         }
-        this.#removeRecord(eventId);
+        this.#corpus.remove(eventId);
         this.#evictions += 1;
         evicted.push(eventId);
       }
     }
     return { added, refreshed, evicted };
-  }
-
-  #insertRecord(record) {
-    const stored = cloneJson(record);
-    const { event } = stored;
-    if (this.#records.has(event.id)) this.#removeRecord(event.id);
-    this.#records.set(event.id, stored);
-    addIndex(this.#authors, event.pubkey, event.id);
-    addIndex(this.#kinds, event.kind, event.id);
-    for (const tag of event.tags) {
-      if (tag.length > 1) addIndex(this.#tags, `${tag[0]}\u0000${tag[1]}`, event.id);
-    }
-    for (const relationship of eventRelationships(event)) {
-      const outbound = {
-        direction: 'outbound',
-        type: relationship.type,
-        sourceEventId: event.id,
-        target: subject(relationship.targetType, relationship.targetId),
-        evidence: relationship.evidence,
-      };
-      addRelation(this.#outbound, memberKey(subject('event', event.id)), outbound);
-      addRelation(this.#inbound, memberKey(outbound.target), {
-        ...outbound,
-        direction: 'inbound',
-      });
-    }
-  }
-
-  #removeRecord(eventId) {
-    const record = this.#records.get(eventId);
-    if (!record) return;
-    this.#records.delete(eventId);
-    removeIndex(this.#authors, record.event.pubkey, eventId);
-    removeIndex(this.#kinds, record.event.kind, eventId);
-    for (const tag of record.event.tags) {
-      if (tag.length > 1) removeIndex(this.#tags, `${tag[0]}\u0000${tag[1]}`, eventId);
-    }
-    const sourceKey = memberKey(subject('event', eventId));
-    for (const relation of this.#outbound.get(sourceKey) ?? []) {
-      const targetKey = memberKey(relation.target);
-      const remaining = (this.#inbound.get(targetKey) ?? [])
-        .filter(({ sourceEventId }) => sourceEventId !== eventId);
-      if (remaining.length) this.#inbound.set(targetKey, remaining);
-      else this.#inbound.delete(targetKey);
-    }
-    this.#outbound.delete(sourceKey);
-  }
-
-  #candidateIds(query, ids, authors) {
-    const sets = [];
-    if (ids) sets.push(ids);
-    if (authors) sets.push(unionIndexes(this.#authors, authors));
-    if (query.kinds) sets.push(unionIndexes(this.#kinds, query.kinds));
-    for (const [name, values] of Object.entries(query.tags)) {
-      sets.push(unionIndexes(this.#tags, values.map((value) => `${name}\u0000${value}`)));
-    }
-    if (sets.length === 0) return [...this.#records.keys()];
-    sets.sort((left, right) => left.size - right.size);
-    return [...sets[0]].filter((eventId) => sets.every((items) => items.has(eventId)));
   }
 
   #startingSubjects(starting) {
@@ -1847,7 +2688,7 @@ class ResearchWorkspace {
       const normalized = normalizeSubject(item);
       if (normalized.type === 'event') {
         return subject('event', resolveOnePrefix(
-          normalized.id, [...this.#records.keys()], 'workspace event ID',
+          normalized.id, [...this.#corpus.records.keys()], 'workspace event ID',
         ));
       }
       return normalized;
@@ -1855,7 +2696,7 @@ class ResearchWorkspace {
   }
 
   #relationshipProvenance(eventId) {
-    const observations = this.#records.get(eventId)?.observations ?? [];
+    const observations = this.#corpus.records.get(eventId)?.observations ?? [];
     return observations.length
       ? cloneJson(observations)
       : [{ type: 'loaded-event', eventId }];

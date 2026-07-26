@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/test/in-memory-memory.functional.test.js` does not prove the required eviction invariant for source relationships. The evicted `target` event contributes no `quoted-event` edge, while the post-eviction assertion only traverses `quoted-event` relationships. Add an evicted event that contributes a relationship, then verify through public traversal/navigation that its source edge disappears, while retaining the existing check that an edge from a resident source to an evicted target remains visible with an unresolved target.

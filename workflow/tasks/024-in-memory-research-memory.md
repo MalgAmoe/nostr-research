@@ -1,6 +1,6 @@
 ---
 id: 024-in-memory-research-memory
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/024-in-memory-research-memory.validate.sh
 depends_on: 023-bounded-reply-contexts

@@ -1,0 +1,5 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/src/index.js:1470` introduces a separate full index owner while `ResearchWorkspace` retains parallel records and author/kind/tag/relationship indexes at `packages/nostr-research/src/index.js:2324`. This does not satisfy the explicit requirement to reuse and promote the workspace indexing mechanics instead of building a second index implementation. Consolidate the shared mechanics so the new memory owns the promoted implementation without duplicating it.
+
+2. `packages/nostr-research/test/in-memory-memory.functional.test.js:23` does not complete the mandated SQLite parity verification. It lacks comparisons for ambiguous account resolution, explicit retained-result behavior, and set combination operations (`union`, `intersection`, and `difference`). Add public-operation parity scenarios covering those required capabilities.

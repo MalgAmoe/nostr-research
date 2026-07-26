@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/src/index.js:1763` mishandles parameterized replaceable events without a `d` tag. SQLite treats a missing `d` as `''`, but `#currentByKey()` compares `undefined === ''` and returns no event. A public runtime check confirmed SQLite resolves the event while the in-memory implementation returns `null`. Match the existing empty-identifier semantics and add this case to the SQLite parity test.
