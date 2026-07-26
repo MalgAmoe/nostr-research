@@ -23,7 +23,7 @@ memory.ingest(event, {
 });
 
 const notes = memory.select({ kinds: [1], text: ['nostr'] });
-session.replace(notes);
+session.activate(notes);
 memory.close(); // clears all resident state
 ```
 
@@ -99,13 +99,40 @@ relay outcomes, unresolved subjects, completion reason, and bounds reached.
 nostr-research-console --capacity 500
 ```
 
-The Node REPL keeps one memory and one temporary session alive between
-expressions. Top-level `await` is available. The prepared `research` object
-provides `acquire`, `events`, `accounts`, `facets`, `traverse`,
-`expand`, `replyContexts`, `inspect`, `show`, `use`, `retain`, and collection
-helpers. `research.memory` remains the advanced route; there is no workspace
-object or database option. `.exit` or Ctrl-D cancels active acquisition and
-closes and clears the corpus.
+The Node REPL keeps one memory and one explicit active selection alive between
+expressions. Top-level `await` is available. Query and analysis operations
+return values and never replace the active selection: `acquire`, `events`,
+`accounts`, `currentEvent`, `follows`, `expand`, `replyContexts`, `traverse`,
+`exclude`, `distinctBy`, `limitPer`, `discoveries`, `facets`, `compare`,
+`inspect`, and `show`. `traverse(result, options)` always traverses the supplied
+result without changing active state.
+
+State changes have separate, plainly named operations:
+
+```js
+const notes = research.events({ kinds: [1], text: ['nostr'] });
+const related = research.traverse(notes, {
+  relationshipTypes: ['reply-parent'],
+  direction: 'outbound',
+  depth: 1,
+  limit: 50,
+});
+
+research.activate(related);
+const savedResult = research.retain(notes, 'search result');
+const savedActive = research.checkpoint('active investigation');
+```
+
+`activate(result)` is the only operation that replaces the active selection.
+The current value is available read-only as `research.activeSelection`.
+`retain(result, name, options)` retains an explicit value, while
+`checkpoint(name, options)` retains the active selection. `summary()` returns
+one authoritative `corpus` description plus an `activeSelection` summary.
+Compact `show` output summarizes reasons; `show(value, {
+includeEvidence: true })` exposes detailed reasons, provenance, and evidence.
+`research.memory` remains the advanced route; there is no workspace object or
+database option. `.exit` or Ctrl-D cancels active acquisition and closes and
+clears the corpus.
 
 There is deliberately no database format, persistence interface, or reopen
 behavior. Retained selections live only while this memory is open. Calling

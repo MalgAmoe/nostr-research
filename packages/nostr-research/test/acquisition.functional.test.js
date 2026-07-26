@@ -457,7 +457,7 @@ test('authored-note expansion samples only explicit account starts within per-ac
       { subject: subject('account', alice) },
       { subject: subject('account', bob) },
     ], { operation: 'explicit-account-starts' });
-    const sessionBefore = environment.research.session.selection.items.map((item) => item.subject);
+    const sessionBefore = environment.research.activeSelection.items.map((item) => item.subject);
     const expanded = await environment.research.expand(starts, {
       relays: [relay.url, `wss://127.0.0.1:${unavailablePort}/`],
       relationshipTypes: ['author', 'mentioned-account'],
@@ -510,7 +510,7 @@ test('authored-note expansion samples only explicit account starts within per-ac
     assert.equal(expanded.context.expansion.options.authoredLimit, 2);
     assert.ok(expanded.context.expansion.counts.acceptedObservations <= 10);
     assert.deepEqual(
-      environment.research.session.selection.items.map((item) => item.subject),
+      environment.research.activeSelection.items.map((item) => item.subject),
       sessionBefore,
       'authored expansion does not mutate session selection',
     );
@@ -696,7 +696,7 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
       { subject: subject('account', author) },
       { subject: subject('account', author) },
     ], { operation: 'explicit-accounts' });
-    const sessionBefore = environment.research.session.selection;
+    const sessionBefore = environment.research.activeSelection;
     const result = await environment.research.replyContexts(starts, {
       relays: [relay.url, `wss://127.0.0.1:${unavailablePort}/`],
       authoredLimit: 6,
@@ -712,7 +712,7 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
       result.report.authoredNoteCount <= context.memory.describe().capacity,
       'reply resolution uses the bounded resident corpus',
     );
-    assert.deepEqual(environment.research.session.selection, sessionBefore);
+    assert.deepEqual(environment.research.activeSelection, sessionBefore);
     assert.ok(result.contexts.every(({ reply }) => reply.record.event.pubkey === author));
     assert.ok(!result.contexts.some(({ reply }) => reply.subject.id === notReply.id));
     assert.equal(
@@ -852,7 +852,7 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
   const environment = createResearchEnvironment(context.memory);
 
   try {
-    const sessionBefore = environment.research.session.selection.items.map(({ subject: item }) => item);
+    const sessionBefore = environment.research.activeSelection.items.map(({ subject: item }) => item);
     const starting = context.memory.select({ ids: [seed.id] });
     const expanded = await environment.research.expand(starting, {
       relays: [relay.url, `wss://127.0.0.1:${unavailablePort}/`],
@@ -877,7 +877,7 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
       source === relay.url
     ))));
     assert.deepEqual(
-      environment.research.session.selection.items.map(({ subject: item }) => item),
+      environment.research.activeSelection.items.map(({ subject: item }) => item),
       sessionBefore,
       'explicit expansion does not mutate the session selection',
     );

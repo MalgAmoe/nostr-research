@@ -12,7 +12,6 @@ export function showResearchValue(memory, session, value, options = {}) {
   let shown;
 
   if (isAcquisition(value)) shown = showAcquisition(value, settings);
-  else if (isCoverage(value)) shown = showCoverage(value, settings);
   else if (value?.type === 'result-collection') shown = showCollection(memory, value, settings);
   else if (isSessionDescription(value)) shown = showSession(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
@@ -113,7 +112,7 @@ function showCollection(memory, collection, settings) {
     type: 'result-collection',
     count: collection.items.length,
     preview: projected.results.map((item, index) => ({
-      ...item,
+      ...compactResult(item),
       ...(settings.includeEvidence
         ? evidenceDetail(collection.items[index], settings.excerptLimit) : {}),
     })),
@@ -174,10 +173,7 @@ function showSession(memory, value, settings) {
     type: 'session-description',
     count: value.selection.items.length,
     preview: showCollection(memory, value.selection, settings).preview,
-    context: {
-      focus: value.focus, exclusions: value.exclusions.length, branches: value.branches,
-      action: value.action, canGoBack: value.canGoBack,
-    },
+    context: { action: value.action },
     provenance: [],
   };
 }
@@ -203,36 +199,16 @@ function showAcquisition(value, settings) {
   };
 }
 
-function showCoverage(value, settings) {
-  const distinctEvents = new Set(value.observedEvents.map((item) => item.eventId)).size;
-  return {
-    type: 'acquisition-coverage', count: distinctEvents,
-    preview: value.relays.slice(0, settings.previewLimit),
-    omitted: Math.max(0, value.relays.length - settings.previewLimit),
-    context: {
-      requested: value.requested, budget: value.budget,
-      completionReason: value.completionReason,
-      startedAt: value.startedAt, finishedAt: value.finishedAt,
-      counts: {
-        acceptedObservations: value.observedEvents.length,
-        distinctEventsAcquired: distinctEvents,
-        receivedPackets: sum(value.relays, 'receivedPackets'),
-        invalid: sum(value.relays, 'invalid'),
-        duplicateObservations: sum(value.relays, 'duplicateObservations'),
-        newlyStoredCorpusEvents: sum(value.relays, 'newlyStoredCorpusEvents'),
-      },
-      exhaustive: false, uncertainty: value.uncertainty,
-    },
-    provenance: settings.includeEvidence
-      ? value.observedEvents.slice(0, settings.previewLimit) : [],
-  };
-}
-
 function evidenceDetail(item, excerptLimit) {
+  const detail = {
+    reasons: structuredClone(item.reasons ?? []),
+    provenance: structuredClone(item.provenance ?? []),
+  };
   const record = item.record;
   if (record?.metadataEvent) {
     return {
       evidence: {
+        ...detail,
         profile: record.profile,
         metadataEvent: {
           ...record.metadataEvent,
@@ -243,15 +219,32 @@ function evidenceDetail(item, excerptLimit) {
       },
     };
   }
-  if (!record?.event) return {};
+  if (!record?.event) return { evidence: detail };
   return {
     evidence: {
+      ...detail,
       event: {
         ...record.event,
         content: excerpt(record.event.content, excerptLimit),
         tags: record.event.tags.slice(0, 20),
       },
       observationCount: record.observations?.length ?? 0,
+    },
+  };
+}
+
+function compactResult(item) {
+  const { reasons = [], provenance: _provenance, ...result } = item;
+  const relationships = reasons.filter(({ type }) => type === 'relationship');
+  const relationshipTypes = [...new Set(
+    relationships.map(({ relationshipType }) => relationshipType).filter(Boolean),
+  )].sort();
+  return {
+    ...result,
+    reasonSummary: {
+      count: reasons.length,
+      relationshipCount: relationships.length,
+      relationshipTypes,
     },
   };
 }
@@ -481,11 +474,6 @@ function isAcquisition(value) {
     && value.counts && Array.isArray(value.relays);
 }
 
-function isCoverage(value) {
-  return value && value.requested && value.budget && Array.isArray(value.observedEvents)
-    && Array.isArray(value.relays);
-}
-
 function isEventRecord(value) {
   return value?.event && typeof value.event.id === 'string' && Array.isArray(value.observations);
 }
@@ -511,5 +499,5 @@ function isCorpusSummary(value) {
 
 function isSessionDescription(value) {
   return value && value.selection?.type === 'result-collection'
-    && Array.isArray(value.exclusions) && Array.isArray(value.branches);
+    && value.action && typeof value.action.type === 'string';
 }

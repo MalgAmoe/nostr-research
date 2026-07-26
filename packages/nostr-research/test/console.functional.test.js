@@ -54,7 +54,7 @@ test('one console process preserves JavaScript state and composes a bounded rese
         + "() => research.distinctBy(manual, null), () => research.limitPer(manual, item => item, -1), "
         + "() => research.traverse(manual), () => research.follows()]) "
         + "{ try { operation() } catch (error) { invalidRejected += 1 } }",
-      'const beforeExplicit = JSON.stringify(research.session.selection)',
+      'const beforeQueries = JSON.stringify(research.activeSelection)',
       'const limited = research.limitPer(manual, item => item.record.event.pubkey, 3)',
       `const unwanted = '${unwantedAuthor}'`,
       'const excluded = research.exclude(limited, item => item.record.event.pubkey === unwanted)',
@@ -63,21 +63,26 @@ test('one console process preserves JavaScript state and composes a bounded rese
       `const walked = research.traverse(distinct, `
         + "{ relationshipTypes: ['reply-parent'], direction: 'outbound', depth: 1, limit: 10 })",
       'const discoveries = research.discoveries(walked)',
-      'const explicitUnchanged = beforeExplicit === JSON.stringify(research.session.selection)',
-      "const sessionWalked = research.traverse({ relationshipTypes: ['reply-parent'], "
-        + "direction: 'outbound', depth: 1, limit: 10 })",
-      'const traversalComparison = research.compare(walked, sessionWalked)',
-      'const sessionChanged = beforeExplicit !== JSON.stringify(research.session.selection)',
-      'research.use(discoveries)',
+      'const queriesUnchanged = beforeQueries === JSON.stringify(research.activeSelection)',
+      'research.activate(distinct)',
+      'const beforeTraversal = JSON.stringify(research.activeSelection)',
+      "const walkedActive = research.traverse(research.activeSelection, "
+        + "{ relationshipTypes: ['reply-parent'], direction: 'outbound', depth: 1, limit: 10 })",
+      'const traversalUnchanged = beforeTraversal === JSON.stringify(research.activeSelection)',
+      'research.activate(research.discoveries(walkedActive))',
       "const saved = research.retain(discoveries, 'console retained')",
+      "const checkpoint = research.checkpoint('active checkpoint')",
       'const retained = research.memory.getSet(saved.id)',
+      'const compact = research.show(walked)',
+      'const detailed = research.show(walked, { includeEvidence: true })',
       'found',
       "console.log('SCENARIO:' + JSON.stringify({ processLocalCount: loaded.items.length, inspected: inspected.subject.id, "
         + 'manual: manual.items.length, limited: limited.items.length, excluded: excluded.items.length, '
         + 'distinct: distinct.items.length, walked: walked.items.length, discoveries: discoveries.items.length, '
-        + 'explicitUnchanged, sessionChanged, sessionWalked: sessionWalked.items.length, '
-        + 'sharedTraversalItems: traversalComparison.shared.length, '
-        + 'selectedDiscoveries: research.session.selection.items.length, saved: saved.memberCount, '
+        + 'queriesUnchanged, traversalUnchanged, '
+        + 'selectedDiscoveries: research.activeSelection.items.length, saved: saved.memberCount, '
+        + 'checkpoint: checkpoint.memberCount, compactReasons: compact.preview[0].reasons === undefined, '
+        + 'detailedReasons: detailed.preview[0].evidence.reasons.length, '
         + 'fabricatedRejected, fabricatedProvenanceRejected, fabricatedProfileRejected, invalidRejected, '
         + 'reason: retained.members[0].reasons[0].type, '
         + 'provenance: retained.members[0].reasons[0].provenance.length }))',
@@ -107,12 +112,13 @@ test('one console process preserves JavaScript state and composes a bounded rese
       distinct: 3,
       walked: 6,
       discoveries: 3,
-      explicitUnchanged: true,
-      sessionChanged: true,
-      sessionWalked: 30,
-      sharedTraversalItems: 6,
+      queriesUnchanged: true,
+      traversalUnchanged: true,
       selectedDiscoveries: 3,
       saved: 3,
+      checkpoint: 3,
+      compactReasons: true,
+      detailedReasons: 1,
       fabricatedRejected: true,
       fabricatedProvenanceRejected: true,
       fabricatedProfileRejected: true,
@@ -122,7 +128,7 @@ test('one console process preserves JavaScript state and composes a bounded rese
     });
 
     const fresh = spawnSync(process.execPath, [CONSOLE.pathname, '--capacity', '50'], {
-      input: "console.log('FRESH:' + JSON.stringify(research.summary().memory))\n.exit\n",
+      input: "console.log('FRESH:' + JSON.stringify(research.summary().corpus))\n.exit\n",
       encoding: 'utf8',
       timeout: 10_000,
     });

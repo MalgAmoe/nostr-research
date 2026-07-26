@@ -1,6 +1,6 @@
 ---
 id: 029-explicit-console-research-state
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/029-explicit-console-research-state.validate.sh
 depends_on: 028-prune-inactive-research-api

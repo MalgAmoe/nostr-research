@@ -17,9 +17,24 @@ const PREVIEW_LIMIT = 5;
 const HELP = `Usage: nostr-research-console --capacity <1-1000>
 
 Starts a process-local JavaScript research REPL. The prepared research object
-owns one bounded in-memory corpus and a temporary session. State is lost on
-reset, close, or process exit. Top-level await is available. Use .exit or
-Ctrl-D to close all resources.
+owns one bounded in-memory corpus and one explicit active selection.
+
+Read/return operations:
+  acquire(options), events(query), accounts(query), currentEvent(account, kind)
+  follows(account), expand(result, options), replyContexts(accounts, options)
+  traverse(result, options), exclude(result, predicate), distinctBy(result, selector)
+  limitPer(result, selector, limit), discoveries(result), facets(result)
+  compare(left, right), inspect(subject), show(value, options), summary()
+  collection(items, context); memory and activeSelection expose current state
+
+State operations:
+  activate(result)             replace the active selection
+  retain(result, name, options) retain an explicit result
+  checkpoint(name, options)    retain the active selection
+
+Research operations never activate their results implicitly. Top-level await
+is available. State is lost on close or process exit. Use .exit or Ctrl-D to
+cancel owned operations and close the corpus.
 `;
 
 export async function startResearchConsole(args, streams = {}) {
@@ -64,19 +79,15 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
 
   const research = {
     get memory() { return memory; },
-    get session() { return session; },
+    get activeSelection() { return session.selection; },
 
     summary() {
       const state = session.describe();
       return {
-        memory: memory.describe(),
-        session: {
+        corpus: memory.describe(),
+        activeSelection: {
           selectionCount: state.selection.items.length,
-          focus: state.focus,
-          exclusionCount: state.exclusions.length,
-          branches: state.branches,
           action: state.action,
-          canGoBack: state.canGoBack,
         },
       };
     },
@@ -183,9 +194,7 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
     },
 
     events(query = {}) {
-      const selected = memory.select(query);
-      session = createResearchSession(memory, selected);
-      return selected;
+      return memory.select(query);
     },
 
     accounts(query = {}) {
@@ -247,8 +256,8 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
       );
     },
 
-    use(value) {
-      return session.replace(value).selection;
+    activate(value) {
+      return session.activate(value);
     },
 
     inspect(reference, options = {}) {
@@ -263,26 +272,11 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
       return facetResearchCollection(memory, memory.asCollection(value), options);
     },
 
-    traverse(...args) {
-      if (args.length === 1) {
-        const [options] = args;
-        if (!isPlainObject(options) || looksLikeCollectionOrSubject(options)) {
-          throw new ResearchMemoryError(
-            'Session traversal requires one options object; explicit traversal requires selection and options.',
-          );
-        }
-        return session.traverse(options).selection;
+    traverse(selection, options) {
+      if (!isPlainObject(options)) {
+        throw new ResearchMemoryError('traverse expects (selection, options).');
       }
-      if (args.length === 2) {
-        const [selection, options] = args;
-        if (!isPlainObject(options)) {
-          throw new ResearchMemoryError('Explicit traversal options must be an object.');
-        }
-        return memory.traverse(selection, options);
-      }
-      throw new ResearchMemoryError(
-        'traverse expects (options) or (selection, options).',
-      );
+      return memory.traverse(selection, options);
     },
 
     compare(left, right) {
@@ -299,14 +293,15 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
       };
     },
 
-    retain(valueOrName, maybeName, options = {}) {
-      if (typeof valueOrName === 'string') {
-        return session.checkpoint(valueOrName, maybeName ?? {});
-      }
-      if (typeof maybeName !== 'string') {
+    retain(value, name, options = {}) {
+      if (typeof name !== 'string') {
         throw new ResearchMemoryError('A name is required to retain an explicit result.');
       }
-      return memory.retain(memory.asCollection(valueOrName), maybeName, options);
+      return memory.retain(memory.asCollection(value), name, options);
+    },
+
+    checkpoint(name, options = {}) {
+      return session.checkpoint(name, options);
     },
   };
 
@@ -341,14 +336,6 @@ function transformationContext(operation, collection, details = {}) {
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function looksLikeCollectionOrSubject(value) {
-  return value.type === 'result-collection'
-    || (typeof value.type === 'string' && typeof value.id === 'string')
-    || value.collection !== undefined
-    || value.results !== undefined
-    || value.acquiredObservations !== undefined;
 }
 
 function createBoundedWriter(environment) {
