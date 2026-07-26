@@ -1,6 +1,6 @@
 ---
 id: 044-heterogeneous-continuation-presentation
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/044-heterogeneous-continuation-presentation.validate.sh
 depends_on: 043-judgment-and-session-ergonomics

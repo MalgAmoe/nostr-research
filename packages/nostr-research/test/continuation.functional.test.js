@@ -60,6 +60,29 @@ test('named account and note handles continue with bounded relationship provenan
   assert.equal(authored.result.completeness.status, 'complete');
   assert.equal(authored.result.completeness.scope, 'resident-corpus');
 
+  const shownAuthored = await session.execute({
+    commandId: 'show-authored',
+    command: 'show',
+    input: 'alice-notes',
+    parameters: { previewLimit: 1 },
+  });
+  assert.deepEqual(
+    {
+      ok: shownAuthored.ok,
+      type: shownAuthored.result.type,
+      count: shownAuthored.result.count,
+      previewTypes: shownAuthored.result.preview.map(({ type }) => type),
+      omitted: shownAuthored.result.omitted,
+    },
+    {
+      ok: true,
+      type: 'result-collection',
+      count: 2,
+      previewTypes: ['event'],
+      omitted: 1,
+    },
+  );
+
   await session.execute({
     commandId: 'seed-carol',
     command: 'select',

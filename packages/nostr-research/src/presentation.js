@@ -14,6 +14,9 @@ export function showResearchValue(memory, session, value, options = {}) {
   if (value?.type === 'research-plan-report') shown = showPlanReport(memory, value, settings);
   else if (isAcquisition(value)) shown = showAcquisition(memory, value, settings);
   else if (value?.type === 'result-collection') shown = showCollection(memory, value, settings);
+  else if (value?.collection?.type === 'result-collection') {
+    shown = showCollection(memory, value.collection, settings);
+  }
   else if (value?.type === 'typed-collection') shown = showTypedCollection(memory, value, settings);
   else if (value?.type === 'facets') shown = showFacets(value, settings);
   else if (value?.type === 'result-comparison') shown = showComparison(memory, value, settings);
