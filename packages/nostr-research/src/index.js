@@ -8,7 +8,8 @@ const SIGNATURE = /^[a-f0-9]{128}$/;
 const DEFAULT_QUERY_LIMIT = 50;
 const MAX_QUERY_LIMIT = 1000;
 const DEFAULT_ACQUISITION_TIMEOUT_MS = 10_000;
-const DEFAULT_ACQUISITION_EVENT_LIMIT = 100;
+const DEFAULT_ACQUISITION_OBSERVATION_LIMIT = 100;
+const DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT = 100;
 const DEFAULT_RELAY_CONCURRENCY = 4;
 const SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set', 'run']);
 const RETAINABLE_SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set', 'run']);
@@ -1590,7 +1591,7 @@ function normalizeRunInputs(operation, inputs) {
 function normalizeAcquisitionRunInputs(inputs) {
   rejectUnknownKeys(
     inputs,
-    new Set(['relays', 'filter', 'timeoutMs', 'eventLimit', 'concurrency']),
+    new Set(['relays', 'filter', 'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency']),
     'acquisition input',
   );
   if (!Array.isArray(inputs.relays) || inputs.relays.length === 0) {
@@ -1619,9 +1620,13 @@ function normalizeAcquisitionRunInputs(inputs) {
       inputs.timeoutMs ?? DEFAULT_ACQUISITION_TIMEOUT_MS,
       'Acquisition input timeoutMs',
     ),
-    eventLimit: normalizePositiveInteger(
-      inputs.eventLimit ?? DEFAULT_ACQUISITION_EVENT_LIMIT,
-      'Acquisition input eventLimit',
+    observationLimit: normalizePositiveInteger(
+      inputs.observationLimit ?? DEFAULT_ACQUISITION_OBSERVATION_LIMIT,
+      'Acquisition input observationLimit',
+    ),
+    distinctEventLimit: normalizePositiveInteger(
+      inputs.distinctEventLimit ?? DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT,
+      'Acquisition input distinctEventLimit',
     ),
     concurrency: normalizePositiveInteger(
       inputs.concurrency ?? DEFAULT_RELAY_CONCURRENCY,
@@ -1723,7 +1728,7 @@ function normalizeAcquisitionCoverage(result) {
   }
   assertPlainObject(requested.filter, 'Acquisition NIP-01 filter');
   const budget = cloneJson(result.budget);
-  for (const key of ['timeoutMs', 'eventLimit', 'concurrency']) {
+  for (const key of ['timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency']) {
     if (!Number.isSafeInteger(budget?.[key]) || budget[key] <= 0) {
       throw new ResearchMemoryError(`Acquisition coverage requires a positive ${key} budget.`);
     }
@@ -1775,7 +1780,8 @@ function sortJson(value) {
 
 export {
   acquireRelayEvents,
-  DEFAULT_ACQUISITION_EVENT_LIMIT,
+  DEFAULT_ACQUISITION_OBSERVATION_LIMIT,
+  DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT,
   DEFAULT_ACQUISITION_TIMEOUT_MS,
   DEFAULT_RELAY_CONCURRENCY,
 } from './acquire.js';

@@ -97,12 +97,16 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
       if (suppliedSignal?.aborted) abort();
       const request = { ...options, signal: controller.signal };
       progress.write(
-        `Acquiring from ${options?.relays?.length ?? 0} relay(s), limit ${options?.eventLimit ?? 100}...\n`,
+        `Acquiring from ${options?.relays?.length ?? 0} relay(s), `
+        + `observation limit ${options?.observationLimit ?? 100}, `
+        + `distinct-event limit ${options?.distinctEventLimit ?? 100}...\n`,
       );
       try {
         const result = await acquireRelayEvents(memory, request);
         progress.write(
-          `Acquisition ${result.completionReason}: ${result.counts.observations} observation(s), `
+          `Acquisition ${result.completionReason}: `
+          + `${result.counts.acceptedObservations} accepted observation(s), `
+          + `${result.counts.distinctEventsAcquired} distinct event(s), `
           + `${result.additions.added.length} corpus event(s) added, `
           + `${result.additions.evicted.length} evicted.\n`,
         );
@@ -126,7 +130,9 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
       if (suppliedSignal?.aborted) abort();
       progress.write(
         `Expanding through ${options?.relays?.length ?? 0} relay(s), `
-        + `depth ${options?.depth ?? 1}, event limit ${options?.eventLimit ?? 100}`
+        + `depth ${options?.depth ?? 1}, `
+        + `observation limit ${options?.observationLimit ?? 100}, `
+        + `distinct-event limit ${options?.distinctEventLimit ?? 100}`
         + (options?.authoredLimit === undefined
           ? ''
           : `, authored-note limit ${options.authoredLimit} per starting account`)
@@ -140,7 +146,8 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
         const report = result.context.expansion;
         progress.write(
           `Expansion ${report.completionReason}: ${report.requestCount} request(s), `
-          + `${report.counts.observations} observation(s), `
+          + `${report.counts.acceptedObservations} accepted observation(s), `
+          + `${report.counts.distinctEventsAcquired} distinct event(s), `
           + `${report.corpusAfter.eventCount} resident event(s).\n`,
         );
         return result;
@@ -172,7 +179,8 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
           `Reply contexts ${result.report.completionReason}: `
           + `${result.report.replyCount} reply/replies, `
           + `${result.report.unresolvedParentCount} unresolved parent(s), `
-          + `${result.report.counts.observations} observation(s).\n`,
+          + `${result.report.counts.acceptedObservations} accepted observation(s), `
+          + `${result.report.counts.distinctEventsAcquired} distinct event(s).\n`,
         );
         return result;
       } finally {

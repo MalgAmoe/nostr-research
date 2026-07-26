@@ -1,3 +1,28 @@
+# Worker role
+
+You are the implementation worker in a repository-backed workflow.
+
+Read `workflow/WORKFLOW.md` and the selected task completely. Treat the task
+definition, its scope, and its acceptance criteria as authoritative.
+
+Work directly in the repository. Produce every required deliverable. Inspect
+real source and tests rather than relying on assumptions. Do not change task
+status, files under `workflow/runs/`, or the workflow runner.
+Do not stage or commit changes; the runner owns the task commit after review.
+
+If a previous review is supplied, address every applicable finding explicitly.
+Do not merely describe work that should be done: perform the task within its
+stated permissions.
+
+Finish with a concise plain-text report listing:
+
+- deliverables created or changed;
+- validation or checks performed;
+- unresolved uncertainties.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -102,9 +127,74 @@ evidence. Per-relay acquisition outcomes are observed behavior, and the
 library does not silently turn either advertised claims or observations into a
 relay quality, trust, or fallback score.
 
-Acquisition exposes separate operation-wide bounds for accepted valid relay
-observations and distinct canonical event IDs. Duplicate observations consume
-the observation budget but not the distinct-event budget. Reports keep
-received packets, accepted observations, duplicate observations, newly stored
-corpus events, and distinct events acquired separate, and identify which bound
-stopped an operation.
+
+# Selected task
+
+---
+id: 027-explicit-acquisition-budgets
+status: in_progress
+max_attempts: 5
+validation: workflow/tasks/027-explicit-acquisition-budgets.validate.sh
+depends_on: 026-remove-sqlite
+protected_paths: workflow/run.py workflow/prompts
+reviewer_sandbox: workspace-write
+---
+
+# Make acquisition budgets explicit and semantically correct
+
+## Objective
+
+Correct the mismatch between relay observations and distinct Nostr events.
+Acquisition and expansion must expose separate, plainly named bounds so callers
+can control relay work without mistaking duplicate observations for new events.
+
+## Required behavior
+
+- Replace the misleading public `eventLimit` option with explicit observation
+  and distinct-event budgets. There is no compatibility requirement for the old
+  name.
+- The observation budget is a hard operation-wide bound on accepted valid
+  `EVENT` messages across all relays.
+- The distinct-event budget is a hard operation-wide bound on unique canonical
+  event IDs acquired by the operation.
+- Completion and reports identify which bound stopped the operation.
+- Counts and budget reports consistently distinguish received packets, accepted
+  observations, duplicate observations, newly stored corpus events, and
+  distinct events acquired by the operation.
+- Authored-note limits count distinct authored event IDs per starting account,
+  not observations returned by multiple relays.
+- Expansion and reply-context resolution propagate the new budget vocabulary
+  and never silently reinterpret one kind of limit as another.
+- Console progress and presentation use the same terminology.
+
+The implementation must remain bounded under duplicate-heavy relay responses.
+It is acceptable for an observation bound to stop an operation before its
+distinct-event target is reached; that uncertainty must be visible rather than
+hidden.
+
+## Boundaries
+
+- Do not add adaptive relay heuristics, retries, persistence, or quality rules.
+- Do not encode assumptions about which relay is authoritative.
+- Do not redesign the corpus, sessions, retained selections, or presentation
+  architecture in this task.
+- Avoid unit tests for option plumbing. Exercise the public acquisition and
+  expansion boundaries with duplicate relay observations.
+
+## Documentation
+
+Update active README and canonical context where they describe acquisition
+budgets. Historical task definitions and field-trial artifacts remain
+historical records.
+
+## Acceptance criteria
+
+- No active public option or active documentation calls an observation bound
+  `eventLimit`.
+- Direct acquisition enforces and reports both bounds.
+- Duplicate observations do not consume the distinct-event budget.
+- Authored-note expansion limits distinct notes per account.
+- Acquisition, expansion, and reply-context reports use coherent counts.
+- Existing cancellation, timeout, relay outcome, provenance, and corpus
+  capacity behavior remains intact.
+- Functional tests and syntax checks pass.

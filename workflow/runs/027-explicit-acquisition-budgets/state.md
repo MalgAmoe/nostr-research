@@ -1,9 +1,9 @@
 # 027-explicit-acquisition-budgets
 
-Status: blocked
+Status: done
 
-Latest attempt: 1
+Latest attempt: 4
 
-Updated: 2026-07-26T13:25:52.266108+00:00
+Updated: 2026-07-26T13:38:02.037216+00:00
 
-Detail: Worker infrastructure failed with exit code 1; see worker-process.log.
+Detail: Validation passed and reviewer returned PASS; task committed automatically.

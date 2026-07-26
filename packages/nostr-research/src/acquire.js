@@ -2,13 +2,14 @@ import { isCanonicalNostrEvent, ResearchMemoryError } from './index.js';
 import WebSocket from 'ws';
 
 export const DEFAULT_ACQUISITION_TIMEOUT_MS = 10_000;
-export const DEFAULT_ACQUISITION_EVENT_LIMIT = 100;
+export const DEFAULT_ACQUISITION_OBSERVATION_LIMIT = 100;
+export const DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT = 100;
 export const DEFAULT_RELAY_CONCURRENCY = 4;
 
 /**
  * Acquires canonical events from explicit NIP-01 relays into an open
- * process-local research corpus. `eventLimit` bounds accepted valid EVENT
- * messages globally.
+ * process-local research corpus. Observation and distinct-event budgets are
+ * both enforced operation-wide across all relays.
  */
 export async function acquireRelayEvents(memory, options) {
   if (!memory || typeof memory.ingest !== 'function') {
@@ -21,14 +22,22 @@ export async function acquireRelayEvents(memory, options) {
     relay,
     contacted: false,
     outcome: 'pending',
-    received: 0,
+    receivedPackets: 0,
     invalid: 0,
-    duplicate: 0,
-    newlyStored: 0,
-    observations: 0,
+    duplicateObservations: 0,
+    newlyStoredCorpusEvents: 0,
+    acceptedObservations: 0,
+    distinctEventsAcquired: 0,
     diagnostic: null,
   }));
-  const counts = { received: 0, invalid: 0, duplicate: 0, newlyStored: 0, observations: 0 };
+  const counts = {
+    receivedPackets: 0,
+    invalid: 0,
+    acceptedObservations: 0,
+    duplicateObservations: 0,
+    newlyStoredCorpusEvents: 0,
+    distinctEventsAcquired: 0,
+  };
   const acquiredEventIds = [];
   const acquiredObservations = new Map();
   const acquiredIds = new Set();
@@ -98,8 +107,8 @@ export async function acquireRelayEvents(memory, options) {
         if (!Array.isArray(packet) || packet[1] !== subscriptionId) return;
 
         if (packet[0] === 'EVENT') {
-          relayResult.received += 1;
-          counts.received += 1;
+          relayResult.receivedPackets += 1;
+          counts.receivedPackets += 1;
           const event = packet[2];
           if (!isCanonicalNostrEvent(event)) {
             relayResult.invalid += 1;
@@ -108,7 +117,14 @@ export async function acquireRelayEvents(memory, options) {
           }
           // This check and ingest are synchronous, so concurrent socket
           // callbacks cannot exceed the shared operation-wide limit.
-          if (counts.observations >= normalized.eventLimit) return stop('limit');
+          if (counts.acceptedObservations >= normalized.observationLimit) {
+            return stop('observation-budget');
+          }
+          const alreadyAcquired = acquiredIds.has(event.id);
+          if (!alreadyAcquired
+              && counts.distinctEventsAcquired >= normalized.distinctEventLimit) {
+            return stop('distinct-event-budget');
+          }
           const ingested = memory.ingest(
             event,
             { relay, observedAt: new Date().toISOString() },
@@ -118,20 +134,27 @@ export async function acquireRelayEvents(memory, options) {
           additions.evicted.push(...(ingested.evicted ?? []));
           if (!acquiredObservations.has(event.id)) acquiredObservations.set(event.id, []);
           acquiredObservations.get(event.id).push(ingested.observation);
-          relayResult.observations += 1;
-          counts.observations += 1;
+          relayResult.acceptedObservations += 1;
+          counts.acceptedObservations += 1;
           if (ingested.eventStored) {
-            relayResult.newlyStored += 1;
-            counts.newlyStored += 1;
-          } else {
-            relayResult.duplicate += 1;
-            counts.duplicate += 1;
+            relayResult.newlyStoredCorpusEvents += 1;
+            counts.newlyStoredCorpusEvents += 1;
           }
-          if (!acquiredIds.has(event.id)) {
+          if (alreadyAcquired) {
+            relayResult.duplicateObservations += 1;
+            counts.duplicateObservations += 1;
+          }
+          if (!alreadyAcquired) {
             acquiredIds.add(event.id);
             acquiredEventIds.push(event.id);
+            relayResult.distinctEventsAcquired += 1;
+            counts.distinctEventsAcquired += 1;
           }
-          if (counts.observations >= normalized.eventLimit) stop('limit');
+          if (counts.acceptedObservations >= normalized.observationLimit) {
+            stop('observation-budget');
+          } else if (counts.distinctEventsAcquired >= normalized.distinctEventLimit) {
+            stop('distinct-event-budget');
+          }
         } else if (packet[0] === 'EOSE') {
           finish('eose');
         } else if (packet[0] === 'CLOSED') {
@@ -174,7 +197,8 @@ export async function acquireRelayEvents(memory, options) {
     requested: { filter: normalized.filter, relays: normalized.relays },
     budget: {
       timeoutMs: normalized.timeoutMs,
-      eventLimit: normalized.eventLimit,
+      observationLimit: normalized.observationLimit,
+      distinctEventLimit: normalized.distinctEventLimit,
       concurrency: normalized.concurrency,
     },
     startedAt,
@@ -247,7 +271,14 @@ function normalizeOptions(options) {
   }
   const filter = normalizeFilter(options.filter);
   const timeoutMs = positiveInteger(options.timeoutMs ?? DEFAULT_ACQUISITION_TIMEOUT_MS, 'timeoutMs');
-  const eventLimit = positiveInteger(options.eventLimit ?? DEFAULT_ACQUISITION_EVENT_LIMIT, 'eventLimit');
+  const observationLimit = positiveInteger(
+    options.observationLimit ?? DEFAULT_ACQUISITION_OBSERVATION_LIMIT,
+    'observationLimit',
+  );
+  const distinctEventLimit = positiveInteger(
+    options.distinctEventLimit ?? DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT,
+    'distinctEventLimit',
+  );
   const concurrency = positiveInteger(options.concurrency ?? DEFAULT_RELAY_CONCURRENCY, 'concurrency');
   if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) {
     throw new ResearchMemoryError('signal must be an AbortSignal.');
@@ -256,7 +287,8 @@ function normalizeOptions(options) {
     throw new ResearchMemoryError('preserve must be an array of event subjects.');
   }
   return {
-    relays, filter, timeoutMs, eventLimit, concurrency, signal: options.signal,
+    relays, filter, timeoutMs, observationLimit, distinctEventLimit,
+    concurrency, signal: options.signal,
     preserve: structuredClone(options.preserve ?? []),
   };
 }

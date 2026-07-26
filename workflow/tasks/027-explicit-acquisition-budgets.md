@@ -1,6 +1,6 @@
 ---
 id: 027-explicit-acquisition-budgets
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/027-explicit-acquisition-budgets.validate.sh
 depends_on: 026-remove-sqlite

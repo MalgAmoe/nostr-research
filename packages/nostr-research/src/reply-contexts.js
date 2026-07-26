@@ -3,7 +3,7 @@ import { ResearchMemoryError, subject } from './index.js';
 
 const OPTION_KEYS = new Set([
   'relays', 'authoredLimit', 'parentLimit', 'timeoutMs',
-  'eventLimit', 'concurrency', 'signal',
+  'observationLimit', 'distinctEventLimit', 'concurrency', 'signal',
 ]);
 
 /** Acquires authored replies and resolves each direct parent within shared bounds. */
@@ -12,33 +12,58 @@ export async function resolveReplyContexts(memory, accounts, options) {
   const startedAt = Date.now();
   const requests = [];
   const totals = {
-    received: 0, invalid: 0, duplicate: 0, newlyStored: 0, observations: 0,
+    receivedPackets: 0, invalid: 0, acceptedObservations: 0,
+    duplicateObservations: 0, newlyStoredCorpusEvents: 0,
+    distinctEventsAcquired: 0,
   };
+  const operationEventIds = new Set();
   const authoredIds = new Set();
   let completionReason = 'completed';
 
   const acquire = async (filter, purpose, details = {}) => {
-    const remainingEvents = normalized.eventLimit - totals.observations;
+    const remainingObservations = normalized.observationLimit - totals.acceptedObservations;
+    const remainingDistinctEvents = normalized.distinctEventLimit - operationEventIds.size;
     const remainingTime = normalized.timeoutMs - (Date.now() - startedAt);
-    if (remainingEvents <= 0) {
-      completionReason = 'event-budget';
+    if (remainingObservations <= 0) {
+      completionReason = 'observation-budget';
+      return null;
+    }
+    if (remainingDistinctEvents <= 0) {
+      completionReason = 'distinct-event-budget';
       return null;
     }
     if (remainingTime <= 0) {
       completionReason = 'timeout';
       return null;
     }
-    const requestLimit = Math.min(remainingEvents, details.eventLimit ?? remainingEvents);
-    const boundedFilter = { ...filter, limit: Math.min(filter.limit ?? requestLimit, requestLimit) };
+    const requestObservationLimit = Math.min(
+      remainingObservations,
+      details.observationLimit ?? remainingObservations,
+    );
+    const requestDistinctEventLimit = Math.min(
+      remainingDistinctEvents,
+      details.distinctEventLimit ?? remainingDistinctEvents,
+    );
+    const boundedFilter = {
+      ...filter,
+      limit: Math.min(filter.limit ?? requestDistinctEventLimit, requestDistinctEventLimit),
+    };
     const result = await acquireRelayEvents(memory, {
       relays: normalized.relays,
       filter: boundedFilter,
       timeoutMs: Math.max(1, remainingTime),
-      eventLimit: requestLimit,
+      observationLimit: requestObservationLimit,
+      distinctEventLimit: requestDistinctEventLimit,
       concurrency: normalized.concurrency,
       signal: normalized.signal,
     });
-    for (const key of Object.keys(totals)) totals[key] += result.counts[key];
+    for (const key of [
+      'receivedPackets', 'invalid', 'acceptedObservations', 'newlyStoredCorpusEvents',
+    ]) totals[key] += result.counts[key];
+    result.acquiredEventIds.forEach((id) => operationEventIds.add(id));
+    totals.distinctEventsAcquired = operationEventIds.size;
+    totals.duplicateObservations =
+      totals.acceptedObservations - totals.distinctEventsAcquired;
     requests.push({
       purpose,
       ...details.report,
@@ -47,8 +72,10 @@ export async function resolveReplyContexts(memory, accounts, options) {
       counts: structuredClone(result.counts),
       relays: structuredClone(result.relays),
     });
-    if (result.completionReason === 'limit' && requestLimit === remainingEvents) {
-      completionReason = 'event-budget';
+    if (totals.acceptedObservations >= normalized.observationLimit) {
+      completionReason = 'observation-budget';
+    } else if (operationEventIds.size >= normalized.distinctEventLimit) {
+      completionReason = 'distinct-event-budget';
     } else if (['timeout', 'cancelled'].includes(result.completionReason)) {
       completionReason = result.completionReason;
     }
@@ -61,7 +88,7 @@ export async function resolveReplyContexts(memory, accounts, options) {
       { authors: [account.id], kinds: [1], limit: normalized.authoredLimit },
       'authored-replies',
       {
-        eventLimit: normalized.authoredLimit,
+        distinctEventLimit: normalized.authoredLimit,
         report: {
           subject: account,
           ordering: 'relay-recent-created-at-descending',
@@ -133,11 +160,17 @@ export async function resolveReplyContexts(memory, accounts, options) {
         if (!targetedParents.has(relationship.target.id)) unresolvedReason = 'parent-limit';
         else if (completionReason === 'timeout') unresolvedReason = 'timeout';
         else if (completionReason === 'cancelled') unresolvedReason = 'cancelled';
-        else if (completionReason === 'event-budget') unresolvedReason = 'event-budget';
+        else if (completionReason === 'observation-budget') unresolvedReason = 'observation-budget';
+        else if (completionReason === 'distinct-event-budget') {
+          unresolvedReason = 'distinct-event-budget';
+        }
         else unresolvedReason = 'not-requested';
       } else if (completionReason === 'timeout') unresolvedReason = 'timeout';
       else if (completionReason === 'cancelled') unresolvedReason = 'cancelled';
-      else if (completionReason === 'event-budget') unresolvedReason = 'event-budget';
+      else if (completionReason === 'observation-budget') unresolvedReason = 'observation-budget';
+      else if (completionReason === 'distinct-event-budget') {
+        unresolvedReason = 'distinct-event-budget';
+      }
       else unresolvedReason = 'unavailable';
     }
     return {
@@ -185,10 +218,12 @@ export async function resolveReplyContexts(memory, accounts, options) {
     unresolvedParents,
     boundedBy: {
       authoredLimit: requests.some(({ purpose, counts }) => (
-        purpose === 'authored-replies' && counts.observations >= normalized.authoredLimit
+        purpose === 'authored-replies'
+        && counts.distinctEventsAcquired >= normalized.authoredLimit
       )),
       parentLimit: missingParentIds.length > normalized.parentLimit,
-      eventBudget: completionReason === 'event-budget',
+      observationBudget: completionReason === 'observation-budget',
+      distinctEventBudget: completionReason === 'distinct-event-budget',
       timeout: completionReason === 'timeout',
       cancellation: completionReason === 'cancelled',
     },
@@ -251,14 +286,21 @@ export function normalizeReplyContextOptions(memory, accounts, options) {
   const authoredLimit = positiveInteger(options.authoredLimit ?? 20, 'authoredLimit');
   const parentLimit = positiveInteger(options.parentLimit ?? 20, 'parentLimit');
   const timeoutMs = positiveInteger(options.timeoutMs ?? 10_000, 'timeoutMs');
-  const eventLimit = positiveInteger(options.eventLimit ?? 100, 'eventLimit');
+  const observationLimit = positiveInteger(
+    options.observationLimit ?? 100,
+    'observationLimit',
+  );
+  const distinctEventLimit = positiveInteger(
+    options.distinctEventLimit ?? 100,
+    'distinctEventLimit',
+  );
   const concurrency = positiveInteger(options.concurrency ?? 4, 'concurrency');
   if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) {
     throw new ResearchMemoryError('Reply-context signal must be an AbortSignal.');
   }
   return {
     relays, accounts: normalizedAccounts, authoredLimit, parentLimit,
-    timeoutMs, eventLimit, concurrency, signal: options.signal,
+    timeoutMs, observationLimit, distinctEventLimit, concurrency, signal: options.signal,
   };
 }
 
@@ -275,7 +317,8 @@ function publicOptions(options) {
     authoredLimit: options.authoredLimit,
     parentLimit: options.parentLimit,
     timeoutMs: options.timeoutMs,
-    eventLimit: options.eventLimit,
+    observationLimit: options.observationLimit,
+    distinctEventLimit: options.distinctEventLimit,
     concurrency: options.concurrency,
   };
 }

@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/src/expansion.js:111` reports the wrong stopping bound when one accepted event simultaneously reaches both limits. The second independent `if` overwrites `observation-budget` with `distinct-event-budget`, contradicting direct acquisition and reply-context precedence. Preserve the actual acquisition stopping reason or use consistent mutually exclusive precedence, with functional coverage for equal limits.

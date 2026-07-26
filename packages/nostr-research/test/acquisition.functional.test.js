@@ -49,14 +49,19 @@ test('public acquisition handles NIP-01 outcomes, validation, deduplication, pro
       relays: [firstRelay.url, secondRelay.url],
       filter: { kinds: [1], limit: 5 },
       timeoutMs: 2_000,
-      eventLimit: 5,
+      observationLimit: 5,
       concurrency: 2,
     });
 
     assert.equal(result.completionReason, 'completed');
     assert.deepEqual(result.relays.map((relay) => relay.outcome), ['eose', 'eose']);
     assert.deepEqual(result.counts, {
-      received: 3, invalid: 1, duplicate: 1, newlyStored: 1, observations: 2,
+      receivedPackets: 3,
+      invalid: 1,
+      acceptedObservations: 2,
+      duplicateObservations: 1,
+      newlyStoredCorpusEvents: 1,
+      distinctEventsAcquired: 1,
     });
     assert.deepEqual(result.acquiredEventIds, [firstEvent.id]);
     assert.deepEqual(
@@ -88,10 +93,10 @@ test('global limit and cancellation are distinguishable and close owned sockets'
       relays: [limitRelay.url],
       filter: {},
       timeoutMs: 2_000,
-      eventLimit: 1,
+      observationLimit: 1,
     });
-    assert.equal(limited.completionReason, 'limit');
-    assert.equal(limited.counts.observations, 1);
+    assert.equal(limited.completionReason, 'observation-budget');
+    assert.equal(limited.counts.acceptedObservations, 1);
     await eventually(() => limitSocketClosed);
 
     const controller = new AbortController();
@@ -100,7 +105,7 @@ test('global limit and cancellation are distinguishable and close owned sockets'
       relays: [cancellationRelay.url],
       filter: {},
       timeoutMs: 2_000,
-      eventLimit: 2,
+      observationLimit: 2,
       signal: controller.signal,
     });
     setTimeout(() => controller.abort(), 20);
@@ -120,7 +125,7 @@ test('global limit and cancellation are distinguishable and close owned sockets'
         relays: [connectingRelay.url],
         filter: {},
         timeoutMs: 2_000,
-        eventLimit: 2,
+        observationLimit: 2,
         signal: connectingController.signal,
       });
       setTimeout(() => connectingController.abort(), 10);
@@ -138,6 +143,82 @@ test('global limit and cancellation are distinguishable and close owned sockets'
   }
 });
 
+test('distinct-event budget ignores duplicate observations while observation budget stays hard', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  const [first, second, third] = loadFixtureEvents();
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send) => {
+      send(['EVENT', subscriptionId, first]);
+      send(['EVENT', subscriptionId, first]);
+      send(['EVENT', subscriptionId, second]);
+      send(['EVENT', subscriptionId, third]);
+    });
+  }, context.directory);
+  try {
+    const distinctBounded = await acquireRelayEvents(context.memory, {
+      relays: [relay.url],
+      filter: {},
+      timeoutMs: 2_000,
+      observationLimit: 10,
+      distinctEventLimit: 2,
+    });
+    assert.equal(distinctBounded.completionReason, 'distinct-event-budget');
+    assert.deepEqual(distinctBounded.counts, {
+      receivedPackets: 3,
+      invalid: 0,
+      acceptedObservations: 3,
+      duplicateObservations: 1,
+      newlyStoredCorpusEvents: 2,
+      distinctEventsAcquired: 2,
+    });
+
+    const observationBounded = await acquireRelayEvents(context.memory, {
+      relays: [relay.url],
+      filter: {},
+      timeoutMs: 2_000,
+      observationLimit: 2,
+      distinctEventLimit: 3,
+    });
+    assert.equal(observationBounded.completionReason, 'observation-budget');
+    assert.equal(observationBounded.counts.acceptedObservations, 2);
+    assert.equal(observationBounded.counts.distinctEventsAcquired, 1);
+    assert.equal(observationBounded.counts.duplicateObservations, 1);
+
+    const equalBudgetExpansion = await expandResearch(
+      context.memory,
+      accountCollection(context.memory, [first.pubkey]),
+      {
+        relays: [relay.url],
+        relationshipTypes: ['author'],
+        direction: 'inbound',
+        authoredLimit: 1,
+        depth: 1,
+        limit: 5,
+        timeoutMs: 2_000,
+        observationLimit: 1,
+        distinctEventLimit: 1,
+      },
+    );
+    assert.equal(
+      equalBudgetExpansion.context.expansion.completionReason,
+      'observation-budget',
+      'expansion uses acquisition observation-first precedence when both budgets are reached',
+    );
+    assert.equal(
+      equalBudgetExpansion.context.expansion.boundedBy.observationBudget,
+      true,
+    );
+    assert.equal(
+      equalBudgetExpansion.context.expansion.boundedBy.distinctEventBudget,
+      false,
+    );
+  } finally {
+    await relay.close();
+    context.close();
+  }
+});
+
 test('timeout force-closes a peer that ignores the WebSocket closing handshake', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
   const context = createContext();
@@ -151,7 +232,7 @@ test('timeout force-closes a peer that ignores the WebSocket closing handshake',
       relays: [relay.url],
       filter: {},
       timeoutMs: 50,
-      eventLimit: 2,
+      observationLimit: 2,
     });
     assert.equal(result.completionReason, 'timeout');
     assert.ok(Date.now() - startedAt < 500, 'timeout bounds an ignored closing handshake');
@@ -172,7 +253,7 @@ test('timeout and partial connection failure remain observable', async (t) => {
       relays: [silentRelay.url, `wss://127.0.0.1:${unavailablePort}/`],
       filter: {},
       timeoutMs: 100,
-      eventLimit: 2,
+      observationLimit: 2,
       concurrency: 2,
     });
     assert.equal(result.completionReason, 'timeout');
@@ -226,8 +307,8 @@ test('console expansion rejects invalid bounds and semantics before networking',
       /Unsupported expansion relationship types/,
     );
     await assert.rejects(
-      environment.research.expand(selection, { ...valid, eventLimit: 0 }),
-      /eventLimit must be a positive integer/,
+      environment.research.expand(selection, { ...valid, observationLimit: 0 }),
+      /observationLimit must be a positive integer/,
     );
     await assert.rejects(
       environment.research.expand(selection, { ...valid, authoredLimit: 0 }),
@@ -260,8 +341,8 @@ test('console expansion rejects invalid bounds and semantics before networking',
       /parentLimit must be a positive integer/,
     );
     await assert.rejects(
-      environment.research.replyContexts([account], { ...replyOptions, eventLimit: 0 }),
-      /eventLimit must be a positive integer/,
+      environment.research.replyContexts([account], { ...replyOptions, observationLimit: 0 }),
+      /observationLimit must be a positive integer/,
     );
     await assert.rejects(
       environment.research.replyContexts([subject('event', '2'.repeat(64))], replyOptions),
@@ -337,7 +418,7 @@ test('authored-note expansion samples only explicit account starts within per-ac
         depth: 1,
         limit: 10,
         timeoutMs: 2_000,
-        eventLimit: 5,
+        observationLimit: 5,
       },
     );
     assert.equal(
@@ -366,7 +447,7 @@ test('authored-note expansion samples only explicit account starts within per-ac
       depth: 2,
       limit: 20,
       timeoutMs: 2_000,
-      eventLimit: 10,
+      observationLimit: 10,
       concurrency: 2,
     });
 
@@ -384,7 +465,7 @@ test('authored-note expansion samples only explicit account starts within per-ac
       && filter.limit === 2
       && ordering === 'relay-recent-created-at-descending'
     )));
-    assert.ok(authoredRequests.every(({ counts }) => counts.observations <= 2));
+    assert.ok(authoredRequests.every(({ counts }) => counts.distinctEventsAcquired <= 2));
     assert.ok(authoredRequests.every(({ relays }) => relays.some(
       ({ outcome }) => outcome === 'connection-failure',
     )), 'partial relay failures remain visible per authored request');
@@ -408,7 +489,7 @@ test('authored-note expansion samples only explicit account starts within per-ac
       item.type === 'account' && item.id === carol
     )), 'the mentioned non-starting account is discoverable');
     assert.equal(expanded.context.expansion.options.authoredLimit, 2);
-    assert.ok(expanded.context.expansion.counts.observations <= 10);
+    assert.ok(expanded.context.expansion.counts.acceptedObservations <= 10);
     assert.deepEqual(
       environment.research.session.selection.items.map((item) => item.subject),
       sessionBefore,
@@ -463,10 +544,10 @@ test('authored-note expansion obeys the complete operation budget and stays disa
       depth: 1,
       limit: 10,
       timeoutMs: 2_000,
-      eventLimit: 3,
+      observationLimit: 3,
     });
-    assert.equal(bounded.context.expansion.counts.observations, 3);
-    assert.equal(bounded.context.expansion.boundedBy.eventBudget, true);
+    assert.equal(bounded.context.expansion.counts.acceptedObservations, 3);
+    assert.equal(bounded.context.expansion.boundedBy.observationBudget, true);
     assert.deepEqual(
       bounded.context.expansion.requests
         .filter(({ purpose }) => purpose === 'authored-notes')
@@ -487,7 +568,7 @@ test('authored-note expansion obeys the complete operation budget and stays disa
         depth: 1,
         limit: 10,
         timeoutMs: 2_000,
-        eventLimit: 5,
+        observationLimit: 5,
       },
     );
     assert.equal(
@@ -602,7 +683,7 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
       authoredLimit: 6,
       parentLimit: 2,
       timeoutMs: 2_000,
-      eventLimit: 9,
+      observationLimit: 9,
       concurrency: 2,
     });
 
@@ -649,7 +730,7 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
     assert.ok(result.report.requests.every(({ relays }) => relays.some(
       ({ outcome }) => outcome === 'connection-failure',
     )));
-    assert.ok(result.report.counts.observations <= 9);
+    assert.ok(result.report.counts.acceptedObservations <= 9);
     assert.equal(result.report.options.authoredLimit, 6);
     assert.equal(result.report.options.parentLimit, 2);
     assert.equal(result.report.unresolvedParentCount, 2);
@@ -667,11 +748,11 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
         authoredLimit: 3,
         parentLimit: 2,
         timeoutMs: 2_000,
-        eventLimit: 1,
+        observationLimit: 1,
       },
     );
-    assert.equal(globallyBounded.report.counts.observations, 1);
-    assert.equal(globallyBounded.report.boundedBy.eventBudget, true);
+    assert.equal(globallyBounded.report.counts.acceptedObservations, 1);
+    assert.equal(globallyBounded.report.boundedBy.observationBudget, true);
     assert.equal(globallyBounded.report.requestCount, 1);
 
     const parentBounded = await resolveReplyContexts(
@@ -682,7 +763,7 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
         authoredLimit: 5,
         parentLimit: 1,
         timeoutMs: 2_000,
-        eventLimit: 6,
+        observationLimit: 6,
       },
     );
     assert.equal(parentBounded.report.requestedParentCount <= 1, true);
@@ -697,7 +778,7 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
           authoredLimit: 1,
           parentLimit: 1,
           timeoutMs: 30,
-          eventLimit: 2,
+          observationLimit: 2,
         },
       );
       assert.equal(timedOut.report.boundedBy.timeout, true);
@@ -761,7 +842,7 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
       depth: 2,
       limit: 20,
       timeoutMs: 2_000,
-      eventLimit: 10,
+      observationLimit: 10,
       concurrency: 2,
     });
 
@@ -783,10 +864,10 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
     );
 
     const report = expanded.context.expansion;
-    assert.equal(report.options.eventLimit, 10);
+    assert.equal(report.options.observationLimit, 10);
     assert.ok(report.requestCount >= 3);
     assert.equal(report.filterCount, report.requestCount);
-    assert.ok(report.counts.observations <= 10);
+    assert.ok(report.counts.acceptedObservations <= 10);
     assert.ok(report.corpusBefore.eventCount < report.corpusAfter.eventCount);
     assert.equal(report.corpusAfter.capacity, 8);
     assert.ok(report.requests.some(({ relays }) => relays.some(({ outcome }) => (
@@ -858,7 +939,7 @@ test('exported expansion uses the global budget for reply breadth and preserves 
         depth: 1,
         limit: 20,
         timeoutMs: 2_000,
-        eventLimit: 12,
+        observationLimit: 12,
       },
     );
     assert.equal(
@@ -866,8 +947,8 @@ test('exported expansion uses the global budget for reply breadth and preserves 
       12,
       'one seed can acquire more than ten replies',
     );
-    assert.equal(broad.context.expansion.counts.observations, 12);
-    assert.equal(broad.context.expansion.boundedBy.eventBudget, true);
+    assert.equal(broad.context.expansion.counts.acceptedObservations, 12);
+    assert.equal(broad.context.expansion.boundedBy.observationBudget, true);
     assert.ok(receivedFilters.some((filter) => (
       filter['#e']?.length === 1 && filter.kinds?.[0] === 1 && filter.limit === 12
     )));
@@ -885,11 +966,11 @@ test('exported expansion uses the global budget for reply breadth and preserves 
         depth: 1,
         limit: 20,
         timeoutMs: 2_000,
-        eventLimit: 3,
+        observationLimit: 3,
       },
     );
-    assert.equal(bounded.context.expansion.counts.observations, 3);
-    assert.equal(bounded.context.expansion.boundedBy.eventBudget, true);
+    assert.equal(bounded.context.expansion.counts.acceptedObservations, 3);
+    assert.equal(bounded.context.expansion.boundedBy.observationBudget, true);
     limited.close();
 
     const tiny = createInMemoryResearchMemory({ capacity: 3 });
@@ -904,7 +985,7 @@ test('exported expansion uses the global budget for reply breadth and preserves 
       depth: 1,
       limit: 20,
       timeoutMs: 2_000,
-      eventLimit: 4,
+      observationLimit: 4,
     });
     assert.equal(tiny.describe().eventCount, 3);
     assert.ok(tiny.describe().evictions > 0);

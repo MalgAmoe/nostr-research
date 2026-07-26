@@ -48,14 +48,19 @@ Relay acquisition is explicit:
 const acquired = await acquireRelayEvents(memory, {
   relays: ['wss://relay.example'],
   filter: { kinds: [1], limit: 20 },
-  eventLimit: 20,
+  observationLimit: 40,
+  distinctEventLimit: 20,
   timeoutMs: 5_000,
   concurrency: 2,
 });
 ```
 
-The result exposes per-relay outcomes, completion reason, limits,
-deduplication, observations and provenance, coverage, and corpus changes.
+The observation limit bounds accepted valid `EVENT` messages across all
+relays; the distinct-event limit bounds unique canonical event IDs. Duplicate
+relay observations consume only the observation budget. The result reports
+received packets, accepted and duplicate observations, distinct acquired
+events, newly stored corpus events, the stopping bound, provenance, coverage,
+and corpus changes.
 Cancellation uses an `AbortSignal`.
 
 Targeted operations also receive the single corpus:
@@ -67,7 +72,8 @@ const expanded = await expandResearch(memory, notes, {
   direction: 'outbound',
   depth: 2,
   limit: 50,
-  eventLimit: 100,
+  observationLimit: 200,
+  distinctEventLimit: 100,
 });
 
 const contexts = await resolveReplyContexts(
@@ -77,7 +83,8 @@ const contexts = await resolveReplyContexts(
     relays: ['wss://relay.example'],
     authoredLimit: 20,
     parentLimit: 20,
-    eventLimit: 50,
+    observationLimit: 100,
+    distinctEventLimit: 50,
   },
 );
 ```

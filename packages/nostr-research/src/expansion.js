@@ -7,7 +7,8 @@ const RELATIONSHIP_TYPES = new Set([
 ]);
 const OPTION_KEYS = new Set([
   'relays', 'relationshipTypes', 'direction', 'depth', 'limit',
-  'authoredLimit', 'timeoutMs', 'eventLimit', 'concurrency', 'signal',
+  'authoredLimit', 'timeoutMs', 'observationLimit', 'distinctEventLimit',
+  'concurrency', 'signal',
 ]);
 
 /**
@@ -34,8 +35,11 @@ export async function expandResearch(memory, selection, options) {
   const requestedAuthoredAccounts = new Set();
   const requests = [];
   const totals = {
-    received: 0, invalid: 0, duplicate: 0, newlyStored: 0, observations: 0,
+    receivedPackets: 0, invalid: 0, acceptedObservations: 0,
+    duplicateObservations: 0, newlyStoredCorpusEvents: 0,
+    distinctEventsAcquired: 0,
   };
+  const operationEventIds = new Set();
   let completionReason = 'completed';
   let unresolvedBefore = null;
   const traversalOptions = {
@@ -47,18 +51,34 @@ export async function expandResearch(memory, selection, options) {
   const traverse = () => memory.traverse(starting, traversalOptions);
 
   const acquireFilter = async (makeFilter, request = {}) => {
-    const remainingEvents = normalized.eventLimit - totals.observations;
+    const remainingObservations = normalized.observationLimit - totals.acceptedObservations;
+    const remainingDistinctEvents = normalized.distinctEventLimit - operationEventIds.size;
     const remainingTime = normalized.timeoutMs - (Date.now() - startedAt);
-    if (remainingEvents <= 0) {
-      completionReason = 'event-budget';
+    if (remainingObservations <= 0) {
+      completionReason = 'observation-budget';
+      return false;
+    }
+    if (remainingDistinctEvents <= 0) {
+      completionReason = 'distinct-event-budget';
       return false;
     }
     if (remainingTime <= 0) {
       completionReason = 'timeout';
       return false;
     }
-    const requestEventLimit = Math.min(remainingEvents, request.eventLimit ?? remainingEvents);
-    const filter = makeFilter(requestEventLimit);
+    const requestObservationLimit = Math.min(
+      remainingObservations,
+      request.observationLimit ?? remainingObservations,
+    );
+    const requestDistinctEventLimit = Math.min(
+      remainingDistinctEvents,
+      request.distinctEventLimit ?? remainingDistinctEvents,
+    );
+    const requestFilterLimit = Math.min(
+      requestObservationLimit,
+      requestDistinctEventLimit,
+    );
+    const filter = makeFilter(requestFilterLimit);
     const filterKey = JSON.stringify(filter);
     if (requestedFilters.has(filterKey)) return false;
     requestedFilters.add(filterKey);
@@ -66,12 +86,19 @@ export async function expandResearch(memory, selection, options) {
       relays: normalized.relays,
       filter,
       timeoutMs: Math.max(1, remainingTime),
-      eventLimit: requestEventLimit,
+      observationLimit: requestObservationLimit,
+      distinctEventLimit: requestDistinctEventLimit,
       concurrency: normalized.concurrency,
       signal: normalized.signal,
       preserve: protectedEvents,
     });
-    for (const key of Object.keys(totals)) totals[key] += result.counts[key];
+    for (const key of [
+      'receivedPackets', 'invalid', 'acceptedObservations', 'newlyStoredCorpusEvents',
+    ]) totals[key] += result.counts[key];
+    result.acquiredEventIds.forEach((id) => operationEventIds.add(id));
+    totals.distinctEventsAcquired = operationEventIds.size;
+    totals.duplicateObservations =
+      totals.acceptedObservations - totals.distinctEventsAcquired;
     requests.push({
       purpose: request.purpose ?? 'target-hydration',
       ...(request.subject ? { subject: structuredClone(request.subject) } : {}),
@@ -81,12 +108,14 @@ export async function expandResearch(memory, selection, options) {
       counts: structuredClone(result.counts),
       relays: structuredClone(result.relays),
     });
-    if (result.completionReason === 'limit' && requestEventLimit === remainingEvents) {
-      completionReason = 'event-budget';
+    if (totals.acceptedObservations >= normalized.observationLimit) {
+      completionReason = 'observation-budget';
+    } else if (operationEventIds.size >= normalized.distinctEventLimit) {
+      completionReason = 'distinct-event-budget';
     }
     if (result.completionReason === 'timeout') completionReason = 'timeout';
     if (result.completionReason === 'cancelled') completionReason = 'cancelled';
-    return result.counts.newlyStored > 0;
+    return result.counts.newlyStoredCorpusEvents > 0;
   };
 
   if (normalized.authoredLimit !== undefined) {
@@ -104,7 +133,7 @@ export async function expandResearch(memory, selection, options) {
         {
           purpose: 'authored-notes',
           subject: account,
-          eventLimit: normalized.authoredLimit,
+          distinctEventLimit: normalized.authoredLimit,
           ordering: 'relay-recent-created-at-descending',
         },
       );
@@ -178,7 +207,8 @@ export async function expandResearch(memory, selection, options) {
       boundedBy: {
         depth: finalTraversal.context.relationships.some(({ depth }) => depth === normalized.depth),
         traversalLimit: finalTraversal.items.length >= startingSubjects.length + normalized.limit,
-        eventBudget: completionReason === 'event-budget',
+        observationBudget: completionReason === 'observation-budget',
+        distinctEventBudget: completionReason === 'distinct-event-budget',
         timeout: completionReason === 'timeout',
         cancellation: completionReason === 'cancelled',
       },
@@ -238,7 +268,14 @@ export function normalizeExpansionOptions(memory, selection, options) {
   const depth = boundedInteger(options.depth ?? 1, 'depth', 1, 100);
   const limit = boundedInteger(options.limit ?? 50, 'limit', 1, 1000);
   const timeoutMs = positiveInteger(options.timeoutMs ?? 10_000, 'timeoutMs');
-  const eventLimit = positiveInteger(options.eventLimit ?? 100, 'eventLimit');
+  const observationLimit = positiveInteger(
+    options.observationLimit ?? 100,
+    'observationLimit',
+  );
+  const distinctEventLimit = positiveInteger(
+    options.distinctEventLimit ?? 100,
+    'distinctEventLimit',
+  );
   let authoredLimit;
   if (options.authoredLimit !== undefined) {
     authoredLimit = positiveInteger(options.authoredLimit, 'authoredLimit');
@@ -259,7 +296,8 @@ export function normalizeExpansionOptions(memory, selection, options) {
   }
   return {
     relays, relationshipTypes, direction, depth, limit,
-    authoredLimit, timeoutMs, eventLimit, concurrency, signal: options.signal,
+    authoredLimit, timeoutMs, observationLimit, distinctEventLimit,
+    concurrency, signal: options.signal,
   };
 }
 
@@ -288,7 +326,8 @@ function publicOptions(options) {
     limit: options.limit,
     ...(options.authoredLimit === undefined ? {} : { authoredLimit: options.authoredLimit }),
     timeoutMs: options.timeoutMs,
-    eventLimit: options.eventLimit,
+    observationLimit: options.observationLimit,
+    distinctEventLimit: options.distinctEventLimit,
     concurrency: options.concurrency,
   };
 }

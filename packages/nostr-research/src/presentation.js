@@ -210,7 +210,7 @@ function showAcquisition(value, settings) {
       requested: value.requested, budget: value.budget,
       completionReason: value.completionReason,
       startedAt: value.startedAt, finishedAt: value.finishedAt,
-      counts: { ...value.counts, distinctEvents },
+      counts: { ...value.counts, distinctEventsAcquired: distinctEvents },
       exhaustive: false,
       uncertainty: value.coverage?.uncertainty
         ?? 'A bounded attempt was made; exhaustive relay indexing is not implied.',
@@ -231,8 +231,12 @@ function showCoverage(value, settings) {
       completionReason: value.completionReason,
       startedAt: value.startedAt, finishedAt: value.finishedAt,
       counts: {
-        observations: value.observedEvents.length, distinctEvents,
-        invalid: sum(value.relays, 'invalid'), duplicate: sum(value.relays, 'duplicate'),
+        acceptedObservations: value.observedEvents.length,
+        distinctEventsAcquired: distinctEvents,
+        receivedPackets: sum(value.relays, 'receivedPackets'),
+        invalid: sum(value.relays, 'invalid'),
+        duplicateObservations: sum(value.relays, 'duplicateObservations'),
+        newlyStoredCorpusEvents: sum(value.relays, 'newlyStoredCorpusEvents'),
       },
       exhaustive: false, uncertainty: value.uncertainty,
     },
@@ -311,9 +315,11 @@ function compactExpansion(expansion, resultingSubjectCount) {
     }),
     filters: expansion.filterCount ?? 0,
     counts: {
-      observations: expansion.counts?.observations ?? 0,
-      newlyStored: expansion.counts?.newlyStored ?? 0,
-      duplicate: expansion.counts?.duplicate ?? 0,
+      acceptedObservations: expansion.counts?.acceptedObservations ?? 0,
+      distinctEventsAcquired: expansion.counts?.distinctEventsAcquired ?? 0,
+      newlyStoredCorpusEvents: expansion.counts?.newlyStoredCorpusEvents ?? 0,
+      duplicateObservations: expansion.counts?.duplicateObservations ?? 0,
+      receivedPackets: expansion.counts?.receivedPackets ?? 0,
       invalid: expansion.counts?.invalid ?? 0,
     },
     corpus: {
@@ -328,7 +334,14 @@ function compactExpansion(expansion, resultingSubjectCount) {
     bounds: {
       depth: { limit: options.depth, reached: boundedBy.depth === true },
       traversal: { limit: options.limit, reached: boundedBy.traversalLimit === true },
-      events: { limit: options.eventLimit, reached: boundedBy.eventBudget === true },
+      observations: {
+        limit: options.observationLimit,
+        reached: boundedBy.observationBudget === true,
+      },
+      distinctEvents: {
+        limit: options.distinctEventLimit,
+        reached: boundedBy.distinctEventBudget === true,
+      },
       ...(options.authoredLimit === undefined ? {} : {
         authoredNotesPerAccount: { limit: options.authoredLimit },
       }),

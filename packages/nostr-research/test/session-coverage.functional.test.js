@@ -116,7 +116,9 @@ test('bounded attempt coverage distinguishes exact attempted slices from uncerta
     for (const [index, slice] of slices.entries()) {
       memory.recordAcquisitionCoverage({
         requested: { relays: slice.relays, filter: slice.filter },
-        budget: { timeoutMs: 1000, eventLimit: 10, concurrency: 1 },
+        budget: {
+          timeoutMs: 1000, observationLimit: 10, distinctEventLimit: 10, concurrency: 1,
+        },
         startedAt: `2026-01-01T00:00:0${index}.000Z`,
         finishedAt: `2026-01-01T00:00:0${index + 1}.000Z`,
         completionReason: 'completed',
