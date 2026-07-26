@@ -299,3 +299,50 @@ A fresh process always starts empty.
 
 Removing the remaining Node dependencies (`node:crypto`, `ws`, and the Node
 test and console infrastructure) is a separate future milestone.
+
+## JSON Lines session protocol
+
+```sh
+nostr-research-session --capacity 500
+```
+
+The executable owns one persistent declarative research session. It reads one
+JSON command from each non-empty UTF-8 line and writes exactly one JSON response
+line to stdout. EOF closes the corpus; `SIGINT` and `SIGTERM` cancel owned
+external work before shutdown. Startup diagnostics use stderr. There are no
+prompts or progress messages on stdout.
+
+Every command has a non-empty string `commandId` and a `command`. A response is
+either:
+
+```json
+{"ok":true,"commandId":"notes","sessionRevision":1,"result":{},"warnings":[]}
+{"ok":false,"commandId":"notes","sessionRevision":1,"error":{"code":"INVALID_OPERATION","message":"...","details":{}}}
+```
+
+Malformed JSON cannot provide trustworthy correlation, so its response uses
+`commandId: null` and `INVALID_COMMAND`. Optional `ifRevision` rejects stale
+commands with `REVISION_CONFLICT`. Revisions advance when corpus, retained-set,
+or named-handle state changes; observation commands and failed commands do not
+advance them.
+
+Research commands are `acquire`, `select`, `filter`, `group`, `summarize`,
+`move`, `hydrate`, `retain`, and `plan`. Single operations accept plain JSON
+`parameters`, optional `input`, and optional `resultId`; `replace: true`
+explicitly replaces an existing named result. Plans accept the documented
+research-plan array and an optional `outputs` map from stage IDs to result IDs.
+They use the same operation interpreter as in-process callers.
+
+Observation commands are `show`, `inspect`, `explain`, `list`, and `status`.
+`show` and `explain` consume a named input. `inspect` receives its stable
+`subject` in `parameters`. Projection parameters are `previewLimit`,
+`excerptLimit`, `includeEvidence`, and `sizeLimit`; `show` additionally accepts
+`mode`. Responses report counts plus `omitted` or truncation metadata rather
+than emitting unbounded values.
+
+Lifecycle commands are `release`, `reset`, and `close`, with empty
+`parameters`. `release` removes only its named handle. `reset` clears handles
+and all process-local memory. `close` also ends the session. Empty and partial
+external results remain successful responses: their `external.completeness`,
+per-relay `coverage`, `boundsReached`, and warnings describe why they must not
+be treated as exhaustive evidence.

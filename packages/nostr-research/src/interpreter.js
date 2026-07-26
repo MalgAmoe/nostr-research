@@ -20,6 +20,7 @@ const COMMANDS = new Set([
 const OBSERVATIONS = new Set(['show', 'inspect', 'explain', 'list', 'status']);
 const LIFECYCLE = new Set(['release', 'reset', 'close']);
 const EXTERNAL = new Set(['acquire', 'hydrate']);
+const UNSUCCESSFUL_RELAY_OUTCOMES = new Set(['connection-failure', 'closed']);
 const COMMAND_KEYS = new Set([
   'commandId', 'ifRevision', 'command', 'input', 'parameters', 'resultId', 'replace',
 ]);
@@ -461,6 +462,10 @@ function stableSubjectCollection(collection) {
 function externalStatus(result, operation, memory) {
   let boundsReached = result.completionReason === 'completed'
     ? [] : [result.completionReason];
+  const unsuccessfulRelays = result.coverage.relays
+    .filter(({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOMES.has(outcome))
+    .map(({ relay, outcome }) => ({ relay, outcome }));
+  if (unsuccessfulRelays.length) boundsReached.push('relay-errors');
   const hydration = operation === 'hydrate';
   const requestedAuthors = hydration && Array.isArray(result.requested?.filter?.authors)
     ? new Set(result.requested.filter.authors) : null;
@@ -491,6 +496,7 @@ function externalStatus(result, operation, memory) {
       },
       observed: result.counts.acceptedObservations,
       distinctEvents: result.counts.distinctEventsAcquired,
+      unsuccessfulRelays,
     },
     coverage: cloneJson(result.coverage),
   };
@@ -502,8 +508,15 @@ function externalWarnings(result) {
       externalWarnings(stageResult).map((warning) => `Stage ${id}: ${warning}`)
     ));
   }
-  if (!result?.coverage || result.completionReason === 'completed') return [];
-  return [`External operation completed with ${result.completionReason}.`];
+  if (!result?.coverage) return [];
+  const warnings = result.completionReason === 'completed'
+    ? [] : [`External operation completed with ${result.completionReason}.`];
+  const unsuccessful = result.coverage.relays
+    .filter(({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOMES.has(outcome));
+  if (unsuccessful.length) {
+    warnings.push(`${unsuccessful.length} relay attempt${unsuccessful.length === 1 ? '' : 's'} did not complete successfully.`);
+  }
+  return warnings;
 }
 
 function semanticError(error) {

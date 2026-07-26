@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. Signal shutdown still leaves an owned relay socket open. `packages/nostr-research/test/jsonl-session.functional.test.js:113` fails at the socket-closure assertion, and the validation exits 1. Correct the shutdown/cancellation path in `src/jsonl-session.js`, `src/interpreter.js`, or `src/acquire.js` so SIGINT/SIGTERM closes active external sockets, then make the full validation script pass.

@@ -1,7 +1,7 @@
 ---
 id: 038-jsonl-session-field-trial
 status: ready
-max_attempts: 4
+max_attempts: 6
 validation: workflow/tasks/038-jsonl-session-field-trial.validate.sh
 depends_on: 037-bounded-session-observation
 protected_paths: workflow/run.py workflow/prompts workflow/artifacts/declarative-operations-field-trials.md workflow/artifacts/declarative-research-plan-field-trial.md

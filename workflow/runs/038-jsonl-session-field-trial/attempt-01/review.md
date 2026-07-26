@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. Signal shutdown does not cancel an active external operation. In `bin/nostr-research-session.js:6-16`, SIGINT/SIGTERM only destroy stdin. While `src/jsonl-session.js:37` awaits `session.execute()`, its `finally` block—and therefore `session.close()`—cannot run until that operation finishes naturally. Wire signals directly to session closure/cancellation and add process-boundary coverage proving an active operation is cancelled and memory closes promptly.

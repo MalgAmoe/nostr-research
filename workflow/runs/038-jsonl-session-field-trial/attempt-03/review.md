@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. Signal shutdown does not close the owned relay transport. The required test `packages/nostr-research/test/jsonl-session.functional.test.js:113` fails with “session closure left the relay socket open,” causing the task validation to exit 1. Correct the cancellation/shutdown path so SIGINT/SIGTERM fully closes active external sockets before process exit, and ensure the complete validation script passes.

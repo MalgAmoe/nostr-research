@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/test/jsonl-session.functional.test.js:113` still fails: after `SIGTERM`, the relay-side socket remains open beyond the two-second deadline. Fix the shutdown lifecycle in `packages/nostr-research/src/acquire.js` so cancellation awaits actual closure of the owned transport, then rerun the task validation successfully. The acceptance criteria explicitly require clean signal cancellation and passing functional tests.

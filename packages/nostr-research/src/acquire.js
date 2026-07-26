@@ -1,4 +1,5 @@
 import { isCanonicalNostrEvent, ResearchMemoryError } from './index.js';
+import { connect as connectTls } from 'node:tls';
 import { matchFilter } from 'nostr-tools';
 import WebSocket from 'ws';
 
@@ -89,8 +90,8 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
     await new Promise((resolve) => {
       relayResult.contacted = true;
       const subscriptionId = `research-${crypto.randomUUID()}`;
-      const socket = new WebSocket(relay);
-      sockets.add(socket);
+      let socket;
+      let transport;
       let settled = false;
       let finishing = false;
 
@@ -101,13 +102,22 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
         resolve();
       };
 
+      socket = new WebSocket(relay, {
+        createConnection(options) {
+          transport = connectTls(options);
+          transport.once('close', settle);
+          return transport;
+        },
+      });
+      sockets.add(socket);
+
       const finish = (outcome, diagnostic = null) => {
         if (!finishing) {
           finishing = true;
           relayResult.outcome = outcome;
           relayResult.diagnostic = diagnostic;
         }
-        finishSocket(socket, subscriptionId, settle);
+        finishSocket(socket, subscriptionId, settle, outcome === 'cancelled', transport);
       };
       socket.__researchFinish = finish;
 
@@ -199,7 +209,10 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
             ? null
             : `Socket closed before relay completion (code ${event.code}).`;
         }
-        settle();
+        // During a connecting-handshake cancellation, `ws` emits its close
+        // event before the owned TLS transport has necessarily closed. The
+        // transport listener is the shutdown boundary in that case.
+        if (!transport) settle();
       });
     });
   }
@@ -299,7 +312,17 @@ function describeWebSocketError(error) {
   return `${code}${error.message}`;
 }
 
-function finishSocket(socket, subscriptionId, onClosed) {
+function finishSocket(socket, subscriptionId, onClosed, force = false, transport = undefined) {
+  if (force && socket.readyState !== WebSocket.CLOSED) {
+    // Cancellation is an ownership boundary, not a normal relay completion.
+    // During a TLS/WebSocket handshake `ws.terminate()` can run before `ws`
+    // has attached the transport as its active socket. Destroy the transport
+    // we created as well, so awaiting acquisition cancellation also awaits the
+    // actual owned TCP/TLS connection closing.
+    transport?.destroy();
+    socket.terminate();
+    return;
+  }
   if (socket.readyState === WebSocket.OPEN) {
     try {
       socket.send(JSON.stringify(['CLOSE', subscriptionId]));
