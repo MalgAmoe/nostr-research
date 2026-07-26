@@ -1,5 +1,11 @@
 # 001 — Begin with a UI-independent library and SQLite research memory
 
+Status: superseded by the bounded in-memory runtime adopted in tasks 024–026.
+
+This record preserves the initial architectural decision. It is not a
+description of the current implementation; see `CONTEXT.md` for the active
+project boundaries.
+
 ## Decision
 
 Begin the rebuild with a UI-independent Nostr research library backed by
