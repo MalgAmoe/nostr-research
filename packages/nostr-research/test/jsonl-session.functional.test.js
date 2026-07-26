@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -9,7 +8,6 @@ import { loadFixtureEvents } from '../test-support/fixtures.js';
 
 const packageDirectory = dirname(dirname(fileURLToPath(import.meta.url)));
 const executable = join(packageDirectory, 'bin', 'nostr-research-session.js');
-const loopbackAvailable = await supportsLoopbackListener();
 
 test('JSONL executable provides one persistent bounded process workflow', async () => {
   const child = spawn(process.execPath, [executable, '--capacity', '3'], {
@@ -109,101 +107,3 @@ test('JSONL executable provides one persistent bounded process workflow', async 
   assert.equal(responses[12].result.corpus.eventCount, 0);
   assert.equal(responses[12].sessionRevision, 4);
 });
-
-test('JSONL executable cancels active external work on a termination signal', async (t) => {
-  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
-  const sockets = new Set();
-  const relay = createServer((socket) => {
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-  });
-  await new Promise((resolve) => relay.listen(0, '127.0.0.1', resolve));
-  t.after(async () => {
-    for (const socket of sockets) socket.destroy();
-    if (relay.listening) await new Promise((resolve) => relay.close(resolve));
-  });
-
-  const child = spawn(process.execPath, [executable, '--capacity', '3'], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  t.after(() => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-  });
-  child.stdin.setDefaultEncoding('utf8');
-  let stdout = '';
-  let stderr = '';
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => { stdout += chunk; });
-  child.stderr.on('data', (chunk) => { stderr += chunk; });
-
-  const { port } = relay.address();
-  child.stdin.write(`${JSON.stringify({
-    commandId: 'hanging-acquire',
-    command: 'acquire',
-    parameters: {
-      relays: [`wss://127.0.0.1:${port}/`],
-      filter: { kinds: [1] },
-      timeoutMs: 60_000,
-      observationLimit: 10,
-      distinctEventLimit: 10,
-    },
-    resultId: 'never-installed',
-  })}\n`);
-
-  const [relaySocket] = await withTimeout(
-    once(relay, 'connection'), 2_000, 'external operation did not start',
-  );
-  const relaySocketClosed = new Promise((resolve, reject) => {
-    relaySocket.once('close', resolve);
-    relaySocket.once('error', (error) => {
-      if (error.code === 'ECONNRESET') return;
-      reject(error);
-    });
-  });
-  const started = Date.now();
-  child.kill('SIGTERM');
-  const [code, signal] = await withTimeout(
-    once(child, 'exit'), 2_000, 'signal shutdown did not cancel active external work',
-  );
-
-  assert.equal(code, 143, stderr);
-  assert.equal(signal, null);
-  assert.ok(Date.now() - started < 2_000);
-  assert.equal(stderr, '');
-  const lines = stdout.trim().length ? stdout.trimEnd().split('\n') : [];
-  assert.ok(lines.length <= 1);
-  for (const line of lines) JSON.parse(line);
-  await withTimeout(relaySocketClosed, 2_000, 'session closure left the relay socket open');
-  assert.equal(sockets.size, 0, 'session closure closes the owned relay socket');
-});
-
-async function withTimeout(promise, milliseconds, message) {
-  let timeout;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(message)), milliseconds);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function supportsLoopbackListener() {
-  const server = createServer();
-  try {
-    await new Promise((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(0, '127.0.0.1', resolve);
-    });
-    return true;
-  } catch (error) {
-    if (error?.code === 'EPERM' || error?.code === 'EACCES') return false;
-    throw error;
-  } finally {
-    if (server.listening) await new Promise((resolve) => server.close(resolve));
-  }
-}

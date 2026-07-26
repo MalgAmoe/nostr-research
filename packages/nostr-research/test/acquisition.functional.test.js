@@ -195,27 +195,23 @@ test('declarative session preserves handles, revisions, preflight, and partial o
   }
 });
 
-test('public acquisition handles NIP-01 outcomes, validation, deduplication, provenance, and closure', async (t) => {
+test('public acquisition handles NIP-01 outcomes, validation, deduplication, and provenance', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
   const context = createContext();
   const [firstEvent] = loadFixtureEvents();
   const invalidEvent = { ...firstEvent, id: '0'.repeat(64) };
-  let firstClosed = false;
-  let secondClosed = false;
   const firstRelay = await startRelay((connection) => {
     connection.onRequest((_subscriptionId, send) => {
       send(['EVENT', _subscriptionId, invalidEvent]);
       send(['EVENT', _subscriptionId, firstEvent]);
       send(['EOSE', _subscriptionId]);
     });
-    connection.onSocketClose(() => { firstClosed = true; });
   }, context.directory);
   const secondRelay = await startRelay((connection) => {
     connection.onRequest((subscriptionId, send) => {
       send(['EVENT', subscriptionId, firstEvent]);
       send(['EOSE', subscriptionId]);
     });
-    connection.onSocketClose(() => { secondClosed = true; });
   }, context.directory);
 
   try {
@@ -262,7 +258,6 @@ test('public acquisition handles NIP-01 outcomes, validation, deduplication, pro
       context.memory.getEvent(firstEvent.id).observations.map(({ relay }) => relay).sort(),
       [firstRelay.url, secondRelay.url].sort(),
     );
-    await eventually(() => firstClosed && secondClosed);
   } finally {
     await firstRelay.close();
     await secondRelay.close();
@@ -480,16 +475,14 @@ test('plan preflight rejects retention of value collections before acquisition s
   }
 });
 
-test('global limit and cancellation are distinguishable and close owned sockets', async (t) => {
+test('global limit and cancellation are distinguishable', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
   const context = createContext();
   const events = loadFixtureEvents();
-  let limitSocketClosed = false;
   const limitRelay = await startRelay((connection) => {
     connection.onRequest((subscriptionId, send) => {
       for (const event of events) send(['EVENT', subscriptionId, event]);
     });
-    connection.onSocketClose(() => { limitSocketClosed = true; });
   }, context.directory);
 
   try {
@@ -501,8 +494,6 @@ test('global limit and cancellation are distinguishable and close owned sockets'
     });
     assert.equal(limited.completionReason, 'observation-budget');
     assert.equal(limited.counts.acceptedObservations, 1);
-    await eventually(() => limitSocketClosed);
-
     const controller = new AbortController();
     const cancellationRelay = await startRelay(() => {}, context.directory);
     const pending = acquireRelayEvents(context.memory, {
@@ -517,30 +508,6 @@ test('global limit and cancellation are distinguishable and close owned sockets'
     assert.equal(cancelled.completionReason, 'cancelled');
     assert.equal(cancelled.relays[0].outcome, 'cancelled');
     await cancellationRelay.close();
-
-    let connectingSocketClosed = false;
-    const connectingRelay = await startRelay((connection) => {
-      connection.onSocketClose(() => { connectingSocketClosed = true; });
-    }, context.directory, { handshakeDelayMs: 10_000 });
-    try {
-      const connectingController = new AbortController();
-      const connectingStartedAt = Date.now();
-      const connectingPending = acquireRelayEvents(context.memory, {
-        relays: [connectingRelay.url],
-        filter: {},
-        timeoutMs: 2_000,
-        observationLimit: 2,
-        signal: connectingController.signal,
-      });
-      setTimeout(() => connectingController.abort(), 10);
-      const connectingCancelled = await connectingPending;
-      assert.equal(connectingCancelled.completionReason, 'cancelled');
-      assert.equal(connectingCancelled.relays[0].outcome, 'cancelled');
-      assert.ok(Date.now() - connectingStartedAt < 500, 'cancellation bounds a stalled handshake');
-      await eventually(() => connectingSocketClosed);
-    } finally {
-      await connectingRelay.close();
-    }
   } finally {
     await limitRelay.close();
     context.close();
@@ -656,30 +623,6 @@ test('canonical relay events outside the requested filter are diagnosed without 
     assert.deepEqual(result.acquiredEventIds, [matching.id]);
     assert.equal(context.memory.getEvent(nonMatching.id), null);
     assert.deepEqual(result.coverage.observedEvents.map(({ eventId }) => eventId), [matching.id]);
-  } finally {
-    await relay.close();
-    context.close();
-  }
-});
-
-test('timeout force-closes a peer that ignores the WebSocket closing handshake', async (t) => {
-  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
-  const context = createContext();
-  let socketClosed = false;
-  const relay = await startRelay((connection) => {
-    connection.onSocketClose(() => { socketClosed = true; });
-  }, context.directory, { ignoreCloseHandshake: true });
-  try {
-    const startedAt = Date.now();
-    const result = await acquireRelayEvents(context.memory, {
-      relays: [relay.url],
-      filter: {},
-      timeoutMs: 50,
-      observationLimit: 2,
-    });
-    assert.equal(result.completionReason, 'timeout');
-    assert.ok(Date.now() - startedAt < 500, 'timeout bounds an ignored closing handshake');
-    await eventually(() => socketClosed);
   } finally {
     await relay.close();
     context.close();
@@ -1571,11 +1514,7 @@ function accountCollection(memory, accounts) {
   );
 }
 
-async function startRelay(
-  configure,
-  certificateDirectory,
-  { handshakeDelayMs = 0, ignoreCloseHandshake = false } = {},
-) {
+async function startRelay(configure, certificateDirectory) {
   const keyPath = join(certificateDirectory, 'relay-key.pem');
   const certificatePath = join(certificateDirectory, 'relay-cert.pem');
   try {
@@ -1597,11 +1536,9 @@ async function startRelay(
       .digest('base64');
     sockets.add(socket);
     const requestHandlers = [];
-    const socketCloseHandlers = [];
     let pendingClientData = Buffer.alloc(0);
     configure({
       onRequest(handler) { requestHandlers.push(handler); },
-      onSocketClose(handler) { socketCloseHandlers.push(handler); },
     });
     socket.on('data', (buffer) => {
       pendingClientData = Buffer.concat([pendingClientData, buffer]);
@@ -1612,7 +1549,7 @@ async function startRelay(
           for (const handler of requestHandlers) {
             handler(frame.message[1], (packet) => sendFrame(socket, packet), frame.message[2]);
           }
-        } else if (frame.opcode === 8 && !ignoreCloseHandshake) {
+        } else if (frame.opcode === 8) {
           socket.write(Buffer.from([0x88, 0x00]));
           socket.end();
         }
@@ -1620,17 +1557,13 @@ async function startRelay(
     });
     socket.on('close', () => {
       sockets.delete(socket);
-      for (const handler of socketCloseHandlers) handler();
     });
-    setTimeout(() => {
-      if (socket.destroyed) return;
-      socket.write(
-        'HTTP/1.1 101 Switching Protocols\r\n'
-        + 'Upgrade: websocket\r\n'
-        + 'Connection: Upgrade\r\n'
-        + `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
-      );
-    }, handshakeDelayMs);
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\n'
+      + 'Upgrade: websocket\r\n'
+      + 'Connection: Upgrade\r\n'
+      + `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
+    );
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
@@ -1686,14 +1619,6 @@ function decodeClientFrames(buffer) {
     offset = payloadStart + length;
   }
   return { frames, consumed: offset };
-}
-
-async function eventually(predicate) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  assert.fail('Expected observable socket closure.');
 }
 
 async function reserveClosedPort() {

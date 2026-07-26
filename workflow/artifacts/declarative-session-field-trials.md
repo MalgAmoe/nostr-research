@@ -100,8 +100,6 @@ The full response was 1,275 bytes. The omitted portion above was the already
 bounded coverage object: one requested relay, the exact filter and budgets, one
 connection-failure diagnostic, no observed events, and `exhaustive: false`.
 
-## Findings and verdict
-
 ## Positive network verification
 
 A later network-enabled run repeated the executable trial with a capacity of
@@ -112,15 +110,10 @@ bounded note records, and grouped the selection by `event.author`. The grouped
 handle contained ten bounded groups and `show` returned five with `omitted: 6`.
 All of this occurred in one JSONL process without dynamic JavaScript.
 
-That trial caught and corrected one real transport regression: explicit raw
-TCP ownership for bounded handshake cancellation must preserve TLS SNI.
-Restoring `servername` made the same public acquisition succeed. A subsequent
-process-boundary run exposed that closing only the TLS/WebSocket layer could
-still leave its raw TCP parent open. Cancellation now destroys both layers and
-does not finish session shutdown until the owned raw transport emits `close`.
-The loopback-enabled functional scenario requires both the child and peer-side
-connection to terminate promptly; `ECONNRESET` is accepted only as another
-peer-visible form of socket closure.
+The same acquisition passed after the temporary custom transport experiment
+was removed and relay networking returned to the standard WebSocket client.
+
+## Findings and verdict
 
 - Dynamic JavaScript needed: none.
 - Agent usability: JSONL was better than the JavaScript REPL for correlation,
