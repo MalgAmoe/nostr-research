@@ -167,18 +167,20 @@ test('named account and note handles continue with bounded relationship provenan
   assert.equal(multiAuthored.ok, true);
   assert.equal(multiAuthored.result.completeness.status, 'complete');
   assert.deepEqual(
-    multiAuthored.result.completeness.inputs.map(({ subject, status, resultCount }) => ({
-      id: subject.id, status, resultCount,
-    })),
-    [
-      { id: alice, status: 'resolved', resultCount: 2 },
-      { id: carol, status: 'empty-valid-result', resultCount: 0 },
-    ],
+    multiAuthored.result.completeness.inputs,
+    {
+      count: 2,
+      resultCount: 2,
+      statuses: [
+        { value: 'empty-valid-result', count: 1 },
+        { value: 'resolved', count: 1 },
+      ],
+    },
   );
-  assert.deepEqual(multiAuthored.result.completeness.omissions, [{
-    subject: { type: 'account', id: carol },
-    reason: 'empty-valid-result',
-  }]);
+  assert.deepEqual(multiAuthored.result.completeness.omissions, {
+    count: 1,
+    reasons: [{ value: 'empty-valid-result', count: 1 }],
+  });
 
   const emptyFollows = await session.execute({
     commandId: 'empty-follows',
@@ -190,11 +192,11 @@ test('named account and note handles continue with bounded relationship provenan
   assert.equal(emptyFollows.ok, true);
   assert.equal(emptyFollows.result.handle.kind, 'accounts');
   assert.equal(emptyFollows.result.completeness.status, 'empty');
-  assert.deepEqual(emptyFollows.result.completeness.inputs, [{
-    subject: { type: 'account', id: carol },
-    status: 'empty-valid-result',
+  assert.deepEqual(emptyFollows.result.completeness.inputs, {
+    count: 1,
     resultCount: 0,
-  }]);
+    statuses: [{ value: 'empty-valid-result', count: 1 }],
+  });
   const hydratedEmptyFollows = await session.execute({
     commandId: 'hydrate-empty-follows',
     command: 'hydrate',
@@ -235,22 +237,18 @@ test('named account and note handles continue with bounded relationship provenan
   assert.equal(boundedMulti.ok, true);
   assert.equal(boundedMulti.result.handle.count, 2);
   assert.equal(boundedMulti.result.completeness.status, 'partial');
-  assert.deepEqual(
-    boundedMulti.result.completeness.inputs.map(
-      ({ subject, status, resultCount, omittedCount }) => ({
-        id: subject.id, status, resultCount, omittedCount,
-      }),
-    ),
-    [
-      { id: alice, status: 'resolved', resultCount: 2, omittedCount: undefined },
-      { id: daveNote.pubkey, status: 'event-limit', resultCount: 0, omittedCount: 1 },
+  assert.deepEqual(boundedMulti.result.completeness.inputs, {
+    count: 2,
+    resultCount: 2,
+    statuses: [
+      { value: 'event-limit', count: 1 },
+      { value: 'resolved', count: 1 },
     ],
-  );
-  assert.ok(boundedMulti.result.completeness.omissions.some((omission) => (
-    omission.subject.id === daveNote.pubkey
-      && omission.reason === 'event-limit'
-      && omission.omittedCount === 1
-  )));
+  });
+  assert.deepEqual(boundedMulti.result.completeness.omissions, {
+    count: 1,
+    reasons: [{ value: 'event-limit', count: 1 }],
+  });
 
   const whyRoot = await session.execute({
     commandId: 'why-root',

@@ -8,7 +8,6 @@ import {
 } from './plan.js';
 import {
   acquisitionCorpusAccounting,
-  facetResearchCollection,
   explainResearchMembership,
   presentHandleList,
   presentSessionStatus,
@@ -484,7 +483,7 @@ export class DeclarativeResearchSession {
           ...(isExternalOperation(operation)
             ? externalPresentation(result, operation, this.#memory)
             : operation === 'continue' ? {
-                completeness: result.completeness,
+                completeness: compactContinuationCompleteness(result.completeness),
                 ...(result.coverage
                   ? externalPresentation(result, operation, this.#memory) : {}),
               }
@@ -593,7 +592,7 @@ function presentResult(result, id, descriptor, revision, operation, memory) {
   if (operation === 'continue') {
     return {
       handle: metadata,
-      completeness: result.completeness,
+      completeness: compactContinuationCompleteness(result.completeness),
       ...(result.coverage ? externalPresentation(result, operation, memory) : {}),
     };
   }
@@ -608,11 +607,37 @@ function presentResult(result, id, descriptor, revision, operation, memory) {
 function externalPresentation(result, operation, memory) {
   return {
     external: externalStatus(result, operation, memory),
-    preview: showResearchValue(memory, result.collection, {
-      previewLimit: 5, excerptLimit: 160, sizeLimit: 8_000,
-    }),
-    facets: facetResearchCollection(memory, result.collection, { limit: 5 }),
   };
+}
+
+function compactContinuationCompleteness(value = {}) {
+  const inputs = value.inputs ?? [];
+  const omissions = value.omissions ?? [];
+  return {
+    status: value.status,
+    scope: value.scope,
+    exhaustive: value.exhaustive,
+    emptyValidResult: value.emptyValidResult,
+    inputs: {
+      count: inputs.length,
+      resultCount: inputs.reduce((total, input) => total + (input.resultCount ?? 0), 0),
+      statuses: countedValues(inputs.map(({ status }) => status)),
+    },
+    omissions: {
+      count: omissions.length,
+      reasons: countedValues(omissions.map(({ reason }) => reason)),
+    },
+    boundsReached: value.boundsReached ?? [],
+  };
+}
+
+function countedValues(values) {
+  return [...values.reduce((counts, value) => {
+    if (value !== undefined) counts.set(value, (counts.get(value) ?? 0) + 1);
+    return counts;
+  }, new Map())]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([value, count]) => ({ value, count }));
 }
 
 function handleMetadata(id, descriptor, value, revision) {

@@ -251,6 +251,12 @@ explicitly replaces an existing named result. Plans accept the documented
 research-plan array and an optional `outputs` map from stage IDs to result IDs.
 They use the same operation interpreter as in-process callers.
 
+Research commands return compact operational results by default: the named
+handle, bounded external-completeness and corpus effects where relevant, and
+warnings. They do not embed evidence previews or facets. Use `show` for a
+bounded summary or preview, `inspect` for current subject evidence, and
+`explain` for result membership reasons.
+
 Judgment commands are `annotate`, `annotations`, and `remove-annotations`.
 `annotate` and `remove-annotations` apply to every stable subject in their named
 input handle. `annotations` selects explicit judgments or caller labels into an
