@@ -1,11 +1,9 @@
 import { acquireRelayEvents, normalizeAcquisitionOptions } from './acquire.js';
 import { ResearchMemoryError, subject } from './index.js';
-
-const RELATIONSHIPS = new Set([
-  'authored-notes', 'profiles', 'follow-lists', 'followed-accounts', 'followers',
-  'replies', 'ancestors', 'mentions', 'quotes', 'referenced-events',
-  'conversation', 'shared-tags', 'linked-domains', 'expansion',
-]);
+import {
+  continuationOutputKind,
+  continuationSemantics,
+} from './operations.js';
 const KEYS = new Set([
   'relationship', 'source', 'relays', 'since', 'until', 'eventLimit', 'depth',
   'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency', 'signal',
@@ -49,7 +47,7 @@ export async function continueResearch(memory, input, options) {
     source: normalized.source,
     starts: starts.items.map(({ subject: itemSubject }) => itemSubject),
     limit: normalized.eventLimit,
-  });
+  }, continuationOutputKind(normalized.relationship));
   const projectionBoundReached = projection.boundReached;
   const externalPartial = acquisition && acquisition.completionReason !== 'completed';
   const unresolved = projection.omissions.some(
@@ -93,7 +91,7 @@ export function normalizeContinuation(memory, input, options) {
   if (!memory || typeof memory.asCollection !== 'function') {
     throw new ResearchMemoryError('An open research memory is required.');
   }
-  memory.asCollection(input);
+  const collection = memory.asCollection(input);
   if (!isPlainObject(options)) {
     throw new ResearchMemoryError('Continuation parameters must be a plain object.');
   }
@@ -101,8 +99,13 @@ export function normalizeContinuation(memory, input, options) {
   if (unknown.length) {
     throw new ResearchMemoryError(`Unknown continuation parameters: ${unknown.join(', ')}.`);
   }
-  if (!RELATIONSHIPS.has(options.relationship)) {
+  if (!continuationSemantics(options.relationship)) {
     throw new ResearchMemoryError(`Unsupported continuation relationship: ${options.relationship}.`);
+  }
+  if (!continuationSemantics(options.relationship).inputKinds.includes(collection.kind)) {
+    throw new ResearchMemoryError(
+      `Continuation relationship ${options.relationship} does not accept ${collection.kind} collections.`,
+    );
   }
   const source = options.source ?? 'local';
   if (!['local', 'relays'].includes(source)) {
@@ -118,7 +121,7 @@ export function normalizeContinuation(memory, input, options) {
     throw new ResearchMemoryError('Continuation since must not be later than until.');
   }
   if (source === 'relays') {
-    if (['linked-domains'].includes(options.relationship)) {
+    if (!continuationSemantics(options.relationship).external) {
       throw new ResearchMemoryError(
         'Unsupported external continuation relationship: linked-domains has no NIP-01 filter.',
       );
@@ -281,10 +284,10 @@ function continuationFilter(memory, starts, options) {
 }
 
 function inputIssue(memory, item, relationship) {
-  const required = ['authored-notes', 'profiles', 'follow-lists', 'followed-accounts', 'followers']
-    .includes(relationship) ? 'account' : 'event';
-  const supported = relationship === 'expansion'
-    ? ['account', 'event'].includes(item.type) : item.type === required;
+  const supportedTypes = continuationSemantics(relationship).inputKinds
+    .flatMap((kind) => kind === 'subjects' ? ['account', 'event']
+      : kind === 'accounts' ? ['account'] : ['event']);
+  const supported = supportedTypes.includes(item.type);
   if (!supported) return 'unsupported-subject-type';
   if (item.type === 'event' && !memory.getEvent(item.id)) return 'absent-local-evidence';
   if (relationship === 'followed-accounts') {

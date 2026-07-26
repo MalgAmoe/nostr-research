@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { validateEvent, verifyEvent } from 'nostr-tools';
+import {
+  MOVE_ROUTES,
+  SUBJECT_COLLECTION_KINDS,
+  operationSchema,
+  transformOutputKind,
+} from './operations.js';
 
 const EVENT_ID = /^[a-f0-9]{64}$/;
 const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
@@ -1648,7 +1654,7 @@ function eventRelationships(event) {
   return relationships;
 }
 
-const TRANSFORM_KINDS = new Set(['subjects', 'events', 'accounts', 'relationships']);
+const TRANSFORM_KINDS = new Set(SUBJECT_COLLECTION_KINDS);
 const PIPELINE_FIELDS = Object.freeze({
   common: ['subject', 'subject.type', 'subject.id', 'evidence.resident', 'observedRelay'],
   events: [
@@ -1668,14 +1674,6 @@ function validateRetainableCollectionKind(kind) {
 const GROUP_KEYS = new Set([
   'subject', 'event.author', 'event.kind', 'event.tag', 'event.linkedDomain', 'observedRelay',
 ]);
-const MOVE_ROUTES = {
-  'events:authors': 'accounts',
-  'events:referencedAccounts': 'accounts',
-  'events:referencedEvents': 'events',
-  'accounts:authoredEvents': 'events',
-  'accounts:followedAccounts': 'accounts',
-};
-
 function normalizeTransformOperation(value, inputKind, itemKind, index) {
   assertPlainObject(value, `Transform stage ${index + 1}`);
   const operation = value.operation;
@@ -1803,21 +1801,6 @@ function normalizeTransformOperation(value, inputKind, itemKind, index) {
     throw new ResearchMemoryError(`Move from ${inputKind} to ${value.to} is not supported.`);
   }
   return { ...common, to: value.to, limit: normalizeTransformLimit(value.limit) };
-}
-
-function transformOutputKind(inputKind, itemKind, operation) {
-  if (['project', 'distinct'].includes(operation.operation)) {
-    return { kind: 'projections', itemKind };
-  }
-  if (operation.operation === 'compare') return { kind: 'summaries', itemKind: 'summaries' };
-  if (['filter', 'sort', 'limit', 'sample',
-    'union', 'intersection', 'difference'].includes(operation.operation)) {
-    return { kind: inputKind, itemKind };
-  }
-  if (operation.operation === 'group') return { kind: 'groups', itemKind };
-  if (operation.operation === 'summarize') return { kind: 'summaries', itemKind: 'summaries' };
-  const kind = MOVE_ROUTES[`${inputKind}:${operation.to}`];
-  return { kind, itemKind: kind };
 }
 
 function normalizeTransformLimit(value) {
@@ -1980,7 +1963,10 @@ function transformContext(input, operation) {
 function applyFilter(memory, collection, operation) {
   const items = collection.items.filter((item) => matchesPredicate(memory, item, operation.where))
     .slice(0, operation.limit);
-  return resultCollection(items, {}, collection.kind);
+  const { kind } = transformOutputKind(
+    collection.kind, collection.itemKind ?? collection.kind, operation,
+  );
+  return resultCollection(items, {}, kind);
 }
 
 function applyProject(memory, collection, operation) {
@@ -2412,6 +2398,7 @@ export function collectionPipelineSchema() {
   return cloneJson({
     type: 'collection-pipeline-schema',
     version: 1,
+    research: operationSchema(),
     fields: {
       purpose: 'value fields accepted by project, distinct, and sort',
       ...PIPELINE_FIELDS,
@@ -2721,9 +2708,7 @@ export {
   DEFAULT_ACQUISITION_TIMEOUT_MS,
   DEFAULT_RELAY_CONCURRENCY,
 } from './acquire.js';
-export { expandResearch } from './expansion.js';
 export { continueResearch } from './continuation.js';
-export { resolveReplyContexts } from './reply-contexts.js';
 export { executeResearchPlan } from './plan.js';
 export {
   createDeclarativeResearchSession,

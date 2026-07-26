@@ -4,6 +4,7 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools';
 import {
   createDeclarativeResearchSession,
   createInMemoryResearchMemory,
+  executeResearchPlan,
 } from '@nostr-research/memory';
 
 const ALICE_SECRET = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
@@ -16,7 +17,7 @@ const carol = getPublicKey(CAROL_SECRET);
 test('named account and note handles continue with bounded relationship provenance', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 20 });
   const session = createDeclarativeResearchSession(memory);
-  const root = sign(1, 100, [], 'root', ALICE_SECRET);
+  const root = sign(1, 100, [['p', getPublicKey(BOB_SECRET)]], 'root', ALICE_SECRET);
   const other = sign(1, 110, [], 'another authored note', ALICE_SECRET);
   const reply = sign(
     1, 120, [['e', root.id, '', 'reply']], 'reply', BOB_SECRET,
@@ -26,8 +27,11 @@ test('named account and note handles continue with bounded relationship provenan
     0, 90, [], JSON.stringify({ name: 'carol' }), CAROL_SECRET,
   );
   const carolEmptyFollowList = sign(3, 95, [], '', CAROL_SECRET);
+  const aliceFollowList = sign(
+    3, 96, [['p', getPublicKey(BOB_SECRET)]], '', ALICE_SECRET,
+  );
   for (const event of [
-    root, other, reply, daveNote, carolProfile, carolEmptyFollowList,
+    root, other, reply, daveNote, carolProfile, carolEmptyFollowList, aliceFollowList,
   ]) {
     memory.ingest(event, {
       relay: 'wss://fixture.example/',
@@ -35,19 +39,21 @@ test('named account and note handles continue with bounded relationship provenan
     });
   }
 
-  await session.execute({
+  const seededRoot = await session.execute({
     commandId: 'seed-note',
     command: 'select',
     parameters: { scope: 'corpus', ids: [root.id] },
     resultId: 'root',
   });
-  await session.execute({
+  assert.equal(seededRoot.result.handle.kind, 'events');
+  const aliceAccount = await session.execute({
     commandId: 'author-handle',
     command: 'move',
     input: 'root',
     parameters: { to: 'authors', limit: 1 },
     resultId: 'alice',
   });
+  assert.equal(aliceAccount.result.handle.kind, 'accounts');
   const authored = await session.execute({
     commandId: 'authored',
     command: 'continue',
@@ -56,6 +62,7 @@ test('named account and note handles continue with bounded relationship provenan
     resultId: 'alice-notes',
   });
   assert.equal(authored.ok, true);
+  assert.equal(authored.result.handle.kind, 'events');
   assert.equal(authored.result.handle.count, 2);
   assert.equal(authored.result.completeness.status, 'complete');
   assert.equal(authored.result.completeness.scope, 'resident-corpus');
@@ -82,6 +89,53 @@ test('named account and note handles continue with bounded relationship provenan
       omitted: 1,
     },
   );
+
+  const refined = await session.execute({
+    commandId: 'refine-events',
+    command: 'filter',
+    input: 'alice-notes',
+    parameters: { where: { field: 'subject.type', equals: 'event' } },
+    resultId: 'refined-notes',
+  });
+  assert.equal(refined.ok, true);
+  assert.equal(refined.result.handle.kind, 'events');
+  const referencedAccounts = await session.execute({
+    commandId: 'referenced-accounts',
+    command: 'move',
+    input: 'refined-notes',
+    parameters: { to: 'referencedAccounts' },
+    resultId: 'referenced-accounts',
+  });
+  assert.equal(referencedAccounts.ok, true);
+  assert.equal(referencedAccounts.result.handle.kind, 'accounts');
+  const hydratedReferencedAccounts = await session.execute({
+    commandId: 'hydrate-referenced-accounts',
+    command: 'hydrate',
+    input: 'referenced-accounts',
+    parameters: { relays: ['wss://fixture.invalid/'], timeoutMs: 50 },
+    resultId: 'hydrated-referenced-accounts',
+  });
+  assert.equal(hydratedReferencedAccounts.ok, true);
+  assert.equal(hydratedReferencedAccounts.result.handle.kind, 'events');
+
+  const followed = await session.execute({
+    commandId: 'followed-accounts',
+    command: 'continue',
+    input: 'alice',
+    parameters: { relationship: 'followed-accounts', source: 'local' },
+    resultId: 'alice-follows',
+  });
+  assert.equal(followed.ok, true);
+  assert.equal(followed.result.handle.kind, 'accounts');
+  const hydratedFollows = await session.execute({
+    commandId: 'hydrate-follows',
+    command: 'hydrate',
+    input: 'alice-follows',
+    parameters: { relays: ['wss://fixture.invalid/'], timeoutMs: 50 },
+    resultId: 'hydrated-follows',
+  });
+  assert.equal(hydratedFollows.ok, true);
+  assert.equal(hydratedFollows.result.handle.kind, 'events');
 
   await session.execute({
     commandId: 'seed-carol',
@@ -134,12 +188,22 @@ test('named account and note handles continue with bounded relationship provenan
     resultId: 'carol-follows',
   });
   assert.equal(emptyFollows.ok, true);
+  assert.equal(emptyFollows.result.handle.kind, 'accounts');
   assert.equal(emptyFollows.result.completeness.status, 'empty');
   assert.deepEqual(emptyFollows.result.completeness.inputs, [{
     subject: { type: 'account', id: carol },
     status: 'empty-valid-result',
     resultCount: 0,
   }]);
+  const hydratedEmptyFollows = await session.execute({
+    commandId: 'hydrate-empty-follows',
+    command: 'hydrate',
+    input: 'carol-follows',
+    parameters: { relays: ['wss://fixture.invalid/'] },
+    resultId: 'hydrated-empty-follows',
+  });
+  assert.equal(hydratedEmptyFollows.ok, true);
+  assert.equal(hydratedEmptyFollows.result.handle.kind, 'events');
 
   await session.execute({
     commandId: 'seed-dave-note',
@@ -225,6 +289,92 @@ test('named account and note handles continue with bounded relationship provenan
   });
   assert.equal(conversation.ok, true);
   assert.equal(conversation.result.handle.count, 2);
+  assert.equal(conversation.result.handle.kind, 'events');
+
+  const authoredNavigationPlan = [
+    {
+      id: 'root', operation: 'select',
+      parameters: { scope: 'corpus', ids: [root.id] },
+    },
+    { id: 'account', operation: 'move', input: 'root', parameters: { to: 'authors' } },
+    {
+      id: 'authored', operation: 'continue', input: 'account',
+      parameters: { relationship: 'authored-notes', source: 'local', eventLimit: 10 },
+    },
+    {
+      id: 'events', operation: 'filter', input: 'authored',
+      parameters: { where: { field: 'subject.type', equals: 'event' } },
+    },
+    {
+      id: 'accounts', operation: 'move', input: 'events',
+      parameters: { to: 'referencedAccounts' },
+    },
+    {
+      id: 'hydrated', operation: 'hydrate', input: 'accounts',
+      parameters: { relays: ['wss://fixture.invalid/'], timeoutMs: 50 },
+    },
+  ];
+  const planned = await executeResearchPlan(memory, authoredNavigationPlan);
+  assert.deepEqual(
+    planned.stages.map(({ result }) => result.collection?.kind ?? result.kind),
+    ['events', 'accounts', 'events', 'events', 'accounts', 'events'],
+  );
+  assert.deepEqual(
+    planned.stages.map(({ resultKind }) => resultKind),
+    ['events', 'accounts', 'continuation-report', 'events', 'accounts', 'hydration-report'],
+  );
+
+  const genericRefinementPlan = [
+    {
+      id: 'notes', operation: 'select',
+      parameters: { scope: 'corpus', authors: [alice], kinds: [1] },
+    },
+    {
+      id: 'generic', operation: 'continue', input: 'notes',
+      parameters: { relationship: 'expansion', source: 'local', depth: 1 },
+    },
+    {
+      id: 'events', operation: 'filter', input: 'generic',
+      parameters: { where: { field: 'subject.type', equals: 'event' } },
+    },
+  ];
+  const refinedPlan = await executeResearchPlan(memory, genericRefinementPlan);
+  assert.deepEqual(
+    refinedPlan.stages.map(({ result }) => result.collection?.kind ?? result.kind),
+    ['events', 'subjects', 'events'],
+  );
+  const followedNavigationPlan = [
+    {
+      id: 'profile', operation: 'select',
+      parameters: { scope: 'corpus', ids: [carolProfile.id] },
+    },
+    { id: 'account', operation: 'move', input: 'profile', parameters: { to: 'authors' } },
+    {
+      id: 'follows', operation: 'continue', input: 'account',
+      parameters: { relationship: 'followed-accounts', source: 'local' },
+    },
+    {
+      id: 'hydrated', operation: 'hydrate', input: 'follows',
+      parameters: { relays: ['wss://fixture.invalid/'] },
+    },
+  ];
+  const followedPlan = await executeResearchPlan(memory, followedNavigationPlan);
+  assert.deepEqual(
+    followedPlan.stages.map(({ resultKind }) => resultKind),
+    ['events', 'accounts', 'continuation-report', 'hydration-report'],
+  );
+
+  const schema = await session.execute({
+    commandId: 'typed-schema', command: 'schema', parameters: {},
+  });
+  assert.equal(schema.ok, true);
+  assert.deepEqual(schema.result.research.continuations['followed-accounts'], {
+    inputKinds: ['accounts'], outputKind: 'accounts', sources: ['local', 'relays'],
+  });
+  assert.equal(
+    schema.result.research.continuations['authored-notes'].outputKind,
+    'events',
+  );
 
   const explained = await session.execute({
     commandId: 'why-reply',

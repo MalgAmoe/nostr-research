@@ -10,8 +10,6 @@ import {
   acquireRelayEvents,
   createDeclarativeResearchSession,
   createInMemoryResearchMemory,
-  expandResearch,
-  resolveReplyContexts,
 } from '@nostr-research/memory';
 
 const memory = createInMemoryResearchMemory({ capacity: 500 });
@@ -65,39 +63,6 @@ ingested and consume neither budget. Unknown acquisition options are rejected
 before relay contact. Attempt coverage is returned directly; the corpus does
 not keep a global acquisition history.
 Cancellation uses an `AbortSignal`.
-
-Targeted operations also receive the single corpus:
-
-```js
-const expanded = await expandResearch(memory, notes, {
-  relays: ['wss://relay.example'],
-  relationshipTypes: ['reply-parent', 'quoted-event'],
-  direction: 'outbound',
-  depth: 2,
-  limit: 50,
-  observationLimit: 200,
-  distinctEventLimit: 100,
-});
-
-const contexts = await resolveReplyContexts(
-  memory,
-  [{ type: 'account', id: publicKey }],
-  {
-    relays: ['wss://relay.example'],
-    authoredLimit: 20,
-    parentLimit: 20,
-    observationLimit: 100,
-    distinctEventLimit: 50,
-  },
-);
-```
-
-Explicit event starts are protected during bounded expansion additions.
-Reports expose corpus state before and after the operation, request filters,
-relay outcomes, unresolved subjects, completion reason, and bounds reached.
-Observation and distinct-event limits apply across the complete composed
-operation; an event ID returned again by a later nested request is counted only
-once against the composed distinct-event limit.
 
 ## Local collection algebra
 

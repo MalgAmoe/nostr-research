@@ -6,18 +6,14 @@ import {
 } from './acquire.js';
 import { ResearchMemoryError } from './index.js';
 import { continueResearch, normalizeContinuation } from './continuation.js';
-
-const OPERATIONS = new Set([
-  'acquire', 'select', 'filter', 'project', 'distinct', 'sort', 'limit', 'sample',
-  'group', 'summarize', 'move', 'union', 'intersection', 'difference', 'compare',
-  'hydrate', 'retain',
-  'continue',
-]);
-const LOCAL_TRANSFORMS = new Set([
-  'filter', 'project', 'distinct', 'sort', 'limit', 'sample', 'group', 'summarize', 'move',
-  'union', 'intersection', 'difference', 'compare',
-]);
-const SET_TRANSFORMS = new Set(['union', 'intersection', 'difference', 'compare']);
+import {
+  SUBJECT_COLLECTION_KINDS,
+  continuationSemantics,
+  isExternalOperation,
+  isSetOperation,
+  isTransformOperation,
+  operationSemantics,
+} from './operations.js';
 
 /**
  * Executes a linear, JSON-serializable list of named research stages.
@@ -37,7 +33,7 @@ export async function executeResearchPlan(memory, plan, execution = {}) {
 
   for (const stage of normalized) {
     const input = stage.input === undefined ? undefined : outputs.get(stage.input);
-    const executable = SET_TRANSFORMS.has(stage.operation)
+    const executable = isSetOperation(stage.operation)
       ? {
           ...stage,
           parameters: { ...stage.parameters, with: outputs.get(stage.parameters.with) },
@@ -46,8 +42,7 @@ export async function executeResearchPlan(memory, plan, execution = {}) {
     const result = await executeResearchOperation(memory, {
       ...executable,
       parameters: execution.signal && (
-        ['acquire', 'hydrate'].includes(stage.operation)
-        || (stage.operation === 'continue' && stage.parameters.source === 'relays')
+        isExternalOperation(stage.operation, stage.parameters)
       )
         ? { ...executable.parameters, signal: execution.signal }
         : executable.parameters,
@@ -100,7 +95,7 @@ export function normalizeResearchPlan(plan) {
     }
     const id = stage.id.trim();
     if (ids.has(id)) throw new ResearchMemoryError(`Duplicate research plan stage ID: ${id}.`);
-    if (!OPERATIONS.has(stage.operation)) {
+    if (!operationSemantics(stage.operation)) {
       throw new ResearchMemoryError(
         `Unsupported research plan operation at stage ${id}: ${stage.operation}.`,
       );
@@ -109,7 +104,8 @@ export function normalizeResearchPlan(plan) {
       throw new ResearchMemoryError(`Research plan stage ${id} parameters must be an object.`);
     }
     const hasInput = stage.input !== undefined;
-    if (stage.operation === 'acquire' && hasInput) {
+    const semantics = operationSemantics(stage.operation);
+    if (semantics.input === 'forbidden' && hasInput) {
       throw new ResearchMemoryError(`Research plan acquire stage ${id} must not have an input.`);
     }
     if (hasInput && (typeof stage.input !== 'string' || !ids.has(stage.input))) {
@@ -117,12 +113,12 @@ export function normalizeResearchPlan(plan) {
         `Research plan stage ${id} input must name an earlier stage.`,
       );
     }
-    if (!hasInput && !['acquire', 'select'].includes(stage.operation)) {
+    if (!hasInput && !['forbidden', 'optional-acquisition'].includes(semantics.input)) {
         throw new ResearchMemoryError(
           `Research plan stage ${id} input must name an earlier stage.`,
         );
     }
-    if (SET_TRANSFORMS.has(stage.operation)
+    if (isSetOperation(stage.operation)
         && (typeof stage.parameters.with !== 'string' || !ids.has(stage.parameters.with))) {
       throw new ResearchMemoryError(
         `Research plan ${stage.operation} stage ${id} parameter with must name an earlier stage.`,
@@ -169,7 +165,7 @@ export function normalizeResearchPlan(plan) {
  */
 export function preflightResearchOperation(memory, operation, input = undefined, references = undefined) {
   const { operation: name, parameters } = operation;
-  if (!OPERATIONS.has(name) || !isPlainObject(parameters)) {
+  if (!operationSemantics(name) || !isPlainObject(parameters)) {
     throw new ResearchMemoryError(`Unsupported research operation: ${name}.`);
   }
   if (name === 'acquire') {
@@ -194,8 +190,8 @@ export function preflightResearchOperation(memory, operation, input = undefined,
     };
   }
   if (!input) throw new ResearchMemoryError(`Research ${name} operation requires an input.`);
-  if (LOCAL_TRANSFORMS.has(name)) {
-    const transformParameters = SET_TRANSFORMS.has(name)
+  if (isTransformOperation(name)) {
+    const transformParameters = isSetOperation(name)
       ? {
           ...parameters,
           with: descriptorCollection(inputForSetOperation(references, parameters.with, name)),
@@ -214,13 +210,13 @@ export function preflightResearchOperation(memory, operation, input = undefined,
     return { kind: 'events', itemKind: 'events', resultKind: 'hydration-report' };
   }
   if (name === 'continue') {
-    if (!['subjects', 'events', 'accounts'].includes(input.kind)) {
-      throw new ResearchMemoryError(
-        'Research continue operation requires a subject collection.',
-      );
-    }
     normalizeContinuation(memory, descriptorCollection(input), parameters);
-    return { kind: 'subjects', itemKind: 'subjects', resultKind: 'continuation-report' };
+    const relationship = continuationSemantics(parameters.relationship);
+    return {
+      kind: relationship.outputKind,
+      itemKind: relationship.outputKind,
+      resultKind: 'continuation-report',
+    };
   }
   const { name: retainedName, options = {} } = parameters;
   rejectUnknownParameterKeys(
@@ -241,7 +237,7 @@ function inputForSetOperation(outputs, id, operation) {
 }
 
 function descriptorCollection(descriptor) {
-  if (!['subjects', 'events', 'accounts', 'relationships'].includes(descriptor.kind)
+  if (!SUBJECT_COLLECTION_KINDS.includes(descriptor.kind)
       || ['acquisition-report', 'hydration-report'].includes(descriptor.resultKind)) {
     throw new ResearchMemoryError(
       'Set composition requires a compatible subject collection result.',
@@ -312,7 +308,7 @@ export async function executeResearchOperation(memory, operation, input = undefi
       },
     };
   }
-  if (LOCAL_TRANSFORMS.has(name)) {
+  if (isTransformOperation(name)) {
     return memory.transform(input, { operation: name, ...parameters });
   }
   if (name === 'hydrate') {
@@ -391,11 +387,7 @@ function emptyHydrationReport(memory, options) {
 }
 
 function planResultKind(operation, result) {
-  if (operation === 'acquire') return 'acquisition-report';
-  if (operation === 'hydrate') return 'hydration-report';
-  if (operation === 'retain') return 'retained-selection';
-  if (operation === 'continue') return 'continuation-report';
-  return result.kind ?? result.type;
+  return operationSemantics(operation).resultKind ?? result.kind ?? result.type;
 }
 
 function normalizeSelectionScope(parameters, hasInput) {

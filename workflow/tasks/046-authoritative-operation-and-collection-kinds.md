@@ -1,6 +1,6 @@
 ---
 id: 046-authoritative-operation-and-collection-kinds
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/046-authoritative-operation-and-collection-kinds.validate.sh
 depends_on: 045-remove-superseded-research-interfaces

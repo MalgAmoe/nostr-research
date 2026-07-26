@@ -14,12 +14,15 @@ import {
   presentSessionStatus,
   showResearchValue,
 } from './presentation.js';
+import {
+  isExternalOperation,
+  isSetOperation,
+  operationSchema,
+  researchOperationNames,
+} from './operations.js';
 
 const COMMANDS = new Set([
-  'acquire', 'select', 'filter', 'project', 'distinct', 'sort', 'limit', 'sample',
-  'group', 'summarize', 'move', 'union', 'intersection', 'difference', 'compare',
-  'hydrate', 'retain', 'plan',
-  'continue',
+  ...researchOperationNames(), 'plan',
   'annotate', 'annotations', 'remove-annotations',
   'template',
   'show', 'inspect', 'explain', 'list', 'sets', 'set', 'status', 'schema',
@@ -31,8 +34,6 @@ const OBSERVATIONS = new Set([
 const LIFECYCLE = new Set([
   'release', 'release-all', 'rename-set', 'replace-set', 'delete-set', 'reset', 'close',
 ]);
-const EXTERNAL = new Set(['acquire', 'hydrate']);
-const SET_TRANSFORMS = new Set(['union', 'intersection', 'difference', 'compare']);
 const UNSUCCESSFUL_RELAY_OUTCOMES = new Set(['connection-failure', 'closed']);
 const COMMAND_KEYS = new Set([
   'commandId', 'ifRevision', 'command', 'input', 'parameters', 'resultId', 'replace',
@@ -350,17 +351,16 @@ export class DeclarativeResearchSession {
       allowEmptyRetention = allowEmpty === true;
       operationParameters = retentionParameters;
     }
-    const referenced = SET_TRANSFORMS.has(command.command)
+    const referenced = isSetOperation(command.command)
       ? this.#requireHandle(command.parameters.with) : undefined;
     const operation = {
       operation: command.command,
-      parameters: SET_TRANSFORMS.has(command.command)
+      parameters: isSetOperation(command.command)
         ? { ...operationParameters, with: referenced.value }
         : operationParameters,
     };
-    const externallyBacked = EXTERNAL.has(command.command)
-      || (command.command === 'continue' && command.parameters.source === 'relays');
-    const descriptorOperation = SET_TRANSFORMS.has(command.command)
+    const externallyBacked = isExternalOperation(command.command, command.parameters);
+    const descriptorOperation = isSetOperation(command.command)
       ? { operation: command.command, parameters: cloneJson(command.parameters) }
       : operation;
     const references = referenced === undefined ? undefined
@@ -458,7 +458,7 @@ export class DeclarativeResearchSession {
       run: () => this.#runPlan(plan),
       mutates: (report) => report.stages.some(({ operation, result }) => (
         operation === 'retain'
-        || ((EXTERNAL.has(operation) || result.type === 'continuation-report')
+        || ((isExternalOperation(operation) || result.type === 'continuation-report')
           && (result.counts?.acceptedObservations ?? 0) > 0)
       )),
       install: outputs.size === 0 ? null : (report) => {
@@ -481,7 +481,7 @@ export class DeclarativeResearchSession {
               outputs.get(id), descriptors.get(id), result, this.#revision,
             ),
           } : {}),
-          ...(EXTERNAL.has(operation)
+          ...(isExternalOperation(operation)
             ? externalPresentation(result, operation, this.#memory)
             : operation === 'continue' ? {
                 completeness: result.completeness,
@@ -597,7 +597,7 @@ function presentResult(result, id, descriptor, revision, operation, memory) {
       ...(result.coverage ? externalPresentation(result, operation, memory) : {}),
     };
   }
-  return EXTERNAL.has(operation)
+  return isExternalOperation(operation)
     ? {
         handle: metadata,
         ...externalPresentation(result, operation, memory),
@@ -783,11 +783,7 @@ function sessionSchema() {
       },
     },
     commands: {
-      research: [
-        'acquire', 'select', 'filter', 'project', 'distinct', 'sort', 'limit', 'sample',
-        'group', 'summarize', 'move', 'union', 'intersection', 'difference', 'compare',
-        'hydrate', 'continue', 'retain', 'plan',
-      ],
+      research: [...researchOperationNames(), 'plan'],
       templates: {
         'accounts-from-notes': 'move(input, {to:"authors", limit})',
         'authored-notes': 'continue(input, {relationship:"authored-notes", source, ...bounds})',
@@ -840,6 +836,7 @@ function sessionSchema() {
       'account.name': 'literal Nostr kind-0 profile field "name"',
       'account.display_name': 'literal Nostr kind-0 profile field "display_name"',
     },
+    research: operationSchema(),
     templateContract: 'template returns its normalized ordinary operation in result.expansion.',
     locality: 'Handles, retained selections, and annotations are process-local and disappear on reset, close, or process exit.',
   };

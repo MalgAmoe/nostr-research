@@ -549,15 +549,12 @@ function provenanceSummary(items) {
   return { observations, relays: [...relays].sort() };
 }
 
-function compactContext(context, resultingSubjectCount) {
+function compactContext(context) {
   if (!context || typeof context !== 'object') return context;
-  const { relationships, expansion, ...rest } = context;
+  const { relationships, ...rest } = context;
   return {
     ...rest,
     ...(Array.isArray(relationships) ? { relationshipCount: relationships.length } : {}),
-    ...(expansion ? {
-      expansion: compactExpansion(expansion, resultingSubjectCount),
-    } : {}),
   };
 }
 
@@ -712,92 +709,6 @@ function corpusState(memory) {
   };
 }
 
-function compactExpansion(expansion, resultingSubjectCount) {
-  const options = expansion.options ?? {};
-  const boundedBy = expansion.boundedBy ?? {};
-  const failures = expansionFailures(expansion.requests);
-  const authoredRequests = (expansion.requests ?? []).filter(
-    ({ purpose }) => purpose === 'authored-notes',
-  );
-  return {
-    subjects: {
-      starting: expansion.startingSubjects?.length ?? 0,
-      resulting: resultingSubjectCount,
-    },
-    requests: expansion.requestCount ?? expansion.requests?.length ?? 0,
-    ...(options.authoredLimit === undefined ? {} : {
-      authoredNoteRequests: authoredRequests.length,
-    }),
-    filters: expansion.filterCount ?? 0,
-    counts: {
-      acceptedObservations: expansion.counts?.acceptedObservations ?? 0,
-      distinctEventsAcquired: expansion.counts?.distinctEventsAcquired ?? 0,
-      newlyStoredCorpusEvents: expansion.counts?.newlyStoredCorpusEvents ?? 0,
-      duplicateObservations: expansion.counts?.duplicateObservations ?? 0,
-      receivedPackets: expansion.counts?.receivedPackets ?? 0,
-      invalid: expansion.counts?.invalid ?? 0,
-    },
-    corpus: {
-      before: corpusCapacity(expansion.corpusBefore),
-      after: corpusCapacity(expansion.corpusAfter),
-    },
-    unresolved: {
-      before: unresolvedCounts(expansion.unresolvedBefore),
-      after: unresolvedCounts(expansion.unresolvedAfter),
-    },
-    completionReason: expansion.completionReason,
-    bounds: {
-      depth: { limit: options.depth, reached: boundedBy.depth === true },
-      traversal: { limit: options.limit, reached: boundedBy.traversalLimit === true },
-      observations: {
-        limit: options.observationLimit,
-        reached: boundedBy.observationBudget === true,
-      },
-      distinctEvents: {
-        limit: options.distinctEventLimit,
-        reached: boundedBy.distinctEventBudget === true,
-      },
-      ...(options.authoredLimit === undefined ? {} : {
-        authoredNotesPerAccount: { limit: options.authoredLimit },
-      }),
-      timeoutMs: { limit: options.timeoutMs, reached: boundedBy.timeout === true },
-      cancellation: { reached: boundedBy.cancellation === true },
-    },
-    failures,
-  };
-}
-
-function corpusCapacity(value) {
-  return { events: value?.eventCount ?? 0, capacity: value?.capacity ?? 0 };
-}
-
-function unresolvedCounts(value) {
-  return {
-    events: Array.isArray(value?.events) ? value.events.length : 0,
-    accounts: Array.isArray(value?.accounts) ? value.accounts.length : 0,
-  };
-}
-
-function expansionFailures(requests) {
-  const failures = [];
-  const seen = new Set();
-  for (const request of requests ?? []) {
-    for (const response of request.relays ?? []) {
-      if (!response.diagnostic) continue;
-      const diagnostic = excerpt(response.diagnostic, 160);
-      const key = JSON.stringify([response.relay, diagnostic]);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      failures.push({ relay: response.relay, diagnostic });
-    }
-  }
-  const shown = failures.slice(0, 5);
-  return {
-    items: shown,
-    omitted: failures.length - shown.length,
-  };
-}
-
 function facetCategory(map, limit, present) {
   const all = [...map.entries()]
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
@@ -869,15 +780,11 @@ function boundedInteger(value, fallback, maximum, label, minimum = 1) {
 function enforceSize(value, maximum) {
   const copy = structuredClone(value);
   while (Buffer.byteLength(JSON.stringify(copy)) > maximum && Array.isArray(copy.preview)
-      && copy.preview.length > (copy.context?.expansion ? 0 : 1)) {
+      && copy.preview.length > 1) {
     copy.preview.pop();
     copy.omitted = (copy.omitted ?? 0) + 1;
   }
   if (Buffer.byteLength(JSON.stringify(copy)) <= maximum) return copy;
-  if (copy.context?.expansion) {
-    compactExpansionPresentation(copy, maximum);
-    if (Buffer.byteLength(JSON.stringify(copy)) <= maximum) return copy;
-  }
   return {
     type: copy.type, ...(copy.id ? { id: copy.id } : {}),
     ...(copy.count !== undefined ? { count: copy.count } : {}),
@@ -903,27 +810,6 @@ function enforceSize(value, maximum) {
     ...(copy.corpus ? { corpus: copy.corpus } : {}),
     provenance: [],
   };
-}
-
-function compactExpansionPresentation(value, maximum) {
-  value.provenance = [];
-  const failures = value.context.expansion.failures;
-  while (Buffer.byteLength(JSON.stringify(value)) > maximum && failures.items.length > 1) {
-    failures.items.pop();
-    failures.omitted += 1;
-  }
-
-  for (const limit of [120, 80, 48, 32, 20, 12]) {
-    if (Buffer.byteLength(JSON.stringify(value)) <= maximum) return;
-    failures.items = failures.items.map((failure) => ({
-      relay: excerpt(failure.relay, limit),
-      diagnostic: excerpt(failure.diagnostic, limit),
-    }));
-  }
-
-  if (Buffer.byteLength(JSON.stringify(value)) > maximum) {
-    value.context = { expansion: value.context.expansion };
-  }
 }
 
 function increment(map, key) {

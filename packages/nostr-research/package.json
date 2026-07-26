@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/acquire.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/expansion.js && node --check src/reply-contexts.js && node --check src/presentation.js && node --check src/jsonl-session.js && node --check bin/nostr-research-session.js"
+    "check": "node --check src/index.js && node --check src/acquire.js && node --check src/operations.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/presentation.js && node --check src/jsonl-session.js && node --check bin/nostr-research-session.js"
   },
   "engines": {
     "node": ">=22.5.0"
