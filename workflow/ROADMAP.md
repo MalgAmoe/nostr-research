@@ -103,3 +103,16 @@ The accepted JSONL milestone trial exposed one final bounded-presentation
 cleanup: heterogeneous continuation handles must be showable or return a clear
 semantic type error, never `INTERNAL_ERROR`. Task 044 addresses only that
 field-evidenced defect.
+
+The subsequent live research trial showed that the remaining problem is
+architectural rather than another isolated presentation case. The package
+still exposes several generations of research interface, while operation and
+collection-kind knowledge is reconstructed independently by memory, plans,
+continuation, and the interpreter. Tasks 045-047 therefore:
+
+1. delete the superseded JavaScript console and active-selection session;
+2. make operation semantics and collection kinds authoritative, absorbing or
+   deleting older expansion/reply interfaces where continuation supersedes
+   them; and
+3. remove compensating presentation/test complexity and validate the reduced
+   design through the real JSONL navigation path.
