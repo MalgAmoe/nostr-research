@@ -1,0 +1,75 @@
+Exit code: 0
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/acquire.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/expansion.js && node --check src/reply-contexts.js && node --check src/session.js && node --check src/presentation.js && node --check src/console.js && node --check src/jsonl-session.js && node --check bin/nostr-research-console.js && node --check bin/nostr-research-session.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+(node:37689) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ declarative session preserves handles, revisions, preflight, and partial outcomes (204.585208ms)
+✔ public acquisition handles NIP-01 outcomes, validation, deduplication, and provenance (154.681917ms)
+✔ account hydration derives a bounded metadata filter from account subjects (34.91275ms)
+✔ a named public plan composes bounded acquisition, algebra, hydration, and retention (97.959667ms)
+✔ plan preflight rejects retention of value collections before acquisition starts (49.8045ms)
+✔ global limit and cancellation are distinguishable (63.203ms)
+✔ distinct-event budget ignores duplicate observations while observation budget stays hard (203.82675ms)
+✔ canonical relay events outside the requested filter are diagnosed without ingestion (22.521541ms)
+✔ timeout and partial connection failure remain observable (138.595291ms)
+✔ acquisition rejects unusable public inputs before networking (0.413542ms)
+✔ console expansion rejects invalid bounds and semantics before networking (0.476083ms)
+Expanding through 2 relay(s), depth 2, observation limit 10, distinct-event limit 100, authored-note limit 2 per starting account...
+Expansion completed: 3 request(s), 6 accepted observation(s), 6 distinct event(s), 7 resident event(s).
+✔ authored-note expansion samples only explicit account starts within per-account and global bounds (101.426459ms)
+✔ authored-note expansion obeys the complete operation budget and stays disabled by default (75.673334ms)
+✔ expansion reuses distinct capacity when a later request repeats an earlier event (38.866041ms)
+Resolving reply contexts through 2 relay(s), authored limit 6, parent limit 2...
+Reply contexts completed: 5 reply/replies, 2 unresolved parent(s), 7 accepted observation(s), 7 distinct event(s).
+✔ bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps (137.875416ms)
+Expanding through 2 relay(s), depth 2, observation limit 10, distinct-event limit 100...
+Expansion completed: 6 request(s), 4 accepted observation(s), 4 distinct event(s), 5 resident event(s).
+✔ console expansion performs bounded targeted multi-hop acquisition (82.37125ms)
+✔ exported expansion uses the global budget for reply breadth and preserves tiny-corpus seeds (83.703833ms)
+✔ typed local stages refine, balance, summarize, and move trial-shaped evidence (49.73775ms)
+✔ empty paths retain typed context and invalid plans fail before execution (1.5495ms)
+✔ bounded groups expose exact membership, refresh evidence, and summarize exact counts (13.243292ms)
+✔ a local-only named plan can query resident memory without implicit acquisition (0.635084ms)
+✔ stable bounds and compatible set composition share the public pipeline algebra (11.342209ms)
+✔ pipeline schema exposes literal fields and preflight rejects invalid composition (3.6025ms)
+✔ bounded groups preserve complete derived inputs and provenance for aggregation (16.345208ms)
+✔ one console process preserves JavaScript state and composes a bounded research loop (348.871042ms)
+✔ named account and note handles continue with bounded relationship provenance (2231.036625ms)
+✔ declarative observation and lifecycle form one bounded public workflow (43.063542ms)
+✔ declarative show bounds grouped and summarized named results (8.005125ms)
+✔ declarative named results compose compatible sets and expose their schema (4.0135ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (33.065208ms)
+✔ collections re-resolve stable subjects across observations, replacement metadata, and eviction (36.741917ms)
+✔ JSONL executable provides one persistent bounded process workflow (115.3ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (26.601542ms)
+✔ presentation and facets orient surviving research values (59.365208ms)
+✔ replaceable selection and follow interpretation remain stable in one process (58.536959ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (30.111625ms)
+✔ current account metadata uses replaceable semantics and profile search returns source evidence (20.447083ms)
+✔ large retention is atomic, bounded, process-local, and directly navigable (2281.975291ms)
+✔ selection, bounded traversal, projection, retention, and continuation compose (40.47925ms)
+✔ a session only changes active selection explicitly and checkpoints it process-locally (37.640375ms)
+✔ retained reactivation does not recreate evicted canonical evidence (7.616833ms)
+ℹ tests 41
+ℹ suites 0
+ℹ pass 41
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2534.854125

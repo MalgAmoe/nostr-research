@@ -339,9 +339,16 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
     compare(left, right) {
       const leftCollection = memory.asCollection(left);
       const rightCollection = memory.asCollection(right);
+      if (leftCollection.kind !== rightCollection.kind) {
+        throw new ResearchMemoryError(
+          `compare requires compatible result kinds; received ${leftCollection.kind} and ${rightCollection.kind}.`,
+        );
+      }
       const leftKeys = new Set(leftCollection.items.map(itemKey));
       const rightKeys = new Set(rightCollection.items.map(itemKey));
       return {
+        type: 'result-comparison',
+        kind: leftCollection.kind,
         leftCount: leftCollection.items.length,
         rightCount: rightCollection.items.length,
         shared: leftCollection.items.filter((item) => rightKeys.has(itemKey(item))),

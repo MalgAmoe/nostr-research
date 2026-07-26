@@ -308,6 +308,17 @@ presentation options. Bounded presentation and detailed evidence options
 belong to `show(value, options)`.
 Compact `show` output summarizes reasons; `show(value, {
 includeEvidence: true })` exposes detailed reasons, provenance, and evidence.
+Collection `show` output also includes a bounded `orientation` projection:
+population by subject type, preview ordering and omission metadata, observation
+freshness, corpus pressure and nonresident subjects, retained memberships,
+top and long-tail facets, and conversation relationship counts. These are
+reproducible descriptions of the supplied result, not rankings or conclusions.
+Membership evidence is reported separately from resident canonical evidence,
+so an account derived from authored notes remains explainable without implying
+that profile metadata is resident. Conversation counts use collection edges
+when available and otherwise use the relationship reasons preserved on members.
+`show(compare(left, right))` reports shared and side-only populations with
+bounded previews for compatible result kinds.
 `research.memory` remains the advanced route; there is no workspace object or
 database option. `.exit` or Ctrl-D cancels active acquisition and closes and
 clears the corpus.

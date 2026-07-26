@@ -52,10 +52,38 @@ test('presentation and facets orient surviving research values', () => {
     const shownFacets = environment.research.show(facets, { previewLimit: 1 });
     const shownSet = environment.research.show(memory.getSet(retained.id));
     const shownCorpus = environment.research.show(memory.describe());
+    const comparison = environment.research.show(environment.research.compare(
+      selected,
+      memory.collection([selected.items[1]], { operation: 'comparison-seed' }),
+    ), { previewLimit: 1 });
+    const accounts = memory.transform(selected, {
+      operation: 'move', to: 'authors', limit: 10,
+    });
+    const shownAccounts = environment.research.show(accounts, { previewLimit: 1 });
+    const reasonOnlyConversation = memory.collection([{
+      subject: selected.items[1].subject,
+      reasons: [{
+        type: 'relationship',
+        relationshipType: 'reply-root',
+        sourceEventId: selected.items[1].subject.id,
+        targetId: selected.items[0].subject.id,
+      }],
+    }], { operation: 'continuation', relationship: 'conversation' });
+    const shownConversation = environment.research.show(reasonOnlyConversation);
     const projected = environment.research.project(selected, { mode: 'ids' });
     const projectedWithAnnotation = environment.research.project(selected, { mode: 'compact' });
     assert.equal(shownCollection.type, 'result-collection');
     assert.equal(shownCollection.count, 2);
+    assert.equal(shownCollection.orientation.population.subjects, 2);
+    assert.equal(shownCollection.orientation.sampling.method, 'collection order (oldest)');
+    assert.equal(shownCollection.orientation.truncation.omittedSubjects, 1);
+    assert.equal(shownCollection.orientation.freshness.observationCount, 3);
+    assert.equal(shownCollection.orientation.corpus.retainedMemberships, 2);
+    assert.equal(shownCollection.orientation.facets.linkedSourceDomains.omitted, 1);
+    assert.equal(
+      shownCollection.orientation.facets.linkedSourceDomains.tail[0].domain,
+      'example.org',
+    );
     assert.ok(shownCollection.preview[0].evidence.event.content.length <= 40);
     assert.equal(shownFacets.type, 'facets');
     assert.equal(shownFacets.authors.values.length, 1);
@@ -66,6 +94,21 @@ test('presentation and facets orient surviving research values', () => {
     assert.equal(shownSet.type, 'set');
     assert.equal(shownSet.count, 2);
     assert.equal(shownCorpus.type, 'corpus-summary');
+    assert.equal(comparison.type, 'result-comparison');
+    assert.deepEqual(comparison.population, {
+      left: 2, right: 1, shared: 1, onlyLeft: 1, onlyRight: 0,
+    });
+    assert.equal(comparison.truncation.truncated, false);
+    assert.equal(shownAccounts.orientation.population.residentEvidence, 0);
+    assert.equal(shownAccounts.orientation.population.subjectsWithMembershipEvidence, 1);
+    assert.ok(shownAccounts.orientation.membershipEvidence.reasonCount > 0);
+    assert.ok(shownAccounts.orientation.membershipEvidence.provenanceCount > 0);
+    assert.equal(shownAccounts.orientation.freshness.observationCount, 3);
+    assert.equal(shownConversation.orientation.conversation.relationshipCount, 1);
+    assert.deepEqual(
+      shownConversation.orientation.conversation.types.values,
+      [{ id: 'reply-root', count: 1 }],
+    );
     assert.deepEqual(
       projected,
       selected.items.map(({ subject: item }) => ({ type: item.type, id: item.id })),

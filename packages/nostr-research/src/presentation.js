@@ -16,6 +16,7 @@ export function showResearchValue(memory, session, value, options = {}) {
   else if (value?.type === 'result-collection') shown = showCollection(memory, value, settings);
   else if (value?.type === 'typed-collection') shown = showTypedCollection(memory, value, settings);
   else if (value?.type === 'facets') shown = showFacets(value, settings);
+  else if (value?.type === 'result-comparison') shown = showComparison(memory, value, settings);
   else if (isSessionDescription(value)) shown = showSession(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
   else if (isResearchSet(value)) shown = showSet(memory, value, settings);
@@ -146,6 +147,7 @@ export function facetResearchCollection(memory, value, options = {}) {
     }
   }
 
+  const items = [...records].map(([id]) => ({ subject: { type: 'event', id } }));
   return {
     type: 'facets',
     count: records.size,
@@ -171,6 +173,8 @@ export function facetResearchCollection(memory, value, options = {}) {
       id, domain: id, count,
     })),
     presence: facetCategory(presence, settings.limit, (id, count) => ({ id, count })),
+    freshness: evidenceFreshness(memory, items),
+    corpus: corpusEffects(memory, items),
   };
 }
 
@@ -194,26 +198,43 @@ function showCollection(memory, collection, settings) {
     omitted: Math.max(0, collection.items.length - preview.items.length),
     context: compactContext(collection.context, collection.items.length),
     provenance: provenanceSummary(resolved.items),
+    orientation: collectionOrientation(memory, collection, settings),
   };
 }
 
 function showTypedCollection(memory, collection, settings) {
   const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
   const resolved = memory.asCollection(collection);
+  const bounds = collection.bounds ?? resolved.bounds;
   const preview = resolved.items.slice(0, limit).map((item) => (
     resolved.kind === 'groups'
       ? showGroup(memory, item, resolved.itemKind, settings)
       : showSummary(item, settings)
   ));
+  const omitted = Math.max(0, resolved.items.length - preview.length);
   return {
     type: 'typed-collection',
     kind: resolved.kind,
     itemKind: resolved.itemKind,
     count: resolved.items.length,
     preview,
-    omitted: Math.max(0, resolved.items.length - preview.length),
+    omitted,
+    ordering: 'source collection order',
+    truncation: {
+      truncated: omitted > 0 || Boolean(bounds?.truncated),
+      omittedItems: omitted,
+      sourceOmittedItems: bounds?.omittedCount ?? 0,
+      ...(bounds ? { operationBounds: structuredClone(bounds) } : {}),
+    },
     context: compactContext(resolved.context, resolved.items.length),
     provenance: provenanceSummary(resolved.items.slice(0, limit)),
+    corpus: {
+      ...corpusState(memory),
+      subjectEffects: {
+        available: false,
+        statement: 'This derived summary does not retain a parallel subject collection; inspect or show its source result for subject residency and retention effects.',
+      },
+    },
   };
 }
 
@@ -223,6 +244,8 @@ function showFacets(value, settings) {
     type: 'facets',
     count: value.count,
     context: structuredClone(value.context),
+    freshness: structuredClone(value.freshness),
+    corpus: structuredClone(value.corpus),
   };
   for (const name of [
     'authors',
@@ -239,9 +262,53 @@ function showFacets(value, settings) {
       count: values.length + (category.omitted ?? 0),
       values: structuredClone(preview),
       omitted: (category.omitted ?? 0) + values.length - preview.length,
+      tail: structuredClone((category.tail ?? []).slice(0, limit)),
+      omittedTail: Math.max(0, (category.tail?.length ?? 0) - limit),
+      ordering: category.ordering ?? 'count-descending, then identifier',
     };
   }
   return shown;
+}
+
+function showComparison(memory, value, settings) {
+  const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
+  const sections = {};
+  for (const name of ['shared', 'onlyLeft', 'onlyRight']) {
+    const collection = {
+      type: 'result-collection',
+      kind: value.kind,
+      items: value[name] ?? [],
+      context: { operation: `comparison-${name}` },
+    };
+    const shown = showCollection(memory, collection, { ...settings, previewLimit: limit });
+    sections[name] = {
+      count: collection.items.length,
+      preview: shown.preview,
+      omitted: shown.omitted,
+      freshness: shown.orientation.freshness,
+    };
+  }
+  return {
+    type: 'result-comparison',
+    kind: value.kind,
+    count: value.leftCount + value.rightCount,
+    population: {
+      left: value.leftCount,
+      right: value.rightCount,
+      shared: sections.shared.count,
+      onlyLeft: sections.onlyLeft.count,
+      onlyRight: sections.onlyRight.count,
+    },
+    method: 'Stable subject identity membership; section previews preserve source result order.',
+    sections,
+    truncation: {
+      truncated: Object.values(sections).some(({ omitted }) => omitted > 0),
+      omitted: Object.fromEntries(
+        Object.entries(sections).map(([name, section]) => [name, section.omitted]),
+      ),
+    },
+    corpus: corpusEffects(memory, [...value.shared, ...value.onlyLeft, ...value.onlyRight]),
+  };
 }
 
 function showGroup(memory, group, itemKind, settings) {
@@ -296,6 +363,8 @@ function showSubject(memory, item, settings) {
     resident: inspected.resident,
     context: { resolved: inspected.resident },
     provenance: provenanceSummary([{ provenance }]),
+    freshness: evidenceFreshness(memory, [{ subject: item }]),
+    corpus: corpusEffects(memory, [{ subject: item }]),
     omittedProvenance: settings.includeEvidence
       ? Math.max(0, provenance.length - settings.previewLimit) : provenance.length,
     ...(settings.includeEvidence && record ? { evidence: evidenceDetail({ record }, settings.excerptLimit).evidence } : {}),
@@ -304,6 +373,7 @@ function showSubject(memory, item, settings) {
 
 function showSet(memory, value, settings) {
   const id = value.id;
+  const members = value.members ?? memory.getSet(id).members;
   const projected = memory.project({ type: 'set', id }, {
     mode: 'compact', excerptLimit: settings.excerptLimit, previewLimit: settings.previewLimit,
   }).results[0];
@@ -313,6 +383,8 @@ function showSet(memory, value, settings) {
     omitted: Math.max(0, (value.memberCount ?? value.members?.length ?? 0)
       - (settings.mode === 'summary' ? 0 : projected.preview?.length ?? 0)),
     context: { name: value.name, createdAt: value.createdAt },
+    freshness: evidenceFreshness(memory, members.map((member) => ({ subject: member }))),
+    corpus: corpusEffects(memory, members.map((member) => ({ subject: member }))),
     provenance: settings.includeEvidence && value.members
       ? value.members.slice(0, settings.previewLimit).map((member) => ({
           subject: { type: member.type, id: member.id }, reasons: member.reasons,
@@ -498,6 +570,157 @@ function compactContext(context, resultingSubjectCount) {
   };
 }
 
+function collectionOrientation(memory, collection, settings) {
+  const typeCounts = {};
+  for (const { subject: item } of collection.items) {
+    typeCounts[item.type] = (typeCounts[item.type] ?? 0) + 1;
+  }
+  const corpus = corpusEffects(memory, collection.items);
+  const membership = membershipEvidence(collection.items, settings.previewLimit);
+  const facets = facetResearchCollection(memory, collection, {
+    limit: Math.min(settings.previewLimit, DEFAULT_FACET_LIMIT),
+  });
+  const contextRelationships = collection.context?.relationships ?? [];
+  const relationships = contextRelationships.length
+    ? contextRelationships
+    : collection.items.flatMap(({ reasons = [] }) => reasons
+      .filter(({ type }) => type === 'relationship')
+      .map((reason) => ({
+        ...reason,
+        type: reason.relationshipType ?? 'unknown',
+      })));
+  const relationshipTypes = new Map();
+  let unresolvedRelationships = 0;
+  for (const relationship of relationships) {
+    increment(relationshipTypes, relationship.type ?? 'unknown');
+    if (relationship.resolved === false || relationship.known === false) {
+      unresolvedRelationships += 1;
+    }
+  }
+  return {
+    population: {
+      subjects: collection.items.length,
+      byType: typeCounts,
+      residentEvidence: corpus.resident,
+      subjectsWithMembershipEvidence: membership.subjectsWithEvidence,
+    },
+    sampling: {
+      method: collection.context?.query?.order
+        ? `collection order (${collection.context.query.order})`
+        : 'source collection order',
+      limit: settings.mode === 'summary' ? 0 : settings.previewLimit,
+    },
+    truncation: {
+      truncated: collection.items.length > (settings.mode === 'summary' ? 0 : settings.previewLimit),
+      omittedSubjects: Math.max(
+        0, collection.items.length - (settings.mode === 'summary' ? 0 : settings.previewLimit),
+      ),
+    },
+    freshness: evidenceFreshness(memory, collection.items),
+    corpus,
+    membershipEvidence: membership,
+    facets,
+    conversation: {
+      relationshipCount: relationships.length,
+      types: facetCategory(relationshipTypes, settings.previewLimit, (id, count) => ({ id, count })),
+      unresolvedRelationships,
+    },
+  };
+}
+
+function membershipEvidence(items, limit) {
+  const reasonTypes = new Map();
+  let reasonCount = 0;
+  let provenanceCount = 0;
+  let subjectsWithEvidence = 0;
+  for (const item of items) {
+    const reasons = item.reasons ?? [];
+    const provenance = item.provenance ?? [];
+    reasonCount += reasons.length;
+    provenanceCount += provenance.length;
+    if (reasons.length || provenance.length) subjectsWithEvidence += 1;
+    for (const reason of reasons) increment(reasonTypes, reason.type ?? 'unknown');
+  }
+  const types = facetCategory(reasonTypes, limit, (id, count) => ({ id, count }));
+  return {
+    basis: 'collection membership reasons and provenance',
+    subjectsWithEvidence,
+    reasonCount,
+    provenanceCount,
+    reasonTypes: types,
+    truncation: {
+      truncated: types.omitted > 0,
+      omittedReasonTypes: types.omitted,
+    },
+  };
+}
+
+function evidenceFreshness(memory, items) {
+  const observations = [];
+  let resident = 0;
+  for (const item of items) {
+    const inspected = memory.inspect(item.subject);
+    if (inspected.resident) resident += 1;
+    const provenance = uniqueObjects([
+      ...(item.provenance ?? []),
+      ...(inspected.provenance ?? []),
+    ]);
+    for (const observation of provenance) {
+      if (typeof observation.observedAt === 'string') observations.push(observation.observedAt);
+    }
+  }
+  observations.sort();
+  return {
+    basis: 'collection provenance plus current canonical evidence observations',
+    residentSubjects: resident,
+    nonresidentSubjects: items.length - resident,
+    observationCount: observations.length,
+    oldestObservedAt: observations[0] ?? null,
+    newestObservedAt: observations.at(-1) ?? null,
+  };
+}
+
+function uniqueObjects(values) {
+  const seen = new Set();
+  return values.filter((value) => {
+    const key = JSON.stringify(value);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function corpusEffects(memory, items) {
+  const keys = new Set(items.map(({ subject: item }) => `${item.type}:${item.id}`));
+  let resident = 0;
+  for (const { subject: item } of items) {
+    if (memory.inspect(item).resident) resident += 1;
+  }
+  let retained = 0;
+  for (const summary of memory.listSets()) {
+    const set = memory.getSet(summary.id);
+    retained += set.members.filter((member) => keys.has(`${member.type}:${member.id}`)).length;
+  }
+  return {
+    ...corpusState(memory),
+    resident,
+    nonresident: items.length - resident,
+    retainedMemberships: retained,
+    statement: 'Retained membership preserves subject identity and reasons, not evicted canonical evidence.',
+  };
+}
+
+function corpusState(memory) {
+  const corpus = memory.describe();
+  return {
+    capacity: corpus.capacity,
+    residentEvents: corpus.eventCount,
+    remainingCapacity: corpus.remainingCapacity,
+    pressure: corpus.capacity === 0 ? 0 : corpus.eventCount / corpus.capacity,
+    evictions: corpus.evictions,
+  };
+}
+
 function compactExpansion(expansion, resultingSubjectCount) {
   const options = expansion.options ?? {};
   const boundedBy = expansion.boundedBy ?? {};
@@ -587,9 +810,16 @@ function expansionFailures(requests) {
 function facetCategory(map, limit, present) {
   const all = [...map.entries()]
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  const shown = all.slice(0, limit);
+  const shownIds = new Set(shown.map(([id]) => id));
+  const tail = all.slice().reverse()
+    .filter(([id]) => !shownIds.has(id))
+    .slice(0, Math.min(3, limit));
   return {
-    values: all.slice(0, limit).map(([id, count]) => present(id, count)),
+    values: shown.map(([id, count]) => present(id, count)),
     omitted: Math.max(0, all.length - limit),
+    tail: tail.map(([id, count]) => present(id, count)),
+    ordering: 'count-descending, then identifier; tail is lowest-count then reverse identifier',
   };
 }
 
@@ -661,8 +891,25 @@ function enforceSize(value, maximum) {
     type: copy.type, ...(copy.id ? { id: copy.id } : {}),
     ...(copy.count !== undefined ? { count: copy.count } : {}),
     preview: [],
-    omitted: (copy.omitted ?? 0) + (Array.isArray(copy.preview) ? copy.preview.length : 0),
+    omitted: copy.truncation
+      ? sum(Object.values(copy.truncation.omitted ?? {}).map((count) => ({ count })), 'count')
+      : (copy.omitted ?? 0) + (Array.isArray(copy.preview) ? copy.preview.length : 0),
     context: { bounded: true, note: `Inspection exceeded the ${maximum}-byte approximate bound.` },
+    ...(copy.orientation ? {
+      orientation: {
+        population: copy.orientation.population,
+        sampling: copy.orientation.sampling,
+        truncation: {
+          truncated: true,
+          omittedSubjects: copy.orientation.population?.subjects ?? 0,
+          sizeBounded: true,
+        },
+        freshness: copy.orientation.freshness,
+        corpus: copy.orientation.corpus,
+      },
+    } : {}),
+    ...(copy.freshness ? { freshness: copy.freshness } : {}),
+    ...(copy.corpus ? { corpus: copy.corpus } : {}),
     provenance: [],
   };
 }

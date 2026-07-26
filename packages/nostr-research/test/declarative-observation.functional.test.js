@@ -213,6 +213,19 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.deepEqual(shown.result.preview[0].values, {
     left: 1, right: 1, shared: 1, leftOnly: 0, rightOnly: 0,
   });
+  assert.deepEqual(shown.result.truncation, {
+    truncated: false,
+    omittedItems: 0,
+    sourceOmittedItems: 0,
+    operationBounds: {
+      leftCount: 1, rightCount: 1, outputCount: 1,
+      omittedCount: 0, truncated: false,
+    },
+  });
+  assert.equal(shown.result.corpus.capacity, 3);
+  assert.equal(shown.result.corpus.residentEvents, 1);
+  assert.equal(shown.result.corpus.evictions, 0);
+  assert.equal(shown.result.corpus.subjectEffects.available, false);
   const schema = await session.execute({
     commandId: 'schema', command: 'schema', parameters: {},
   });

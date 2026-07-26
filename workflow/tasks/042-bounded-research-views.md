@@ -1,6 +1,6 @@
 ---
 id: 042-bounded-research-views
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/042-bounded-research-views.validate.sh
 depends_on: 041-selection-driven-navigation
@@ -61,3 +61,27 @@ with an external model, or create UI-specific response structures.
   buffer and record the next decision enabled by each useful view.
 - Explicitly excluded test levels or mechanisms: visual/UI tests, snapshotting
   full output, live network tests in the permanent suite.
+
+## Reassessment after attempt 2
+
+The earlier artifact stitched historical observations to synthetic outputs and
+did not validate the views together. The primary agent has now run the public
+session against one coherent bounded live buffer and recorded the executable
+trial and results in:
+
+- `workflow/runs/042-bounded-research-views/outer-field-trial.mjs`
+- `workflow/artifacts/042-bounded-research-views-field-evidence.md`
+
+That run also exposed two presentation defects:
+
+1. account orientation treats accounts without profiles as having no evidence,
+   ignoring the authored-note membership reasons and provenance that produced
+   them;
+2. conversation orientation reports zero relationships when `reply-root`
+   evidence is present in member reasons but not duplicated into collection
+   context.
+
+Correct these by projecting existing collection reasons/provenance. Do not add
+new traversal, scoring, classification, or a parallel evidence model. This is
+a changed field-evidence diagnosis, not a third attempt to restate historical
+observations.

@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. The public declarative comparison view does not report corpus effects or structural truncation metadata. `outer-field-trial.mjs` uses the declarative `compare` command, which returns a typed summary rendered by `showTypedCollection`; that renderer only provides `count`, `preview`, `omitted`, context, and provenance. The new `showComparison` projection applies only to the separate console `research.compare()` value and is not exercised by the coherent field trial. Update the established declarative comparison result/view so it satisfies the acceptance criterion that all views structurally report truncation and corpus effects, and validate that public path.
