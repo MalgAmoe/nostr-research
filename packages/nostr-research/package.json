@@ -1,7 +1,7 @@
 {
   "name": "@nostr-research/memory",
   "version": "0.1.0",
-  "description": "SQLite-backed local research memory for canonical Nostr evidence",
+  "description": "Capacity-bounded in-process research memory for canonical Nostr evidence",
   "type": "module",
   "exports": "./src/index.js",
   "bin": {

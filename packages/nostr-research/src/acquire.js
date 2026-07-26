@@ -14,6 +14,7 @@ export async function acquireRelayEvents(memory, options) {
     throw new ResearchMemoryError('An open research memory is required.');
   }
   const normalized = normalizeOptions(options);
+  const corpusBefore = typeof memory.describe === 'function' ? memory.describe() : null;
   const startedAt = new Date().toISOString();
   const relayResults = normalized.relays.map((relay) => ({
     relay,
@@ -30,6 +31,7 @@ export async function acquireRelayEvents(memory, options) {
   const acquiredEventIds = [];
   const acquiredObservations = new Map();
   const acquiredIds = new Set();
+  const additions = { added: [], refreshed: [], evicted: [] };
   const sockets = new Set();
   let stopReason = null;
   let nextRelay = 0;
@@ -106,7 +108,13 @@ export async function acquireRelayEvents(memory, options) {
           // This check and ingest are synchronous, so concurrent socket
           // callbacks cannot exceed the shared operation-wide limit.
           if (counts.observations >= normalized.eventLimit) return stop('limit');
-          const ingested = memory.ingest(event, { relay, observedAt: new Date().toISOString() });
+          const ingested = memory.ingest(
+            event,
+            { relay, observedAt: new Date().toISOString() },
+            { preserve: normalized.preserve },
+          );
+          (ingested.eventStored ? additions.added : additions.refreshed).push(event.id);
+          additions.evicted.push(...(ingested.evicted ?? []));
           if (!acquiredObservations.has(event.id)) acquiredObservations.set(event.id, []);
           acquiredObservations.get(event.id).push(ingested.observation);
           relayResult.observations += 1;
@@ -178,6 +186,9 @@ export async function acquireRelayEvents(memory, options) {
     })),
     relays: relayResults,
     counts,
+    additions,
+    corpusBefore,
+    corpusAfter: typeof memory.describe === 'function' ? memory.describe() : null,
   };
   result.collection = memory.asCollection(result);
   if (typeof memory.recordAcquisitionCoverage === 'function') {
@@ -240,7 +251,13 @@ function normalizeOptions(options) {
   if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) {
     throw new ResearchMemoryError('signal must be an AbortSignal.');
   }
-  return { relays, filter, timeoutMs, eventLimit, concurrency, signal: options.signal };
+  if (options.preserve !== undefined && !Array.isArray(options.preserve)) {
+    throw new ResearchMemoryError('preserve must be an array of event subjects.');
+  }
+  return {
+    relays, filter, timeoutMs, eventLimit, concurrency, signal: options.signal,
+    preserve: structuredClone(options.preserve ?? []),
+  };
 }
 
 function normalizeRelay(value) {

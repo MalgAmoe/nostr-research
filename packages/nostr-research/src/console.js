@@ -2,10 +2,9 @@ import { inspect as nodeInspect } from 'node:util';
 import repl from 'node:repl';
 import {
   acquireRelayEvents,
+  createInMemoryResearchMemory,
   createResearchSession,
-  createResearchWorkspace,
   expandResearch,
-  openResearchMemory,
   ResearchMemoryError,
   resolveReplyContexts,
 } from './index.js';
@@ -15,10 +14,10 @@ import { facetResearchCollection, showResearchValue } from './presentation.js';
 
 const DEFAULT_CAPACITY = 500;
 const PREVIEW_LIMIT = 5;
-const HELP = `Usage: nostr-research-console --db <sqlite-path> [--capacity <1-1000>]
+const HELP = `Usage: nostr-research-console --capacity <1-1000>
 
 Starts a persistent JavaScript research REPL. The prepared research object owns
-the SQLite memory, bounded workspace, and temporary session. Top-level await is
+one bounded in-memory corpus and a temporary session. Top-level await is
 available. Use .exit or Ctrl-D to close all resources.
 `;
 
@@ -32,16 +31,8 @@ export async function startResearchConsole(args, streams = {}) {
   const input = streams.input ?? process.stdin;
   const output = streams.output ?? process.stdout;
   const error = streams.error ?? process.stderr;
-  const memory = openResearchMemory(options.database);
-  let workspace;
-  try {
-    workspace = createResearchWorkspace(memory, { capacity: options.capacity });
-  } catch (startupError) {
-    memory.close();
-    throw startupError;
-  }
-
-  const environment = createResearchEnvironment(memory, workspace, error);
+  const memory = createInMemoryResearchMemory({ capacity: options.capacity });
+  const environment = createResearchEnvironment(memory, error);
   let closed = false;
   const close = () => {
     if (closed) return;
@@ -66,20 +57,19 @@ export async function startResearchConsole(args, streams = {}) {
   });
 }
 
-export function createResearchEnvironment(memory, workspace, progress = process.stderr) {
-  let session = createResearchSession(workspace);
+export function createResearchEnvironment(memory, progress = process.stderr) {
+  let session = createResearchSession(memory);
   const activeAcquisitions = new Set();
 
   const research = {
     get memory() { return memory; },
-    get workspace() { return workspace; },
     get session() { return session; },
 
     summary() {
       const state = session.describe();
       return {
         memory: memory.summary(),
-        workspace: workspace.describe(),
+        corpus: memory.describe(),
         session: {
           selectionCount: state.selection.items.length,
           focus: state.focus,
@@ -92,9 +82,9 @@ export function createResearchEnvironment(memory, workspace, progress = process.
     },
 
     load(query = {}) {
-      const loaded = workspace.load(query);
-      session = createResearchSession(workspace, loaded.collection);
-      return loaded.collection;
+      const selected = memory.load(query);
+      session = createResearchSession(memory, selected);
+      return selected;
     },
 
     async acquire(options) {
@@ -110,10 +100,10 @@ export function createResearchEnvironment(memory, workspace, progress = process.
       );
       try {
         const result = await acquireRelayEvents(memory, request);
-        const hydrated = workspace.add(result);
         progress.write(
           `Acquisition ${result.completionReason}: ${result.counts.observations} observation(s), `
-          + `${hydrated.added.length} workspace event(s) added.\n`,
+          + `${result.additions.added.length} corpus event(s) added, `
+          + `${result.additions.evicted.length} evicted.\n`,
         );
         return result;
       } catch (error) {
@@ -126,7 +116,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
     },
 
     async expand(selection, options) {
-      normalizeExpansionOptions(memory, workspace, selection, options);
+      normalizeExpansionOptions(memory, selection, options);
       const controller = new AbortController();
       activeAcquisitions.add(controller);
       const suppliedSignal = options?.signal;
@@ -142,7 +132,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
         + '...\n',
       );
       try {
-        const result = await expandResearch(memory, workspace, selection, {
+        const result = await expandResearch(memory, selection, {
           ...options,
           signal: controller.signal,
         });
@@ -150,7 +140,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
         progress.write(
           `Expansion ${report.completionReason}: ${report.requestCount} request(s), `
           + `${report.counts.observations} observation(s), `
-          + `${report.workspaceAfter.eventCount} workspace event(s).\n`,
+          + `${report.corpusAfter.eventCount} resident event(s).\n`,
         );
         return result;
       } finally {
@@ -160,7 +150,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
     },
 
     async replyContexts(accounts, options) {
-      normalizeReplyContextOptions(memory, workspace, accounts, options);
+      normalizeReplyContextOptions(memory, accounts, options);
       const controller = new AbortController();
       activeAcquisitions.add(controller);
       const suppliedSignal = options?.signal;
@@ -173,7 +163,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
         + `parent limit ${options?.parentLimit ?? 20}...\n`,
       );
       try {
-        const result = await resolveReplyContexts(memory, workspace, accounts, {
+        const result = await resolveReplyContexts(memory, accounts, {
           ...options,
           signal: controller.signal,
         });
@@ -191,7 +181,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
     },
 
     events(query = {}) {
-      return workspace.select(query);
+      return memory.select(query);
     },
 
     accounts(query = {}) {
@@ -210,16 +200,16 @@ export function createResearchEnvironment(memory, workspace, progress = process.
     },
 
     collection(items, context = {}) {
-      return workspace.collection(items, context);
+      return memory.collection(items, context);
     },
 
     exclude(value, predicate) {
-      return transformCollection(workspace, value, predicate, 'exclude',
+      return transformCollection(memory, value, predicate, 'exclude',
         (items, callback) => items.filter((item, index) => !callback(item, index)));
     },
 
     distinctBy(value, selector) {
-      return transformCollection(workspace, value, selector, 'distinct-by', (items, callback) => {
+      return transformCollection(memory, value, selector, 'distinct-by', (items, callback) => {
         const seen = new Set();
         return items.filter((item, index) => {
           const key = callback(item, index);
@@ -234,7 +224,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
       if (!Number.isSafeInteger(limit) || limit < 0) {
         throw new ResearchMemoryError('limitPer limit must be a non-negative integer.');
       }
-      return transformCollection(workspace, value, selector, 'limit-per', (items, callback) => {
+      return transformCollection(memory, value, selector, 'limit-per', (items, callback) => {
         const counts = new Map();
         return items.filter((item, index) => {
           const key = callback(item, index);
@@ -246,8 +236,8 @@ export function createResearchEnvironment(memory, workspace, progress = process.
     },
 
     discoveries(value) {
-      const collection = workspace.asCollection(value);
-      return workspace.collection(
+      const collection = memory.asCollection(value);
+      return memory.collection(
         collection.items.filter((item) => item.role === 'discovery'),
         transformationContext('discoveries', collection),
       );
@@ -258,15 +248,15 @@ export function createResearchEnvironment(memory, workspace, progress = process.
     },
 
     inspect(reference, options = {}) {
-      return workspace.inspect(reference, options);
+      return memory.inspect(reference, options);
     },
 
     show(value, options = {}) {
-      return showResearchValue(memory, workspace, session, value, options);
+      return showResearchValue(memory, memory, session, value, options);
     },
 
     facets(value, options = {}) {
-      return facetResearchCollection(memory, workspace.asCollection(value), options);
+      return facetResearchCollection(memory, memory.asCollection(value), options);
     },
 
     traverse(...args) {
@@ -284,7 +274,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
         if (!isPlainObject(options)) {
           throw new ResearchMemoryError('Explicit traversal options must be an object.');
         }
-        return workspace.traverse(selection, options);
+        return memory.traverse(selection, options);
       }
       throw new ResearchMemoryError(
         'traverse expects (options) or (selection, options).',
@@ -292,8 +282,8 @@ export function createResearchEnvironment(memory, workspace, progress = process.
     },
 
     compare(left, right) {
-      const leftCollection = workspace.asCollection(left);
-      const rightCollection = workspace.asCollection(right);
+      const leftCollection = memory.asCollection(left);
+      const rightCollection = memory.asCollection(right);
       const leftKeys = new Set(leftCollection.items.map(itemKey));
       const rightKeys = new Set(rightCollection.items.map(itemKey));
       return {
@@ -312,7 +302,7 @@ export function createResearchEnvironment(memory, workspace, progress = process.
       if (typeof maybeName !== 'string') {
         throw new ResearchMemoryError('A name is required to retain an explicit result.');
       }
-      return workspace.retain(workspace.asCollection(valueOrName), maybeName, options);
+      return memory.retain(memory.asCollection(valueOrName), maybeName, options);
     },
   };
 
@@ -320,18 +310,17 @@ export function createResearchEnvironment(memory, workspace, progress = process.
     research,
     close() {
       for (const controller of activeAcquisitions) controller.abort();
-      workspace.close();
       memory.close();
     },
   };
 }
 
-function transformCollection(workspace, value, callback, operation, transform, details = {}) {
+function transformCollection(memory, value, callback, operation, transform, details = {}) {
   if (typeof callback !== 'function') {
     throw new ResearchMemoryError(`${operation} requires a callback.`);
   }
-  const collection = workspace.asCollection(value);
-  return workspace.collection(
+  const collection = memory.asCollection(value);
+  return memory.collection(
     transform(collection.items, callback),
     transformationContext(operation, collection, details),
   );
@@ -411,25 +400,25 @@ function itemKey(item) {
 }
 
 function parseArguments(args) {
-  let database;
-  let capacity = DEFAULT_CAPACITY;
+  let capacity;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === '--help' || argument === '-h') return { help: true };
-    if (argument !== '--db' && argument !== '--capacity') {
+    if (argument !== '--capacity') {
       throw new ResearchMemoryError(`Unknown startup option: ${argument}`);
     }
     const value = args[index + 1];
     if (!value || value.startsWith('--')) {
       throw new ResearchMemoryError(`Missing value for ${argument}.`);
     }
-    if (argument === '--db') database = value;
-    else capacity = Number(value);
+    capacity = Number(value);
     index += 1;
   }
-  if (!database) throw new ResearchMemoryError('The --db <sqlite-path> option is required.');
+  if (capacity === undefined) {
+    throw new ResearchMemoryError('The --capacity <1-1000> option is required.');
+  }
   if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > 1000) {
     throw new ResearchMemoryError('--capacity must be an integer from 1 to 1000.');
   }
-  return { database, capacity };
+  return { capacity };
 }

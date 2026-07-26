@@ -1,0 +1,5 @@
+CHANGES_REQUIRED
+
+1. The complete functional suite fails: five acquisition/expansion/reply-context scenarios still call the removed memory-plus-workspace APIs in `test/acquisition.functional.test.js` (for example lines 327–336, 604–613, 769–777, and 879–884). Update these public scenarios to construct and pass one bounded in-memory corpus. This also resolves the `progress.write is not a function` failure caused by passing a workspace as `createResearchEnvironment`’s progress argument.
+
+2. Expansion presentation still reads `expansion.workspaceBefore` and `expansion.workspaceAfter` in `src/presentation.js` lines 319–322, while `expandResearch` now emits `corpusBefore` and `corpusAfter` in `src/expansion.js` lines 164–172. Consequently, displayed corpus pressure reports zero events/capacity. Presentation must consume the new corpus fields so capacity pressure is observable.

@@ -203,14 +203,26 @@ test('mixed ingestion and FIFO eviction leave coherent public indexes and source
     memory.ingest(callerOwned, observation);
     callerOwned.content = 'mutated after ingestion';
     memory.ingest(retainedSource, observation);
+    const retained = memory.retain(memory.select({ ids: [target.id] }), 'eviction-safe reference');
     memory.ingest(retainedSource, { ...observation, relay: 'wss://duplicate.example' });
     memory.ingest(newest, observation);
 
     assert.deepEqual(memory.summary(), { events: 2, observations: 3 });
     assert.equal(memory.getEvent(target.id), null);
     assert.equal(memory.searchEvents({ text: ['target'] }).results.length, 0);
-    assert.throws(() => memory.resolve(target.id, 'event'), /No stored event/);
+    assert.deepEqual(memory.resolve(target.id, 'event'), subject('event', target.id));
     assert.equal(memory.describe().evictions, 1);
+    assert.deepEqual(memory.inspect(subject('event', target.id)), {
+      subject: subject('event', target.id),
+      resident: false,
+      evidence: null,
+      provenance: [],
+      relationships: [],
+    });
+    const continued = memory.traverse([subject('set', retained.id)], {
+      relationshipTypes: ['quoted-event'], direction: 'outbound', depth: 1,
+    });
+    assert.ok(continued.items.some(({ subject: item }) => item.id === target.id));
 
     const inboundFromMissingTarget = memory.traverse([subject('event', retainedSource.id)], {
       relationshipTypes: ['quoted-event'], direction: 'outbound', depth: 1,

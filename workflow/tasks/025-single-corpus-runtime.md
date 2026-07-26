@@ -1,6 +1,6 @@
 ---
 id: 025-single-corpus-runtime
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/025-single-corpus-runtime.validate.sh
 depends_on: 024-in-memory-research-memory

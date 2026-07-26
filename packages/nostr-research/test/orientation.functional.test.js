@@ -70,20 +70,38 @@ test('public console inspection and facets orient a bounded durable investigatio
     memory = null;
 
     const source = [
+      `const fixtureEvents = ${JSON.stringify(events)}`,
+      "for (const event of fixtureEvents) research.memory.ingest(event, { relay: 'wss://one.example/', observedAt: '2026-07-25T10:00:00.000Z' })",
+      "const repeated = research.memory.ingest(fixtureEvents[0], { relay: 'wss://two.example/', observedAt: '2026-07-25T10:01:00.000Z' })",
+      `const coverageInput = ${JSON.stringify({
+        requested: { relays: ['wss://one.example/', 'wss://two.example/'], filter: { kinds: [1], limit: 3 } },
+        budget: { timeoutMs: 2000, eventLimit: 3, concurrency: 2 },
+        startedAt: '2026-07-25T10:00:00.000Z',
+        finishedAt: '2026-07-25T10:00:02.000Z',
+        completionReason: 'limit',
+        relays: [
+          { relay: 'wss://one.example/', contacted: true, outcome: 'limit', received: 4, invalid: 1, duplicate: 0, newlyStored: 3, observations: 3, diagnostic: null },
+          { relay: 'wss://two.example/', contacted: true, outcome: 'limit', received: 1, invalid: 0, duplicate: 1, newlyStored: 0, observations: 1, diagnostic: null },
+        ],
+      }) .replace(/}$/, `,"acquiredObservations":[{"eventId":"${events[0].id}","observations":[]}]}`)}`,
+      'coverageInput.acquiredObservations[0].observations = [repeated.observation]',
+      'const coverageRecord = research.memory.recordAcquisitionCoverage(coverageInput)',
+      `const runRecord = research.memory.recordRun({ operation: 'event-query', inputs: { kinds: [1] }, startedAt: '2026-07-25T10:02:00.000Z', finishedAt: '2026-07-25T10:02:01.000Z', status: 'completed', diagnostics: [], results: fixtureEvents.map(event => ({ type: 'event', id: event.id, reasons: [{ type: 'kind', value: 1 }], provenance: [] })) })`,
+      "const setRecord = research.memory.retain(research.memory.select({ kinds: [1] }), 'orientation seed')",
       'const all = research.load({ kinds: [1], order: "oldest", limit: 10 })',
       'const facets = research.facets(all, { limit: 10 })',
       'const chosenAuthor = facets.authors.values[0].id',
       'const positive = research.collection(all.items.filter(item => item.record.event.pubkey === chosenAuthor), { operation: "author-facet" })',
       'const balanced = research.limitPer(positive, item => item.record.event.pubkey, 1)',
       'const negative = research.exclude(all, item => item.record.event.pubkey === chosenAuthor)',
-      `const coverage = research.memory.getAcquisitionCoverage('${coverage.id}')`,
+      'const coverage = research.memory.getAcquisitionCoverage(coverageRecord.id)',
       'const acquisition = { requested: coverage.requested, budget: coverage.budget, startedAt: coverage.startedAt, finishedAt: coverage.finishedAt, completionReason: coverage.completionReason, relays: coverage.relays, acquiredObservations: coverage.observedEvents.map(item => ({ eventId: item.eventId, observations: [] })), counts: { observations: coverage.observedEvents.length, invalid: 1, duplicate: 1, newlyStored: 3, received: 5 }, coverage }',
-      `const set = research.memory.getSet('${set.id}')`,
-      `const run = research.memory.getRun('${run.id}')`,
-      'const values = [acquisition, coverage, all, all.items[0], all.items[0].record, all.items[0].subject, { type: "account", id: all.items[0].record.event.pubkey }, set, run, research.workspace.describe(), research.session.describe()]',
+      'const set = research.memory.getSet(setRecord.id)',
+      'const run = research.memory.getRun(runRecord.id)',
+      'const values = [acquisition, coverage, all, all.items[0], all.items[0].record, all.items[0].subject, { type: "account", id: all.items[0].record.event.pubkey }, set, run, research.memory.describe(), research.session.describe()]',
       'const shown = values.map(value => research.show(value, { previewLimit: 2, excerptLimit: 80, includeEvidence: true, sizeLimit: 4000 }))',
       'const expansionRequests = Array.from({ length: 40 }, (_, index) => ({ filter: { ids: [`raw-filter-${index}`], limit: 100 }, completionReason: "completed", counts: { observations: 3 }, relays: [{ relay: "wss://success.example/", outcome: "eose", diagnostic: null, received: 3 }, ...(index < 6 ? [{ relay: `wss://failed-${index}-${"relay-name-".repeat(12)}.example/`, outcome: "connection-failure", diagnostic: `failure ${index}: ${"connection refused with detailed transport context ".repeat(5)}` }] : [])] }))',
-      'const expanded = research.collection(all.items, { operation: "traverse", relationships: [], expansion: { options: { depth: 3, limit: 50, eventLimit: 100, timeoutMs: 2500 }, startingSubjects: all.items.slice(0, 2).map(item => item.subject), workspaceBefore: { eventCount: 3, capacity: 10 }, workspaceAfter: { eventCount: 9, capacity: 10 }, requestCount: 40, filterCount: 40, counts: { observations: 120, newlyStored: 6, duplicate: 113, invalid: 1 }, requests: expansionRequests, unresolvedBefore: { events: ["a", "b"], accounts: ["c"] }, unresolvedAfter: { events: [], accounts: ["c"] }, boundedBy: { depth: true, traversalLimit: false, eventBudget: true, timeout: false, cancellation: false }, completionReason: "event-budget" } })',
+      'const expanded = research.collection(all.items, { operation: "traverse", relationships: [], expansion: { options: { depth: 3, limit: 50, eventLimit: 100, timeoutMs: 2500 }, startingSubjects: all.items.slice(0, 2).map(item => item.subject), corpusBefore: { eventCount: 3, capacity: 10 }, corpusAfter: { eventCount: 9, capacity: 10 }, requestCount: 40, filterCount: 40, counts: { observations: 120, newlyStored: 6, duplicate: 113, invalid: 1 }, requests: expansionRequests, unresolvedBefore: { events: ["a", "b"], accounts: ["c"] }, unresolvedAfter: { events: [], accounts: ["c"] }, boundedBy: { depth: true, traversalLimit: false, eventBudget: true, timeout: false, cancellation: false }, completionReason: "event-budget" } })',
       'const originalExpansion = JSON.stringify(expanded.context.expansion)',
       'const shownExpansion = research.show(expanded, { previewLimit: 2, sizeLimit: 1000 })',
       'const expansionUnchanged = JSON.stringify(expanded.context.expansion) === originalExpansion',
@@ -93,7 +111,7 @@ test('public console inspection and facets orient a bounded durable investigatio
       '.exit',
       '',
     ].join('\n');
-    const result = spawnSync(process.execPath, [CONSOLE.pathname, '--db', database, '--capacity', '10'], {
+    const result = spawnSync(process.execPath, [CONSOLE.pathname, '--capacity', '10'], {
       input: source, encoding: 'utf8', timeout: 10_000,
     });
     assert.equal(result.status, 0, result.stderr);
@@ -122,7 +140,7 @@ test('public console inspection and facets orient a bounded durable investigatio
       requests: 40,
       filters: 40,
       counts: { observations: 120, newlyStored: 6, duplicate: 113, invalid: 1 },
-      workspace: {
+      corpus: {
         before: { events: 3, capacity: 10 },
         after: { events: 9, capacity: 10 },
       },
@@ -149,9 +167,6 @@ test('public console inspection and facets orient a bounded durable investigatio
     assert.equal(outcome.expansionUnchanged, true);
     assert.equal(outcome.originalRequestCount, 40);
 
-    memory = openResearchMemory(database);
-    assert.equal(memory.getSet(outcome.savedId).members.length, 2);
-    assert.equal(memory.getEvent(events[0].id).event.content, events[0].content);
   } finally {
     memory?.close();
     rmSync(directory, { recursive: true, force: true });

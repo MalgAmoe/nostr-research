@@ -9,7 +9,7 @@ import test from 'node:test';
 import { finalizeEvent, getPublicKey } from 'nostr-tools';
 import {
   acquireRelayEvents,
-  createResearchWorkspace,
+  createInMemoryResearchMemory,
   expandResearch,
   loadFixtureEvents,
   openResearchMemory,
@@ -206,10 +206,9 @@ test('acquisition rejects unusable public inputs before networking', async () =>
 });
 
 test('console expansion rejects invalid bounds and semantics before networking', async () => {
-  const context = createContext();
-  const workspace = createResearchWorkspace(context.memory, { capacity: 2 });
-  const environment = createResearchEnvironment(context.memory, workspace);
-  const selection = workspace.collection([], { operation: 'empty-start' });
+  const memory = createInMemoryResearchMemory({ capacity: 2 });
+  const environment = createResearchEnvironment(memory);
+  const selection = memory.collection([], { operation: 'empty-start' });
   try {
     const valid = {
       relays: ['wss://relay.example/'],
@@ -281,14 +280,12 @@ test('console expansion rejects invalid bounds and semantics before networking',
     );
   } finally {
     environment.close();
-    context.memory = null;
-    context.close();
   }
 });
 
 test('authored-note expansion samples only explicit account starts within per-account and global bounds', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
-  const context = createContext();
+  const context = createCorpusContext(20);
   const aliceKey = Uint8Array.from(Buffer.from('8'.repeat(64), 'hex'));
   const bobKey = Uint8Array.from(Buffer.from('9'.repeat(64), 'hex'));
   const carolKey = Uint8Array.from(Buffer.from('a'.repeat(64), 'hex'));
@@ -326,16 +323,13 @@ test('authored-note expansion samples only explicit account starts within per-ac
     });
   }, context.directory);
   const unavailablePort = await reserveClosedPort();
-  const workspace = createResearchWorkspace(context.memory, { capacity: 20 });
-  const environment = createResearchEnvironment(context.memory, workspace);
-  let environmentClosed = false;
+  const environment = createResearchEnvironment(context.memory);
 
   try {
-    const singleStart = workspaceAccountCollection(context.memory, [alice]);
+    const singleStart = accountCollection(context.memory, [alice]);
     const single = await expandResearch(
       context.memory,
-      singleStart.workspace,
-      singleStart.collection,
+      singleStart,
       {
         relays: [relay.url],
         relationshipTypes: ['author'],
@@ -360,9 +354,7 @@ test('authored-note expansion samples only explicit account starts within per-ac
       ).length,
       1,
     );
-    singleStart.workspace.close();
-
-    const starts = workspace.collection([
+    const starts = context.memory.collection([
       { subject: subject('account', alice) },
       { subject: subject('account', bob) },
     ], { operation: 'explicit-account-starts' });
@@ -425,27 +417,19 @@ test('authored-note expansion samples only explicit account starts within per-ac
     );
 
     const retained = environment.research.retain(expanded, 'bounded authored samples');
-    environment.close();
-    environmentClosed = true;
-    context.memory = null;
-    const reopened = openResearchMemory(context.databasePath);
-    try {
-      const saved = reopened.getSet(retained.id);
-      assert.equal(saved.members.filter(({ type }) => type === 'event').length >= 4, true);
-      assert.ok(sampledNotes.every(({ subject: item }) => reopened.getEvent(item.id)));
-    } finally {
-      reopened.close();
-    }
+    const saved = context.memory.getSet(retained.id);
+    assert.equal(saved.members.filter(({ type }) => type === 'event').length >= 4, true);
+    assert.ok(sampledNotes.every(({ subject: item }) => context.memory.getEvent(item.id)));
   } finally {
     await relay.close();
-    if (!environmentClosed) environment.close();
+    environment.close();
     context.close();
   }
 });
 
 test('authored-note expansion obeys the complete operation budget and stays disabled by default', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
-  const context = createContext();
+  const context = createCorpusContext(20);
   const firstKey = Uint8Array.from(Buffer.from('b'.repeat(64), 'hex'));
   const secondKey = Uint8Array.from(Buffer.from('c'.repeat(64), 'hex'));
   const accounts = [getPublicKey(firstKey), getPublicKey(secondKey)];
@@ -471,8 +455,8 @@ test('authored-note expansion obeys the complete operation budget and stays disa
   }, context.directory);
 
   try {
-    const starts = workspaceAccountCollection(context.memory, accounts);
-    const bounded = await expandResearch(context.memory, starts.workspace, starts.collection, {
+    const starts = accountCollection(context.memory, accounts);
+    const bounded = await expandResearch(context.memory, starts, {
       relays: [relay.url],
       relationshipTypes: ['author'],
       direction: 'inbound',
@@ -490,13 +474,13 @@ test('authored-note expansion obeys the complete operation budget and stays disa
         .map(({ filter }) => filter.limit),
       [2, 1],
     );
-    starts.workspace.close();
-
-    const defaultStart = workspaceAccountCollection(context.memory, [accounts[0]]);
+    const authoredFiltersBeforeDefaultExpansion = filters.filter((filter) => (
+      filter.kinds?.[0] === 1 && Array.isArray(filter.authors)
+    )).length;
+    const defaultStart = accountCollection(context.memory, [accounts[0]]);
     const withoutOption = await expandResearch(
       context.memory,
-      defaultStart.workspace,
-      defaultStart.collection,
+      defaultStart,
       {
         relays: [relay.url],
         relationshipTypes: ['author'],
@@ -513,10 +497,13 @@ test('authored-note expansion obeys the complete operation budget and stays disa
       ),
       false,
     );
-    assert.equal(withoutOption.items.some(({ subject: item }) => (
-      item.type === 'event' && context.memory.getEvent(item.id)?.event.kind === 1
-    )), false);
-    defaultStart.workspace.close();
+    assert.equal(
+      filters.filter((filter) => (
+        filter.kinds?.[0] === 1 && Array.isArray(filter.authors)
+      )).length,
+      authoredFiltersBeforeDefaultExpansion,
+      'omitting authoredLimit sends no authored-note acquisition request',
+    );
   } finally {
     await relay.close();
     context.close();
@@ -525,7 +512,7 @@ test('authored-note expansion obeys the complete operation budget and stays disa
 
 test('bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
-  const context = createContext();
+  const context = createCorpusContext(20);
   const authorKey = Uint8Array.from(Buffer.from('d'.repeat(64), 'hex'));
   const otherKey = Uint8Array.from(Buffer.from('e'.repeat(64), 'hex'));
   const author = getPublicKey(authorKey);
@@ -603,11 +590,10 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
     });
   }, context.directory);
   const unavailablePort = await reserveClosedPort();
-  const workspace = createResearchWorkspace(context.memory, { capacity: 2 });
-  const environment = createResearchEnvironment(context.memory, workspace);
+  const environment = createResearchEnvironment(context.memory);
 
   try {
-    const starts = workspace.collection([
+    const starts = context.memory.collection([
       { subject: subject('account', author) },
       { subject: subject('account', author) },
     ], { operation: 'explicit-accounts' });
@@ -624,8 +610,8 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
     assert.equal(result.contexts.length, 5);
     assert.equal(result.collection.type, 'result-collection');
     assert.ok(
-      result.report.authoredNoteCount > workspace.describe().capacity,
-      'durable reply resolution is independent of bounded workspace eviction',
+      result.report.authoredNoteCount <= context.memory.describe().capacity,
+      'reply resolution uses the bounded resident corpus',
     );
     assert.deepEqual(environment.research.session.selection, sessionBefore);
     assert.ok(result.contexts.every(({ reply }) => reply.record.event.pubkey === author));
@@ -676,7 +662,6 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
 
     const globallyBounded = await resolveReplyContexts(
       context.memory,
-      workspace,
       [subject('account', author)],
       {
         relays: [relay.url],
@@ -692,7 +677,6 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
 
     const parentBounded = await resolveReplyContexts(
       context.memory,
-      workspace,
       [subject('account', author)],
       {
         relays: [relay.url],
@@ -708,7 +692,6 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
     try {
       const timedOut = await resolveReplyContexts(
         context.memory,
-        workspace,
         [subject('account', author)],
         {
           relays: [silentRelay.url],
@@ -727,14 +710,13 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
   } finally {
     await relay.close();
     environment.close();
-    context.memory = null;
     context.close();
   }
 });
 
 test('console expansion performs bounded targeted multi-hop acquisition', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
-  const context = createContext();
+  const context = createCorpusContext(8);
   const aliceKey = Uint8Array.from(Buffer.from('4'.repeat(64), 'hex'));
   const bobKey = Uint8Array.from(Buffer.from('5'.repeat(64), 'hex'));
   const bob = getPublicKey(bobKey);
@@ -768,14 +750,11 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
     });
   }, context.directory);
   const unavailablePort = await reserveClosedPort();
-  const workspace = createResearchWorkspace(context.memory, { capacity: 8 });
-  workspace.load({ ids: [seed.id] });
-  const environment = createResearchEnvironment(context.memory, workspace);
-  let environmentClosed = false;
+  const environment = createResearchEnvironment(context.memory);
 
   try {
     const sessionBefore = environment.research.session.selection.items.map(({ subject: item }) => item);
-    const starting = workspace.select({ ids: [seed.id] });
+    const starting = context.memory.select({ ids: [seed.id] });
     const expanded = await environment.research.expand(starting, {
       relays: [relay.url, `wss://127.0.0.1:${unavailablePort}/`],
       relationshipTypes: ['quoted-event', 'reply-parent', 'author'],
@@ -809,8 +788,8 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
     assert.ok(report.requestCount >= 3);
     assert.equal(report.filterCount, report.requestCount);
     assert.ok(report.counts.observations <= 10);
-    assert.ok(report.workspaceBefore.eventCount < report.workspaceAfter.eventCount);
-    assert.equal(report.workspaceAfter.capacity, 8);
+    assert.ok(report.corpusBefore.eventCount < report.corpusAfter.eventCount);
+    assert.equal(report.corpusAfter.capacity, 8);
     assert.ok(report.requests.some(({ relays }) => relays.some(({ outcome }) => (
       outcome === 'connection-failure'
     ))));
@@ -831,27 +810,19 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
     )), 'profile acquisition requests one current candidate per account');
 
     const retained = environment.research.retain(expanded, 'expanded evidence');
-    environment.close();
-    environmentClosed = true;
-    context.memory = null;
-    const reopened = openResearchMemory(context.databasePath);
-    try {
-      const saved = reopened.getSet(retained.id);
-      assert.ok(saved.members.some((item) => item.id === secondHop.id));
-      assert.equal(reopened.getEvent(profile.id).event.pubkey, bob);
-    } finally {
-      reopened.close();
-    }
+    const saved = context.memory.getSet(retained.id);
+    assert.ok(saved.members.some((item) => item.id === secondHop.id));
+    assert.equal(context.memory.getEvent(profile.id).event.pubkey, bob);
   } finally {
     await relay.close();
-    if (!environmentClosed) environment.close();
+    environment.close();
     context.close();
   }
 });
 
-test('exported expansion uses the global budget for reply breadth and preserves tiny-workspace seeds', async (t) => {
+test('exported expansion uses the global budget for reply breadth and preserves tiny-corpus seeds', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
-  const context = createContext();
+  const context = createCorpusContext(20);
   const seedKey = Uint8Array.from(Buffer.from('6'.repeat(64), 'hex'));
   const replyKey = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
   const seed = finalizeEvent({
@@ -878,12 +849,9 @@ test('exported expansion uses the global budget for reply breadth and preserves 
   }, context.directory);
 
   try {
-    const roomy = createResearchWorkspace(context.memory, { capacity: 20 });
-    roomy.load({ ids: [seed.id] });
     const broad = await expandResearch(
       context.memory,
-      roomy,
-      roomy.select({ ids: [seed.id] }),
+      context.memory.select({ ids: [seed.id] }),
       {
         relays: [relay.url],
         relationshipTypes: ['reply-parent'],
@@ -904,12 +872,11 @@ test('exported expansion uses the global budget for reply breadth and preserves 
     assert.ok(receivedFilters.some((filter) => (
       filter['#e']?.length === 1 && filter.kinds?.[0] === 1 && filter.limit === 12
     )));
-    roomy.close();
-
-    const limited = createResearchWorkspace(context.memory, { capacity: 20 });
-    limited.load({ ids: [seed.id] });
+    const limited = createInMemoryResearchMemory({ capacity: 20 });
+    limited.ingest(seed, {
+      relay: 'wss://seed.example/', observedAt: '2026-07-25T12:00:00.000Z',
+    });
     const bounded = await expandResearch(
-      context.memory,
       limited,
       limited.select({ ids: [seed.id] }),
       {
@@ -926,10 +893,12 @@ test('exported expansion uses the global budget for reply breadth and preserves 
     assert.equal(bounded.context.expansion.boundedBy.eventBudget, true);
     limited.close();
 
-    const tiny = createResearchWorkspace(context.memory, { capacity: 3 });
-    tiny.load({ ids: [seed.id] });
+    const tiny = createInMemoryResearchMemory({ capacity: 3 });
+    tiny.ingest(seed, {
+      relay: 'wss://seed.example/', observedAt: '2026-07-25T12:00:00.000Z',
+    });
     const tinyStart = tiny.select({ ids: [seed.id] });
-    const pressured = await expandResearch(context.memory, tiny, tinyStart, {
+    const pressured = await expandResearch(tiny, tinyStart, {
       relays: [relay.url],
       relationshipTypes: ['reply-parent'],
       direction: 'inbound',
@@ -940,10 +909,10 @@ test('exported expansion uses the global budget for reply breadth and preserves 
     });
     assert.equal(tiny.describe().eventCount, 3);
     assert.ok(tiny.describe().evictions > 0);
-    assert.equal(tiny.inspect(subject('event', seed.id)).loaded, true);
+    assert.equal(tiny.inspect(subject('event', seed.id)).resident, true);
     assert.equal(pressured.items[0].subject.id, seed.id);
     assert.ok(pressured.items.length > 1, 'the preserved seed remains traversable');
-    assert.equal(context.memory.summary().events, 13, 'workspace eviction never removes SQLite evidence');
+    assert.equal(tiny.summary().events, 3, 'eviction bounds the sole resident corpus');
     tiny.close();
   } finally {
     await relay.close();
@@ -976,15 +945,24 @@ function matchesFilter(event, filter) {
   return true;
 }
 
-function workspaceAccountCollection(memory, accounts) {
-  const workspace = createResearchWorkspace(memory, { capacity: 20 });
+function createCorpusContext(capacity) {
+  const directory = mkdtempSync(join(tmpdir(), 'nostr-acquisition-'));
+  const memory = createInMemoryResearchMemory({ capacity });
   return {
-    workspace,
-    collection: workspace.collection(
-      accounts.map((id) => ({ subject: subject('account', id) })),
-      { operation: 'explicit-account-starts' },
-    ),
+    directory,
+    memory,
+    close() {
+      this.memory?.close();
+      rmSync(directory, { recursive: true, force: true });
+    },
   };
+}
+
+function accountCollection(memory, accounts) {
+  return memory.collection(
+    accounts.map((id) => ({ subject: subject('account', id) })),
+    { operation: 'explicit-account-starts' },
+  );
 }
 
 async function startRelay(

@@ -1,0 +1,134 @@
+Exit code: 1
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/acquire.js && node --check src/expansion.js && node --check src/reply-contexts.js && node --check src/session.js && node --check src/presentation.js && node --check src/console.js && node --check bin/nostr-research-console.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+(node:17182) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17182) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+✔ public acquisition handles NIP-01 outcomes, validation, deduplication, provenance, and closure (201.483708ms)
+✔ global limit and cancellation are distinguishable and close owned sockets (184.310833ms)
+✔ timeout force-closes a peer that ignores the WebSocket closing handshake (187.824292ms)
+✔ timeout and partial connection failure remain observable (156.610958ms)
+✔ acquisition rejects unusable public inputs before networking (4.936625ms)
+✔ console expansion rejects invalid bounds and semantics before networking (0.735833ms)
+✖ authored-note expansion samples only explicit account starts within per-account and global bounds (101.927333ms)
+✖ authored-note expansion obeys the complete operation budget and stays disabled by default (37.515708ms)
+✖ bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps (40.078416ms)
+✖ console expansion performs bounded targeted multi-hop acquisition (106.773292ms)
+✖ exported expansion uses the global budget for reply breadth and preserves tiny-workspace seeds (84.096958ms)
+✔ one console process preserves JavaScript state and composes a bounded research loop (329.909375ms)
+(node:17184) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ in-process memory matches the SQLite oracle across the research surface (95.213208ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (18.854584ms)
+(node:17185) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ SQLite memory preserves canonical evidence and independent relay observations (50.920166ms)
+(node:17186) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ public console inspection and facets orient a bounded durable investigation (224.471625ms)
+(node:17187) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ replaceable selection and follow interpretation remain stable across reopen (75.701583ms)
+(node:17188) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ public local search composes constraints, explains matches, and preserves provenance (74.765084ms)
+✔ current account metadata uses replaceable semantics and profile search returns source evidence (28.234833ms)
+✔ navigation exposes direction, protocol interpretation, unresolved targets, and provenance (57.615875ms)
+(node:17189) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ large retention is atomic, bounded, durable, and remains directly navigable (2782.054542ms)
+(node:17190) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ selection, bounded traversal, projection, retention, reopen, and continuation compose (66.970166ms)
+(node:17214) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ recorded query becomes an explainable, expandable, combinable durable research path (52.714917ms)
+(node:17215) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ public session actions remain temporary while checkpoints are durable (44.492833ms)
+✔ sessions start from public runs returned by recordRun and getRun (11.902458ms)
+✔ bounded attempt coverage distinguishes exact attempted slices from uncertainty (10.696625ms)
+(node:17217) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ bounded workspace supports an iterative public research loop over durable evidence (57.981042ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 22
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10494.634416
+
+✖ failing tests:
+
+test at test/acquisition.functional.test.js:287:1
+✖ authored-note expansion samples only explicit account starts within per-account and global bounds (101.927333ms)
+  Error [ResearchMemoryError]: A bounded in-memory research corpus is required.
+      at normalizeExpansionOptions (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/expansion.js:197:11)
+      at expandResearch (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/expansion.js:18:22)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:333:26)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test/acquisition.functional.test.js:444:1
+✖ authored-note expansion obeys the complete operation budget and stays disabled by default (37.515708ms)
+  Error [ResearchMemoryError]: A bounded in-memory research corpus is required.
+      at normalizeExpansionOptions (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/expansion.js:197:11)
+      at expandResearch (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/expansion.js:18:22)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:473:27)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test/acquisition.functional.test.js:524:1
+✖ bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps (40.078416ms)
+  TypeError: progress.write is not a function
+      at Object.replyContexts (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/console.js:160:16)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:613:47)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test/acquisition.functional.test.js:733:1
+✖ console expansion performs bounded targeted multi-hop acquisition (106.773292ms)
+  Error [ResearchMemoryError]: A bounded in-memory research corpus is required.
+      at normalizeExpansionOptions (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/expansion.js:197:11)
+      at Object.expand (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/console.js:119:7)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:777:49)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test/acquisition.functional.test.js:850:1
+✖ exported expansion uses the global budget for reply breadth and preserves tiny-workspace seeds (84.096958ms)
+  Error [ResearchMemoryError]: A bounded in-memory research corpus is required.
+      at normalizeExpansionOptions (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/expansion.js:197:11)
+      at expandResearch (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/src/expansion.js:18:22)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:881:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+npm error Lifecycle script `test` failed with error:
+npm error code 1
+npm error path /Users/malg/Documents/Codex/nostr/packages/nostr-research
+npm error workspace @nostr-research/memory@0.1.0
+npm error location /Users/malg/Documents/Codex/nostr/packages/nostr-research
+npm error command failed
+npm error command sh -c node --test

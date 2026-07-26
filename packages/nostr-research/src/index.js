@@ -785,7 +785,7 @@ export class ResearchMemory {
               source: current.subject, sourceEventId: relation.sourceEventId,
               evidence: relation.evidence,
             }],
-            provenance: [{ type: 'stored-event-observations', eventId: relation.sourceEventId }],
+            provenance: this.getEvent(relation.sourceEventId)?.observations ?? [],
           });
           queue.push({ subject: next, depth: stepDepth });
         } else if (visited.has(key)) {
@@ -1589,8 +1589,20 @@ export class InMemoryResearchMemory {
     if (this.#closed) throw new ResearchMemoryError('This research memory has already been closed.');
   }
 
-  ingest(event, observation) {
+  ingest(event, observation, options = {}) {
     this.#assertOpen();
+    assertPlainObject(options, 'In-memory ingest options');
+    rejectUnknownKeys(options, new Set(['preserve']), 'in-memory ingest option');
+    const preserve = new Set((options.preserve ?? []).map((item) => {
+      const normalized = normalizeSubject(item);
+      if (normalized.type !== 'event') {
+        throw new ResearchMemoryError('Preserved subjects must be events.');
+      }
+      return normalized.id;
+    }));
+    if (preserve.size > this.#capacity) {
+      throw new ResearchMemoryError('Research memory capacity cannot accommodate preserved events.');
+    }
     assertCanonicalEvent(event);
     const normalized = normalizeObservation(observation);
     // Validation and relationship derivation must complete before owned state changes.
@@ -1604,7 +1616,10 @@ export class InMemoryResearchMemory {
     this.#corpus.records.get(canonical.id).observations.push(recorded);
     const evicted = [];
     if (this.#corpus.records.size > this.#capacity) {
-      const oldest = this.#corpus.records.keys().next().value;
+      const oldest = [...this.#corpus.records.keys()].find((id) => !preserve.has(id));
+      if (oldest === undefined) {
+        throw new ResearchMemoryError('Research memory capacity cannot accommodate preserved events.');
+      }
       this.#corpus.remove(oldest);
       this.#evictions += 1;
       evicted.push(oldest);
@@ -1660,6 +1675,12 @@ export class InMemoryResearchMemory {
       reasons: matchReasons,
       provenance: observations,
     })), { operation: 'selection', query: result.query });
+  }
+
+  /** Selects resident evidence without rebuilding or contacting another corpus. */
+  load(query = {}) {
+    this.#assertOpen();
+    return this.select({ ...query, limit: query.limit ?? this.#capacity });
   }
 
   collection(items, context = {}) {
@@ -1720,7 +1741,11 @@ export class InMemoryResearchMemory {
 
   #resolveTyped(item) {
     if (item.type === 'event') {
-      return subject('event', resolveOnePrefix(item.id, [...this.#corpus.records.keys()], 'event ID'));
+      // Full subject references remain meaningful after canonical evidence is
+      // evicted; only abbreviated references require resident prefix lookup.
+      return EVENT_ID.test(item.id)
+        ? subject('event', item.id)
+        : subject('event', resolveOnePrefix(item.id, [...this.#corpus.records.keys()], 'event ID'));
     }
     if (item.type === 'account') return this.#resolveAccountSubject(item.id);
     if (item.type === 'set') return subject('set', this.getSet(item.id).id);
@@ -1900,9 +1925,9 @@ export class InMemoryResearchMemory {
         if (!visited.has(key) && visited.size - starts.length < normalized.limit) {
           visited.set(key, {
             subject: next, role: 'discovery', reasons: [reason],
-            provenance: [{
-              type: 'stored-event-observations', eventId: relation.sourceEventId,
-            }],
+            provenance: cloneJson(
+              this.#corpus.records.get(relation.sourceEventId)?.observations ?? [],
+            ),
           });
           queue.push({ subject: next, depth });
         } else if (visited.has(key)) {
@@ -1975,11 +2000,12 @@ export class InMemoryResearchMemory {
   }
 
   inspect(reference) {
+    this.#assertOpen();
     const item = normalizeSubject(reference);
     if (item.type === 'event') {
       const record = this.getEvent(item.id);
       return {
-        subject: item, loaded: Boolean(record), evidence: record,
+        subject: item, resident: Boolean(record), evidence: record,
         provenance: record?.observations ?? [],
         relationships: cloneJson(this.#corpus.outbound.get(memberKey(item)) ?? []),
       };
@@ -1988,16 +2014,19 @@ export class InMemoryResearchMemory {
       relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
       direction: 'both', depth: 1, limit: this.#capacity,
     });
-    return { subject: item, loaded: collection.context.relationships.length > 0, collection };
+    return { subject: item, resident: collection.context.relationships.length > 0, collection };
   }
 
   recordAcquisitionCoverage(result) {
     this.#assertOpen();
     const normalized = normalizeAcquisitionCoverage(result);
     for (const observed of normalized.acquiredObservations) {
+      const resident = this.#corpus.records.get(observed.eventId);
+      // Coverage describes the bounded attempt itself. Capacity pressure may
+      // legitimately evict evidence acquired earlier in that same attempt.
+      if (!resident) continue;
       for (const observation of observed.observations) {
-        const stored = this.#corpus.records.get(observed.eventId)?.observations
-          .find(({ id }) => id === observation.id);
+        const stored = resident.observations.find(({ id }) => id === observation.id);
         if (!stored || stored.observedAt !== observation.observedAt) {
           throw new ResearchMemoryError(
             'Acquisition coverage observations must reference matching stored observations.',
@@ -2710,13 +2739,22 @@ export function loadFixtureEvents() {
 }
 
 export function isCanonicalNostrEvent(event) {
-  if (!validateEvent(event)) return false;
-  if (!EVENT_ID.test(event.id) || !SIGNATURE.test(event.sig)) return false;
-  if (!Number.isSafeInteger(event.kind) || event.kind < 0) return false;
-  if (!Number.isSafeInteger(event.created_at) || event.created_at < 0) return false;
+  if (!event || typeof event !== 'object') return false;
+  // REPL and future adapter values may originate in another JavaScript realm.
+  // Normalize the plain protocol value before passing it to nostr-tools.
+  let candidate;
+  try {
+    candidate = cloneJson(event);
+  } catch {
+    return false;
+  }
+  if (!validateEvent(candidate)) return false;
+  if (!EVENT_ID.test(candidate.id) || !SIGNATURE.test(candidate.sig)) return false;
+  if (!Number.isSafeInteger(candidate.kind) || candidate.kind < 0) return false;
+  if (!Number.isSafeInteger(candidate.created_at) || candidate.created_at < 0) return false;
   // nostr-tools memoizes verification on the object it receives. Verify a
   // shallow copy so validating evidence never annotates the caller's object.
-  return verifyEvent({ ...event });
+  return verifyEvent(candidate);
 }
 
 function assertCanonicalEvent(event) {

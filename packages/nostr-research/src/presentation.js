@@ -316,9 +316,9 @@ function compactExpansion(expansion, resultingSubjectCount) {
       duplicate: expansion.counts?.duplicate ?? 0,
       invalid: expansion.counts?.invalid ?? 0,
     },
-    workspace: {
-      before: workspaceCapacity(expansion.workspaceBefore),
-      after: workspaceCapacity(expansion.workspaceAfter),
+    corpus: {
+      before: corpusCapacity(expansion.corpusBefore),
+      after: corpusCapacity(expansion.corpusAfter),
     },
     unresolved: {
       before: unresolvedCounts(expansion.unresolvedBefore),
@@ -339,7 +339,7 @@ function compactExpansion(expansion, resultingSubjectCount) {
   };
 }
 
-function workspaceCapacity(value) {
+function corpusCapacity(value) {
   return { events: value?.eventCount ?? 0, capacity: value?.capacity ?? 0 };
 }
 

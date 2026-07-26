@@ -12,22 +12,20 @@ const OPTION_KEYS = new Set([
 
 /**
  * Expands an explicit selection through bounded local traversal and targeted
- * relay acquisition. It changes durable memory and the disposable workspace,
- * but never a session selection.
+ * relay acquisition. It changes the active corpus, but never a session selection.
  */
-export async function expandResearch(memory, workspace, selection, options) {
-  const normalized = normalizeExpansionOptions(memory, workspace, selection, options);
+export async function expandResearch(memory, selection, options) {
+  const normalized = normalizeExpansionOptions(memory, selection, options);
   const startedAt = Date.now();
-  const workspaceBefore = workspace.describe();
-  const starting = workspace.asCollection(selection);
+  const corpusBefore = memory.describe();
+  const starting = memory.asCollection(selection);
   const startingSubjects = starting.items.map(({ subject }) => structuredClone(subject));
   const protectedEvents = startingSubjects.filter(({ type }) => type === 'event');
-  if (protectedEvents.length > workspaceBefore.capacity) {
+  if (protectedEvents.length > corpusBefore.capacity) {
     throw new ResearchMemoryError(
-      'Expansion workspace capacity must accommodate all explicit event starts.',
+      'Expansion corpus capacity must accommodate all explicit event starts.',
     );
   }
-  workspace.add(protectedEvents, { preserve: protectedEvents });
 
   const requestedFilters = new Set();
   const requestedEventIds = new Set();
@@ -46,8 +44,7 @@ export async function expandResearch(memory, workspace, selection, options) {
     depth: normalized.depth,
     limit: normalized.limit,
   };
-  const traverse = () => workspace.traverse(starting, traversalOptions);
-  const addToWorkspace = (value) => workspace.add(value, { preserve: protectedEvents });
+  const traverse = () => memory.traverse(starting, traversalOptions);
 
   const acquireFilter = async (makeFilter, request = {}) => {
     const remainingEvents = normalized.eventLimit - totals.observations;
@@ -72,8 +69,8 @@ export async function expandResearch(memory, workspace, selection, options) {
       eventLimit: requestEventLimit,
       concurrency: normalized.concurrency,
       signal: normalized.signal,
+      preserve: protectedEvents,
     });
-    addToWorkspace(result);
     for (const key of Object.keys(totals)) totals[key] += result.counts[key];
     requests.push({
       purpose: request.purpose ?? 'target-hydration',
@@ -120,10 +117,9 @@ export async function expandResearch(memory, workspace, selection, options) {
   for (let pass = 0; pass <= normalized.depth; pass += 1) {
     const traversed = traverse();
     if (unresolvedBefore === null) {
-      unresolvedBefore = unresolvedTargets(workspace, memory, traversed);
+      unresolvedBefore = unresolvedTargets(memory, traversed);
     }
-    hydrateDurableTargets(workspace, memory, traversed, protectedEvents);
-    const targets = unresolvedTargets(workspace, memory, traversed);
+    const targets = unresolvedTargets(memory, traversed);
     let requested = false;
 
     const eventIds = targets.events.filter((id) => !requestedEventIds.has(id));
@@ -164,15 +160,15 @@ export async function expandResearch(memory, workspace, selection, options) {
   }
 
   const finalTraversal = traverse();
-  const unresolvedAfter = unresolvedTargets(workspace, memory, finalTraversal);
-  const workspaceAfter = workspace.describe();
+  const unresolvedAfter = unresolvedTargets(memory, finalTraversal);
+  const corpusAfter = memory.describe();
   finalTraversal.context = {
     ...finalTraversal.context,
     expansion: {
       options: publicOptions(normalized),
       startingSubjects,
-      workspaceBefore,
-      workspaceAfter,
+      corpusBefore,
+      corpusAfter,
       requestCount: requests.length,
       filterCount: requestedFilters.size,
       counts: totals,
@@ -192,15 +188,15 @@ export async function expandResearch(memory, workspace, selection, options) {
   return finalTraversal;
 }
 
-export function normalizeExpansionOptions(memory, workspace, selection, options) {
+export function normalizeExpansionOptions(memory, selection, options) {
   if (!memory || typeof memory.getEvent !== 'function' || typeof memory.ingest !== 'function') {
     throw new ResearchMemoryError('An open research memory is required.');
   }
-  if (!workspace || typeof workspace.asCollection !== 'function'
-    || typeof workspace.traverse !== 'function') {
-    throw new ResearchMemoryError('An open research workspace is required.');
+  if (typeof memory.asCollection !== 'function' || typeof memory.traverse !== 'function'
+    || typeof memory.describe !== 'function') {
+    throw new ResearchMemoryError('A bounded in-memory research corpus is required.');
   }
-  workspace.asCollection(selection);
+  memory.asCollection(selection);
   if (!isPlainObject(options)) throw new ResearchMemoryError('Expansion options are required.');
   const unknown = Object.keys(options).filter((key) => !OPTION_KEYS.has(key));
   if (unknown.length) {
@@ -297,36 +293,20 @@ function publicOptions(options) {
   };
 }
 
-function unresolvedTargets(workspace, memory, collection) {
+function unresolvedTargets(memory, collection) {
   const events = new Set();
   const accounts = new Set();
   for (const { subject } of collection.items) {
-    if (subject.type === 'event' && !workspace.inspect(subject).loaded) {
+    if (subject.type === 'event' && !memory.getEvent(subject.id)) {
       events.add(subject.id);
     } else if (subject.type === 'account') {
       const metadata = memory.currentEvent(subject.id, 0);
-      if (!metadata || !workspace.inspect({ type: 'event', id: metadata.event.id }).loaded) {
+      if (!metadata) {
         accounts.add(subject.id);
       }
     }
   }
   return { events: [...events].sort(), accounts: [...accounts].sort() };
-}
-
-function hydrateDurableTargets(workspace, memory, collection, preserve) {
-  const subjects = [];
-  for (const { subject } of collection.items) {
-    if (subject.type === 'event' && !workspace.inspect(subject).loaded
-      && memory.getEvent(subject.id)) {
-      subjects.push(subject);
-    } else if (subject.type === 'account') {
-      const metadata = memory.currentEvent(subject.id, 0);
-      if (metadata && !workspace.inspect({ type: 'event', id: metadata.event.id }).loaded) {
-        subjects.push({ type: 'event', id: metadata.event.id });
-      }
-    }
-  }
-  if (subjects.length) workspace.add(subjects, { preserve });
 }
 
 function traversalItemDepth(item) {

@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { finalizeEvent } from 'nostr-tools';
-import { openResearchMemory } from '@nostr-research/memory';
 
 const CONSOLE = new URL('../bin/nostr-research-console.js', import.meta.url);
 const KEYS = ['8', '9'].map(
@@ -13,11 +9,9 @@ const KEYS = ['8', '9'].map(
 );
 
 test('one console process preserves JavaScript state and composes a bounded research loop', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-console-'));
-  const database = join(directory, 'memory.sqlite');
   const eventIds = [];
+  const events = [];
   let unwantedAuthor;
-  let memory = openResearchMemory(database);
   try {
     for (let index = 0; index < 30; index += 1) {
       const event = finalizeEvent({
@@ -28,10 +22,7 @@ test('one console process preserves JavaScript state and composes a bounded rese
       }, KEYS[index % KEYS.length]);
       if (index === 0) unwantedAuthor = event.pubkey;
       eventIds.push(event.id);
-      memory.ingest(event, {
-        relay: 'wss://console-fixture.example/',
-        observedAt: '2026-07-25T00:00:00.000Z',
-      });
+      events.push(event);
     }
     const metadata = finalizeEvent({
       kind: 0,
@@ -39,14 +30,11 @@ test('one console process preserves JavaScript state and composes a bounded rese
       tags: [],
       content: JSON.stringify({ name: 'unwanted profile' }),
     }, KEYS[0]);
-    memory.ingest(metadata, {
-      relay: 'wss://console-fixture.example/',
-      observedAt: '2026-07-25T00:00:00.000Z',
-    });
-    memory.close();
-    memory = null;
+    events.push(metadata);
 
     const source = [
+      `const fixtures = ${JSON.stringify(events)}`,
+      "for (const event of fixtures) research.memory.ingest(event, { relay: 'wss://console-fixture.example/', observedAt: '2026-07-25T00:00:00.000Z' })",
       "const loaded = research.load({ order: 'oldest', limit: 30 })",
       "await Promise.resolve('AWAIT_OK')",
       "const found = research.events({ text: ['console evidence'], limit: 30 })",
@@ -96,7 +84,7 @@ test('one console process preserves JavaScript state and composes a bounded rese
       '.exit',
       '',
     ].join('\n');
-    const result = spawnSync(process.execPath, [CONSOLE.pathname, '--db', database, '--capacity', '50'], {
+    const result = spawnSync(process.execPath, [CONSOLE.pathname, '--capacity', '50'], {
       input: source,
       encoding: 'utf8',
       timeout: 10_000,
@@ -133,14 +121,7 @@ test('one console process preserves JavaScript state and composes a bounded rese
       provenance: 1,
     });
 
-    memory = openResearchMemory(database);
-    assert.equal(memory.summary().events, 31);
-    const reopened = memory.getSet(memory.listSets()[0].id);
-    assert.equal(reopened.members.length, 3);
-    assert.equal(reopened.members[0].reasons[0].type, 'relationship');
-    assert.equal(reopened.members[0].reasons[0].provenance.length, 1);
   } finally {
-    memory?.close();
-    rmSync(directory, { recursive: true, force: true });
+    // The subprocess owns and closes its process-local corpus.
   }
 });

@@ -7,8 +7,8 @@ const OPTION_KEYS = new Set([
 ]);
 
 /** Acquires authored replies and resolves each direct parent within shared bounds. */
-export async function resolveReplyContexts(memory, workspace, accounts, options) {
-  const normalized = normalizeReplyContextOptions(memory, workspace, accounts, options);
+export async function resolveReplyContexts(memory, accounts, options) {
+  const normalized = normalizeReplyContextOptions(memory, accounts, options);
   const startedAt = Date.now();
   const requests = [];
   const totals = {
@@ -38,7 +38,6 @@ export async function resolveReplyContexts(memory, workspace, accounts, options)
       concurrency: normalized.concurrency,
       signal: normalized.signal,
     });
-    workspace.add(result);
     for (const key of Object.keys(totals)) totals[key] += result.counts[key];
     requests.push({
       purpose,
@@ -202,12 +201,12 @@ export async function resolveReplyContexts(memory, workspace, accounts, options)
   return { type: 'reply-contexts', contexts, collection, report };
 }
 
-export function normalizeReplyContextOptions(memory, workspace, accounts, options) {
+export function normalizeReplyContextOptions(memory, accounts, options) {
   if (!memory || typeof memory.getEvent !== 'function' || typeof memory.ingest !== 'function') {
     throw new ResearchMemoryError('An open research memory is required.');
   }
-  if (!workspace || typeof workspace.add !== 'function' || typeof workspace.collection !== 'function') {
-    throw new ResearchMemoryError('An open research workspace is required.');
+  if (typeof memory.collection !== 'function' || typeof memory.asCollection !== 'function') {
+    throw new ResearchMemoryError('A bounded in-memory research corpus is required.');
   }
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
     throw new ResearchMemoryError('Reply-context options are required.');
@@ -235,7 +234,7 @@ export function normalizeReplyContextOptions(memory, workspace, accounts, option
     throw new ResearchMemoryError('Reply-context relay URLs must not be repeated.');
   }
   const input = accounts?.type === 'result-collection'
-    ? workspace.asCollection(accounts).items.map(({ subject: item }) => item)
+    ? memory.asCollection(accounts).items.map(({ subject: item }) => item)
     : Array.isArray(accounts) ? accounts : [accounts];
   if (!input.length || input.some((item) => item?.type !== 'account')) {
     throw new ResearchMemoryError('Reply contexts require explicit account subjects only.');
