@@ -74,6 +74,9 @@ test('current account metadata uses replaceable semantics and profile search ret
     assert.deepEqual(search.results[0].matchReasons.map(({ type }) => type), [
       'profile-term', 'profile-term',
     ]);
+    const byDescription = memory.searchAccounts({ text: ['cryptography'], limit: 10 });
+    assert.deepEqual(byDescription.results.map(({ publicKey }) => publicKey), [alice]);
+    assert.deepEqual(byDescription.results[0].matchReasons[0].fields, ['about']);
     assert.throws(() => memory.resolveAccount(carol), /No stored account public key matches/);
   });
 });
@@ -110,6 +113,7 @@ function makeFixtures() {
       name: 'alice',
       display_name: 'Alice Current',
       nip05: 'alice@example.org',
+      about: 'Applied cryptography researcher',
     }),
   }, ALICE_KEY);
   const bobMetadata = sign({

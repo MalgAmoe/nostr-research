@@ -425,7 +425,7 @@ export class InMemoryResearchMemory {
       });
       let matched = true;
       for (const term of normalized.terms) {
-        const fields = ['name', 'display_name', 'nip05'].filter(
+        const fields = ['name', 'display_name', 'nip05', 'about'].filter(
           (field) => typeof profile[field] === 'string'
             && profile[field].toLocaleLowerCase().includes(term.toLocaleLowerCase()),
         );

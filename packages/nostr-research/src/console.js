@@ -268,6 +268,10 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
       return showResearchValue(memory, session, value, options);
     },
 
+    project(value, options = {}) {
+      return memory.project(value, options);
+    },
+
     facets(value, options = {}) {
       return facetResearchCollection(memory, memory.asCollection(value), options);
     },

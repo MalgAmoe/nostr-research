@@ -110,7 +110,7 @@ expressions. Top-level `await` is available. Query and analysis operations
 return values and never replace the active selection: `acquire`, `events`,
 `accounts`, `currentEvent`, `follows`, `expand`, `replyContexts`, `traverse`,
 `exclude`, `distinctBy`, `limitPer`, `discoveries`, `facets`, `compare`,
-`inspect`, and `show`. `traverse(result, options)` always traverses the supplied
+`inspect`, `project`, and `show`. `traverse(result, options)` always traverses the supplied
 result without changing active state.
 
 State changes have separate, plainly named operations:

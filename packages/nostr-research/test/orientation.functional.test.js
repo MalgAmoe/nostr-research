@@ -46,12 +46,17 @@ test('presentation and facets orient surviving research values', () => {
     });
     const shownSet = environment.research.show(memory.getSet(retained.id));
     const shownCorpus = environment.research.show(memory.describe());
+    const projected = environment.research.project(selected, { mode: 'ids' });
     assert.equal(shownCollection.type, 'result-collection');
     assert.equal(shownCollection.count, 2);
     assert.ok(shownCollection.preview[0].evidence.event.content.length <= 40);
     assert.equal(shownSet.type, 'set');
     assert.equal(shownSet.count, 2);
     assert.equal(shownCorpus.type, 'corpus-summary');
+    assert.deepEqual(
+      projected,
+      selected.items.map(({ subject: item }) => ({ type: item.type, id: item.id })),
+    );
   } finally {
     environment.close();
   }
