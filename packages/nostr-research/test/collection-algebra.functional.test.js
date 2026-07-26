@@ -21,7 +21,9 @@ function signed(secret, event) {
 test('typed local stages refine, balance, summarize, and move trial-shaped evidence', () => {
   const aliceProfile = signed(ALICE_SECRET, {
     kind: 0, created_at: 1, tags: [],
-    content: JSON.stringify({ name: 'alice', about: 'Photography and field recordings' }),
+    content: JSON.stringify({
+      name: 'alice', display_name: 'Alice Camera', about: 'Photography and field recordings',
+    }),
   });
   const first = signed(ALICE_SECRET, {
     kind: 1, created_at: 2, tags: [['t', 'photo'], ['p', bob]],
@@ -103,6 +105,19 @@ test('typed local stages refine, balance, summarize, and move trial-shaped evide
     assert.ok(authors.items.every(({ reasons }) => (
       reasons.some(({ type }) => type === 'collection-move')
     )));
+    const projectedNames = memory.transform(authors, {
+      operation: 'project',
+      fields: ['account.name', 'account.display_name'],
+      limit: 10,
+    });
+    assert.deepEqual(
+      projectedNames.items.find(({ subject }) => subject.id === alice).values,
+      { 'account.name': 'alice', 'account.display_name': 'Alice Camera' },
+    );
+    const distinctAuthors = memory.transform(refined, {
+      operation: 'distinct', by: 'event.author', limit: 10,
+    });
+    assert.deepEqual(distinctAuthors.items.map(({ memberCount }) => memberCount).sort(), [1, 2]);
     const movedProvenance = authors.items.find(({ subject }) => subject.id === bob).provenance;
     const regroupedAuthors = memory.transform(authors, {
       operation: 'group', by: 'subject', limit: 10,
@@ -203,6 +218,7 @@ test('bounded groups expose exact membership, refresh evidence, and summarize ex
     assert.deepEqual(summary.items[0].values.relays, [
       'wss://one.example/', 'wss://two.example/',
     ]);
+    assert.equal(summary.items[0].omissions.relays.inputComplete, true);
     assert.throws(() => memory.transform(grouped, {
       operation: 'summarize',
       aggregations: [
@@ -274,6 +290,197 @@ test('a local-only named plan can query resident memory without implicit acquisi
       /input must name an acquisition stage/,
     );
     assert.equal(memory.describe().eventCount, 0);
+  } finally {
+    memory.close();
+  }
+});
+
+test('stable bounds and compatible set composition share the public pipeline algebra', async () => {
+  const memory = createInMemoryResearchMemory({ capacity: 10 });
+  try {
+    const notes = [2, 3, 4, 5].map((created_at, index) => signed(
+      index === 3 ? BOB_SECRET : ALICE_SECRET,
+      { kind: 1, created_at, tags: [], content: `note ${created_at}` },
+    ));
+    for (const event of notes) {
+      memory.ingest(event, {
+        relay: 'wss://one.example/', observedAt: '2026-07-26T10:00:00.000Z',
+      });
+    }
+    const all = memory.select({ kinds: [1], order: 'oldest' });
+    const bounded = memory.transform(all, [
+      { operation: 'sort', by: 'event.createdAt', direction: 'descending' },
+      { operation: 'sample', seed: 'field-trial', limit: 3 },
+      { operation: 'limit', limit: 2 },
+    ]);
+    const repeated = memory.transform(all, [
+      { operation: 'sort', by: 'event.createdAt', direction: 'descending' },
+      { operation: 'sample', seed: 'field-trial', limit: 3 },
+      { operation: 'limit', limit: 2 },
+    ]);
+    assert.deepEqual(bounded.items.map(({ subject }) => subject), repeated.items.map(({ subject }) => subject));
+    assert.deepEqual(bounded.context.cardinality, {
+      inputCount: 3, outputCount: 2, omittedCount: 1, truncated: true,
+    });
+
+    const aliceNotes = memory.transform(all, {
+      operation: 'filter', where: { field: 'event.author', equals: alice }, limit: 10,
+    });
+    const newest = memory.transform(all, {
+      operation: 'filter', where: { field: 'event.createdAt', in: [4, 5] }, limit: 10,
+    });
+    const union = memory.transform(aliceNotes, {
+      operation: 'union', with: newest, limit: 10,
+    });
+    const intersection = memory.transform(aliceNotes, {
+      operation: 'intersection', with: newest, limit: 10,
+    });
+    const comparison = memory.transform(aliceNotes, {
+      operation: 'compare', with: newest, limit: 10,
+    });
+    assert.equal(union.items.length, 4);
+    assert.equal(intersection.items.length, 1);
+    assert.deepEqual(comparison.items[0].values, {
+      left: 3, right: 2, shared: 1, leftOnly: 2, rightOnly: 1,
+    });
+
+    const report = await executeResearchPlan(memory, [
+      { id: 'all', operation: 'select', parameters: { scope: 'corpus', kinds: [1] } },
+      {
+        id: 'alice', operation: 'filter', input: 'all',
+        parameters: { where: { field: 'event.author', equals: alice } },
+      },
+      {
+        id: 'newest', operation: 'filter', input: 'all',
+        parameters: { where: { field: 'event.createdAt', in: [4, 5] } },
+      },
+      {
+        id: 'shared', operation: 'intersection', input: 'alice',
+        parameters: { with: 'newest', limit: 10 },
+      },
+    ]);
+    assert.equal(report.stages.at(-1).result.items.length, 1);
+  } finally {
+    memory.close();
+  }
+});
+
+test('pipeline schema exposes literal fields and preflight rejects invalid composition', () => {
+  const memory = createInMemoryResearchMemory({ capacity: 5 });
+  try {
+    const schema = memory.describeCollectionPipeline();
+    assert.ok(schema.fields.accounts.includes('account.name'));
+    assert.ok(schema.fields.accounts.includes('account.display_name'));
+    assert.notEqual(
+      schema.fields.accounts.indexOf('account.name'),
+      schema.fields.accounts.indexOf('account.display_name'),
+    );
+    assert.deepEqual(schema.operations.filter.fieldsByInputKind.events['event.tag'], {
+      valueType: 'tag[]',
+      predicate: { field: 'event.tag', name: 'string', value: 'string' },
+    });
+    assert.equal(
+      schema.operations.filter.fieldsByInputKind.events.observedRelay,
+      undefined,
+    );
+    assert.equal(
+      schema.operations.filter.fieldsByInputKind.events.subject,
+      undefined,
+    );
+    assert.equal(
+      schema.operations.filter.fieldsByInputKind.events['event.kind'].comparisons.contains,
+      undefined,
+    );
+    assert.deepEqual(
+      schema.operations.summarize.fieldsByInputKind.accounts,
+      ['subject', 'subject.id', 'observedRelay'],
+    );
+    assert.equal(
+      schema.operations.summarize.fieldsByInputKind.events.includes('event.tag'),
+      false,
+    );
+    assert.equal(schema.operations.summarize.fieldTypes['event.createdAt'], 'number');
+    assert.equal(schema.operations.summarize.aggregations.count.field, 'forbidden');
+    const emptyEvents = memory.select({ kinds: [1] });
+    const note = signed(ALICE_SECRET, {
+      kind: 1, created_at: 7, tags: [['t', 'literal']], content: 'literal fields',
+    });
+    memory.ingest(note, {
+      relay: 'wss://one.example/', observedAt: '2026-07-26T10:00:00.000Z',
+    });
+    const projected = memory.transform(memory.select({ kinds: [1] }), {
+      operation: 'project', fields: ['subject', 'event.tag'],
+    });
+    assert.deepEqual(projected.items[0].values, {
+      subject: { type: 'event', id: note.id },
+      'event.tag': [{ name: 't', value: 'literal' }],
+    });
+    assert.doesNotThrow(() => memory.transform(memory.select({ kinds: [1] }), {
+      operation: 'sort', by: 'event.tag',
+    }));
+    const emptyAccounts = memory.collection([{
+      subject: { type: 'account', id: alice },
+    }]);
+    assert.throws(() => memory.transform(emptyEvents, {
+      operation: 'union', with: emptyAccounts,
+    }), /Incompatible union collections/);
+    assert.throws(() => memory.transform(emptyEvents, [
+      { operation: 'sort', by: 'event.quality' },
+      { operation: 'limit', limit: 1 },
+    ]), /Unsupported sort field/);
+    assert.throws(() => memory.transform(emptyEvents, {
+      operation: 'summarize',
+      aggregations: [{ name: 'count', operation: 'count', field: 'subject' }],
+    }), /count aggregation does not accept a field/);
+  } finally {
+    memory.close();
+  }
+});
+
+test('bounded groups preserve complete derived inputs and provenance for aggregation', () => {
+  const memory = createInMemoryResearchMemory({ capacity: 10 });
+  try {
+    const notes = [2, 3, 4].map((created_at, index) => signed(ALICE_SECRET, {
+      kind: 1,
+      created_at,
+      tags: [],
+      content: index === 0 ? 'https://one.example/a' : `note ${created_at}`,
+    }));
+    notes.forEach((event, index) => memory.ingest(event, {
+      relay: `wss://${index + 1}.example/`,
+      observedAt: '2026-07-26T10:00:00.000Z',
+    }));
+    const grouped = memory.transform(memory.select({ kinds: [1], order: 'oldest' }), {
+      operation: 'group', by: 'event.author', itemLimit: 1,
+    });
+    assert.equal(grouped.items[0].provenance.length, 3);
+
+    const summary = memory.transform(grouped, {
+      operation: 'summarize',
+      aggregations: [
+        { name: 'created', operation: 'distinct', field: 'event.createdAt' },
+        { name: 'oldest', operation: 'min', field: 'event.createdAt' },
+        { name: 'newest', operation: 'max', field: 'event.createdAt' },
+        { name: 'relays', operation: 'collect', field: 'observedRelay', limit: 10 },
+      ],
+    });
+    assert.deepEqual(summary.items[0].values, {
+      created: 3,
+      oldest: 2,
+      newest: 4,
+      relays: ['wss://1.example/', 'wss://2.example/', 'wss://3.example/'],
+    });
+    for (const name of ['created', 'oldest', 'newest', 'relays']) {
+      assert.deepEqual(
+        {
+          sourceItemsOmitted: summary.items[0].omissions[name].sourceItemsOmitted,
+          inputComplete: summary.items[0].omissions[name].inputComplete,
+          truncated: summary.items[0].omissions[name].truncated,
+        },
+        { sourceItemsOmitted: 2, inputComplete: true, truncated: false },
+      );
+    }
+    assert.equal(summary.items[0].provenance.length, 3);
   } finally {
     memory.close();
   }

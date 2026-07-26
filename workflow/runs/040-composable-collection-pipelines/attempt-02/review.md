@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. The public schema is still incomplete and misleading (`packages/nostr-research/src/index.js:2306`). It exposes one generic field list and generic predicate comparisons, but does not reveal operation-specific fields or types. For example, `subject` and `observedRelay` are advertised as common fields but are rejected by filtering (`src/index.js:1800`), while `event.tag` requires the undocumented `{name, value}` predicate shape instead of the advertised comparisons (`src/index.js:1807`). Aggregation fields are also absent from the schema despite their separate restricted vocabulary (`src/index.js:1871`). Make the discoverable schema accurately describe valid fields, operand types, and special forms for each operation.

@@ -254,9 +254,11 @@ function showGroup(memory, group, itemKind, settings) {
   const shown = showCollection(memory, collection, settings);
   return {
     key: structuredClone(group.key),
-    count: group.items.length,
+    count: group.memberCount ?? group.items.length,
     preview: shown.preview,
-    omitted: shown.omitted,
+    omitted: Math.max(0, (group.memberCount ?? group.items.length) - shown.preview.length),
+    retainedCount: group.retainedMemberCount ?? group.items.length,
+    sourceOmitted: group.omittedMemberCount ?? 0,
     reasonCount: group.reasons?.length ?? 0,
     provenance: provenanceSummary([group]),
   };
@@ -268,6 +270,7 @@ function showSummary(summary, settings) {
   return {
     key: structuredClone(summary.key),
     values: structuredClone(summary.values),
+    ...(summary.omissions ? { omissions: structuredClone(summary.omissions) } : {}),
     reasonCount: reasons.length,
     provenance: provenanceSummary([summary]),
     ...(settings.includeEvidence ? {

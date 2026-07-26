@@ -184,3 +184,40 @@ test('declarative show bounds grouped and summarized named results', async () =>
 
   await session.close();
 });
+
+test('declarative named results compose compatible sets and expose their schema', async () => {
+  const memory = createInMemoryResearchMemory({ capacity: 3 });
+  const session = createDeclarativeResearchSession(memory);
+  const [event] = loadFixtureEvents();
+  memory.ingest(event, {
+    relay: 'wss://fixture.example/',
+    observedAt: '2026-07-26T10:00:00.000Z',
+  });
+  await session.execute({
+    commandId: 'left', command: 'select',
+    parameters: { scope: 'corpus', kinds: [event.kind] }, resultId: 'left',
+  });
+  await session.execute({
+    commandId: 'right', command: 'select',
+    parameters: { scope: 'corpus', ids: [event.id] }, resultId: 'right',
+  });
+  const compared = await session.execute({
+    commandId: 'compare', command: 'compare', input: 'left',
+    parameters: { with: 'right', limit: 10 }, resultId: 'comparison',
+  });
+  assert.equal(compared.ok, true);
+  assert.equal(compared.result.handle.kind, 'summaries');
+  const shown = await session.execute({
+    commandId: 'show', command: 'show', input: 'comparison', parameters: {},
+  });
+  assert.deepEqual(shown.result.preview[0].values, {
+    left: 1, right: 1, shared: 1, leftOnly: 0, rightOnly: 0,
+  });
+  const schema = await session.execute({
+    commandId: 'schema', command: 'schema', parameters: {},
+  });
+  assert.equal(schema.ok, true);
+  assert.ok(schema.result.operations.set.operations.includes('difference'));
+  assert.equal(schema.sessionRevision, 3);
+  await session.close();
+});

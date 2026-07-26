@@ -16,12 +16,15 @@ import {
 } from './presentation.js';
 
 const COMMANDS = new Set([
-  'acquire', 'select', 'filter', 'group', 'summarize', 'move', 'hydrate', 'retain', 'plan',
-  'show', 'inspect', 'explain', 'list', 'status', 'release', 'reset', 'close',
+  'acquire', 'select', 'filter', 'project', 'distinct', 'sort', 'limit', 'sample',
+  'group', 'summarize', 'move', 'union', 'intersection', 'difference', 'compare',
+  'hydrate', 'retain', 'plan',
+  'show', 'inspect', 'explain', 'list', 'status', 'schema', 'release', 'reset', 'close',
 ]);
-const OBSERVATIONS = new Set(['show', 'inspect', 'explain', 'list', 'status']);
+const OBSERVATIONS = new Set(['show', 'inspect', 'explain', 'list', 'status', 'schema']);
 const LIFECYCLE = new Set(['release', 'reset', 'close']);
 const EXTERNAL = new Set(['acquire', 'hydrate']);
+const SET_TRANSFORMS = new Set(['union', 'intersection', 'difference', 'compare']);
 const UNSUCCESSFUL_RELAY_OUTCOMES = new Set(['connection-failure', 'closed']);
 const COMMAND_KEYS = new Set([
   'commandId', 'ifRevision', 'command', 'input', 'parameters', 'resultId', 'replace',
@@ -166,6 +169,12 @@ export class DeclarativeResearchSession {
     if (command.input !== undefined) {
       throw protocolError('INVALID_COMMAND', `${command.command} does not accept an input handle.`);
     }
+    if (command.command === 'schema') {
+      if (Object.keys(parameters).length) {
+        throw protocolError('INVALID_COMMAND', 'schema parameters must be an empty object.');
+      }
+      return readOnly(() => this.#memory.describeCollectionPipeline());
+    }
     if (command.command === 'list') {
       return readOnly(() => presentHandleList(
         [...this.#handles].map(([id, entry]) => handleMetadata(
@@ -241,12 +250,21 @@ export class DeclarativeResearchSession {
       throw protocolError('UNKNOWN_RESULT', `No named result exists for ${command.input}.`,
         { id: command.input });
     }
+    const referenced = SET_TRANSFORMS.has(command.command)
+      ? this.#requireHandle(command.parameters.with) : undefined;
     const operation = {
       operation: command.command,
-      parameters: cloneJson(command.parameters),
+      parameters: SET_TRANSFORMS.has(command.command)
+        ? { ...cloneJson(command.parameters), with: referenced.value }
+        : cloneJson(command.parameters),
     };
+    const descriptorOperation = SET_TRANSFORMS.has(command.command)
+      ? { operation: command.command, parameters: cloneJson(command.parameters) }
+      : operation;
+    const references = referenced === undefined ? undefined
+      : new Map([[command.parameters.with, referenced.descriptor]]);
     const descriptor = preflightResearchOperation(
-      this.#memory, operation, inputEntry?.descriptor,
+      this.#memory, descriptorOperation, inputEntry?.descriptor, references,
     );
     validateResultTarget(command.resultId, command.replace, this.#handles);
     const execute = () => executeResearchOperation(

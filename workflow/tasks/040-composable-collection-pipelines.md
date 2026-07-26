@@ -1,6 +1,6 @@
 ---
 id: 040-composable-collection-pipelines
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/040-composable-collection-pipelines.validate.sh
 depends_on: 039-scoped-working-buffers

@@ -103,11 +103,14 @@ once against the composed distinct-event limit.
 ## Local collection algebra
 
 `memory.transform(collection, stages)` applies a fully JSON-serializable local
-plan. Supported stage operations are `filter`, `group`, `summarize`, and
-`move`; the complete typed path is checked before the first stage runs. Stages
-may carry an `as` name and always record their normalized description in the
-result context. Defaults and caller limits bound group counts, members,
-summaries, samples, and collected values.
+pipeline. Supported stage operations are `filter`, `project`, `distinct`,
+`sort`, `limit`, `sample`, `group`, `summarize`, `move`, `union`,
+`intersection`, `difference`, and `compare`; the complete typed path is checked
+before the first stage runs. Stages may carry an `as` name and always record
+their normalized description in the result context. Cardinality-changing
+stages report their input, output, omitted count, and truncation state.
+Defaults and caller limits bound groups, members, projections, summaries,
+samples, and collected values.
 
 ```js
 const evidence = memory.transform(memory.select({ kinds: [1] }), [
@@ -140,6 +143,20 @@ Explicit summary aggregations are `count`, `distinct`, `sample`, `collect`,
 resident authored events, and current kind-3 follows. These transforms never
 acquire, hydrate, retain, or evict evidence.
 
+Sorting is stable. Sampling ranks stable subject identities with an explicit
+seed (or the documented default), so the same input and seed produce the same
+bounded result. Set operations accept another compatible subject collection in
+`with`, merge reasons and provenance by stable subject identity, and reject
+different collection kinds during preflight. `compare` returns concise
+left/right/shared counts.
+
+`memory.describeCollectionPipeline()` (also exported as
+`collectionPipelineSchema()`) returns the operation, field, bound, and ordering
+schema as plain data. The declarative/JSONL session exposes the same value with
+the read-only `schema` command. Account profile fields are literal:
+`account.name` reads only `name`, while `account.display_name` reads only
+`display_name`.
+
 ## Named research plans
 
 `executeResearchPlan(memory, plan)` runs a non-empty JSON-serializable array of
@@ -150,8 +167,10 @@ has no input. `select` must explicitly name an earlier `acquire` stage to query
 only that acquisition's subjects, or omit `input` and set
 `parameters.scope` to `"corpus"` to query the authoritative current resident
 corpus.
-The only supported operations are `acquire`, `select`, `filter`, `group`,
-`summarize`, `move`, `hydrate`, and `retain`.
+The supported local pipeline operations are the same ones accepted by
+`memory.transform`; plans additionally support `acquire`, `select`, `hydrate`,
+and `retain`. A set operation names its left input with `input` and an earlier
+compatible right-hand stage with `parameters.with`.
 
 ```js
 const report = await executeResearchPlan(memory, [
@@ -341,7 +360,8 @@ set `scope: "acquisition"`). Without an input it must set
 `resultId` requires `replace: true`; replacement advances that working handle
 without deleting or rewriting corpus evidence.
 
-Observation commands are `show`, `inspect`, `explain`, `list`, and `status`.
+Observation commands are `show`, `inspect`, `explain`, `list`, `status`, and
+`schema`.
 `show` and `explain` consume a named input. `inspect` receives its stable
 `subject` in `parameters`. Projection parameters are `previewLimit`,
 `excerptLimit`, `includeEvidence`, and `sizeLimit`; `show` additionally accepts
