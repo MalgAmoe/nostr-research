@@ -57,3 +57,18 @@ before further field work: fully preflight plans before external effects,
 constrain select dependencies to acquisition ordering, refresh stable subjects
 inside reusable typed groups, reject duplicate aggregation names, and make
 bounded group counts and omissions explicit.
+
+After that correctness pass, live plan use showed that the algebra can express
+the research operations but cannot yet replace the persistent JavaScript REPL
+as an interaction environment. The next milestone is therefore:
+
+1. a persistent declarative session with engine-owned named handles, stable
+   response envelopes, mutation-only revisions, and shared plan execution;
+2. bounded `show`, `inspect`, and membership `explain` projections plus handle
+   lifecycle; and
+3. a protocol-clean JSONL adapter validated through live investigations with
+   no dynamically authored JavaScript.
+
+This milestone adds an interactive execution environment around the existing
+algebra. It does not expand the algebra or commit to a browser, Rust,
+persistence, UI, DSL, or concurrency architecture.
