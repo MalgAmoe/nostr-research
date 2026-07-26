@@ -458,6 +458,79 @@ export class InMemoryResearchMemory {
     });
   }
 
+  connections(starting, options = {}) {
+    this.#assertOpen();
+    const normalized = normalizeConnectionOptions(options);
+    const seeds = this.asCollection(starting).items.map(({ subject: item }) => (
+      this.#resolveTyped(item)
+    ));
+    const seedKeys = new Set(seeds.map(memberKey));
+    const candidates = new Map();
+
+    for (const seed of seeds) {
+      const related = [];
+      const relationshipTypes = [...normalized.relationshipTypes];
+      if (seed.type === 'account' && normalized.direction === 'outbound') {
+        const followIndex = relationshipTypes.indexOf('follow');
+        if (followIndex !== -1) {
+          related.push(...this.follows(seed).items);
+          relationshipTypes.splice(followIndex, 1);
+        }
+      }
+      if (relationshipTypes.length) {
+        related.push(...this.traverse([seed], {
+          relationshipTypes,
+          direction: normalized.direction,
+          depth: 1,
+          limit: MAX_QUERY_LIMIT,
+        }).items);
+      }
+      for (const item of related) {
+        const key = memberKey(item.subject);
+        if (key === memberKey(seed) || seedKeys.has(key)) continue;
+        const candidate = candidates.get(key) ?? {
+          subject: item.subject,
+          role: 'discovery',
+          sources: new Map(),
+          provenance: [],
+        };
+        const sourceKey = memberKey(seed);
+        const source = candidate.sources.get(sourceKey) ?? { seed, reasons: [] };
+        mergeUniqueJson(source.reasons, item.reasons);
+        candidate.sources.set(sourceKey, source);
+        mergeUniqueJson(candidate.provenance, item.provenance);
+        candidates.set(key, candidate);
+      }
+    }
+
+    const ranked = [...candidates.values()]
+      .filter(({ sources }) => sources.size >= normalized.minimumSources)
+      .sort((left, right) => (
+        right.sources.size - left.sources.size
+        || memberKey(left.subject).localeCompare(memberKey(right.subject))
+      ))
+      .slice(0, normalized.limit)
+      .map((candidate) => ({
+        subject: candidate.subject,
+        role: candidate.role,
+        reasons: [{
+          type: 'connection-aggregation',
+          sourceCount: candidate.sources.size,
+          sources: [...candidate.sources.values()],
+        }],
+        provenance: candidate.provenance,
+      }));
+
+    return resultCollection(ranked, {
+      operation: 'connection-aggregation',
+      starts: seeds,
+      relationshipTypes: normalized.relationshipTypes,
+      direction: normalized.direction,
+      minimumSources: normalized.minimumSources,
+      limit: normalized.limit,
+    });
+  }
+
   traverse(starting, options = {}) {
     this.#assertOpen();
     const normalized = normalizeTraversal(options);
@@ -940,6 +1013,32 @@ function normalizeTraversal(options) {
   };
 }
 
+function normalizeConnectionOptions(options) {
+  assertPlainObject(options, 'Connection aggregation options');
+  rejectUnknownKeys(
+    options, new Set(['relationshipTypes', 'direction', 'minimumSources', 'limit']),
+    'connection aggregation option',
+  );
+  const traversal = normalizeTraversal({
+    relationshipTypes: options.relationshipTypes,
+    direction: options.direction,
+    depth: 1,
+    limit: MAX_QUERY_LIMIT,
+  });
+  const minimumSources = options.minimumSources ?? 1;
+  if (!Number.isSafeInteger(minimumSources) || minimumSources < 1 || minimumSources > MAX_QUERY_LIMIT) {
+    throw new ResearchMemoryError(
+      `Connection aggregation minimumSources must be an integer from 1 to ${MAX_QUERY_LIMIT}.`,
+    );
+  }
+  return {
+    relationshipTypes: traversal.relationshipTypes,
+    direction: traversal.direction,
+    minimumSources,
+    limit: normalizeLimit(options.limit),
+  };
+}
+
 function resolvePrefixes(prefixes, candidates, label) {
   if (!prefixes) return null;
   const resolved = new Set();
@@ -1299,6 +1398,14 @@ function cloneJson(value) {
     return JSON.parse(encoded);
   } catch {
     throw new ResearchMemoryError('Research records must contain JSON-serializable public data.');
+  }
+}
+
+function mergeUniqueJson(target, additions) {
+  for (const addition of additions ?? []) {
+    if (!target.some((item) => stableJson(item) === stableJson(addition))) {
+      target.push(cloneJson(addition));
+    }
   }
 }
 

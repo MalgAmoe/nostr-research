@@ -212,6 +212,10 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
       return memory.follows(account);
     },
 
+    connections(selection, options = {}) {
+      return memory.connections(selection, options);
+    },
+
     collection(items, context = {}) {
       return memory.collection(items, context);
     },

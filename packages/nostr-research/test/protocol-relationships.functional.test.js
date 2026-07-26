@@ -21,6 +21,7 @@ test('replaceable selection and follow interpretation remain stable in one proce
     3, 200, [['p', bob, 'wss://relay.example'], ['p', unresolved]], 'current contacts', ALICE_KEY,
   );
   const mention = sign(1, 210, [['p', bob]], 'ordinary mention', ALICE_KEY);
+  const bobContacts = sign(3, 220, [['p', unresolved], ['p', carol]], 'bob contacts', BOB_KEY);
   const relayListA = sign(10002, 300, [['r', 'wss://a.example']], '', ALICE_KEY);
   const relayListB = sign(10002, 300, [['r', 'wss://b.example']], '', ALICE_KEY);
   const expectedRelayList = [relayListA, relayListB].sort((left, right) => (
@@ -31,7 +32,7 @@ test('replaceable selection and follow interpretation remain stable in one proce
   const otherArticle = sign(30023, 600, [['d', 'other']], 'other address', ALICE_KEY);
   const bobMetadata = sign(0, 50, [], '{"name":"bob"}', BOB_KEY);
   const events = [
-    contactOld, contactCurrent, mention, relayListA, relayListB,
+    contactOld, contactCurrent, mention, bobContacts, relayListA, relayListB,
     articleOld, articleCurrent, otherArticle, bobMetadata,
   ];
 
@@ -80,6 +81,24 @@ test('replaceable selection and follow interpretation remain stable in one proce
     assert.deepEqual(
       environment.research.follows(alice).items.map(({ subject: item }) => item.id),
       [bob, unresolved],
+    );
+    const seeds = memory.collection([
+      { subject: subject('account', alice), reasons: [], provenance: [] },
+      { subject: subject('account', bob), reasons: [], provenance: [] },
+    ], { operation: 'technical-seeds' });
+    const connections = environment.research.connections(seeds, {
+      relationshipTypes: ['follow'],
+      minimumSources: 2,
+    });
+    assert.deepEqual(connections.items.map(({ subject: item }) => item.id), [unresolved]);
+    assert.equal(connections.items[0].reasons[0].sourceCount, 2);
+    assert.deepEqual(
+      connections.items[0].reasons[0].sources.map(({ seed }) => seed.id).sort(),
+      [alice, bob].sort(),
+    );
+    assert.deepEqual(
+      connections.items[0].provenance.map(({ relay }) => relay),
+      ['wss://evidence.example', 'wss://evidence.example'],
     );
     assert.deepEqual(
       memory.select({ authors: [alice], kinds: [3], limit: 10 })
