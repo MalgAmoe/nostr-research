@@ -7,7 +7,8 @@ export const DEFAULT_RELAY_CONCURRENCY = 4;
 
 /**
  * Acquires canonical events from explicit NIP-01 relays into an open
- * ResearchMemory. `eventLimit` bounds accepted valid EVENT messages globally.
+ * process-local research corpus. `eventLimit` bounds accepted valid EVENT
+ * messages globally.
  */
 export async function acquireRelayEvents(memory, options) {
   if (!memory || typeof memory.ingest !== 'function') {

@@ -1,19 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import { finalizeEvent, getPublicKey } from 'nostr-tools';
-import { openResearchMemory } from '@nostr-research/memory';
+import { createInMemoryResearchMemory } from '@nostr-research/memory';
 
 const ALICE_SECRET = Uint8Array.from(Buffer.from('a'.repeat(64), 'hex'));
 const BOB_SECRET = Uint8Array.from(Buffer.from('b'.repeat(64), 'hex'));
 const alice = getPublicKey(ALICE_SECRET);
 const bob = getPublicKey(BOB_SECRET);
 
-test('selection, bounded traversal, projection, retention, reopen, and continuation compose', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-kernel-'));
-  const database = join(directory, 'memory.sqlite');
+test('selection, bounded traversal, projection, retention, and continuation compose', () => {
   const metadata = finalizeEvent({
     kind: 0, created_at: 10, tags: [],
     content: JSON.stringify({
@@ -38,7 +33,7 @@ test('selection, bounded traversal, projection, retention, reopen, and continuat
     content: 'cycle-like path',
   }, BOB_SECRET);
 
-  let memory = openResearchMemory(database);
+  let memory = createInMemoryResearchMemory({ capacity: 1000 });
   try {
     for (const event of [metadata, root, reply, ambiguous, cycle]) {
       memory.ingest(event, {
@@ -62,14 +57,13 @@ test('selection, bounded traversal, projection, retention, reopen, and continuat
       mode: 'compact', excerptLimit: 20, previewLimit: 2,
     });
     assert.ok(compact.results.some((result) => result.type === 'account' && result.nip05));
-    assert.ok(compact.relationships.every((relationship) => relationship.interpretation));
+    assert.ok(compact.relationships.every(
+      (relationship) => relationship.evidence.interpretation,
+    ));
     assert.ok(memory.project(traversed, { mode: 'full' }).results
       .some((result) => result.event?.sig.length === 128));
 
     const saved = memory.retain(traversed, 'composed evidence');
-    memory.close();
-    memory = openResearchMemory(database);
-
     const continued = memory.traverse([{ type: 'set', id: saved.id }], {
       relationshipTypes: ['author', 'mentioned-account'],
       direction: 'outbound', depth: 1, limit: 20,
@@ -87,6 +81,5 @@ test('selection, bounded traversal, projection, retention, reopen, and continuat
     assert.ok(thread.participants.some(({ id }) => id === bob));
   } finally {
     memory?.close();
-    rmSync(directory, { recursive: true, force: true });
   }
 });

@@ -1,0 +1,202 @@
+Exit code: 1
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/acquire.js && node --check src/expansion.js && node --check src/reply-contexts.js && node --check src/session.js && node --check src/presentation.js && node --check src/console.js && node --check bin/nostr-research-console.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+✖ public acquisition handles NIP-01 outcomes, validation, deduplication, provenance, and closure (0.71525ms)
+✖ global limit and cancellation are distinguishable and close owned sockets (0.180292ms)
+✖ timeout force-closes a peer that ignores the WebSocket closing handshake (0.080875ms)
+✖ timeout and partial connection failure remain observable (0.068375ms)
+✔ acquisition rejects unusable public inputs before networking (0.361958ms)
+✔ console expansion rejects invalid bounds and semantics before networking (4.294542ms)
+✖ authored-note expansion samples only explicit account starts within per-account and global bounds (66.885666ms)
+✖ authored-note expansion obeys the complete operation budget and stays disabled by default (14.586625ms)
+✖ bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps (30.833583ms)
+✖ console expansion performs bounded targeted multi-hop acquisition (10.655125ms)
+✖ exported expansion uses the global budget for reply breadth and preserves tiny-corpus seeds (32.286ms)
+✔ one console process preserves JavaScript state and composes a bounded research loop (309.601834ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (40.278583ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (47.793125ms)
+✔ public console inspection and facets orient a bounded durable investigation (201.686792ms)
+✔ replaceable selection and follow interpretation remain stable in one process (53.524667ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (53.202958ms)
+✔ current account metadata uses replaceable semantics and profile search returns source evidence (34.460125ms)
+✔ navigation exposes direction, protocol interpretation, unresolved targets, and provenance (35.8285ms)
+✔ large retention is atomic, bounded, process-local, and directly navigable (2290.882542ms)
+✔ selection, bounded traversal, projection, retention, and continuation compose (37.741083ms)
+✔ recorded query becomes an explainable, expandable, combinable process-local research path (40.280416ms)
+✔ public session actions remain temporary while checkpoints remain process-local (36.476083ms)
+✔ sessions start from public runs returned by recordRun and getRun (3.58675ms)
+✔ bounded attempt coverage distinguishes exact attempted slices from uncertainty (3.532875ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 16
+ℹ fail 9
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2405.905958
+
+✖ failing tests:
+
+test at test/acquisition.functional.test.js:23:1
+✖ public acquisition handles NIP-01 outcomes, validation, deduplication, provenance, and closure (0.71525ms)
+  TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received undefined
+      at join (node:path:1339:7)
+      at startRelay (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:963:19)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:30:28)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.start (node:internal/test_runner/test:1015:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:358:17)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+    code: 'ERR_INVALID_ARG_TYPE'
+  }
+
+test at test/acquisition.functional.test.js:73:1
+✖ global limit and cancellation are distinguishable and close owned sockets (0.180292ms)
+  TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received undefined
+      at join (node:path:1339:7)
+      at startRelay (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:963:19)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:78:28)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    code: 'ERR_INVALID_ARG_TYPE'
+  }
+
+test at test/acquisition.functional.test.js:140:1
+✖ timeout force-closes a peer that ignores the WebSocket closing handshake (0.080875ms)
+  TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received undefined
+      at join (node:path:1339:7)
+      at startRelay (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:963:19)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:144:23)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    code: 'ERR_INVALID_ARG_TYPE'
+  }
+
+test at test/acquisition.functional.test.js:164:1
+✖ timeout and partial connection failure remain observable (0.068375ms)
+  TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received undefined
+      at join (node:path:1339:7)
+      at startRelay (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:963:19)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:167:29)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    code: 'ERR_INVALID_ARG_TYPE'
+  }
+
+test at test/acquisition.functional.test.js:284:1
+✖ authored-note expansion samples only explicit account starts within per-account and global bounds (66.885666ms)
+  TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received undefined
+      at join (node:path:1339:7)
+      at startRelay (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:963:19)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:312:23)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    code: 'ERR_INVALID_ARG_TYPE'
+  }
+
+test at test/acquisition.functional.test.js:428:1
+✖ authored-note expansion obeys the complete operation budget and stays disabled by default (14.586625ms)
+  TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received undefined
+      at join (node:path:1339:7)
+      at startRelay (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:963:19)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:443:23)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    code: 'ERR_INVALID_ARG_TYPE'
+  }
+
+test at test/acquisition.functional.test.js:511:1
+✖ bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps (30.833583ms)
+  TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received undefined
+      at join (node:path:1339:7)
+      at startRelay (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:963:19)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:579:23)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    code: 'ERR_INVALID_ARG_TYPE'
+  }
+
+test at test/acquisition.functional.test.js:715:1
+✖ console expansion performs bounded targeted multi-hop acquisition (10.655125ms)
+  TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received undefined
+      at join (node:path:1339:7)
+      at startRelay (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:963:19)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:741:23)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    code: 'ERR_INVALID_ARG_TYPE'
+  }
+
+test at test/acquisition.functional.test.js:821:1
+✖ exported expansion uses the global budget for reply breadth and preserves tiny-corpus seeds (32.286ms)
+  TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received undefined
+      at join (node:path:1339:7)
+      at startRelay (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:963:19)
+      at TestContext.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/acquisition.functional.test.js:839:23)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    code: 'ERR_INVALID_ARG_TYPE'
+  }
+npm error Lifecycle script `test` failed with error:
+npm error code 1
+npm error path /Users/malg/Documents/Codex/nostr/packages/nostr-research
+npm error workspace @nostr-research/memory@0.1.0
+npm error location /Users/malg/Documents/Codex/nostr/packages/nostr-research
+npm error command failed
+npm error command sh -c node --test

@@ -16,9 +16,10 @@ const DEFAULT_CAPACITY = 500;
 const PREVIEW_LIMIT = 5;
 const HELP = `Usage: nostr-research-console --capacity <1-1000>
 
-Starts a persistent JavaScript research REPL. The prepared research object owns
-one bounded in-memory corpus and a temporary session. Top-level await is
-available. Use .exit or Ctrl-D to close all resources.
+Starts a process-local JavaScript research REPL. The prepared research object
+owns one bounded in-memory corpus and a temporary session. State is lost on
+reset, close, or process exit. Top-level await is available. Use .exit or
+Ctrl-D to close all resources.
 `;
 
 export async function startResearchConsole(args, streams = {}) {
@@ -252,7 +253,7 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
     },
 
     show(value, options = {}) {
-      return showResearchValue(memory, memory, session, value, options);
+      return showResearchValue(memory, session, value, options);
     },
 
     facets(value, options = {}) {

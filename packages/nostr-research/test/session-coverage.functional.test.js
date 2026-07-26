@@ -1,27 +1,22 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import { finalizeEvent } from 'nostr-tools';
 import {
+  createInMemoryResearchMemory,
   createResearchSession,
-  openResearchMemory,
   subject,
 } from '@nostr-research/memory';
 
 const SECRET = Uint8Array.from(Buffer.from('6'.repeat(64), 'hex'));
 
-test('public session actions remain temporary while checkpoints are durable', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-session-'));
-  const database = join(directory, 'memory.sqlite');
+test('public session actions remain temporary while checkpoints remain process-local', () => {
   const root = finalizeEvent({
     kind: 1, created_at: 10, tags: [], content: 'root',
   }, SECRET);
   const reply = finalizeEvent({
     kind: 1, created_at: 11, tags: [['e', root.id, '', 'reply']], content: 'reply',
   }, SECRET);
-  let memory = openResearchMemory(database);
+  let memory = createInMemoryResearchMemory({ capacity: 1000 });
   try {
     for (const event of [root, reply]) {
       memory.ingest(event, {
@@ -50,8 +45,6 @@ test('public session actions remain temporary while checkpoints are durable', ()
     assert.equal(memory.getSet(checkpoint.id).members.length, 2);
     assert.ok(memory.getEvent(root.id));
 
-    memory.close();
-    memory = openResearchMemory(database);
     const continued = createResearchSession(memory, checkpoint);
     assert.equal(continued.selection.items.length, 2);
     continued.setFocus(subject('event', reply.id));
@@ -64,14 +57,11 @@ test('public session actions remain temporary while checkpoints are durable', ()
     assert.equal(createResearchSession(memory, emptySet).selection.items.length, 0);
   } finally {
     memory?.close();
-    rmSync(directory, { recursive: true, force: true });
   }
 });
 
 test('sessions start from public runs returned by recordRun and getRun', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-session-run-'));
-  const database = join(directory, 'memory.sqlite');
-  const memory = openResearchMemory(database);
+  const memory = createInMemoryResearchMemory({ capacity: 1000 });
   try {
     const event = finalizeEvent({
       kind: 1, created_at: 12, tags: [], content: 'recorded result',
@@ -107,14 +97,11 @@ test('sessions start from public runs returned by recordRun and getRun', () => {
     assert.deepEqual(fromLoaded.selection, fromRecorded.selection);
   } finally {
     memory.close();
-    rmSync(directory, { recursive: true, force: true });
   }
 });
 
 test('bounded attempt coverage distinguishes exact attempted slices from uncertainty', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-coverage-'));
-  const database = join(directory, 'memory.sqlite');
-  const memory = openResearchMemory(database);
+  const memory = createInMemoryResearchMemory({ capacity: 1000 });
   try {
     const event = finalizeEvent({
       kind: 1, created_at: 15, tags: [], content: 'covered',
@@ -152,6 +139,5 @@ test('bounded attempt coverage distinguishes exact attempted slices from uncerta
     assert.equal(memory.listAcquisitionCoverage()[0].exhaustive, false);
   } finally {
     memory.close();
-    rmSync(directory, { recursive: true, force: true });
   }
 });

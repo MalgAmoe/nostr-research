@@ -1,24 +1,19 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import { finalizeEvent } from 'nostr-tools';
-import { openResearchMemory } from '@nostr-research/memory';
+import { createInMemoryResearchMemory } from '@nostr-research/memory';
 
 const SECRET = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
 
-test('large retention is atomic, bounded, durable, and remains directly navigable', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-reliable-memory-'));
-  const database = join(directory, 'memory.sqlite');
-  let memory = openResearchMemory(database);
+test('large retention is atomic, bounded, process-local, and directly navigable', () => {
+  let memory = createInMemoryResearchMemory({ capacity: 1000 });
   try {
     const events = [];
     for (let index = 0; index < 1_050; index += 1) {
       const event = finalizeEvent({
         kind: 1,
         created_at: 1_700_000_000 + index,
-        tags: index === 1 ? [['e', events[0].id, '', 'reply']] : [],
+        tags: index === 51 ? [['e', events[50].id, '', 'reply']] : [],
         content: `bounded corpus event ${index}`,
       }, SECRET);
       events.push(event);
@@ -39,7 +34,7 @@ test('large retention is atomic, bounded, durable, and remains directly navigabl
     assert.equal('members' in retained, false);
 
     const setCount = memory.listSets().length;
-    const interruptedCollection = memory.select({ ids: [events[0].id] });
+    const interruptedCollection = memory.collection([selected.items[0]]);
     const cancellation = new AbortController();
     cancellation.abort();
     assert.throws(
@@ -60,15 +55,12 @@ test('large retention is atomic, bounded, durable, and remains directly navigabl
     assert.ok(traversed.items.some((item) => item.role === 'discovery'));
     const compact = memory.project(traversed, { mode: 'compact', previewLimit: 2 });
     assert.ok(compact.relationships.every((edge) => (
-      edge.sourceRef && edge.targetRef && !edge.sourceSummary && !edge.targetSummary
+      edge.source && edge.target && !edge.sourceSummary && !edge.targetSummary
     )));
-    assert.ok(Object.keys(compact.subjects).length <= traversed.items.length);
+    assert.ok(compact.results.length <= traversed.items.length);
 
-    memory.close();
-    memory = openResearchMemory(database);
     assert.equal(memory.getSet(retained.id).members.length, 1_000);
   } finally {
     memory?.close();
-    rmSync(directory, { recursive: true, force: true });
   }
 });

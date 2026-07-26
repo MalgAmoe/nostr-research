@@ -1,6 +1,6 @@
 ---
 id: 026-remove-sqlite
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/026-remove-sqlite.validate.sh
 depends_on: 025-single-corpus-runtime

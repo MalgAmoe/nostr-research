@@ -7,7 +7,7 @@ const MAX_SIZE_LIMIT = 50_000;
 const DEFAULT_FACET_LIMIT = 10;
 const MAX_FACET_LIMIT = 50;
 
-export function showResearchValue(memory, workspace, session, value, options = {}) {
+export function showResearchValue(memory, session, value, options = {}) {
   const settings = inspectionOptions(options);
   let shown;
 
@@ -15,7 +15,7 @@ export function showResearchValue(memory, workspace, session, value, options = {
   else if (isCoverage(value)) shown = showCoverage(value, settings);
   else if (value?.type === 'result-collection') shown = showCollection(memory, value, settings);
   else if (isSessionDescription(value)) shown = showSession(memory, value, settings);
-  else if (isWorkspaceSummary(value)) shown = showWorkspace(value);
+  else if (isCorpusSummary(value)) shown = showCorpus(value);
   else if (isResearchSet(value)) shown = showSet(memory, value, settings);
   else if (isResearchRun(value)) shown = showRun(memory, value, settings);
   else if (isSubject(value?.subject)) shown = showSubject(
@@ -31,7 +31,7 @@ export function showResearchValue(memory, workspace, session, value, options = {
     type: 'account', id: value.publicKey,
   }, settings, value);
   else if (isSubject(value)) shown = showSubject(memory, value, settings);
-  else if (value === workspace) shown = showWorkspace(workspace.describe());
+  else if (value === memory) shown = showCorpus(memory.describe());
   else if (value === session) shown = showSession(memory, session.describe(), settings);
   else throw new TypeError('research.show does not recognize this value.');
 
@@ -169,9 +169,9 @@ function showRun(memory, value, settings) {
   };
 }
 
-function showWorkspace(value) {
+function showCorpus(value) {
   return {
-    type: 'workspace-summary', count: value.eventCount,
+    type: 'corpus-summary', count: value.eventCount,
     preview: {
       capacity: value.capacity, remainingCapacity: value.remainingCapacity,
       authors: value.authors, kinds: value.kinds, tags: value.tags,
@@ -514,7 +514,7 @@ function isResearchRun(value) {
     && (Array.isArray(value.results) || Number.isInteger(value.resultCount));
 }
 
-function isWorkspaceSummary(value) {
+function isCorpusSummary(value) {
   return value && Number.isInteger(value.capacity) && Number.isInteger(value.eventCount)
     && Number.isInteger(value.remainingCapacity);
 }

@@ -1,18 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import {
+  createInMemoryResearchMemory,
   InvalidNostrEventError,
   loadFixtureEvents,
-  openResearchMemory,
 } from '@nostr-research/memory';
 
-test('SQLite memory preserves canonical evidence and independent relay observations', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-research-memory-'));
-  const databasePath = join(directory, 'memory.sqlite');
-  const memory = openResearchMemory(databasePath);
+test('process-local memory preserves canonical evidence and independent relay observations', () => {
+  const memory = createInMemoryResearchMemory({ capacity: 1000 });
   const [event] = loadFixtureEvents();
 
   try {
@@ -56,6 +51,5 @@ test('SQLite memory preserves canonical evidence and independent relay observati
     assert.deepEqual(memory.summary(), { events: 2, observations: 2 });
   } finally {
     memory.close();
-    rmSync(directory, { recursive: true, force: true });
   }
 });

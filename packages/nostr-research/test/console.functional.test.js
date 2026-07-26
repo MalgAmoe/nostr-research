@@ -72,7 +72,7 @@ test('one console process preserves JavaScript state and composes a bounded rese
       "const saved = research.retain(discoveries, 'console retained')",
       'const retained = research.memory.getSet(saved.id)',
       'found',
-      "console.log('SCENARIO:' + JSON.stringify({ persistentCount: loaded.items.length, inspected: inspected.subject.id, "
+      "console.log('SCENARIO:' + JSON.stringify({ processLocalCount: loaded.items.length, inspected: inspected.subject.id, "
         + 'manual: manual.items.length, limited: limited.items.length, excluded: excluded.items.length, '
         + 'distinct: distinct.items.length, walked: walked.items.length, discoveries: discoveries.items.length, '
         + 'explicitUnchanged, sessionChanged, sessionWalked: sessionWalked.items.length, '
@@ -99,7 +99,7 @@ test('one console process preserves JavaScript state and composes a bounded rese
     const marker = result.stdout.match(/SCENARIO:(\{.*\})/);
     assert.ok(marker, result.stdout);
     assert.deepEqual(JSON.parse(marker[1]), {
-      persistentCount: 30,
+      processLocalCount: 30,
       inspected: eventIds[0],
       manual: 8,
       limited: 6,
@@ -120,6 +120,14 @@ test('one console process preserves JavaScript state and composes a bounded rese
       reason: 'relationship',
       provenance: 1,
     });
+
+    const fresh = spawnSync(process.execPath, [CONSOLE.pathname, '--capacity', '50'], {
+      input: "console.log('FRESH:' + JSON.stringify(research.summary().memory))\n.exit\n",
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    assert.equal(fresh.status, 0, fresh.stderr);
+    assert.match(fresh.stdout, /FRESH:\{"events":0,"observations":0\}/);
 
   } finally {
     // The subprocess owns and closes its process-local corpus.

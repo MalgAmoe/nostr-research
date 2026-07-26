@@ -6,12 +6,17 @@ durable execution and review history for those tasks.
 
 The completed foundation provides:
 
-- canonical Nostr evidence in durable SQLite memory;
+- canonical Nostr evidence in one bounded process-local corpus;
 - bounded live relay acquisition with explicit coverage;
 - composable search, selection, traversal, expansion, and retention;
-- a persistent JavaScript console for agent-operated research;
+- a process-lifetime JavaScript console for agent-operated research;
 - protocol-correct account relationships and replaceable events;
 - bounded inspection, authored-note expansion, and reply contexts.
+
+Persistence and a database format are deliberately absent. Closing or
+resetting the corpus, or ending its Node process, loses events, observations,
+retained groups, runs, and coverage. Removing the remaining Node dependencies
+belongs to a separate future milestone.
 
 New tasks should be derived from console-driven research. The project should
 not pre-encode universal discovery or quality rules without field evidence.

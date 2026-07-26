@@ -24,7 +24,7 @@ memory.ingest(event, {
 
 const notes = memory.select({ kinds: [1], text: ['nostr'] });
 session.replace(notes);
-memory.close();
+memory.close(); // clears all resident state
 ```
 
 `ingest` stores immutable canonical evidence and records each observation.
@@ -86,7 +86,7 @@ Explicit event starts are protected during bounded expansion additions.
 Reports expose corpus state before and after the operation, request filters,
 relay outcomes, unresolved subjects, completion reason, and bounds reached.
 
-## Persistent JavaScript console
+## Process-local JavaScript console
 
 ```sh
 nostr-research-console --capacity 500
@@ -98,8 +98,12 @@ provides `load`, `acquire`, `events`, `accounts`, `facets`, `traverse`,
 `expand`, `replyContexts`, `inspect`, `show`, `use`, `retain`, and collection
 helpers. `research.memory` remains the advanced route; there is no workspace
 object or database option. `.exit` or Ctrl-D cancels active acquisition and
-closes the corpus.
+closes and clears the corpus.
 
-SQLite APIs and the old workspace implementation remain temporarily available
-as comparison oracles during the migration, but they are not used by active
-runtime paths.
+There is deliberately no database format, persistence interface, or reopen
+behavior. Retained groups, research runs, and acquisition coverage live only
+while this memory is open. Calling `reset()` or `close()`, or ending the Node
+process, loses all resident state. A fresh process always starts empty.
+
+Removing the remaining Node dependencies (`node:fs`, `node:crypto`, `ws`, and
+the Node test and console infrastructure) is a separate future milestone.

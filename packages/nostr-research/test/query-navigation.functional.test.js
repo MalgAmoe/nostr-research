@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import { finalizeEvent, getPublicKey } from 'nostr-tools';
-import { openResearchMemory, ResearchMemoryError } from '@nostr-research/memory';
+import {
+  createInMemoryResearchMemory,
+  ResearchMemoryError,
+} from '@nostr-research/memory';
 
 const ALICE_KEY = Uint8Array.from(Buffer.from('1'.repeat(64), 'hex'));
 const BOB_KEY = Uint8Array.from(Buffer.from('2'.repeat(64), 'hex'));
@@ -139,13 +139,11 @@ test('navigation exposes direction, protocol interpretation, unresolved targets,
 });
 
 function withMemory(run) {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-query-'));
-  const memory = openResearchMemory(join(directory, 'memory.sqlite'));
+  const memory = createInMemoryResearchMemory({ capacity: 1000 });
   try {
     run(memory);
   } finally {
     memory.close();
-    rmSync(directory, { recursive: true, force: true });
   }
 }
 

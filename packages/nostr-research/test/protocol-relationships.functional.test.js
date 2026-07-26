@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import { finalizeEvent, getPublicKey } from 'nostr-tools';
 import {
-  createResearchWorkspace,
-  openResearchMemory,
-  subject,
+  createInMemoryResearchMemory,
+    subject,
 } from '@nostr-research/memory';
 import { createResearchEnvironment } from '../src/console.js';
 
@@ -19,9 +15,7 @@ const bob = getPublicKey(BOB_KEY);
 const carol = getPublicKey(CAROL_KEY);
 const unresolved = 'd'.repeat(64);
 
-test('replaceable selection and follow interpretation remain stable across reopen', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-protocol-'));
-  const databasePath = join(directory, 'memory.sqlite');
+test('replaceable selection and follow interpretation remain stable in one process', () => {
   const contactOld = sign(3, 100, [['p', carol]], 'old contacts', ALICE_KEY);
   const contactCurrent = sign(
     3, 200, [['p', bob, 'wss://relay.example'], ['p', unresolved]], 'current contacts', ALICE_KEY,
@@ -41,7 +35,7 @@ test('replaceable selection and follow interpretation remain stable across reope
     articleOld, articleCurrent, otherArticle, bobMetadata,
   ];
 
-  let memory = openResearchMemory(databasePath);
+  let memory = createInMemoryResearchMemory({ capacity: 1000 });
   try {
     for (const event of events) {
       memory.ingest(event, {
@@ -78,20 +72,11 @@ test('replaceable selection and follow interpretation remain stable across reope
     }
     assert.equal(memory.follows(carol).items.length, 0);
 
-    const workspace = createResearchWorkspace(memory, { capacity: 20 });
-    const environment = createResearchEnvironment(memory, workspace);
+    const environment = createResearchEnvironment(memory);
     assert.deepEqual(
       environment.research.follows(alice).items.map(({ subject: item }) => item.id),
       [bob, unresolved],
     );
-    environment.close();
-    memory = null;
-  } finally {
-    memory?.close();
-  }
-
-  memory = openResearchMemory(databasePath);
-  try {
     assert.deepEqual(
       memory.searchEvents({ authors: [alice], kinds: [3], limit: 10 })
         .results.map(({ event }) => event.id).sort(),
@@ -103,9 +88,10 @@ test('replaceable selection and follow interpretation remain stable across reope
       memory.follows(alice).items.map(({ subject: item }) => item.id),
       [bob, unresolved],
     );
+    environment.close();
+    memory = null;
   } finally {
-    memory.close();
-    rmSync(directory, { recursive: true, force: true });
+    memory?.close();
   }
 });
 

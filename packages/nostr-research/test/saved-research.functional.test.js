@@ -1,16 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import { finalizeEvent } from 'nostr-tools';
-import { openResearchMemory } from '@nostr-research/memory';
+import { createInMemoryResearchMemory } from '@nostr-research/memory';
 
 const PRIVATE_KEY = Uint8Array.from(Buffer.from('4'.repeat(64), 'hex'));
 
-test('recorded query becomes an explainable, expandable, combinable durable research path', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-saved-research-'));
-  const database = join(directory, 'memory.sqlite');
+test('recorded query becomes an explainable, expandable, combinable process-local research path', () => {
   const root = finalizeEvent({
     kind: 1,
     created_at: 100,
@@ -26,7 +21,7 @@ test('recorded query becomes an explainable, expandable, combinable durable rese
 
   let memory;
   try {
-    memory = openResearchMemory(database);
+    memory = createInMemoryResearchMemory({ capacity: 1000 });
     memory.ingest(root, { relay: 'wss://evidence.example', observedAt: '2026-01-01T00:00:00Z' });
     memory.ingest(reply, { relay: 'wss://evidence.example', observedAt: '2026-01-01T00:01:00Z' });
     const outcome = memory.searchEvents({ ids: [reply.id] });
@@ -63,20 +58,14 @@ test('recorded query becomes an explainable, expandable, combinable durable rese
     const combined = memory.getSet(combinedResult.id);
     assert.deepEqual(combined.members.map(({ id }) => id).sort(), [root.id, 'f'.repeat(64)].sort());
 
-    memory.close();
-    memory = openResearchMemory(database);
-    const reopened = memory.getSet(combined.id);
-    assert.equal(reopened.name, 'combined');
+    assert.equal(memory.getSet(combined.id).name, 'combined');
     assert.equal(memory.getSet(expanded.id).members.length, 1);
     assert.equal(memory.getSet(manual.id).members.length, 1);
     const explanation = memory.explainSetMember(
       combined.id, { type: 'event', id: root.id },
     );
     assert.equal(explanation.member.reasons[0].type, 'set-operation');
-    memory.close();
-    memory = null;
   } finally {
     memory?.close();
-    rmSync(directory, { recursive: true, force: true });
   }
 });

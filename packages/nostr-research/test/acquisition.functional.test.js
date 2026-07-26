@@ -12,7 +12,6 @@ import {
   createInMemoryResearchMemory,
   expandResearch,
   loadFixtureEvents,
-  openResearchMemory,
   ResearchMemoryError,
   resolveReplyContexts,
   subject,
@@ -921,16 +920,14 @@ test('exported expansion uses the global budget for reply breadth and preserves 
 });
 
 function createContext() {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-acquisition-'));
-  const databasePath = join(directory, 'memory.sqlite');
-  const memory = openResearchMemory(databasePath);
+  const memory = createInMemoryResearchMemory({ capacity: 1000 });
+  const directory = mkdtempSync(join(tmpdir(), 'nostr-research-acquisition-'));
   return {
     directory,
-    databasePath,
     memory,
     close() {
       this.memory?.close();
-      rmSync(directory, { recursive: true, force: true });
+      rmSync(this.directory, { force: true, recursive: true });
     },
   };
 }
@@ -946,14 +943,14 @@ function matchesFilter(event, filter) {
 }
 
 function createCorpusContext(capacity) {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-acquisition-'));
   const memory = createInMemoryResearchMemory({ capacity });
+  const directory = mkdtempSync(join(tmpdir(), 'nostr-research-acquisition-'));
   return {
     directory,
     memory,
     close() {
       this.memory?.close();
-      rmSync(directory, { recursive: true, force: true });
+      rmSync(this.directory, { force: true, recursive: true });
     },
   };
 }

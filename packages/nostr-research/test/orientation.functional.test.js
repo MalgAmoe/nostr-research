@@ -1,19 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import { finalizeEvent } from 'nostr-tools';
-import { openResearchMemory } from '@nostr-research/memory';
+import { createInMemoryResearchMemory } from '@nostr-research/memory';
 
 const CONSOLE = new URL('../bin/nostr-research-console.js', import.meta.url);
 const KEYS = ['a', 'b'].map((value) => Uint8Array.from(Buffer.from(value.repeat(64), 'hex')));
 
-test('public console inspection and facets orient a bounded durable investigation', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'nostr-orientation-'));
-  const database = join(directory, 'memory.sqlite');
-  let memory = openResearchMemory(database);
+test('public console inspection and facets orient a bounded process-local investigation', () => {
+  let memory = createInMemoryResearchMemory({ capacity: 1000 });
   const events = [
     finalizeEvent({
       kind: 1, created_at: 100, tags: [['t', 'research']],
@@ -120,7 +115,7 @@ test('public console inspection and facets orient a bounded durable investigatio
     const outcome = JSON.parse(marker[1]);
     assert.deepEqual(outcome.types, [
       'acquisition', 'acquisition-coverage', 'result-collection', 'event', 'event', 'event',
-      'account', 'set', 'run', 'workspace-summary', 'session-description',
+      'account', 'set', 'run', 'corpus-summary', 'session-description',
     ]);
     assert.ok(outcome.sizes.every((size) => size <= 4000));
     assert.equal(outcome.facetEvents, 3);
@@ -169,6 +164,5 @@ test('public console inspection and facets orient a bounded durable investigatio
 
   } finally {
     memory?.close();
-    rmSync(directory, { recursive: true, force: true });
   }
 });
