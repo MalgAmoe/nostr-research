@@ -1,6 +1,6 @@
 ---
 id: 038-jsonl-session-field-trial
-status: ready
+status: done
 max_attempts: 10
 validation: workflow/tasks/038-jsonl-session-field-trial.validate.sh
 depends_on: 037-bounded-session-observation

@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. The termination cleanup criterion is not satisfied. The canonical validation fails in `jsonl-session.functional.test.js` because SIGTERM leaves the relay socket open. The shutdown logic in `packages/nostr-research/src/acquire.js` must reliably close the owned raw TCP connection and pass the loopback-enabled process test. Update the field-trial artifact only after that behavior is verified; its current claim that the correction was verified contradicts the supplied failing validation.

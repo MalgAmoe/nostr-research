@@ -114,11 +114,13 @@ All of this occurred in one JSONL process without dynamic JavaScript.
 
 That trial caught and corrected one real transport regression: explicit raw
 TCP ownership for bounded handshake cancellation must preserve TLS SNI.
-Restoring `servername` made the same public acquisition succeed. The
-process-boundary cancellation scenario also established that aborting an
-unfinished TLS handshake may legitimately surface `ECONNRESET` to the peer;
-the functional test now treats that as socket closure while still requiring
-the child and owned connection to terminate promptly.
+Restoring `servername` made the same public acquisition succeed. A subsequent
+process-boundary run exposed that closing only the TLS/WebSocket layer could
+still leave its raw TCP parent open. Cancellation now destroys both layers and
+does not finish session shutdown until the owned raw transport emits `close`.
+The loopback-enabled functional scenario requires both the child and peer-side
+connection to terminate promptly; `ECONNRESET` is accepted only as another
+peer-visible form of socket closure.
 
 - Dynamic JavaScript needed: none.
 - Agent usability: JSONL was better than the JavaScript REPL for correlation,

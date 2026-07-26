@@ -321,8 +321,8 @@ function finishSocket(socket, subscriptionId, onClosed, force = false, transport
   if (force && socket.readyState !== WebSocket.CLOSED) {
     // Cancellation is an ownership boundary, not a normal relay completion.
     // During a TLS/WebSocket handshake `ws.terminate()` can run before `ws`
-    // has attached the transport as its active socket. Reset the transport we
-    // created so cancellation stays bounded even when the peer is silent.
+    // has attached the transport as its active socket. Reset the raw transport
+    // we created so cancellation stays bounded even when the peer is silent.
     if (transport && !transport.destroyed) {
       transport.resetAndDestroy();
     } else {

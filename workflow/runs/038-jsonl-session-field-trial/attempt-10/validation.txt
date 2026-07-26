@@ -1,0 +1,88 @@
+Exit code: 1
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/acquire.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/expansion.js && node --check src/reply-contexts.js && node --check src/session.js && node --check src/presentation.js && node --check src/console.js && node --check src/jsonl-session.js && node --check bin/nostr-research-console.js && node --check bin/nostr-research-session.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+(node:4993) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ declarative session preserves handles, revisions, preflight, and partial outcomes (160.3765ms)
+✔ public acquisition handles NIP-01 outcomes, validation, deduplication, provenance, and closure (131.83325ms)
+✔ account hydration derives a bounded metadata filter from account subjects (40.898625ms)
+✔ a named public plan composes bounded acquisition, algebra, hydration, and retention (74.773292ms)
+✔ plan preflight rejects retention of value collections before acquisition starts (35.349292ms)
+✔ global limit and cancellation are distinguishable and close owned sockets (86.4455ms)
+✔ distinct-event budget ignores duplicate observations while observation budget stays hard (55.017709ms)
+✔ canonical relay events outside the requested filter are diagnosed without ingestion (48.422ms)
+✔ timeout force-closes a peer that ignores the WebSocket closing handshake (142.937875ms)
+✔ timeout and partial connection failure remain observable (223.441208ms)
+✔ acquisition rejects unusable public inputs before networking (0.408792ms)
+✔ console expansion rejects invalid bounds and semantics before networking (0.479333ms)
+Expanding through 2 relay(s), depth 2, observation limit 10, distinct-event limit 100, authored-note limit 2 per starting account...
+Expansion completed: 3 request(s), 6 accepted observation(s), 6 distinct event(s), 7 resident event(s).
+✔ authored-note expansion samples only explicit account starts within per-account and global bounds (94.192208ms)
+✔ authored-note expansion obeys the complete operation budget and stays disabled by default (70.248959ms)
+✔ expansion reuses distinct capacity when a later request repeats an earlier event (56.046834ms)
+Resolving reply contexts through 2 relay(s), authored limit 6, parent limit 2...
+Reply contexts completed: 5 reply/replies, 2 unresolved parent(s), 7 accepted observation(s), 7 distinct event(s).
+✔ bounded reply contexts resolve direct NIP-10 parents with provenance and explicit gaps (231.120792ms)
+Expanding through 2 relay(s), depth 2, observation limit 10, distinct-event limit 100...
+Expansion completed: 6 request(s), 4 accepted observation(s), 4 distinct event(s), 5 resident event(s).
+✔ console expansion performs bounded targeted multi-hop acquisition (53.393833ms)
+✔ exported expansion uses the global budget for reply breadth and preserves tiny-corpus seeds (192.5155ms)
+✔ typed local stages refine, balance, summarize, and move trial-shaped evidence (36.855833ms)
+✔ empty paths retain typed context and invalid plans fail before execution (0.316917ms)
+✔ bounded groups expose exact membership, refresh evidence, and summarize exact counts (10.684208ms)
+✔ a local-only named plan can query resident memory without implicit acquisition (0.583ms)
+✔ one console process preserves JavaScript state and composes a bounded research loop (305.97725ms)
+✔ declarative observation and lifecycle form one bounded public workflow (33.644792ms)
+✔ declarative show bounds grouped and summarized named results (4.257875ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (23.204583ms)
+✔ collections re-resolve stable subjects across observations, replacement metadata, and eviction (27.09725ms)
+✔ JSONL executable provides one persistent bounded process workflow (98.421042ms)
+✖ JSONL executable cancels active external work on a termination signal (2096.527792ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (34.321667ms)
+✔ presentation and facets orient surviving research values (66.003833ms)
+✔ replaceable selection and follow interpretation remain stable in one process (48.98025ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (30.835125ms)
+✔ current account metadata uses replaceable semantics and profile search returns source evidence (16.330125ms)
+✔ large retention is atomic, bounded, process-local, and directly navigable (2232.568709ms)
+✔ selection, bounded traversal, projection, retention, and continuation compose (31.891708ms)
+✔ a session only changes active selection explicitly and checkpoints it process-locally (35.846834ms)
+✔ retained reactivation does not recreate evicted canonical evidence (5.670833ms)
+ℹ tests 38
+ℹ suites 0
+ℹ pass 37
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10625.502666
+
+✖ failing tests:
+
+test at test/jsonl-session.functional.test.js:113:1
+✖ JSONL executable cancels active external work on a termination signal (2096.527792ms)
+  Error: session closure left the relay socket open
+      at Timeout.<anonymous> (file:///Users/malg/Documents/Codex/nostr/packages/nostr-research/test/jsonl-session.functional.test.js:187:43)
+      at listOnTimeout (node:internal/timers:605:17)
+      at process.processTimers (node:internal/timers:541:7)
+npm error Lifecycle script `test` failed with error:
+npm error code 1
+npm error path /Users/malg/Documents/Codex/nostr/packages/nostr-research
+npm error workspace @nostr-research/memory@0.1.0
+npm error location /Users/malg/Documents/Codex/nostr/packages/nostr-research
+npm error command failed
+npm error command sh -c node --test
