@@ -15,15 +15,23 @@ The completed foundation provides:
 
 Persistence and a database format are deliberately absent. Closing or
 resetting the corpus, or ending its Node process, loses events, observations,
-retained groups, runs, and coverage. Removing the remaining Node dependencies
-belongs to a separate future milestone.
+and retained selections. Acquisition coverage is returned directly and is not
+registered as history. Removing the remaining Node dependencies belongs to a
+separate future milestone.
 
 New tasks should be derived from console-driven research. The project should
 not pre-encode universal discovery or quality rules without field evidence.
 
-The next cleanup milestone is queued as three dependent tasks:
+The acquisition and interface cleanup completed in tasks 027-029:
 
 - make observation and distinct-event acquisition budgets explicit;
 - remove inactive run, coverage-history, set-algebra, and alias surfaces; and
 - make console selection changes explicit and simplify session/presentation
   around the reduced research model.
+
+The post-refactor review queued two follow-up tasks:
+
+- enforce relay filters, correct composed distinct-event budgets, reject
+  unknown acquisition options, and restore retained-selection activation; and
+- remove fixture loading and ignored inspection options from the production
+  interface.
