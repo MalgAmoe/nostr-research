@@ -10,6 +10,7 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools';
 import {
   acquireRelayEvents,
   createInMemoryResearchMemory,
+  executeResearchPlan,
   expandResearch,
   hydrateAccounts,
   ResearchMemoryError,
@@ -128,6 +129,128 @@ test('account hydration derives a bounded metadata filter from account subjects'
     assert.deepEqual(requestedFilter, { authors: [publicKey], kinds: [0] });
     assert.deepEqual(result.acquiredEventIds, [metadata.id]);
     assert.equal(context.memory.resolveAccount(publicKey).profile.name, 'hydrated');
+  } finally {
+    await relay.close();
+    context.close();
+  }
+});
+
+test('a named public plan composes bounded acquisition, algebra, hydration, and retention', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  const key = Uint8Array.from(Buffer.from('c'.repeat(64), 'hex'));
+  const publicKey = getPublicKey(key);
+  const note = finalizeEvent({
+    kind: 1, created_at: 30, tags: [['t', 'field-recording']],
+    content: 'A field recording https://media.example/birds.wav',
+  }, key);
+  const metadata = finalizeEvent({
+    kind: 0, created_at: 31, tags: [], content: '{"name":"listener"}',
+  }, key);
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send, filter) => {
+      for (const event of [note, metadata]) {
+        if ((!filter.kinds || filter.kinds.includes(event.kind))
+            && (!filter.authors || filter.authors.includes(event.pubkey))) {
+          send(['EVENT', subscriptionId, event]);
+        }
+      }
+      send(['EOSE', subscriptionId]);
+    });
+  }, context.directory);
+  const plan = [
+    {
+      id: 'orient',
+      operation: 'acquire',
+      parameters: {
+        relays: [relay.url], filter: { kinds: [1], limit: 5 },
+        timeoutMs: 2_000, observationLimit: 5, distinctEventLimit: 5,
+      },
+    },
+    {
+      id: 'notes',
+      operation: 'select',
+      input: 'orient',
+      parameters: { kinds: [1], limit: 5 },
+    },
+    {
+      id: 'direction',
+      operation: 'filter',
+      input: 'notes',
+      parameters: {
+        as: 'caller chose field recordings but excluded blocked.example',
+        where: {
+          all: [
+            { field: 'event.tag', name: 't', value: 'field-recording' },
+            { not: { field: 'event.linkedDomain', equals: 'blocked.example' } },
+          ],
+        },
+        limit: 5,
+      },
+    },
+    {
+      id: 'by-author',
+      operation: 'group',
+      input: 'direction',
+      parameters: { by: 'event.author', itemLimit: 2, limit: 5 },
+    },
+    {
+      id: 'author-summary',
+      operation: 'summarize',
+      input: 'by-author',
+      parameters: { aggregations: [{ name: 'count', operation: 'count' }], limit: 5 },
+    },
+    {
+      id: 'accounts',
+      operation: 'move',
+      input: 'direction',
+      parameters: { to: 'authors', limit: 5 },
+    },
+    {
+      id: 'profiles',
+      operation: 'hydrate',
+      input: 'accounts',
+      parameters: {
+        relays: [relay.url], kinds: [0], timeoutMs: 2_000,
+        observationLimit: 2, distinctEventLimit: 2,
+      },
+    },
+    {
+      id: 'saved',
+      operation: 'retain',
+      input: 'accounts',
+      parameters: {
+        name: 'Caller-chosen field recordists',
+        options: { reason: { type: 'field-trial-choice', rationale: 'caller supplied' } },
+      },
+    },
+  ];
+  try {
+    const report = await executeResearchPlan(context.memory, plan);
+    assert.doesNotThrow(() => JSON.stringify(report));
+    assert.deepEqual(report.plan, plan);
+    assert.deepEqual(
+      report.stages.map(({ id, resultKind }) => [id, resultKind]),
+      [
+        ['orient', 'acquisition-report'],
+        ['notes', 'events'],
+        ['direction', 'events'],
+        ['by-author', 'groups'],
+        ['author-summary', 'summaries'],
+        ['accounts', 'accounts'],
+        ['profiles', 'hydration-report'],
+        ['saved', 'retained-selection'],
+      ],
+    );
+    assert.equal(report.stages[0].result.budget.observationLimit, 5);
+    assert.equal(report.stages[6].result.budget.distinctEventLimit, 2);
+    assert.equal(context.memory.inspect({ type: 'account', id: publicKey }).resident, true);
+    const retained = context.memory.getSet(report.stages[7].result.id);
+    assert.equal(retained.members.length, 1);
+    assert.equal(
+      retained.members[0].reasons[0].retentionContext.rationale,
+      'caller supplied',
+    );
   } finally {
     await relay.close();
     context.close();

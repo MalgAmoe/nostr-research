@@ -1,6 +1,6 @@
 ---
 id: 034-named-research-plans-field-trial
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/034-named-research-plans-field-trial.validate.sh
 depends_on: 033-minimal-collection-algebra

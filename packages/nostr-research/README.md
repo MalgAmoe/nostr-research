@@ -140,6 +140,82 @@ Explicit summary aggregations are `count`, `distinct`, `sample`, `collect`,
 resident authored events, and current kind-3 follows. These transforms never
 acquire, hydrate, retain, or evict evidence.
 
+## Named research plans
+
+`executeResearchPlan(memory, plan)` runs a non-empty JSON-serializable array of
+named stages. Each stage has an `id`, one `operation`, plain `parameters`, and
+an `input` naming an earlier stage when it consumes or explicitly follows that
+result. `acquire` has no input; `select` may start from resident memory or name
+an acquisition dependency. The only supported operations are `acquire`, `select`, `filter`, `group`,
+`summarize`, `move`, `hydrate`, and `retain`.
+
+```js
+const report = await executeResearchPlan(memory, [
+  {
+    id: 'orientation',
+    operation: 'acquire',
+    parameters: {
+      relays,
+      filter: { kinds: [1], limit: 50 },
+      timeoutMs: 10_000,
+      observationLimit: 75,
+      distinctEventLimit: 50,
+    },
+  },
+  {
+    id: 'notes',
+    operation: 'select',
+    input: 'orientation',
+    parameters: { kinds: [1], limit: 50 },
+  },
+  {
+    id: 'chosen',
+    operation: 'filter',
+    input: 'notes',
+    parameters: {
+      where: { field: 'event.tag', name: 't', value: chosenTag },
+      limit: 20,
+    },
+  },
+  {
+    id: 'authors',
+    operation: 'move',
+    input: 'chosen',
+    parameters: { to: 'authors', limit: 10 },
+  },
+  {
+    id: 'profiles',
+    operation: 'hydrate',
+    input: 'authors',
+    parameters: {
+      relays,
+      kinds: [0],
+      timeoutMs: 10_000,
+      observationLimit: 20,
+      distinctEventLimit: 20,
+    },
+  },
+  {
+    id: 'saved',
+    operation: 'retain',
+    input: 'authors',
+    parameters: {
+      name: suppliedName,
+      options: { reason: suppliedReason },
+    },
+  },
+]);
+```
+
+The returned `research-plan-report` includes the normalized complete plan and
+each stage result plus a concise `resultKind`. Acquisition and hydration return
+their existing bounded completion reports and never replace an input
+collection, so a later stage can explicitly reuse the pre-hydration account
+stage. The runner infers no topics, exclusions, examples, names, or reasons,
+and does not activate session state or persist plans. A retained plan reason,
+when supplied, is an object with a non-empty `type`; invalid plan data is
+rejected before any external stage runs.
+
 ## Process-local JavaScript console
 
 ```sh

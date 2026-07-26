@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { finalizeEvent, getPublicKey } from 'nostr-tools';
-import { createInMemoryResearchMemory, ResearchMemoryError } from '@nostr-research/memory';
+import {
+  createInMemoryResearchMemory,
+  executeResearchPlan,
+  ResearchMemoryError,
+} from '@nostr-research/memory';
 
 const ALICE_SECRET = Uint8Array.from(Buffer.from('1'.repeat(64), 'hex'));
 const BOB_SECRET = Uint8Array.from(Buffer.from('2'.repeat(64), 'hex'));
@@ -157,6 +161,58 @@ test('empty paths retain typed context and invalid plans fail before execution',
     assert.throws(() => memory.transform(empty, {
       operation: 'filter', where: { field: 'event.quality', equals: 'good' },
     }), /Unsupported filter field/);
+  } finally {
+    memory.close();
+  }
+});
+
+test('a local-only named plan can query resident memory without implicit acquisition', async () => {
+  const memory = createInMemoryResearchMemory({ capacity: 5 });
+  try {
+    const report = await executeResearchPlan(memory, [
+      {
+        id: 'resident-notes',
+        operation: 'select',
+        parameters: { kinds: [1], limit: 5 },
+      },
+      {
+        id: 'resident-only',
+        operation: 'filter',
+        input: 'resident-notes',
+        parameters: { where: { field: 'evidence.resident', equals: true }, limit: 5 },
+      },
+    ]);
+    assert.deepEqual(report.stages.map(({ resultKind }) => resultKind), ['events', 'events']);
+    assert.deepEqual(report.stages[1].result.items, []);
+    await assert.rejects(
+      executeResearchPlan(memory, [
+        { id: 'later', operation: 'move', input: 'missing', parameters: { to: 'authors' } },
+      ]),
+      /input must name an earlier stage/,
+    );
+    await assert.rejects(
+      executeResearchPlan(memory, [
+        {
+          id: 'external',
+          operation: 'acquire',
+          parameters: {
+            relays: ['wss://relay.invalid'],
+            filter: { kinds: [1] },
+            timeoutMs: 1_000,
+            observationLimit: 1,
+            distinctEventLimit: 1,
+          },
+        },
+        {
+          id: 'invalid-retention',
+          operation: 'retain',
+          input: 'external',
+          parameters: { name: 'invalid', options: { reason: 'caller supplied' } },
+        },
+      ]),
+      /reason requires a non-empty type/,
+    );
+    assert.equal(memory.describe().eventCount, 0);
   } finally {
     memory.close();
   }
