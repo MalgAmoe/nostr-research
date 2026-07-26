@@ -1,6 +1,6 @@
 ---
 id: 043-judgment-and-session-ergonomics
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/043-judgment-and-session-ergonomics.validate.sh
 depends_on: 042-bounded-research-views

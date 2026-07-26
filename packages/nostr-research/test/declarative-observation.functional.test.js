@@ -234,3 +234,131 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.equal(schema.sessionRevision, 3);
   await session.close();
 });
+
+test('declarative judgments and retained selections survive explicit workspace lifecycle', async () => {
+  const memory = createInMemoryResearchMemory({ capacity: 3 });
+  const session = createDeclarativeResearchSession(memory);
+  const [interestedEvent, uninterestedEvent] = loadFixtureEvents();
+  for (const event of [interestedEvent, uninterestedEvent]) {
+    memory.ingest(event, {
+      relay: 'wss://fixture.example/',
+      observedAt: '2026-07-27T10:00:00.000Z',
+    });
+  }
+
+  await session.execute({
+    commandId: 'positive-source', command: 'select',
+    parameters: { scope: 'corpus', ids: [interestedEvent.id] }, resultId: 'positive-source',
+  });
+  await session.execute({
+    commandId: 'negative-source', command: 'select',
+    parameters: { scope: 'corpus', ids: [uninterestedEvent.id] }, resultId: 'negative-source',
+  });
+  const positiveJudgment = await session.execute({
+    commandId: 'judge-positive', command: 'annotate', input: 'positive-source',
+    parameters: {
+      judgment: 'interested', strength: 0.8, reason: 'Relevant first-hand example',
+    },
+  });
+  assert.equal(positiveJudgment.ok, true);
+  const negativeJudgment = await session.execute({
+    commandId: 'judge-negative', command: 'annotate', input: 'negative-source',
+    parameters: {
+      judgment: 'uninterested', reason: 'Useful counterexample, outside this inquiry',
+    },
+  });
+  assert.equal(negativeJudgment.ok, true);
+
+  await session.execute({
+    commandId: 'positives', command: 'annotations',
+    parameters: { judgments: ['interested'] }, resultId: 'positives',
+  });
+  await session.execute({
+    commandId: 'negatives', command: 'annotations',
+    parameters: { judgments: ['uninterested'] }, resultId: 'negatives',
+  });
+  const constrained = await session.execute({
+    commandId: 'constraint', command: 'difference', input: 'positives',
+    parameters: { with: 'negatives', limit: 10 }, resultId: 'constrained',
+  });
+  assert.equal(constrained.result.handle.count, 1);
+  assert.equal(
+    memory.getAnnotation({ type: 'event', id: interestedEvent.id }).reason,
+    'Relevant first-hand example',
+  );
+
+  const retained = await session.execute({
+    commandId: 'retain', command: 'retain', input: 'constrained',
+    parameters: { name: 'provisional examples' }, resultId: 'retained-handle',
+  });
+  assert.deepEqual(retained.warnings, []);
+  const setId = memory.listSets()[0].id;
+  await session.execute({
+    commandId: 'rename', command: 'rename-set',
+    parameters: { id: setId, name: 'reviewed provisional examples' },
+  });
+  const replaced = await session.execute({
+    commandId: 'replace', command: 'replace-set', input: 'negatives',
+    parameters: {
+      id: setId,
+      reason: { type: 'explicit-negative-example', provisional: true },
+    },
+  });
+  assert.equal(replaced.result.memberCount, 1);
+  assert.equal(memory.getSet(setId).members[0].id, uninterestedEvent.id);
+
+  const released = await session.execute({
+    commandId: 'release', command: 'release', input: 'retained-handle', parameters: {},
+  });
+  assert.equal(released.result.type, 'released-result-handle');
+  const inspectedSet = await session.execute({
+    commandId: 'inspect-set', command: 'set', parameters: { id: setId },
+  });
+  assert.equal(inspectedSet.result.name, 'reviewed provisional examples');
+
+  const template = await session.execute({
+    commandId: 'template', command: 'template', input: 'positives',
+    parameters: { name: 'accounts-from-notes', limit: 2 }, resultId: 'authors',
+  });
+  assert.deepEqual(template.result.expansion, {
+    operation: 'move', parameters: { to: 'authors', limit: 2 },
+  });
+
+  await session.execute({
+    commandId: 'empty', command: 'difference', input: 'positives',
+    parameters: { with: 'positives', limit: 10 }, resultId: 'empty',
+  });
+  const invalidEmptyRetention = await session.execute({
+    commandId: 'retain-empty-invalid', command: 'retain', input: 'empty',
+    parameters: { name: 'invalid empty checkpoint', callback: '() => process.exit()' },
+  });
+  assert.equal(invalidEmptyRetention.error.code, 'INVALID_OPERATION');
+  const refusedEmptyRetention = await session.execute({
+    commandId: 'retain-empty', command: 'retain', input: 'empty',
+    parameters: { name: 'deliberately empty checkpoint' },
+  });
+  assert.equal(refusedEmptyRetention.error.code, 'EMPTY_RESULT');
+  const emptyRetention = await session.execute({
+    commandId: 'retain-empty-explicitly', command: 'retain', input: 'empty',
+    parameters: { name: 'deliberately empty checkpoint', allowEmpty: true },
+  });
+  assert.match(emptyRetention.warnings[0], /retained selection is empty/i);
+
+  const bulkReleased = await session.execute({
+    commandId: 'release-all', command: 'release-all', parameters: {},
+  });
+  assert.ok(bulkReleased.result.count > 0);
+  assert.equal(memory.listSets().length, 2);
+  await session.execute({
+    commandId: 'delete', command: 'delete-set', parameters: { id: setId },
+  });
+  assert.equal(memory.listSets().length, 1);
+
+  const schema = await session.execute({
+    commandId: 'schema', command: 'schema', parameters: {},
+  });
+  assert.equal(schema.result.session.accountFields['account.name'], 'literal Nostr kind-0 profile field "name"');
+  assert.match(schema.result.session.retainedSets.distinction, /release-all.*delete-set/);
+
+  await session.close();
+});

@@ -819,6 +819,9 @@ export class InMemoryResearchMemory {
       subject: item,
       labels: annotation.labels,
       note: annotation.note,
+      ...(annotation.judgment === undefined ? {} : { judgment: annotation.judgment }),
+      ...(annotation.strength === undefined ? {} : { strength: annotation.strength }),
+      ...(annotation.reason === undefined ? {} : { reason: annotation.reason }),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -839,6 +842,8 @@ export class InMemoryResearchMemory {
       .filter((annotation) => normalized.labels.every(
         (label) => annotation.labels.includes(label),
       ))
+      .filter((annotation) => normalized.judgments.length === 0
+        || normalized.judgments.includes(annotation.judgment))
       .sort((left, right) => (
         right.updatedAt.localeCompare(left.updatedAt)
         || memberKey(left.subject).localeCompare(memberKey(right.subject))
@@ -853,6 +858,7 @@ export class InMemoryResearchMemory {
     return resultCollection(items, {
       operation: 'annotation-query',
       labels: normalized.labels,
+      judgments: normalized.judgments,
       limit: normalized.limit,
     });
   }
@@ -924,6 +930,46 @@ export class InMemoryResearchMemory {
     set.name = normalizeSetName(name);
     this.#sets.set(id, set);
     return cloneJson(set);
+  }
+
+  replaceSet(id, collection, options = {}) {
+    const previous = this.getSet(id);
+    collection = this.asCollection(collection);
+    validateRetainableCollectionKind(collection.kind);
+    assertPlainObject(options, 'Retained selection replacement options');
+    rejectUnknownKeys(options, new Set(['name', 'reason']), 'retained selection replacement options');
+    const retentionContext = options.reason ? normalizeReason(options.reason) : undefined;
+    const entries = collection.items
+      .filter((item) => RETAINABLE_SUBJECT_TYPES.has(item.subject.type))
+      .map((item) => ({
+        member: item.subject,
+        reasons: (item.reasons.length ? item.reasons : [{ type: 'retained-result' }])
+          .map((reason) => ({
+            ...reason, ...(retentionContext ? { retentionContext } : {}),
+            operation: collection.context.operation, provenance: retainedProvenance(item),
+          })),
+      }));
+    const members = new Map();
+    for (const entry of entries) {
+      const member = normalizeMember(entry.member);
+      const key = memberKey(member);
+      const found = members.get(key) ?? { ...member, reasons: [] };
+      for (const reason of entry.reasons.map(normalizeReason)) {
+        if (!found.reasons.some((item) => stableJson(item) === stableJson(reason))) {
+          found.reasons.push(reason);
+        }
+      }
+      members.set(key, found);
+    }
+    const replacement = {
+      id,
+      name: options.name === undefined ? previous.name : normalizeSetName(options.name),
+      createdAt: previous.createdAt,
+      updatedAt: new Date().toISOString(),
+      members: [...members.values()].sort((a, b) => memberKey(a).localeCompare(memberKey(b))),
+    };
+    this.#sets.set(id, cloneJson(replacement));
+    return this.#setSummary(replacement, 10);
   }
 
   deleteSet(id) {
@@ -2549,7 +2595,11 @@ function normalizeReason(reason) {
 
 function normalizeAnnotation(value) {
   assertPlainObject(value, 'Annotation');
-  rejectUnknownKeys(value, new Set(['labels', 'note']), 'annotation');
+  rejectUnknownKeys(
+    value,
+    new Set(['labels', 'note', 'judgment', 'strength', 'reason']),
+    'annotation',
+  );
   const labels = value.labels === undefined ? [] : normalizeStringList(value.labels, 'labels', false);
   const uniqueLabels = [...new Set((labels ?? []).map((label) => label.trim()))].sort();
   if (uniqueLabels.some((label) => label.length === 0)) {
@@ -2557,20 +2607,54 @@ function normalizeAnnotation(value) {
   }
   const note = value.note ?? '';
   if (typeof note !== 'string') throw new ResearchMemoryError('Annotation note must be a string.');
-  if (uniqueLabels.length === 0 && note.trim().length === 0) {
-    throw new ResearchMemoryError('An annotation requires at least one label or a note.');
+  const judgment = value.judgment;
+  if (judgment !== undefined
+      && !['interested', 'uninterested', 'uncertain', 'anchor'].includes(judgment)) {
+    throw new ResearchMemoryError(
+      'Annotation judgment must be interested, uninterested, uncertain, or anchor.',
+    );
   }
-  return { labels: uniqueLabels, note };
+  const strength = value.strength;
+  if (strength !== undefined
+      && (typeof strength !== 'number' || !Number.isFinite(strength)
+        || strength < 0 || strength > 1)) {
+    throw new ResearchMemoryError('Annotation strength must be a number from 0 to 1.');
+  }
+  const reason = value.reason ?? '';
+  if (typeof reason !== 'string') throw new ResearchMemoryError('Annotation reason must be a string.');
+  if (uniqueLabels.length === 0 && note.trim().length === 0 && judgment === undefined) {
+    throw new ResearchMemoryError(
+      'An annotation requires at least one label, a note, or an explicit judgment.',
+    );
+  }
+  return {
+    labels: uniqueLabels,
+    note,
+    ...(judgment === undefined ? {} : { judgment }),
+    ...(strength === undefined ? {} : { strength }),
+    ...(reason.trim().length === 0 ? {} : { reason }),
+  };
 }
 
 function normalizeAnnotationQuery(query) {
   assertPlainObject(query, 'Annotation query');
-  rejectUnknownKeys(query, new Set(['labels', 'limit']), 'annotation query');
+  rejectUnknownKeys(query, new Set(['labels', 'judgments', 'limit']), 'annotation query');
   const labels = query.labels === undefined ? [] : normalizeStringList(
     query.labels, 'labels', false,
   );
+  const judgments = query.judgments === undefined ? [] : normalizeStringList(
+    query.judgments, 'judgments', false,
+  );
+  if (judgments.some(
+    (judgment) => !['interested', 'uninterested', 'uncertain', 'anchor'].includes(judgment),
+  )) {
+    throw new ResearchMemoryError(
+      'Annotation judgments must be interested, uninterested, uncertain, or anchor.',
+    );
+  }
   return {
     labels: [...new Set((labels ?? []).map((label) => label.trim()))].sort(),
+    judgments: [...new Set(judgments ?? [])].sort(),
     limit: normalizeLimit(query.limit),
   };
 }

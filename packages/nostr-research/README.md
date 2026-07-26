@@ -255,10 +255,14 @@ return values and never replace the active selection: `acquire`, `events`,
 result without changing active state.
 
 Annotations are process-local interpretations attached to stable subjects. They
-contain only caller-defined labels and a free-text note; the library assigns no
-universal status or credibility meaning to them. `annotated(query)` returns a
-normal result collection that composes with traversal, expansion, retention,
-and projection.
+may contain caller-defined labels and a free-text note, or one explicit
+provisional judgment: `interested`, `uninterested`, `uncertain`, or `anchor`.
+A judgment may carry a numeric `strength` from 0 through 1 and a caller-authored
+`reason`. The library assigns no universal status or credibility meaning and
+does not infer or train a classification from these examples.
+`annotated({ judgments, labels, limit })` returns a normal result collection
+that composes with traversal, expansion, retention, projection, and positive or
+negative set constraints.
 
 ```js
 const connected = research.connections(seeds, {
@@ -267,8 +271,9 @@ const connected = research.connections(seeds, {
 });
 await research.hydrate(connected, { relays, kinds: [0] });
 research.annotate(connected.items[0].subject, {
-  labels: ['keep'],
-  note: 'Inspect this account again',
+  judgment: 'interested',
+  strength: 0.8,
+  reason: 'Inspect this account again',
 });
 ```
 
@@ -364,6 +369,18 @@ explicitly replaces an existing named result. Plans accept the documented
 research-plan array and an optional `outputs` map from stage IDs to result IDs.
 They use the same operation interpreter as in-process callers.
 
+Judgment commands are `annotate`, `annotations`, and `remove-annotations`.
+`annotate` and `remove-annotations` apply to every stable subject in their named
+input handle. `annotations` selects explicit judgments or caller labels into an
+ordinary named collection. For example, an interested collection can be
+combined with an uninterested collection through `difference`; both annotations
+remain inspectable evidence. No automatic classification occurs.
+
+`template` offers only three inspectable shorthands:
+`accounts-from-notes`, `authored-notes`, and `conversation-context`. Every
+response includes `result.expansion`, the normalized ordinary `move` or
+`continue` operation actually executed. `schema` lists these expansions.
+
 `select` always makes its scope explicit. With an acquisition result as
 `input`, it selects only among that attempt's stable event subjects (and may
 set `scope: "acquisition"`). Without an input it must set
@@ -381,17 +398,25 @@ and concurrency bounds. Both forms report completeness and per-input
 omissions, while `explain` exposes the continuation relationship responsible
 for membership. Relay completeness describes only the bounded attempt.
 
-Observation commands are `show`, `inspect`, `explain`, `list`, `status`, and
-`schema`.
+Observation commands are `show`, `inspect`, `explain`, `list`, `sets`, `set`,
+`status`, and `schema`.
 `show` and `explain` consume a named input. `inspect` receives its stable
 `subject` in `parameters`. Projection parameters are `previewLimit`,
 `excerptLimit`, `includeEvidence`, and `sizeLimit`; `show` additionally accepts
 `mode`. Responses report counts plus `omitted` or truncation metadata rather
 than emitting unbounded values.
 
-Lifecycle commands are `release`, `reset`, and `close`, with empty
-`parameters`. `release` removes only its named handle. `reset` clears handles
-and all process-local memory. `close` also ends the session. Empty and partial
+Handle lifecycle commands are `release` and `release-all`; neither deletes a
+retained selection. Retained selections are listed with `sets`, inspected with
+`set`, and changed only by `rename-set`, `replace-set`, or `delete-set`.
+`replace-set` requires both an existing set ID and an input handle, so it cannot
+silently create or overwrite a working handle. Ordinary `resultId` replacement
+still requires `replace: true`. Retaining an empty collection first returns
+`EMPTY_RESULT`; repeating it with `parameters.allowEmpty: true` makes the
+intent explicit and returns a warning.
+
+`reset` clears handles and all process-local memory. `close` also ends the
+session. Empty and partial
 external results remain successful responses. Their concise default envelope
 reports scope, bounds, corpus pressure and eviction effects, a bounded preview,
 bounded facets, and warnings. Detailed relay and observation coverage is

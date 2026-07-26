@@ -20,10 +20,17 @@ const COMMANDS = new Set([
   'group', 'summarize', 'move', 'union', 'intersection', 'difference', 'compare',
   'hydrate', 'retain', 'plan',
   'continue',
-  'show', 'inspect', 'explain', 'list', 'status', 'schema', 'release', 'reset', 'close',
+  'annotate', 'annotations', 'remove-annotations',
+  'template',
+  'show', 'inspect', 'explain', 'list', 'sets', 'set', 'status', 'schema',
+  'release', 'release-all', 'rename-set', 'replace-set', 'delete-set', 'reset', 'close',
 ]);
-const OBSERVATIONS = new Set(['show', 'inspect', 'explain', 'list', 'status', 'schema']);
-const LIFECYCLE = new Set(['release', 'reset', 'close']);
+const OBSERVATIONS = new Set([
+  'show', 'inspect', 'explain', 'list', 'sets', 'set', 'status', 'schema',
+]);
+const LIFECYCLE = new Set([
+  'release', 'release-all', 'rename-set', 'replace-set', 'delete-set', 'reset', 'close',
+]);
 const EXTERNAL = new Set(['acquire', 'hydrate']);
 const SET_TRANSFORMS = new Set(['union', 'intersection', 'difference', 'compare']);
 const UNSUCCESSFUL_RELAY_OUTCOMES = new Set(['connection-failure', 'closed']);
@@ -113,7 +120,7 @@ export class DeclarativeResearchSession {
         commandId,
         sessionRevision: this.#revision,
         result: prepared.present(result),
-        warnings: externalWarnings(result),
+        warnings: externalWarnings(result, command.command),
       };
       if (command.command === 'close') await this.#finishClose();
       return response;
@@ -174,7 +181,10 @@ export class DeclarativeResearchSession {
       if (Object.keys(parameters).length) {
         throw protocolError('INVALID_COMMAND', 'schema parameters must be an empty object.');
       }
-      return readOnly(() => this.#memory.describeCollectionPipeline());
+      return readOnly(() => ({
+        ...this.#memory.describeCollectionPipeline(),
+        session: sessionSchema(),
+      }));
     }
     if (command.command === 'list') {
       return readOnly(() => presentHandleList(
@@ -183,6 +193,34 @@ export class DeclarativeResearchSession {
         )),
         parameters,
       ));
+    }
+    if (command.command === 'sets') {
+      if (command.input !== undefined) {
+        throw protocolError('INVALID_COMMAND', 'sets does not accept an input handle.');
+      }
+      const unknown = Object.keys(parameters).find((key) => key !== 'limit');
+      if (unknown) throw protocolError('INVALID_COMMAND', `Unknown sets parameter: ${unknown}.`);
+      const limit = parameters.limit ?? 50;
+      if (!Number.isSafeInteger(limit) || limit < 0) {
+        throw protocolError('INVALID_COMMAND', 'sets limit must be a non-negative integer.');
+      }
+      return readOnly(() => {
+        const all = this.#memory.listSets();
+        return {
+          type: 'retained-selection-list',
+          count: all.length,
+          sets: all.slice(0, limit),
+          omitted: Math.max(0, all.length - limit),
+        };
+      });
+    }
+    if (command.command === 'set') {
+      if (command.input !== undefined) {
+        throw protocolError('INVALID_COMMAND', 'set does not accept an input handle.');
+      }
+      rejectKeys(parameters, new Set(['id']));
+      validateId(parameters.id, 'Retained set ID');
+      return readOnly(() => this.#memory.getSet(parameters.id));
     }
     return readOnly(() => presentSessionStatus(this.#memory, {
       revision: this.#revision,
@@ -194,10 +232,13 @@ export class DeclarativeResearchSession {
   #prepareLifecycle(command) {
     rejectKeys(command, new Set(['commandId', 'ifRevision', 'command', 'input', 'parameters']));
     const parameters = command.parameters ?? {};
-    if (!isPlainObject(parameters) || Object.keys(parameters).length) {
-      throw protocolError('INVALID_COMMAND', 'Lifecycle command parameters must be an empty object.');
+    if (!isPlainObject(parameters)) {
+      throw protocolError('INVALID_COMMAND', 'Lifecycle command parameters must be a plain object.');
     }
     if (command.command === 'release') {
+      if (Object.keys(parameters).length) {
+        throw protocolError('INVALID_COMMAND', 'release parameters must be an empty object.');
+      }
       const entry = this.#requireHandle(command.input);
       return {
         run: () => ({ id: command.input, released: true, entry }),
@@ -208,6 +249,51 @@ export class DeclarativeResearchSession {
           return { type: 'released-result-handle', id: result.id, released: true };
         },
       };
+    }
+    if (command.command === 'release-all') {
+      if (command.input !== undefined || Object.keys(parameters).length) {
+        throw protocolError(
+          'INVALID_COMMAND', 'release-all accepts no input and empty parameters.',
+        );
+      }
+      return {
+        run: () => ({ type: 'released-result-handles', count: this.#handles.size }),
+        mutates: (result) => result.count > 0,
+        install: null,
+        present: (result) => {
+          this.#handles.clear();
+          return result;
+        },
+      };
+    }
+    if (['rename-set', 'delete-set'].includes(command.command)) {
+      if (command.input !== undefined) {
+        throw protocolError('INVALID_COMMAND', `${command.command} does not accept an input handle.`);
+      }
+      rejectKeys(parameters, new Set(command.command === 'rename-set' ? ['id', 'name'] : ['id']));
+      validateId(parameters.id, 'Retained set ID');
+      if (command.command === 'rename-set') {
+        return mutation(() => this.#memory.renameSet(parameters.id, parameters.name));
+      }
+      return mutation(() => this.#memory.deleteSet(parameters.id));
+    }
+    if (command.command === 'replace-set') {
+      const entry = this.#requireHandle(command.input);
+      rejectKeys(parameters, new Set(['id', 'name', 'reason']));
+      validateId(parameters.id, 'Retained set ID');
+      return mutation(() => this.#memory.replaceSet(
+        parameters.id,
+        collectionValue(entry.value),
+        {
+          ...(parameters.name === undefined ? {} : { name: parameters.name }),
+          ...(parameters.reason === undefined ? {} : { reason: parameters.reason }),
+        },
+      ));
+    }
+    if (Object.keys(parameters).length) {
+      throw protocolError(
+        'INVALID_COMMAND', `${command.command} parameters must be an empty object.`,
+      );
     }
     if (command.input !== undefined) {
       throw protocolError('INVALID_COMMAND', `${command.command} does not accept an input handle.`);
@@ -235,12 +321,17 @@ export class DeclarativeResearchSession {
   }
 
   #prepareOperation(command) {
+    const template = command.command === 'template' ? expandTemplate(command) : null;
+    if (template) command = template.command;
     rejectKeys(command, COMMAND_KEYS);
     if (!COMMANDS.has(command.command) || command.command === 'plan') {
       throw protocolError('INVALID_COMMAND', `Unsupported command: ${command.command}.`);
     }
     if (!isPlainObject(command.parameters)) {
       throw protocolError('INVALID_OPERATION', 'Command parameters must be a plain object.');
+    }
+    if (['annotate', 'annotations', 'remove-annotations'].includes(command.command)) {
+      return this.#prepareAnnotationOperation(command);
     }
     const inputEntry = command.input === undefined ? undefined : this.#handles.get(command.input);
     if (command.input !== undefined
@@ -251,13 +342,23 @@ export class DeclarativeResearchSession {
       throw protocolError('UNKNOWN_RESULT', `No named result exists for ${command.input}.`,
         { id: command.input });
     }
+    let operationParameters = cloneJson(command.parameters);
+    let allowEmptyRetention = false;
+    if (command.command === 'retain') {
+      const { allowEmpty, ...retentionParameters } = operationParameters;
+      if (allowEmpty !== undefined && typeof allowEmpty !== 'boolean') {
+        throw protocolError('INVALID_OPERATION', 'retain allowEmpty must be a boolean.');
+      }
+      allowEmptyRetention = allowEmpty === true;
+      operationParameters = retentionParameters;
+    }
     const referenced = SET_TRANSFORMS.has(command.command)
       ? this.#requireHandle(command.parameters.with) : undefined;
     const operation = {
       operation: command.command,
       parameters: SET_TRANSFORMS.has(command.command)
-        ? { ...cloneJson(command.parameters), with: referenced.value }
-        : cloneJson(command.parameters),
+        ? { ...operationParameters, with: referenced.value }
+        : operationParameters,
     };
     const externallyBacked = EXTERNAL.has(command.command)
       || (command.command === 'continue' && command.parameters.source === 'relays');
@@ -269,6 +370,15 @@ export class DeclarativeResearchSession {
     const descriptor = preflightResearchOperation(
       this.#memory, descriptorOperation, inputEntry?.descriptor, references,
     );
+    if (command.command === 'retain'
+        && resultCount(inputEntry?.value) === 0
+        && !allowEmptyRetention) {
+      throw protocolError(
+        'EMPTY_RESULT',
+        'The input result is empty. Set parameters.allowEmpty to true to retain it explicitly.',
+        { input: command.input, allowEmptyRequired: true },
+      );
+    }
     validateResultTarget(command.resultId, command.replace, this.#handles);
     const execute = () => executeResearchOperation(
       this.#memory, operation, inputEntry?.value,
@@ -286,8 +396,52 @@ export class DeclarativeResearchSession {
         });
         return [command.resultId];
       },
-      present: (result) => presentResult(
-        result, command.resultId, descriptor, this.#revision, command.command, this.#memory,
+      present: (result) => ({
+        ...presentResult(
+          result, command.resultId, descriptor, this.#revision, command.command, this.#memory,
+        ),
+        ...(template ? { expansion: template.expansion } : {}),
+      }),
+    };
+  }
+
+  #prepareAnnotationOperation(command) {
+    const inputEntry = command.input === undefined ? undefined : this.#requireHandle(command.input);
+    if (command.command !== 'annotations' && !inputEntry) {
+      throw protocolError('INVALID_COMMAND', `${command.command} requires an input handle.`);
+    }
+    if (command.command === 'annotations' && command.input !== undefined) {
+      throw protocolError('INVALID_COMMAND', 'annotations does not accept an input handle.');
+    }
+    const result = command.command === 'annotations'
+      ? this.#memory.annotated(command.parameters)
+      : collectionValue(inputEntry.value);
+    const descriptor = { kind: result.kind };
+    validateResultTarget(command.resultId, command.replace, this.#handles);
+    return {
+      run: () => {
+        if (command.command === 'annotate') {
+          for (const item of result.items) this.#memory.annotate(item.subject, command.parameters);
+        } else if (command.command === 'remove-annotations') {
+          if (Object.keys(command.parameters).length) {
+            throw protocolError(
+              'INVALID_OPERATION', 'remove-annotations parameters must be an empty object.',
+            );
+          }
+          for (const item of result.items) this.#memory.removeAnnotation(item.subject);
+        }
+        return result;
+      },
+      mutates: () => command.command !== 'annotations',
+      install: command.resultId === undefined ? null : (value) => {
+        this.#handles.set(command.resultId, {
+          value: ownHandleValue(value), descriptor, revision: this.#revision + 1,
+        });
+        return [command.resultId];
+      },
+      present: (value) => presentResult(
+        value, command.resultId, descriptor, this.#revision,
+        command.command, this.#memory,
       ),
     };
   }
@@ -474,6 +628,10 @@ function readOnly(run) {
   return { run, mutates: () => false, install: null, present: (value) => value };
 }
 
+function mutation(run) {
+  return { run, mutates: () => true, install: null, present: (value) => value };
+}
+
 function collectionValue(value) {
   return value?.collection?.type === 'result-collection' ? value.collection : value;
 }
@@ -594,11 +752,14 @@ function corpusStatus(value) {
   };
 }
 
-function externalWarnings(result) {
+function externalWarnings(result, operation) {
   if (result?.type === 'research-plan-report') {
-    return result.stages.flatMap(({ id, result: stageResult }) => (
-      externalWarnings(stageResult).map((warning) => `Stage ${id}: ${warning}`)
+    return result.stages.flatMap(({ id, operation: stageOperation, result: stageResult }) => (
+      externalWarnings(stageResult, stageOperation).map((warning) => `Stage ${id}: ${warning}`)
     ));
+  }
+  if (operation === 'retain' && result?.memberCount === 0) {
+    return ['The retained selection is empty; it was preserved only because retention was explicit.'];
   }
   if (!result?.coverage) return [];
   const warnings = result.completionReason === 'completed'
@@ -609,6 +770,111 @@ function externalWarnings(result) {
     warnings.push(`${unsuccessful.length} relay attempt${unsuccessful.length === 1 ? '' : 's'} did not complete successfully.`);
   }
   return warnings;
+}
+
+function sessionSchema() {
+  return {
+    envelope: {
+      required: { commandId: 'non-empty string', command: 'documented command' },
+      optional: {
+        ifRevision: 'non-negative integer',
+        input: 'named result handle ID',
+        parameters: 'plain JSON object',
+        resultId: 'new named result handle ID',
+        replace: 'boolean; true is required to overwrite a handle',
+      },
+    },
+    commands: {
+      research: [
+        'acquire', 'select', 'filter', 'project', 'distinct', 'sort', 'limit', 'sample',
+        'group', 'summarize', 'move', 'union', 'intersection', 'difference', 'compare',
+        'hydrate', 'continue', 'retain', 'plan',
+      ],
+      templates: {
+        'accounts-from-notes': 'move(input, {to:"authors", limit})',
+        'authored-notes': 'continue(input, {relationship:"authored-notes", source, ...bounds})',
+        'conversation-context': 'continue(input, {relationship:"conversation", source, ...bounds})',
+      },
+      judgment: {
+        annotate: {
+          input: 'subject result handle',
+          parameters: {
+            judgment: ['interested', 'uninterested', 'uncertain', 'anchor'],
+            strength: 'optional number from 0 to 1',
+            reason: 'optional caller-authored string',
+            labels: 'optional caller-defined string array',
+            note: 'optional caller-authored string',
+          },
+        },
+        annotations: {
+          input: 'forbidden',
+          parameters: {
+            judgments: 'optional judgment array (OR)',
+            labels: 'optional label array (AND)',
+            limit: 'optional non-negative integer',
+          },
+        },
+        'remove-annotations': { input: 'subject result handle', parameters: {} },
+      },
+      observation: ['show', 'inspect', 'explain', 'list', 'sets', 'set', 'status', 'schema'],
+      lifecycle: [
+        'release', 'release-all', 'rename-set', 'replace-set', 'delete-set', 'reset', 'close',
+      ],
+    },
+    retainedSets: {
+      list: { command: 'sets', parameters: { limit: 'optional non-negative integer' } },
+      inspect: { command: 'set', parameters: { id: 'retained set ID' } },
+      rename: { command: 'rename-set', parameters: { id: 'retained set ID', name: 'string' } },
+      replace: {
+        command: 'replace-set',
+        input: 'subject result handle',
+        parameters: {
+          id: 'retained set ID',
+          name: 'optional replacement name',
+          reason: 'optional membership reason object',
+        },
+      },
+      delete: { command: 'delete-set', parameters: { id: 'retained set ID' } },
+      distinction: 'release/release-all discard result handles; delete-set removes retained evidence.',
+      emptyRetention: 'retain rejects an empty input unless parameters.allowEmpty is true; explicit empty retention returns a warning.',
+    },
+    accountFields: {
+      'account.name': 'literal Nostr kind-0 profile field "name"',
+      'account.display_name': 'literal Nostr kind-0 profile field "display_name"',
+    },
+    templateContract: 'template returns its normalized ordinary operation in result.expansion.',
+    locality: 'Handles, retained selections, and annotations are process-local and disappear on reset, close, or process exit.',
+  };
+}
+
+function expandTemplate(command) {
+  if (!isPlainObject(command.parameters)) {
+    throw protocolError('INVALID_OPERATION', 'Template parameters must be a plain object.');
+  }
+  const { name, ...parameters } = command.parameters;
+  if (!['accounts-from-notes', 'authored-notes', 'conversation-context'].includes(name)) {
+    throw protocolError(
+      'INVALID_OPERATION',
+      'Template name must be accounts-from-notes, authored-notes, or conversation-context.',
+    );
+  }
+  let operation;
+  let normalized;
+  if (name === 'accounts-from-notes') {
+    rejectKeys(parameters, new Set(['limit']));
+    operation = 'move';
+    normalized = { to: 'authors', ...cloneJson(parameters) };
+  } else {
+    operation = 'continue';
+    normalized = {
+      relationship: name === 'authored-notes' ? 'authored-notes' : 'conversation',
+      ...cloneJson(parameters),
+    };
+  }
+  return {
+    command: { ...command, command: operation, parameters: normalized },
+    expansion: { operation, parameters: normalized },
+  };
 }
 
 function semanticError(error) {
