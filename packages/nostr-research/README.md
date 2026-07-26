@@ -143,10 +143,13 @@ acquire, hydrate, retain, or evict evidence.
 ## Named research plans
 
 `executeResearchPlan(memory, plan)` runs a non-empty JSON-serializable array of
-named stages. Each stage has an `id`, one `operation`, plain `parameters`, and
-an `input` naming an earlier stage when it consumes or explicitly follows that
-result. `acquire` has no input; `select` may start from resident memory or name
-an acquisition dependency. The only supported operations are `acquire`, `select`, `filter`, `group`,
+named stages. The complete plan is validated before any stage runs. Each stage
+has an `id`, one `operation`, plain `parameters`, and an `input` naming an
+earlier stage when it consumes or explicitly follows that result. `acquire`
+has no input. `select` either has no input or names an earlier `acquire` stage
+solely as an ordering dependency. It always queries the authoritative current
+resident corpus; it is not scoped to event IDs in the acquisition report.
+The only supported operations are `acquire`, `select`, `filter`, `group`,
 `summarize`, `move`, `hydrate`, and `retain`.
 
 ```js

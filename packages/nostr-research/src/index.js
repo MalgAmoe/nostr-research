@@ -306,6 +306,35 @@ export class InMemoryResearchMemory {
     return current;
   }
 
+  validateSelection(query) {
+    this.#assertOpen();
+    normalizeEventQuery(query);
+  }
+
+  validateTransform(stages, inputKind, itemKind = inputKind) {
+    this.#assertOpen();
+    const operations = Array.isArray(stages) ? stages : [stages];
+    if (operations.length === 0) {
+      throw new ResearchMemoryError('A transform requires at least one stage.');
+    }
+    let kind = inputKind;
+    let memberKind = itemKind;
+    for (let index = 0; index < operations.length; index += 1) {
+      const operation = normalizeTransformOperation(operations[index], kind, memberKind, index);
+      ({ kind, itemKind: memberKind } = transformOutputKind(kind, memberKind, operation));
+    }
+    return { kind, itemKind: memberKind };
+  }
+
+  validateRetention(name, options = {}, collectionKind = undefined) {
+    this.#assertOpen();
+    normalizeSetName(name);
+    assertPlainObject(options, 'Retention options');
+    rejectUnknownKeys(options, new Set(['reason']), 'retention option');
+    if (options.reason !== undefined) normalizeReason(options.reason);
+    if (collectionKind !== undefined) validateRetainableCollectionKind(collectionKind);
+  }
+
   asCollection(value) {
     this.#assertOpen();
     if (value?.type === 'set' || isPublicResearchSet(value)) {
@@ -323,6 +352,17 @@ export class InMemoryResearchMemory {
     }
     if (value?.type === 'typed-collection') {
       assertTypedCollection(value);
+      if (value.kind === 'groups') {
+        return typedCollection('groups', value.items.map((group) => {
+          const items = group.items.map((item) => this.#resolveCollectionItem(item));
+          return {
+            ...cloneJson(group),
+            items,
+            reasons: uniqueJson(items.flatMap((item) => item.reasons)),
+            provenance: uniqueJson(items.flatMap((item) => item.provenance)),
+          };
+        }), value.context, value.itemKind);
+      }
       return typedCollection(value.kind, value.items, value.context, value.itemKind);
     }
     if (value?.collection?.type === 'result-collection') return this.asCollection(value.collection);
@@ -874,6 +914,7 @@ export class InMemoryResearchMemory {
 
   retain(collection, name, options = {}) {
     collection = this.asCollection(collection);
+    validateRetainableCollectionKind(collection.kind);
     assertPlainObject(options, 'Retention options');
     const retentionContext = options.reason ? normalizeReason(options.reason) : undefined;
     return this.#createPopulatedSet(name, collection.items
@@ -1527,6 +1568,14 @@ function eventRelationships(event) {
 }
 
 const TRANSFORM_KINDS = new Set(['subjects', 'events', 'accounts', 'relationships']);
+
+function validateRetainableCollectionKind(kind) {
+  if (!TRANSFORM_KINDS.has(kind)) {
+    throw new ResearchMemoryError(
+      `Retention requires a subject collection; ${kind} collections contain no retainable subjects.`,
+    );
+  }
+}
 const GROUP_KEYS = new Set([
   'subject', 'event.author', 'event.kind', 'event.tag', 'event.linkedDomain', 'observedRelay',
 ]);
@@ -1579,9 +1628,17 @@ function normalizeTransformOperation(value, inputKind, itemKind, index) {
     if (!Array.isArray(value.aggregations) || value.aggregations.length === 0) {
       throw new ResearchMemoryError('Summarize aggregations must be a non-empty array.');
     }
+    const aggregations = value.aggregations.map((item) => normalizeAggregation(item, itemKind));
+    const names = new Set();
+    for (const aggregation of aggregations) {
+      if (names.has(aggregation.name)) {
+        throw new ResearchMemoryError(`Duplicate summary aggregation name: ${aggregation.name}.`);
+      }
+      names.add(aggregation.name);
+    }
     return {
       ...common,
-      aggregations: value.aggregations.map((item) => normalizeAggregation(item, itemKind)),
+      aggregations,
       limit: normalizeTransformLimit(value.limit),
     };
   }
@@ -1767,9 +1824,13 @@ function applyGroup(collection, operation) {
   for (const item of collection.items) {
     for (const key of groupKeys(item, operation.by)) {
       const encoded = stableJson(key);
-      if (!groups.has(encoded)) groups.set(encoded, { key: cloneJson(key), items: [] });
-      if (groups.get(encoded).items.length < operation.itemLimit) {
-        groups.get(encoded).items.push(cloneJson(item));
+      if (!groups.has(encoded)) {
+        groups.set(encoded, { key: cloneJson(key), items: [], memberCount: 0 });
+      }
+      const group = groups.get(encoded);
+      group.memberCount += 1;
+      if (group.items.length < operation.itemLimit) {
+        group.items.push(cloneJson(item));
       }
     }
   }
@@ -1778,6 +1839,9 @@ function applyGroup(collection, operation) {
     .slice(0, operation.limit)
     .map((group) => ({
       ...group,
+      retainedMemberCount: group.items.length,
+      omittedMemberCount: group.memberCount - group.items.length,
+      truncated: group.memberCount > group.items.length,
       reasons: uniqueJson(group.items.flatMap((item) => item.reasons)),
       provenance: uniqueJson(group.items.flatMap((item) => item.provenance)),
     }));
@@ -1797,14 +1861,14 @@ function groupKeys(item, by) {
 function applySummary(collection, operation) {
   const sources = collection.kind === 'groups'
     ? collection.items.map((group) => ({ key: group.key, values: group.items,
-      reasons: group.reasons, provenance: group.provenance }))
+      memberCount: group.memberCount, reasons: group.reasons, provenance: group.provenance }))
     : [{ key: null, values: collection.items,
       reasons: uniqueJson(collection.items.flatMap((item) => item.reasons)),
       provenance: uniqueJson(collection.items.flatMap((item) => item.provenance)) }];
   const items = sources.slice(0, operation.limit).map((source) => ({
     key: cloneJson(source.key),
     values: Object.fromEntries(operation.aggregations.map((aggregation) => [
-      aggregation.name, aggregate(source.values, aggregation),
+      aggregation.name, aggregate(source.values, aggregation, source.memberCount),
     ])),
     reasons: cloneJson(source.reasons),
     provenance: cloneJson(source.provenance),
@@ -1812,8 +1876,8 @@ function applySummary(collection, operation) {
   return typedCollection('summaries', items, {}, 'summaries');
 }
 
-function aggregate(items, aggregation) {
-  if (aggregation.operation === 'count') return items.length;
+function aggregate(items, aggregation, exactCount = undefined) {
+  if (aggregation.operation === 'count') return exactCount ?? items.length;
   const values = items.map((item) => summaryField(item, aggregation.field))
     .flatMap((value) => Array.isArray(value) ? value : [value])
     .filter((value) => value !== undefined && value !== null);

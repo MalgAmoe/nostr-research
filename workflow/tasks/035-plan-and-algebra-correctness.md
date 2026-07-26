@@ -1,6 +1,6 @@
 ---
 id: 035-plan-and-algebra-correctness
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/035-plan-and-algebra-correctness.validate.sh
 depends_on: 034-named-research-plans-field-trial

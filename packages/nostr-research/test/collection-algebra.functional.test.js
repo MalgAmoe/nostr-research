@@ -166,6 +166,55 @@ test('empty paths retain typed context and invalid plans fail before execution',
   }
 });
 
+test('bounded groups expose exact membership, refresh evidence, and summarize exact counts', () => {
+  const memory = createInMemoryResearchMemory({ capacity: 10 });
+  try {
+    const notes = [2, 3, 4].map((created_at) => signed(ALICE_SECRET, {
+      kind: 1, created_at, tags: [], content: `note ${created_at}`,
+    }));
+    for (const event of notes) {
+      memory.ingest(event, {
+        relay: 'wss://one.example/', observedAt: '2026-07-26T10:00:00.000Z',
+      });
+    }
+    const grouped = memory.transform(memory.select({ kinds: [1] }), {
+      operation: 'group', by: 'event.author', itemLimit: 1,
+    });
+    assert.deepEqual({
+      memberCount: grouped.items[0].memberCount,
+      retainedMemberCount: grouped.items[0].retainedMemberCount,
+      omittedMemberCount: grouped.items[0].omittedMemberCount,
+      truncated: grouped.items[0].truncated,
+    }, {
+      memberCount: 3, retainedMemberCount: 1, omittedMemberCount: 2, truncated: true,
+    });
+
+    memory.ingest(grouped.items[0].items[0].record.event, {
+      relay: 'wss://two.example/', observedAt: '2026-07-26T10:01:00.000Z',
+    });
+    const summary = memory.transform(grouped, {
+      operation: 'summarize',
+      aggregations: [
+        { name: 'count', operation: 'count' },
+        { name: 'relays', operation: 'collect', field: 'observedRelay', limit: 5 },
+      ],
+    });
+    assert.equal(summary.items[0].values.count, 3);
+    assert.deepEqual(summary.items[0].values.relays, [
+      'wss://one.example/', 'wss://two.example/',
+    ]);
+    assert.throws(() => memory.transform(grouped, {
+      operation: 'summarize',
+      aggregations: [
+        { name: ' count ', operation: 'count' },
+        { name: 'count', operation: 'count' },
+      ],
+    }), /Duplicate summary aggregation name: count/);
+  } finally {
+    memory.close();
+  }
+});
+
 test('a local-only named plan can query resident memory without implicit acquisition', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 5 });
   try {
@@ -211,6 +260,18 @@ test('a local-only named plan can query resident memory without implicit acquisi
         },
       ]),
       /reason requires a non-empty type/,
+    );
+    await assert.rejects(
+      executeResearchPlan(memory, [
+        { id: 'resident', operation: 'select', parameters: { kinds: [1] } },
+        {
+          id: 'misleading',
+          operation: 'select',
+          input: 'resident',
+          parameters: { kinds: [1] },
+        },
+      ]),
+      /input must name an acquisition stage/,
     );
     assert.equal(memory.describe().eventCount, 0);
   } finally {

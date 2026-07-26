@@ -25,7 +25,7 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
   if (!memory || typeof memory.ingest !== 'function') {
     throw new ResearchMemoryError('An open research memory is required.');
   }
-  const normalized = normalizeOptions(options);
+  const normalized = normalizeAcquisitionOptions(options);
   const corpusBefore = typeof memory.describe === 'function' ? memory.describe() : null;
   const startedAt = new Date().toISOString();
   const relayResults = normalized.relays.map((relay) => ({
@@ -270,18 +270,7 @@ export async function hydrateAccounts(memory, selection, options) {
   if (!memory || typeof memory.asCollection !== 'function') {
     throw new ResearchMemoryError('An open research memory is required.');
   }
-  if (!options || typeof options !== 'object' || Array.isArray(options)) {
-    throw new ResearchMemoryError('Account hydration options are required.');
-  }
-  const unknown = Object.keys(options).filter((key) => !HYDRATION_OPTION_KEYS.has(key));
-  if (unknown.length) {
-    throw new ResearchMemoryError(`Unknown account hydration options: ${unknown.join(', ')}.`);
-  }
-  const kinds = options.kinds ?? [0];
-  if (!Array.isArray(kinds) || kinds.length === 0
-      || kinds.some((kind) => ![0, 3].includes(kind))) {
-    throw new ResearchMemoryError('Account hydration kinds must contain only 0 and/or 3.');
-  }
+  const normalized = normalizeHydrationOptions(options);
   const authors = [...new Set(memory.asCollection(selection).items
     .filter(({ subject }) => subject.type === 'account')
     .map(({ subject }) => subject.id))];
@@ -289,9 +278,9 @@ export async function hydrateAccounts(memory, selection, options) {
     throw new ResearchMemoryError('Account hydration requires at least one account subject.');
   }
   const {
-    relays, timeoutMs, observationLimit, distinctEventLimit,
+    relays, kinds, timeoutMs, observationLimit, distinctEventLimit,
     concurrency, signal, preserve,
-  } = options;
+  } = normalized;
   return acquireRelayEvents(memory, {
     relays,
     filter: { authors, kinds: [...new Set(kinds)] },
@@ -340,7 +329,7 @@ function finishSocket(socket, subscriptionId, onClosed) {
   }
 }
 
-function normalizeOptions(options) {
+export function normalizeAcquisitionOptions(options) {
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
     throw new ResearchMemoryError('Acquisition options are required.');
   }
@@ -377,6 +366,24 @@ function normalizeOptions(options) {
     concurrency, signal: options.signal,
     preserve: structuredClone(options.preserve ?? []),
   };
+}
+
+export function normalizeHydrationOptions(options) {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    throw new ResearchMemoryError('Account hydration options are required.');
+  }
+  const unknown = Object.keys(options).filter((key) => !HYDRATION_OPTION_KEYS.has(key));
+  if (unknown.length) {
+    throw new ResearchMemoryError(`Unknown account hydration options: ${unknown.join(', ')}.`);
+  }
+  const kinds = options.kinds ?? [0];
+  if (!Array.isArray(kinds) || kinds.length === 0
+      || kinds.some((kind) => ![0, 3].includes(kind))) {
+    throw new ResearchMemoryError('Account hydration kinds must contain only 0 and/or 3.');
+  }
+  const { kinds: ignoredKinds, ...acquisition } = options;
+  const normalized = normalizeAcquisitionOptions({ ...acquisition, filter: { kinds: [0] } });
+  return { ...normalized, kinds: [...new Set(kinds)] };
 }
 
 function normalizeRelay(value) {

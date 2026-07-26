@@ -1,4 +1,9 @@
-import { acquireRelayEvents, hydrateAccounts } from './acquire.js';
+import {
+  acquireRelayEvents,
+  hydrateAccounts,
+  normalizeAcquisitionOptions,
+  normalizeHydrationOptions,
+} from './acquire.js';
 import { ResearchMemoryError } from './index.js';
 
 const OPERATIONS = new Set([
@@ -18,6 +23,7 @@ export async function executeResearchPlan(memory, plan) {
     throw new ResearchMemoryError('An open research memory is required.');
   }
   const normalized = normalizePlan(plan);
+  preflightPlan(memory, normalized);
   const outputs = new Map();
   const stages = [];
 
@@ -54,6 +60,44 @@ export async function executeResearchPlan(memory, plan) {
     plan: cloneJson(normalized),
     stages,
   };
+}
+
+function preflightPlan(memory, plan) {
+  const outputs = new Map();
+  for (const stage of plan) {
+    const input = stage.input === undefined ? undefined : outputs.get(stage.input);
+    let output;
+    if (stage.operation === 'acquire') {
+      normalizeAcquisitionOptions(stage.parameters);
+      output = { kind: 'events', itemKind: 'events', resultKind: 'acquisition-report' };
+    } else if (stage.operation === 'select') {
+      if (input && input.resultKind !== 'acquisition-report') {
+        throw new ResearchMemoryError(
+          `Research plan select stage ${stage.id} input must name an acquisition stage.`,
+        );
+      }
+      memory.validateSelection(stage.parameters);
+      output = { kind: 'events', itemKind: 'events', resultKind: 'events' };
+    } else if (LOCAL_TRANSFORMS.has(stage.operation)) {
+      const transformed = memory.validateTransform({
+        operation: stage.operation, ...stage.parameters,
+      }, input.kind, input.itemKind);
+      output = { ...transformed, resultKind: transformed.kind };
+    } else if (stage.operation === 'hydrate') {
+      if (input.kind !== 'accounts') {
+        throw new ResearchMemoryError(
+          `Research plan hydrate stage ${stage.id} requires an accounts collection.`,
+        );
+      }
+      normalizeHydrationOptions(stage.parameters);
+      output = { kind: 'events', itemKind: 'events', resultKind: 'hydration-report' };
+    } else {
+      const { name, options = {} } = stage.parameters;
+      memory.validateRetention(name, options, input.kind);
+      output = { ...input, resultKind: 'retained-selection' };
+    }
+    outputs.set(stage.id, output);
+  }
 }
 
 function normalizePlan(plan) {

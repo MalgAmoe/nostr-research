@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/src/plan.js:94` preflights retention parameters but not the input result kind. A `summarize → retain` or `group → retain` plan passes preflight, then `memory.retain()` encounters items without `subject` and fails during execution. If an earlier acquisition ran, memory has already mutated, violating complete preflight and the acceptance criterion. Preflight must reject non-retainable collection kinds before execution, using the same accepted-kind rules as `retain()`, with a functional scenario proving an earlier acquisition is not started or ingested.

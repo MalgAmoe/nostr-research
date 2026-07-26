@@ -257,6 +257,57 @@ test('a named public plan composes bounded acquisition, algebra, hydration, and 
   }
 });
 
+test('plan preflight rejects retention of value collections before acquisition starts', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  let requestCount = 0;
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send) => {
+      requestCount += 1;
+      const [event] = loadFixtureEvents();
+      send(['EVENT', subscriptionId, event]);
+      send(['EOSE', subscriptionId]);
+    });
+  }, context.directory);
+
+  try {
+    await assert.rejects(executeResearchPlan(context.memory, [
+      {
+        id: 'acquired',
+        operation: 'acquire',
+        parameters: {
+          relays: [relay.url],
+          filter: { kinds: [1], limit: 1 },
+          timeoutMs: 2_000,
+          observationLimit: 1,
+          distinctEventLimit: 1,
+        },
+      },
+      {
+        id: 'counts',
+        operation: 'summarize',
+        input: 'acquired',
+        parameters: {
+          aggregations: [{ name: 'count', operation: 'count' }],
+        },
+      },
+      {
+        id: 'invalid-retention',
+        operation: 'retain',
+        input: 'counts',
+        parameters: { name: 'cannot retain values' },
+      },
+    ]), /Retention requires a subject collection; summaries collections contain no retainable subjects/);
+
+    assert.equal(requestCount, 0);
+    assert.equal(context.memory.describe().eventCount, 0);
+    assert.deepEqual(context.memory.listSets(), []);
+  } finally {
+    await relay.close();
+    context.close();
+  }
+});
+
 test('global limit and cancellation are distinguishable and close owned sockets', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
   const context = createContext();
