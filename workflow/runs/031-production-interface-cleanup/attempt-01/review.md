@@ -1,0 +1,3 @@
+PASS
+
+All acceptance criteria are materially satisfied. Production fixture APIs and `node:fs` were removed, tests load fixtures through test support and public `ingest()`, `inspect(subject)` and `show(value, options)` are correctly separated and documented, package contents exclude fixtures, and independent validation passed with 13 tests passing and 12 network tests skipped due to sandbox restrictions.

@@ -3,8 +3,8 @@ import test from 'node:test';
 import {
   createInMemoryResearchMemory,
   InvalidNostrEventError,
-  loadFixtureEvents,
 } from '@nostr-research/memory';
+import { loadFixtureEvents } from '../test-support/fixtures.js';
 
 test('process-local memory preserves canonical evidence and independent relay observations', () => {
   const memory = createInMemoryResearchMemory({ capacity: 1000 });
@@ -47,7 +47,12 @@ test('process-local memory preserves canonical evidence and independent relay ob
 
     memory.reset();
     assert.equal(memory.describe().eventCount, 0);
-    memory.importFixtures({ relay: 'wss://fixture-import.example', observedAt: '2024-01-03T00:00:00Z' });
+    for (const fixtureEvent of loadFixtureEvents()) {
+      memory.ingest(fixtureEvent, {
+        relay: 'wss://fixture-import.example',
+        observedAt: '2024-01-03T00:00:00Z',
+      });
+    }
     assert.equal(memory.describe().eventCount, 2);
   } finally {
     memory.close();

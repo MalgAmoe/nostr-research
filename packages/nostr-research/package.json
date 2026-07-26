@@ -9,7 +9,6 @@
   },
   "files": [
     "bin",
-    "fixtures",
     "src",
     "README.md"
   ],

@@ -11,12 +11,12 @@ import {
   acquireRelayEvents,
   createInMemoryResearchMemory,
   expandResearch,
-  loadFixtureEvents,
   ResearchMemoryError,
   resolveReplyContexts,
   subject,
 } from '@nostr-research/memory';
 import { createResearchEnvironment } from '../src/console.js';
+import { loadFixtureEvents } from '../test-support/fixtures.js';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const loopbackAvailable = await supportsLoopbackListener();

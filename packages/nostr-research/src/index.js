@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { validateEvent, verifyEvent } from 'nostr-tools';
 
@@ -755,10 +754,6 @@ export class InMemoryResearchMemory {
     return this.#corpus.describe(this.#capacity, this.#evictions);
   }
 
-  importFixtures(observation) {
-    return loadFixtureEvents().map((event) => this.ingest(event, observation));
-  }
-
   reset() {
     this.#assertOpen();
     this.#corpus.clear();
@@ -772,12 +767,6 @@ export class InMemoryResearchMemory {
       this.#closed = true;
     }
   }
-}
-
-/** Returns a fresh copy of the committed fixture events. */
-export function loadFixtureEvents() {
-  const fixturePath = new URL('../fixtures/events.json', import.meta.url);
-  return JSON.parse(readFileSync(fixturePath, 'utf8'));
 }
 
 export function isCanonicalNostrEvent(event) {

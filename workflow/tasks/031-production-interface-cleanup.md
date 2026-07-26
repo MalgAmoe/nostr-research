@@ -1,6 +1,6 @@
 ---
 id: 031-production-interface-cleanup
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/031-production-interface-cleanup.validate.sh
 depends_on: 030-acquisition-and-reactivation-correctness

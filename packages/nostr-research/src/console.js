@@ -260,8 +260,8 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
       return session.activate(value);
     },
 
-    inspect(reference, options = {}) {
-      return memory.inspect(reference, options);
+    inspect(subject) {
+      return memory.inspect(subject);
     },
 
     show(value, options = {}) {

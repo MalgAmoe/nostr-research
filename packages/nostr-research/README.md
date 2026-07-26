@@ -139,6 +139,9 @@ The current value is available read-only as `research.activeSelection`.
 `retain(result, name, options)` retains an explicit value, while
 `checkpoint(name, options)` retains the active selection. `summary()` returns
 one authoritative `corpus` description plus an `activeSelection` summary.
+`inspect(subject)` returns raw orientation and evidence information without
+presentation options. Bounded presentation and detailed evidence options
+belong to `show(value, options)`.
 Compact `show` output summarizes reasons; `show(value, {
 includeEvidence: true })` exposes detailed reasons, provenance, and evidence.
 `research.memory` remains the advanced route; there is no workspace object or
@@ -150,5 +153,5 @@ behavior. Retained selections live only while this memory is open. Calling
 `reset()` or `close()`, or ending the Node process, loses all resident state.
 A fresh process always starts empty.
 
-Removing the remaining Node dependencies (`node:fs`, `node:crypto`, `ws`, and
-the Node test and console infrastructure) is a separate future milestone.
+Removing the remaining Node dependencies (`node:crypto`, `ws`, and the Node
+test and console infrastructure) is a separate future milestone.
