@@ -347,7 +347,7 @@ or named-handle state changes; observation commands and failed commands do not
 advance them.
 
 Research commands are `acquire`, `select`, `filter`, `group`, `summarize`,
-`move`, `hydrate`, `retain`, and `plan`. Single operations accept plain JSON
+`move`, `hydrate`, `continue`, `retain`, and `plan`. Single operations accept plain JSON
 `parameters`, optional `input`, and optional `resultId`; `replace: true`
 explicitly replaces an existing named result. Plans accept the documented
 research-plan array and an optional `outputs` map from stage IDs to result IDs.
@@ -359,6 +359,16 @@ set `scope: "acquisition"`). Without an input it must set
 `scope: "corpus"` to query all currently resident evidence. Reusing a
 `resultId` requires `replace: true`; replacement advances that working handle
 without deleting or rewriting corpus evidence.
+
+`continue` turns a named subject handle directly into the next bounded result.
+Its `relationship` is one of `authored-notes`, `profiles`, `follow-lists`,
+`followed-accounts`, `followers`, `replies`, `ancestors`, `mentions`, `quotes`,
+`referenced-events`, `conversation`, `shared-tags`, `linked-domains`, or
+`expansion`. `source` is `local` (the default) or `relays`; relay continuations
+also require explicit `relays` and accept time, observation, distinct-event,
+and concurrency bounds. Both forms report completeness and per-input
+omissions, while `explain` exposes the continuation relationship responsible
+for membership. Relay completeness describes only the bounded attempt.
 
 Observation commands are `show`, `inspect`, `explain`, `list`, `status`, and
 `schema`.

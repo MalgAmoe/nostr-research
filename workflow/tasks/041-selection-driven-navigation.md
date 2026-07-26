@@ -1,6 +1,6 @@
 ---
 id: 041-selection-driven-navigation
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/041-selection-driven-navigation.validate.sh
 depends_on: 040-composable-collection-pipelines
@@ -63,3 +63,20 @@ spam labels.
   notes-to-conversation path with strict budgets.
 - Explicitly excluded test levels or mechanisms: real relay tests in the
   permanent suite, socket lifecycle tests, tests per relationship.
+
+## Reassessment after attempt 2
+
+The completeness finding survived because local projections remained
+hard-capped at the memory API's maximum query limit of 1,000. The bounded
+strategy is:
+
+- for `eventLimit < 1000`, project at `eventLimit + 1` so truncation is
+  directly observable;
+- at the absolute 1,000 ceiling, conservatively report the bound reached when
+  the projection returns 1,000 because a 1,001st candidate cannot be queried;
+- do not increase memory capacity/query limits or add another API merely to
+  prove exhaustiveness.
+
+Protect this boundary inside the existing single continuation functional
+scenario. This is a clarified completeness rule, not a request to repeat the
+unchanged hard-coded projection.

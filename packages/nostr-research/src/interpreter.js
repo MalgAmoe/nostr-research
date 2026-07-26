@@ -19,6 +19,7 @@ const COMMANDS = new Set([
   'acquire', 'select', 'filter', 'project', 'distinct', 'sort', 'limit', 'sample',
   'group', 'summarize', 'move', 'union', 'intersection', 'difference', 'compare',
   'hydrate', 'retain', 'plan',
+  'continue',
   'show', 'inspect', 'explain', 'list', 'status', 'schema', 'release', 'reset', 'close',
 ]);
 const OBSERVATIONS = new Set(['show', 'inspect', 'explain', 'list', 'status', 'schema']);
@@ -258,6 +259,8 @@ export class DeclarativeResearchSession {
         ? { ...cloneJson(command.parameters), with: referenced.value }
         : cloneJson(command.parameters),
     };
+    const externallyBacked = EXTERNAL.has(command.command)
+      || (command.command === 'continue' && command.parameters.source === 'relays');
     const descriptorOperation = SET_TRANSFORMS.has(command.command)
       ? { operation: command.command, parameters: cloneJson(command.parameters) }
       : operation;
@@ -271,10 +274,10 @@ export class DeclarativeResearchSession {
       this.#memory, operation, inputEntry?.value,
     );
     return {
-      run: () => EXTERNAL.has(command.command)
+      run: () => externallyBacked
         ? this.#runExternal(operation, inputEntry?.value) : execute(),
       mutates: (result) => command.command === 'retain'
-        || (EXTERNAL.has(command.command) && result.counts.acceptedObservations > 0),
+        || (externallyBacked && (result.counts?.acceptedObservations ?? 0) > 0),
       install: command.resultId === undefined ? null : (result) => {
         this.#handles.set(command.resultId, {
           value: ownHandleValue(result),
@@ -303,7 +306,8 @@ export class DeclarativeResearchSession {
       run: () => this.#runPlan(plan),
       mutates: (report) => report.stages.some(({ operation, result }) => (
         operation === 'retain'
-        || (EXTERNAL.has(operation) && result.counts.acceptedObservations > 0)
+        || ((EXTERNAL.has(operation) || result.type === 'continuation-report')
+          && (result.counts?.acceptedObservations ?? 0) > 0)
       )),
       install: outputs.size === 0 ? null : (report) => {
         for (const [stageId, resultId] of outputs) {
@@ -327,6 +331,11 @@ export class DeclarativeResearchSession {
           } : {}),
           ...(EXTERNAL.has(operation)
             ? externalPresentation(result, operation, this.#memory)
+            : operation === 'continue' ? {
+                completeness: result.completeness,
+                ...(result.coverage
+                  ? externalPresentation(result, operation, this.#memory) : {}),
+              }
             : {}),
         })),
       }),
@@ -429,6 +438,13 @@ function presentResult(result, id, descriptor, revision, operation, memory) {
   const metadata = id === undefined
     ? { kind: descriptor.kind, count: resultCount(result) }
     : handleMetadata(id, descriptor, result, revision);
+  if (operation === 'continue') {
+    return {
+      handle: metadata,
+      completeness: result.completeness,
+      ...(result.coverage ? externalPresentation(result, operation, memory) : {}),
+    };
+  }
   return EXTERNAL.has(operation)
     ? {
         handle: metadata,

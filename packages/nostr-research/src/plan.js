@@ -5,11 +5,13 @@ import {
   normalizeHydrationOptions,
 } from './acquire.js';
 import { ResearchMemoryError } from './index.js';
+import { continueResearch, normalizeContinuation } from './continuation.js';
 
 const OPERATIONS = new Set([
   'acquire', 'select', 'filter', 'project', 'distinct', 'sort', 'limit', 'sample',
   'group', 'summarize', 'move', 'union', 'intersection', 'difference', 'compare',
   'hydrate', 'retain',
+  'continue',
 ]);
 const LOCAL_TRANSFORMS = new Set([
   'filter', 'project', 'distinct', 'sort', 'limit', 'sample', 'group', 'summarize', 'move',
@@ -43,7 +45,10 @@ export async function executeResearchPlan(memory, plan, execution = {}) {
       : stage;
     const result = await executeResearchOperation(memory, {
       ...executable,
-      parameters: execution.signal && ['acquire', 'hydrate'].includes(stage.operation)
+      parameters: execution.signal && (
+        ['acquire', 'hydrate'].includes(stage.operation)
+        || (stage.operation === 'continue' && stage.parameters.source === 'relays')
+      )
         ? { ...executable.parameters, signal: execution.signal }
         : executable.parameters,
     }, input);
@@ -208,6 +213,15 @@ export function preflightResearchOperation(memory, operation, input = undefined,
     normalizeHydrationOptions(parameters);
     return { kind: 'events', itemKind: 'events', resultKind: 'hydration-report' };
   }
+  if (name === 'continue') {
+    if (!['subjects', 'events', 'accounts'].includes(input.kind)) {
+      throw new ResearchMemoryError(
+        'Research continue operation requires a subject collection.',
+      );
+    }
+    normalizeContinuation(memory, descriptorCollection(input), parameters);
+    return { kind: 'subjects', itemKind: 'subjects', resultKind: 'continuation-report' };
+  }
   const { name: retainedName, options = {} } = parameters;
   rejectUnknownParameterKeys(
     { id: 'operation', operation: 'retain', parameters },
@@ -308,6 +322,7 @@ export async function executeResearchOperation(memory, operation, input = undefi
     if (accounts.length === 0) return emptyHydrationReport(memory, normalized);
     return hydrateAccounts(memory, input, parameters);
   }
+  if (name === 'continue') return continueResearch(memory, input, parameters);
   const { name: retainedName, options = {} } = parameters;
   return memory.retain(input, retainedName, options);
 }
@@ -379,6 +394,7 @@ function planResultKind(operation, result) {
   if (operation === 'acquire') return 'acquisition-report';
   if (operation === 'hydrate') return 'hydration-report';
   if (operation === 'retain') return 'retained-selection';
+  if (operation === 'continue') return 'continuation-report';
   return result.kind ?? result.type;
 }
 
