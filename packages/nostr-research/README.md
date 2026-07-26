@@ -100,6 +100,46 @@ Observation and distinct-event limits apply across the complete composed
 operation; an event ID returned again by a later nested request is counted only
 once against the composed distinct-event limit.
 
+## Local collection algebra
+
+`memory.transform(collection, stages)` applies a fully JSON-serializable local
+plan. Supported stage operations are `filter`, `group`, `summarize`, and
+`move`; the complete typed path is checked before the first stage runs. Stages
+may carry an `as` name and always record their normalized description in the
+result context. Defaults and caller limits bound group counts, members,
+summaries, samples, and collected values.
+
+```js
+const evidence = memory.transform(memory.select({ kinds: [1] }), [
+  {
+    operation: 'filter',
+    as: 'image notes excluding one author',
+    where: {
+      all: [
+        { field: 'event.hasMedia', equals: true },
+        { not: { field: 'event.author', equals: unwantedPublicKey } },
+      ],
+    },
+  },
+  { operation: 'group', as: 'balanced authors', by: 'event.author', itemLimit: 3 },
+  {
+    operation: 'summarize',
+    aggregations: [
+      { name: 'count', operation: 'count' },
+      { name: 'examples', operation: 'sample', field: 'subject', limit: 2 },
+      { name: 'domains', operation: 'collect', field: 'event.linkedDomain', limit: 10 },
+    ],
+  },
+]);
+```
+
+Filter predicates compose with `all`, `any`, and `not`. Group keys cover
+subjects, author, kind, structured tag, linked domain, and observed relay.
+Explicit summary aggregations are `count`, `distinct`, `sample`, `collect`,
+`min`, and `max`. Move routes cover event authors and protocol references,
+resident authored events, and current kind-3 follows. These transforms never
+acquire, hydrate, retain, or evict evidence.
+
 ## Process-local JavaScript console
 
 ```sh

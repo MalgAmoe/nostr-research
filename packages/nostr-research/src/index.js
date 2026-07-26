@@ -6,6 +6,7 @@ const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
 const SIGNATURE = /^[a-f0-9]{128}$/;
 const DEFAULT_QUERY_LIMIT = 50;
 const MAX_QUERY_LIMIT = 1000;
+const DEFAULT_TRANSFORM_LIMIT = 100;
 const SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set']);
 const RETAINABLE_SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set']);
 const NAVIGATION_RELATIONSHIP_TYPES = new Set([
@@ -258,7 +259,7 @@ export class InMemoryResearchMemory {
       record: { event, observations },
       reasons: matchReasons,
       provenance: observations,
-    })), { operation: 'selection', query: publicEventQuery(normalized) });
+    })), { operation: 'selection', query: publicEventQuery(normalized) }, 'events');
   }
 
   collection(items, context = {}) {
@@ -279,6 +280,32 @@ export class InMemoryResearchMemory {
     return resultCollection(normalized, context);
   }
 
+  /**
+   * Applies a validated, JSON-serializable sequence of local collection operations.
+   * No stage acquires, retains, or otherwise mutates the corpus.
+   */
+  transform(value, stages) {
+    this.#assertOpen();
+    const operations = Array.isArray(stages) ? stages : [stages];
+    if (operations.length === 0) {
+      throw new ResearchMemoryError('A transform requires at least one stage.');
+    }
+    let current = this.asCollection(value);
+    // Validate the complete type path before executing its first stage.
+    let kind = current.kind;
+    let itemKind = current.itemKind ?? current.kind;
+    const normalized = [];
+    for (let index = 0; index < operations.length; index += 1) {
+      const operation = normalizeTransformOperation(operations[index], kind, itemKind, index);
+      normalized.push(operation);
+      const output = transformOutputKind(kind, itemKind, operation);
+      kind = output.kind;
+      itemKind = output.itemKind;
+    }
+    for (const operation of normalized) current = applyTransform(this, current, operation);
+    return current;
+  }
+
   asCollection(value) {
     this.#assertOpen();
     if (value?.type === 'set' || isPublicResearchSet(value)) {
@@ -292,7 +319,11 @@ export class InMemoryResearchMemory {
     if (value?.type === 'result-collection') {
       assertResultCollection(value);
       return resultCollection(value.items.map((item) => this.#resolveCollectionItem(item)),
-        value.context);
+        value.context, value.kind);
+    }
+    if (value?.type === 'typed-collection') {
+      assertTypedCollection(value);
+      return typedCollection(value.kind, value.items, value.context, value.itemKind);
     }
     if (value?.collection?.type === 'result-collection') return this.asCollection(value.collection);
     if (Array.isArray(value?.acquiredObservations)) {
@@ -300,7 +331,7 @@ export class InMemoryResearchMemory {
         subject: subject('event', eventId),
         reasons: [{ type: 'acquisition', requested: value.requested }],
         provenance: observations,
-      })), { operation: 'acquisition', completionReason: value.completionReason });
+      })), { operation: 'acquisition', completionReason: value.completionReason }, 'events');
     }
     if (Array.isArray(value?.results)) {
       return resultCollection(value.results.map((item) => ({
@@ -310,7 +341,7 @@ export class InMemoryResearchMemory {
           observations: item.observations ?? [],
         },
         reasons: item.matchReasons ?? [], provenance: item.observations ?? [],
-      })), { operation: 'account-search', query: value.query });
+      })), { operation: 'account-search', query: value.query }, 'accounts');
     }
     throw new ResearchMemoryError('Unsupported public result shape.');
   }
@@ -321,10 +352,12 @@ export class InMemoryResearchMemory {
     if (!['event', 'account'].includes(item.type)) {
       throw new ResearchMemoryError('Exact lookup supports event and account subjects.');
     }
-    return resultCollection([this.#resolveCollectionItem({
+    const resolved = this.#resolveCollectionItem({
       subject: item,
       reasons: [{ type: 'exact-subject' }],
-    })], { operation: 'exact-subject-lookup' });
+    });
+    return resultCollection([resolved], { operation: 'exact-subject-lookup' },
+      item.type === 'event' ? 'events' : 'accounts');
   }
 
   #resolveCollectionItem(item) {
@@ -342,11 +375,14 @@ export class InMemoryResearchMemory {
         };
       }
     }
+    const provenance = cloneJson(item.provenance ?? []);
+    mergeUniqueJson(provenance, record?.observations ?? []);
     return {
       subject: reference,
       role: item.role,
       reasons: cloneJson(item.reasons ?? []),
-      ...(record ? { record, provenance: cloneJson(record.observations ?? []) } : {}),
+      ...(record ? { record } : {}),
+      provenance,
     };
   }
 
@@ -491,7 +527,7 @@ export class InMemoryResearchMemory {
     if (!contact) return resultCollection([], {
       operation: 'follows', account: owner, currentContactListEventId: null,
       explanation: 'No current stored kind-3 contact list.', relationships: [],
-    });
+    }, 'accounts');
     const traversed = this.traverse([subject('event', contact.event.id)], {
       relationshipTypes: ['follow'], direction: 'outbound', depth: 1, limit: MAX_QUERY_LIMIT,
     });
@@ -1267,9 +1303,11 @@ function accountResult(publicKey, metadata, matchReasons) {
   };
 }
 
-function resultCollection(items, context = {}) {
+function resultCollection(items, context = {}, explicitKind) {
+  const kind = explicitKind ?? inferSubjectCollectionKind(items);
   return {
     type: 'result-collection',
+    kind,
     items: items.map((item) => ({
       subject: normalizeSubject(item.subject),
       role: item.role === 'seed' ? 'seed' : 'discovery',
@@ -1286,6 +1324,67 @@ function assertResultCollection(value) {
     throw new ResearchMemoryError('A reusable result collection is required.');
   }
   value.items.forEach((item) => normalizeSubject(item.subject));
+  const inferred = inferSubjectCollectionKind(value.items);
+  if (value.items.length > 0 && value.kind !== undefined && value.kind !== inferred) {
+    throw new ResearchMemoryError(
+      `Result collection kind ${value.kind} does not match its ${inferred} items.`,
+    );
+  }
+}
+
+function assertTypedCollection(value) {
+  if (!value || value.type !== 'typed-collection' || !Array.isArray(value.items)) {
+    throw new ResearchMemoryError('A reusable typed collection is required.');
+  }
+  assertPlainObject(value.context, 'Typed collection context');
+  if (value.kind === 'groups') {
+    if (!TRANSFORM_KINDS.has(value.itemKind)) {
+      throw new ResearchMemoryError('A groups collection requires a supported itemKind.');
+    }
+    value.items.forEach((group) => {
+      assertPlainObject(group, 'Group item');
+      if (!Array.isArray(group.items) || !Array.isArray(group.reasons)
+          || !Array.isArray(group.provenance)) {
+        throw new ResearchMemoryError(
+          'Group items require items, reasons, and provenance arrays.',
+        );
+      }
+      group.items.forEach((item) => normalizeSubject(item.subject));
+      const inferred = inferSubjectCollectionKind(group.items);
+      if (group.items.length > 0 && inferred !== value.itemKind) {
+        throw new ResearchMemoryError(
+          `Group itemKind ${value.itemKind} does not match its ${inferred} items.`,
+        );
+      }
+    });
+    return;
+  }
+  if (value.kind === 'summaries') {
+    if (value.itemKind !== 'summaries') {
+      throw new ResearchMemoryError('A summaries collection requires summaries itemKind.');
+    }
+    value.items.forEach((summary) => {
+      assertPlainObject(summary, 'Summary item');
+      assertPlainObject(summary.values, 'Summary values');
+      if (!Array.isArray(summary.reasons) || !Array.isArray(summary.provenance)) {
+        throw new ResearchMemoryError(
+          'Summary items require reasons and provenance arrays.',
+        );
+      }
+    });
+    return;
+  }
+  throw new ResearchMemoryError(`Unsupported typed collection kind: ${value.kind}.`);
+}
+
+function inferSubjectCollectionKind(items) {
+  const types = new Set(items.map((item) => normalizeSubject(item.subject).type));
+  if (types.size === 0) return 'subjects';
+  if (types.size > 1) return 'subjects';
+  const type = [...types][0];
+  return type === 'event' ? 'events'
+    : type === 'account' ? 'accounts'
+      : 'relationships';
 }
 
 function coerceCollection(value) {
@@ -1425,6 +1524,386 @@ function eventRelationships(event) {
     }
   });
   return relationships;
+}
+
+const TRANSFORM_KINDS = new Set(['subjects', 'events', 'accounts', 'relationships']);
+const GROUP_KEYS = new Set([
+  'subject', 'event.author', 'event.kind', 'event.tag', 'event.linkedDomain', 'observedRelay',
+]);
+const MOVE_ROUTES = {
+  'events:authors': 'accounts',
+  'events:referencedAccounts': 'accounts',
+  'events:referencedEvents': 'events',
+  'accounts:authoredEvents': 'events',
+  'accounts:followedAccounts': 'accounts',
+};
+
+function normalizeTransformOperation(value, inputKind, itemKind, index) {
+  assertPlainObject(value, `Transform stage ${index + 1}`);
+  const operation = value.operation;
+  if (!['filter', 'group', 'summarize', 'move'].includes(operation)) {
+    throw new ResearchMemoryError(`Unsupported transform operation at stage ${index + 1}: ${operation}.`);
+  }
+  if (value.as !== undefined && (typeof value.as !== 'string' || value.as.trim().length === 0)) {
+    throw new ResearchMemoryError(`Transform stage ${index + 1} as must be a non-empty string.`);
+  }
+  const common = { operation, ...(value.as === undefined ? {} : { as: value.as.trim() }) };
+  if (operation === 'filter') {
+    rejectUnknownKeys(value, new Set(['operation', 'as', 'where', 'limit']), 'filter stage');
+    if (!TRANSFORM_KINDS.has(inputKind)) {
+      throw new ResearchMemoryError(`Filter does not support ${inputKind} collections.`);
+    }
+    const where = normalizePredicate(value.where);
+    validatePredicateKind(where, itemKind);
+    return { ...common, where, limit: normalizeTransformLimit(value.limit) };
+  }
+  if (operation === 'group') {
+    rejectUnknownKeys(value, new Set(['operation', 'as', 'by', 'limit', 'itemLimit']), 'group stage');
+    if (!TRANSFORM_KINDS.has(inputKind)) {
+      throw new ResearchMemoryError(`Group does not support ${inputKind} collections.`);
+    }
+    if (!GROUP_KEYS.has(value.by)) throw new ResearchMemoryError(`Unsupported group key: ${value.by}.`);
+    if (value.by.startsWith('event.') && inputKind !== 'events') {
+      throw new ResearchMemoryError(`Group key ${value.by} requires an events collection.`);
+    }
+    return {
+      ...common, by: value.by, limit: normalizeTransformLimit(value.limit),
+      itemLimit: normalizeTransformLimit(value.itemLimit),
+    };
+  }
+  if (operation === 'summarize') {
+    rejectUnknownKeys(value, new Set(['operation', 'as', 'aggregations', 'limit']), 'summarize stage');
+    if (!['groups', ...TRANSFORM_KINDS].includes(inputKind)) {
+      throw new ResearchMemoryError(`Summarize does not support ${inputKind} collections.`);
+    }
+    if (!Array.isArray(value.aggregations) || value.aggregations.length === 0) {
+      throw new ResearchMemoryError('Summarize aggregations must be a non-empty array.');
+    }
+    return {
+      ...common,
+      aggregations: value.aggregations.map((item) => normalizeAggregation(item, itemKind)),
+      limit: normalizeTransformLimit(value.limit),
+    };
+  }
+  rejectUnknownKeys(value, new Set(['operation', 'as', 'to', 'limit']), 'move stage');
+  const output = MOVE_ROUTES[`${inputKind}:${value.to}`];
+  if (!output) {
+    throw new ResearchMemoryError(`Move from ${inputKind} to ${value.to} is not supported.`);
+  }
+  return { ...common, to: value.to, limit: normalizeTransformLimit(value.limit) };
+}
+
+function transformOutputKind(inputKind, itemKind, operation) {
+  if (operation.operation === 'filter') return { kind: inputKind, itemKind };
+  if (operation.operation === 'group') return { kind: 'groups', itemKind };
+  if (operation.operation === 'summarize') return { kind: 'summaries', itemKind: 'summaries' };
+  const kind = MOVE_ROUTES[`${inputKind}:${operation.to}`];
+  return { kind, itemKind: kind };
+}
+
+function normalizeTransformLimit(value) {
+  if (value === undefined) return DEFAULT_TRANSFORM_LIMIT;
+  return normalizeLimit(value);
+}
+
+function normalizePredicate(value) {
+  assertPlainObject(value, 'Filter predicate');
+  const composition = ['all', 'any', 'not'].filter((key) => key in value);
+  if (composition.length) {
+    if (composition.length !== 1 || Object.keys(value).length !== 1) {
+      throw new ResearchMemoryError('A composed filter predicate must contain exactly one of all, any, or not.');
+    }
+    const key = composition[0];
+    if (key === 'not') return { not: normalizePredicate(value.not) };
+    if (!Array.isArray(value[key]) || value[key].length === 0) {
+      throw new ResearchMemoryError(`Filter ${key} must be a non-empty array.`);
+    }
+    return { [key]: value[key].map(normalizePredicate) };
+  }
+  rejectUnknownKeys(
+    value, new Set(['field', 'equals', 'in', 'contains', 'name', 'value']),
+    'filter predicate',
+  );
+  const fields = new Set([
+    'subject.type', 'subject.id', 'event.author', 'event.kind', 'event.text',
+    'event.tag', 'event.linkedDomain', 'event.hasMedia',
+    'account.name', 'account.description', 'evidence.resident',
+  ]);
+  if (!fields.has(value.field)) throw new ResearchMemoryError(`Unsupported filter field: ${value.field}.`);
+  const operators = ['equals', 'in', 'contains'].filter((key) => key in value);
+  if (value.field === 'event.tag') {
+    if (operators.length || typeof value.name !== 'string' || typeof value.value !== 'string') {
+      throw new ResearchMemoryError('event.tag requires string name and value fields.');
+    }
+    return { field: value.field, name: value.name, value: value.value };
+  }
+  if (operators.length !== 1 || value.name !== undefined || value.value !== undefined) {
+    throw new ResearchMemoryError('A filter predicate requires exactly one of equals, in, or contains.');
+  }
+  if (operators[0] === 'in' && (!Array.isArray(value.in) || value.in.length === 0)) {
+    throw new ResearchMemoryError('Filter in must be a non-empty array.');
+  }
+  if (operators[0] === 'contains' && typeof value.contains !== 'string') {
+    throw new ResearchMemoryError('Filter contains must be a string.');
+  }
+  return cloneJson(value);
+}
+
+function validatePredicateKind(predicate, itemKind) {
+  if (predicate.all) return predicate.all.forEach((part) => validatePredicateKind(part, itemKind));
+  if (predicate.any) return predicate.any.forEach((part) => validatePredicateKind(part, itemKind));
+  if (predicate.not) return validatePredicateKind(predicate.not, itemKind);
+  if (predicate.field.startsWith('event.') && itemKind !== 'events') {
+    throw new ResearchMemoryError(`Filter field ${predicate.field} requires an events collection.`);
+  }
+  if (predicate.field.startsWith('account.') && itemKind !== 'accounts') {
+    throw new ResearchMemoryError(`Filter field ${predicate.field} requires an accounts collection.`);
+  }
+}
+
+function normalizeAggregation(value, itemKind) {
+  assertPlainObject(value, 'Summary aggregation');
+  rejectUnknownKeys(value, new Set(['name', 'operation', 'field', 'limit']), 'summary aggregation');
+  if (typeof value.name !== 'string' || value.name.trim().length === 0) {
+    throw new ResearchMemoryError('Summary aggregation name must be a non-empty string.');
+  }
+  if (!['count', 'distinct', 'sample', 'collect', 'min', 'max'].includes(value.operation)) {
+    throw new ResearchMemoryError(`Unsupported summary aggregation: ${value.operation}.`);
+  }
+  if (value.operation !== 'count' && typeof value.field !== 'string') {
+    throw new ResearchMemoryError(`${value.operation} aggregation requires a field.`);
+  }
+  const fields = new Set([
+    'subject', 'subject.id', 'event.author', 'event.kind', 'event.text',
+    'event.createdAt', 'event.linkedDomain', 'observedRelay',
+  ]);
+  if (value.operation !== 'count' && !fields.has(value.field)) {
+    throw new ResearchMemoryError(`Unsupported summary field: ${value.field}.`);
+  }
+  if (value.field?.startsWith('event.') && itemKind !== 'events') {
+    throw new ResearchMemoryError(
+      `Summary field ${value.field} requires an events collection or event groups.`,
+    );
+  }
+  return {
+    name: value.name.trim(), operation: value.operation, field: value.field,
+    ...(['sample', 'collect'].includes(value.operation)
+      ? { limit: normalizeTransformLimit(value.limit) } : {}),
+  };
+}
+
+function applyTransform(memory, collection, operation) {
+  let output;
+  if (operation.operation === 'filter') output = applyFilter(memory, collection, operation);
+  else if (operation.operation === 'group') output = applyGroup(collection, operation);
+  else if (operation.operation === 'summarize') output = applySummary(collection, operation);
+  else output = applyMove(memory, collection, operation);
+  output.context = transformContext(collection, operation);
+  return output;
+}
+
+function transformContext(input, operation) {
+  const previous = input.context?.stages ?? [];
+  return {
+    operation: 'transform',
+    input: cloneJson(input.context),
+    stages: [...cloneJson(previous), cloneJson(operation)],
+    ...(operation.as ? { name: operation.as } : {}),
+  };
+}
+
+function applyFilter(memory, collection, operation) {
+  const items = collection.items.filter((item) => matchesPredicate(memory, item, operation.where))
+    .slice(0, operation.limit);
+  return resultCollection(items, {}, collection.kind);
+}
+
+function matchesPredicate(memory, item, predicate) {
+  if (predicate.all) return predicate.all.every((part) => matchesPredicate(memory, item, part));
+  if (predicate.any) return predicate.any.some((part) => matchesPredicate(memory, item, part));
+  if (predicate.not) return !matchesPredicate(memory, item, predicate.not);
+  if (predicate.field === 'event.tag') {
+    return (item.record?.event?.tags ?? []).some(
+      (tag) => tag[0] === predicate.name && tag[1] === predicate.value,
+    );
+  }
+  if (predicate.field === 'event.linkedDomain') {
+    const domains = linkedDomains(item.record?.event?.content ?? '');
+    if ('equals' in predicate) return domains.includes(predicate.equals);
+    if ('in' in predicate) return domains.some((domain) => predicate.in.includes(domain));
+    return domains.some((domain) => (
+      domain.toLocaleLowerCase().includes(predicate.contains.toLocaleLowerCase())
+    ));
+  }
+  const actual = transformField(memory, item, predicate.field);
+  if ('equals' in predicate) return actual === predicate.equals;
+  if ('in' in predicate) return predicate.in.includes(actual);
+  return typeof actual === 'string'
+    && actual.toLocaleLowerCase().includes(predicate.contains.toLocaleLowerCase());
+}
+
+function transformField(memory, item, field) {
+  const event = item.record?.event;
+  const profile = item.record?.profile;
+  if (field === 'subject.type') return item.subject?.type;
+  if (field === 'subject.id') return item.subject?.id;
+  if (field === 'event.author') return event?.pubkey;
+  if (field === 'event.kind') return event?.kind;
+  if (field === 'event.text') return event?.content;
+  if (field === 'event.linkedDomain') return linkedDomains(event?.content ?? '')[0];
+  if (field === 'event.hasMedia') return hasMedia(event?.content ?? '');
+  if (field === 'account.name') return profile?.display_name ?? profile?.name;
+  if (field === 'account.description') return profile?.about;
+  if (field === 'evidence.resident') return item.subject
+    ? memory.inspect(item.subject).resident : false;
+  if (field === 'group.key') return item.key;
+  if (field === 'event.createdAt') return event?.created_at;
+  if (field === 'observedRelay') return item.provenance?.[0]?.relay;
+  throw new ResearchMemoryError(`Unsupported transform field: ${field}.`);
+}
+
+function applyGroup(collection, operation) {
+  const groups = new Map();
+  for (const item of collection.items) {
+    for (const key of groupKeys(item, operation.by)) {
+      const encoded = stableJson(key);
+      if (!groups.has(encoded)) groups.set(encoded, { key: cloneJson(key), items: [] });
+      if (groups.get(encoded).items.length < operation.itemLimit) {
+        groups.get(encoded).items.push(cloneJson(item));
+      }
+    }
+  }
+  const items = [...groups.values()]
+    .sort((left, right) => stableJson(left.key).localeCompare(stableJson(right.key)))
+    .slice(0, operation.limit)
+    .map((group) => ({
+      ...group,
+      reasons: uniqueJson(group.items.flatMap((item) => item.reasons)),
+      provenance: uniqueJson(group.items.flatMap((item) => item.provenance)),
+    }));
+  return typedCollection('groups', items, {}, collection.itemKind ?? collection.kind);
+}
+
+function groupKeys(item, by) {
+  if (by === 'subject') return [item.subject];
+  if (by === 'event.author') return [item.record.event.pubkey];
+  if (by === 'event.kind') return [item.record.event.kind];
+  if (by === 'event.tag') return item.record.event.tags
+    .filter((tag) => tag.length > 1).map((tag) => ({ name: tag[0], value: tag[1] }));
+  if (by === 'event.linkedDomain') return linkedDomains(item.record.event.content);
+  return [...new Set(item.provenance.map(({ relay }) => relay).filter(Boolean))].sort();
+}
+
+function applySummary(collection, operation) {
+  const sources = collection.kind === 'groups'
+    ? collection.items.map((group) => ({ key: group.key, values: group.items,
+      reasons: group.reasons, provenance: group.provenance }))
+    : [{ key: null, values: collection.items,
+      reasons: uniqueJson(collection.items.flatMap((item) => item.reasons)),
+      provenance: uniqueJson(collection.items.flatMap((item) => item.provenance)) }];
+  const items = sources.slice(0, operation.limit).map((source) => ({
+    key: cloneJson(source.key),
+    values: Object.fromEntries(operation.aggregations.map((aggregation) => [
+      aggregation.name, aggregate(source.values, aggregation),
+    ])),
+    reasons: cloneJson(source.reasons),
+    provenance: cloneJson(source.provenance),
+  }));
+  return typedCollection('summaries', items, {}, 'summaries');
+}
+
+function aggregate(items, aggregation) {
+  if (aggregation.operation === 'count') return items.length;
+  const values = items.map((item) => summaryField(item, aggregation.field))
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .filter((value) => value !== undefined && value !== null);
+  if (aggregation.operation === 'distinct') return uniqueJson(values).length;
+  if (aggregation.operation === 'sample') return cloneJson(values.slice(0, aggregation.limit));
+  if (aggregation.operation === 'collect') return cloneJson(values.slice(0, aggregation.limit));
+  if (values.length === 0) return null;
+  return aggregation.operation === 'min'
+    ? values.reduce((best, value) => value < best ? value : best)
+    : values.reduce((best, value) => value > best ? value : best);
+}
+
+function summaryField(item, field) {
+  if (field === 'subject') return item.subject;
+  if (field === 'subject.id') return item.subject?.id;
+  if (field === 'event.author') return item.record?.event?.pubkey;
+  if (field === 'event.kind') return item.record?.event?.kind;
+  if (field === 'event.text') return item.record?.event?.content;
+  if (field === 'event.createdAt') return item.record?.event?.created_at;
+  if (field === 'event.linkedDomain') return linkedDomains(item.record?.event?.content ?? '');
+  if (field === 'observedRelay') return item.provenance?.map(({ relay }) => relay).filter(Boolean);
+  throw new ResearchMemoryError(`Unsupported summary field: ${field}.`);
+}
+
+function applyMove(memory, collection, operation) {
+  const merged = new Map();
+  const add = (candidate, source, transition) => {
+    const key = memberKey(candidate.subject);
+    const found = merged.get(key) ?? { ...candidate, reasons: [], provenance: [] };
+    mergeUniqueJson(found.reasons, source.reasons);
+    mergeUniqueJson(found.reasons, [{ type: 'collection-move', transition, source: source.subject }]);
+    mergeUniqueJson(found.provenance, source.provenance);
+    mergeUniqueJson(found.provenance, candidate.provenance);
+    merged.set(key, found);
+  };
+  for (const item of collection.items) {
+    if (operation.to === 'authors') {
+      add(memory.lookup(subject('account', item.record.event.pubkey)).items[0], item, 'event-author');
+    } else if (operation.to === 'referencedAccounts' || operation.to === 'referencedEvents') {
+      const wanted = operation.to === 'referencedAccounts' ? 'account' : 'event';
+      for (const relationship of eventRelationships(item.record.event)) {
+        if (relationship.type === 'author' || relationship.targetType !== wanted) continue;
+        add(memory.lookup(subject(wanted, relationship.targetId)).items[0], item,
+          `event-${operation.to}`);
+      }
+    } else if (operation.to === 'authoredEvents') {
+      for (const candidate of memory.select({
+        authors: [item.subject.id], limit: MAX_QUERY_LIMIT, order: 'oldest',
+      }).items) add(candidate, item, 'account-authored-event');
+    } else {
+      for (const candidate of memory.follows(item.subject).items) {
+        add(candidate, item, 'account-followed-account');
+      }
+    }
+  }
+  const items = [...merged.values()]
+    .sort((left, right) => memberKey(left.subject).localeCompare(memberKey(right.subject)))
+    .slice(0, operation.limit);
+  return resultCollection(items, {}, MOVE_ROUTES[`${collection.kind}:${operation.to}`]);
+}
+
+function typedCollection(kind, items, context, itemKind = kind) {
+  return {
+    type: 'typed-collection', kind, itemKind,
+    items: cloneJson(items), context: cloneJson(context),
+  };
+}
+
+function linkedDomains(text) {
+  const domains = [];
+  for (const match of text.matchAll(/https?:\/\/([^/\s?#]+)/giu)) {
+    try {
+      domains.push(new URL(match[0]).hostname.toLocaleLowerCase());
+    } catch {
+      // Ignore malformed URL-shaped text.
+    }
+  }
+  return [...new Set(domains)].sort();
+}
+
+function hasMedia(text) {
+  return /https?:\/\/\S+\.(?:avif|gif|jpe?g|png|webp|mp3|mp4|m4a|ogg|wav)(?:[?#]\S*)?/iu.test(text)
+    || /https?:\/\/(?:blossom\.|image\.nostr\.build)/iu.test(text);
+}
+
+function uniqueJson(values) {
+  const found = new Map();
+  for (const value of values) found.set(stableJson(value), cloneJson(value));
+  return [...found.entries()].sort(([left], [right]) => left.localeCompare(right))
+    .map(([, value]) => value);
 }
 
 function tagRelationship(type, targetType, targetId, tag, tagIndex, protocol, interpretation) {

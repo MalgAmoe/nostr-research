@@ -124,7 +124,7 @@ test('collections re-resolve stable subjects across observations, replacement me
     assert.equal(shownRetainedReference.preview[0].resolved, false);
     assert.equal(shownRetainedReference.preview[0].evidence.event, undefined);
     assert.deepEqual(shownRetainedReference.preview[0].evidence.reasons, originalReasons);
-    assert.equal(shownRetainedReference.provenance.observations, 0);
+    assert.equal(shownRetainedReference.provenance.observations, 1);
     assert.equal(environment.research.show(subject('event', note.id)).resident, false);
     assert.equal(memory.lookup(subject('event', note.id)).items[0].record, undefined);
 

@@ -1,6 +1,6 @@
 ---
 id: 033-minimal-collection-algebra
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/033-minimal-collection-algebra.validate.sh
 depends_on: 032-stable-subject-collections
