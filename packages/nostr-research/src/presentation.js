@@ -11,8 +11,11 @@ export function showResearchValue(memory, session, value, options = {}) {
   const settings = inspectionOptions(options);
   let shown;
 
-  if (isAcquisition(value)) shown = showAcquisition(value, settings);
+  if (value?.type === 'research-plan-report') shown = showPlanReport(memory, value, settings);
+  else if (isAcquisition(value)) shown = showAcquisition(value, settings);
   else if (value?.type === 'result-collection') shown = showCollection(memory, value, settings);
+  else if (value?.type === 'typed-collection') shown = showTypedCollection(memory, value, settings);
+  else if (value?.type === 'facets') shown = showFacets(value, settings);
   else if (isSessionDescription(value)) shown = showSession(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
   else if (isResearchSet(value)) shown = showSet(memory, value, settings);
@@ -32,6 +35,66 @@ export function showResearchValue(memory, session, value, options = {}) {
   else throw new TypeError('research.show does not recognize this value.');
 
   return enforceSize(shown, settings.sizeLimit);
+}
+
+export function explainResearchMembership(memory, collectionValue, subjectValue, options = {}) {
+  const settings = inspectionOptions(options);
+  const collection = memory.asCollection(collectionValue);
+  const inspected = memory.inspect(subjectValue);
+  const item = collection.items.find(({ subject }) => (
+    subject.type === inspected.subject.type && subject.id === inspected.subject.id
+  ));
+  const reasons = item?.reasons ?? [];
+  const shownReasons = reasons.slice(0, settings.previewLimit);
+  const provenance = item?.provenance ?? inspected.provenance ?? [];
+  const shownProvenance = settings.mode === 'summary'
+    ? [] : provenance.slice(0, settings.previewLimit);
+  return enforceSize({
+    type: 'membership-explanation',
+    subject: inspected.subject,
+    member: Boolean(item),
+    resultCount: collection.items.length,
+    reasons: settings.mode === 'summary' ? [] : structuredClone(shownReasons),
+    omittedReasons: reasons.length - shownReasons.length,
+    provenance: structuredClone(shownProvenance),
+    omittedProvenance: provenance.length - shownProvenance.length,
+    context: {
+      operation: collection.context?.operation,
+      statement: item
+        ? 'Reasons describe derived result membership; provenance describes observed evidence sources.'
+        : 'The subject is not a member of this result.',
+    },
+  }, settings.sizeLimit);
+}
+
+export function presentHandleList(handles, options = {}) {
+  const settings = listOptions(options);
+  const all = [...handles].sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    type: 'result-handle-list',
+    count: all.length,
+    preview: all.slice(0, settings.limit).map((item) => structuredClone(item)),
+    omitted: Math.max(0, all.length - settings.limit),
+  };
+}
+
+export function presentSessionStatus(memory, status, options = {}) {
+  const settings = listOptions(options);
+  const corpus = memory.describe();
+  return enforceSize({
+    type: 'declarative-session-status',
+    revision: status.revision,
+    corpus: {
+      capacity: corpus.capacity,
+      eventCount: corpus.eventCount,
+      remainingCapacity: corpus.remainingCapacity,
+      pressure: corpus.capacity === 0 ? 0 : corpus.eventCount / corpus.capacity,
+      evictions: corpus.evictions,
+    },
+    retainedSetCount: memory.listSets().length,
+    activeOperationCount: status.activeOperationCount,
+    handleCount: status.handleCount,
+  }, settings.sizeLimit);
 }
 
 export function facetResearchCollection(memory, value, options = {}) {
@@ -100,7 +163,8 @@ export function facetResearchCollection(memory, value, options = {}) {
 }
 
 function showCollection(memory, collection, settings) {
-  const preview = { ...collection, items: collection.items.slice(0, settings.previewLimit) };
+  const previewLimit = settings.mode === 'summary' ? 0 : settings.previewLimit;
+  const preview = { ...collection, items: collection.items.slice(0, previewLimit) };
   const resolved = memory.asCollection(preview);
   const projected = memory.project(resolved, {
     mode: 'compact',
@@ -121,19 +185,104 @@ function showCollection(memory, collection, settings) {
   };
 }
 
+function showTypedCollection(memory, collection, settings) {
+  const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
+  const resolved = memory.asCollection(collection);
+  const preview = resolved.items.slice(0, limit).map((item) => (
+    resolved.kind === 'groups'
+      ? showGroup(memory, item, resolved.itemKind, settings)
+      : showSummary(item, settings)
+  ));
+  return {
+    type: 'typed-collection',
+    kind: resolved.kind,
+    itemKind: resolved.itemKind,
+    count: resolved.items.length,
+    preview,
+    omitted: Math.max(0, resolved.items.length - preview.length),
+    context: compactContext(resolved.context, resolved.items.length),
+    provenance: provenanceSummary(resolved.items.slice(0, limit)),
+  };
+}
+
+function showFacets(value, settings) {
+  const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
+  const shown = {
+    type: 'facets',
+    count: value.count,
+    context: structuredClone(value.context),
+  };
+  for (const name of [
+    'authors',
+    'tags',
+    'kinds',
+    'observedRelays',
+    'linkedSourceDomains',
+    'presence',
+  ]) {
+    const category = value[name] ?? { values: [], omitted: 0 };
+    const values = category.values ?? [];
+    const preview = values.slice(0, limit);
+    shown[name] = {
+      count: values.length + (category.omitted ?? 0),
+      values: structuredClone(preview),
+      omitted: (category.omitted ?? 0) + values.length - preview.length,
+    };
+  }
+  return shown;
+}
+
+function showGroup(memory, group, itemKind, settings) {
+  const collection = {
+    type: 'result-collection',
+    kind: itemKind,
+    items: group.items,
+    context: { operation: 'group-preview' },
+  };
+  const shown = showCollection(memory, collection, settings);
+  return {
+    key: structuredClone(group.key),
+    count: group.items.length,
+    preview: shown.preview,
+    omitted: shown.omitted,
+    reasonCount: group.reasons?.length ?? 0,
+    provenance: provenanceSummary([group]),
+  };
+}
+
+function showSummary(summary, settings) {
+  const reasons = summary.reasons ?? [];
+  const provenance = summary.provenance ?? [];
+  return {
+    key: structuredClone(summary.key),
+    values: structuredClone(summary.values),
+    reasonCount: reasons.length,
+    provenance: provenanceSummary([summary]),
+    ...(settings.includeEvidence ? {
+      reasons: structuredClone(reasons.slice(0, settings.previewLimit)),
+      omittedReasons: Math.max(0, reasons.length - settings.previewLimit),
+      evidenceProvenance: structuredClone(provenance.slice(0, settings.previewLimit)),
+      omittedProvenance: Math.max(0, provenance.length - settings.previewLimit),
+    } : {}),
+  };
+}
+
 function showSubject(memory, item, settings) {
   const projected = memory.project(item, {
     mode: 'compact', excerptLimit: settings.excerptLimit, previewLimit: settings.previewLimit,
   }).results[0];
   const inspected = memory.inspect(item);
   const record = inspected.evidence;
+  const provenance = inspected.provenance ?? [];
   return {
     type: item.type,
     id: item.id,
     preview: projected,
     resident: inspected.resident,
     context: { resolved: inspected.resident },
-    provenance: provenanceSummary([{ provenance: inspected.provenance ?? [] }]),
+    provenance: provenanceSummary([{ provenance }]),
+    omittedProvenance: settings.includeEvidence
+      ? Math.max(0, provenance.length - settings.previewLimit) : provenance.length,
     ...(settings.includeEvidence && record ? { evidence: evidenceDetail({ record }, settings.excerptLimit).evidence } : {}),
   };
 }
@@ -145,11 +294,17 @@ function showSet(memory, value, settings) {
   }).results[0];
   return {
     type: 'set', id, count: value.memberCount ?? value.members?.length ?? projected.memberCount,
-    preview: projected.preview, context: { name: value.name, createdAt: value.createdAt },
+    preview: settings.mode === 'summary' ? [] : projected.preview,
+    omitted: Math.max(0, (value.memberCount ?? value.members?.length ?? 0)
+      - (settings.mode === 'summary' ? 0 : projected.preview?.length ?? 0)),
+    context: { name: value.name, createdAt: value.createdAt },
     provenance: settings.includeEvidence && value.members
       ? value.members.slice(0, settings.previewLimit).map((member) => ({
           subject: { type: member.type, id: member.id }, reasons: member.reasons,
         })) : [],
+    omittedProvenance: settings.includeEvidence && value.members
+      ? Math.max(0, value.members.length - settings.previewLimit)
+      : value.members?.length ?? value.memberCount ?? 0,
   };
 }
 
@@ -184,8 +339,9 @@ function showAcquisition(value, settings) {
   return {
     type: 'acquisition',
     count: distinctEvents,
-    preview: value.relays.slice(0, settings.previewLimit),
-    omitted: Math.max(0, value.relays.length - settings.previewLimit),
+    preview: settings.mode === 'summary' ? [] : value.relays.slice(0, settings.previewLimit),
+    omitted: settings.mode === 'summary'
+      ? value.relays.length : Math.max(0, value.relays.length - settings.previewLimit),
     context: {
       requested: value.requested, budget: value.budget,
       completionReason: value.completionReason,
@@ -197,6 +353,29 @@ function showAcquisition(value, settings) {
     },
     provenance: settings.includeEvidence
       ? value.acquiredObservations.slice(0, settings.previewLimit) : [],
+  };
+}
+
+function showPlanReport(memory, value, settings) {
+  const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
+  const stages = value.stages ?? [];
+  return {
+    type: 'research-plan-report',
+    count: stages.length,
+    preview: stages.slice(0, limit).map((stage) => ({
+      id: stage.id,
+      operation: stage.operation,
+      resultKind: stage.resultKind,
+      result: showResearchValue(memory, null, stage.result, {
+        mode: 'summary',
+        previewLimit: settings.previewLimit,
+        excerptLimit: settings.excerptLimit,
+        sizeLimit: Math.max(1000, Math.floor(settings.sizeLimit / Math.max(1, limit))),
+      }),
+    })),
+    omitted: stages.length - Math.min(stages.length, limit),
+    context: { stageCount: stages.length },
+    provenance: [],
   };
 }
 
@@ -215,6 +394,7 @@ function evidenceDetail(item, excerptLimit) {
           ...record.metadataEvent,
           content: excerpt(record.metadataEvent.content, excerptLimit),
           tags: record.metadataEvent.tags.slice(0, 20),
+          omittedTags: Math.max(0, record.metadataEvent.tags.length - 20),
         },
         observationCount: record.observations?.length ?? 0,
       },
@@ -228,6 +408,7 @@ function evidenceDetail(item, excerptLimit) {
         ...record.event,
         content: excerpt(record.event.content, excerptLimit),
         tags: record.event.tags.slice(0, 20),
+        omittedTags: Math.max(0, record.event.tags.length - 20),
       },
       observationCount: record.observations?.length ?? 0,
     },
@@ -376,12 +557,24 @@ function urlsIn(text) {
 }
 
 function inspectionOptions(options) {
-  assertOptions(options, ['previewLimit', 'excerptLimit', 'includeEvidence', 'sizeLimit']);
+  assertOptions(options, ['mode', 'previewLimit', 'excerptLimit', 'includeEvidence', 'sizeLimit']);
+  if (options.mode !== undefined && !['summary', 'preview'].includes(options.mode)) {
+    throw new TypeError('mode must be summary or preview.');
+  }
   return {
+    mode: options.mode ?? 'preview',
     previewLimit: boundedInteger(options.previewLimit, DEFAULT_PREVIEW_LIMIT, MAX_PREVIEW_LIMIT, 'previewLimit'),
     excerptLimit: boundedInteger(options.excerptLimit, DEFAULT_EXCERPT_LIMIT, MAX_EXCERPT_LIMIT, 'excerptLimit'),
     sizeLimit: boundedInteger(options.sizeLimit, DEFAULT_SIZE_LIMIT, MAX_SIZE_LIMIT, 'sizeLimit', 1000),
     includeEvidence: options.includeEvidence === true,
+  };
+}
+
+function listOptions(options) {
+  assertOptions(options, ['limit', 'sizeLimit']);
+  return {
+    limit: boundedInteger(options.limit, DEFAULT_PREVIEW_LIMIT, MAX_PREVIEW_LIMIT, 'limit'),
+    sizeLimit: boundedInteger(options.sizeLimit, DEFAULT_SIZE_LIMIT, MAX_SIZE_LIMIT, 'sizeLimit', 1000),
   };
 }
 

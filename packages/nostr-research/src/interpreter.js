@@ -6,10 +6,19 @@ import {
   preflightResearchOperation,
   preflightResearchPlan,
 } from './plan.js';
+import {
+  explainResearchMembership,
+  presentHandleList,
+  presentSessionStatus,
+  showResearchValue,
+} from './presentation.js';
 
 const COMMANDS = new Set([
   'acquire', 'select', 'filter', 'group', 'summarize', 'move', 'hydrate', 'retain', 'plan',
+  'show', 'inspect', 'explain', 'list', 'status', 'release', 'reset', 'close',
 ]);
+const OBSERVATIONS = new Set(['show', 'inspect', 'explain', 'list', 'status']);
+const LIFECYCLE = new Set(['release', 'reset', 'close']);
 const EXTERNAL = new Set(['acquire', 'hydrate']);
 const COMMAND_KEYS = new Set([
   'commandId', 'ifRevision', 'command', 'input', 'parameters', 'resultId', 'replace',
@@ -45,9 +54,29 @@ export class DeclarativeResearchSession {
   }
 
   execute(command) {
+    if (isPlainObject(command) && command.command === 'close') {
+      const cancellable = this.#validateCloseCancellation(command);
+      if (cancellable) {
+        for (const controller of this.#active) controller.abort();
+      }
+    }
     const response = this.#tail.then(() => this.#dispatch(command));
     this.#tail = response.catch(() => {});
     return response;
+  }
+
+  #validateCloseCancellation(command) {
+    try {
+      validateEnvelope(command);
+      if (this.#closed) return false;
+      this.#prepareLifecycle(command);
+      if (command.ifRevision !== undefined) {
+        return this.#active.size === 0 && command.ifRevision === this.#revision;
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async #dispatch(command) {
@@ -61,8 +90,10 @@ export class DeclarativeResearchSession {
           `Expected session revision ${command.ifRevision}, but current revision is ${this.#revision}.`,
           { expected: command.ifRevision, actual: this.#revision });
       }
-      const prepared = command.command === 'plan'
-        ? this.#preparePlan(command) : this.#prepareOperation(command);
+      const prepared = command.command === 'plan' ? this.#preparePlan(command)
+        : OBSERVATIONS.has(command.command) ? this.#prepareObservation(command)
+          : LIFECYCLE.has(command.command) ? this.#prepareLifecycle(command)
+            : this.#prepareOperation(command);
       const result = await prepared.run();
       let mutated = prepared.mutates(result);
       if (prepared.install) {
@@ -70,13 +101,15 @@ export class DeclarativeResearchSession {
         if (installed.length) mutated = true;
       }
       if (mutated) this.#revision += 1;
-      return {
+      const response = {
         ok: true,
         commandId,
         sessionRevision: this.#revision,
         result: prepared.present(result),
         warnings: externalWarnings(result),
       };
+      if (command.command === 'close') await this.#finishClose();
+      return response;
     } catch (error) {
       const semantic = semanticError(error);
       return this.#failure(commandId, semantic.code, semantic.message, semantic.details);
@@ -88,11 +121,104 @@ export class DeclarativeResearchSession {
     this.#closed = true;
     for (const controller of this.#active) controller.abort();
     this.#closing = Promise.allSettled([...this.#active].map((item) => item.done))
-      .then(() => {
-        this.#handles.clear();
-        this.#memory.close();
-      });
+      .then(() => this.#finishClose());
     return this.#closing;
+  }
+
+  #finishClose() {
+    this.#closed = true;
+    this.#handles.clear();
+    this.#memory.close();
+  }
+
+  #prepareObservation(command) {
+    rejectKeys(command, new Set(['commandId', 'ifRevision', 'command', 'input', 'parameters']));
+    const parameters = command.parameters ?? {};
+    if (!isPlainObject(parameters)) {
+      throw protocolError('INVALID_COMMAND', 'Command parameters must be a plain object.');
+    }
+    if (command.command === 'show') {
+      const entry = this.#requireHandle(command.input);
+      const options = projectionOptions(parameters, true);
+      return readOnly(() => showResearchValue(this.#memory, null, entry.value, options));
+    }
+    if (command.command === 'inspect') {
+      const { subject, ...rawOptions } = parameters;
+      if (command.input !== undefined) {
+        throw protocolError('INVALID_COMMAND', 'inspect does not accept an input handle.');
+      }
+      const options = projectionOptions(rawOptions);
+      return readOnly(() => showResearchValue(
+        this.#memory, null, this.#memory.inspect(subject), options,
+      ));
+    }
+    if (command.command === 'explain') {
+      const entry = this.#requireHandle(command.input);
+      const { subject, ...rawOptions } = parameters;
+      const options = projectionOptions(rawOptions);
+      return readOnly(() => explainResearchMembership(
+        this.#memory, collectionValue(entry.value), subject, options,
+      ));
+    }
+    if (command.input !== undefined) {
+      throw protocolError('INVALID_COMMAND', `${command.command} does not accept an input handle.`);
+    }
+    if (command.command === 'list') {
+      return readOnly(() => presentHandleList(
+        [...this.#handles].map(([id, entry]) => handleMetadata(
+          id, entry.descriptor, entry.value, entry.revision,
+        )),
+        parameters,
+      ));
+    }
+    return readOnly(() => presentSessionStatus(this.#memory, {
+      revision: this.#revision,
+      activeOperationCount: this.#active.size,
+      handleCount: this.#handles.size,
+    }, parameters));
+  }
+
+  #prepareLifecycle(command) {
+    rejectKeys(command, new Set(['commandId', 'ifRevision', 'command', 'input', 'parameters']));
+    const parameters = command.parameters ?? {};
+    if (!isPlainObject(parameters) || Object.keys(parameters).length) {
+      throw protocolError('INVALID_COMMAND', 'Lifecycle command parameters must be an empty object.');
+    }
+    if (command.command === 'release') {
+      const entry = this.#requireHandle(command.input);
+      return {
+        run: () => ({ id: command.input, released: true, entry }),
+        mutates: () => true,
+        install: null,
+        present: (result) => {
+          this.#handles.delete(result.id);
+          return { type: 'released-result-handle', id: result.id, released: true };
+        },
+      };
+    }
+    if (command.input !== undefined) {
+      throw protocolError('INVALID_COMMAND', `${command.command} does not accept an input handle.`);
+    }
+    return {
+      run: () => ({ type: `${command.command}-session` }),
+      mutates: () => true,
+      install: null,
+      present: (result) => {
+        this.#handles.clear();
+        if (command.command === 'reset') this.#memory.reset();
+        else this.#closed = true;
+        return result;
+      },
+    };
+  }
+
+  #requireHandle(id) {
+    validateId(id, 'Input result ID');
+    const entry = this.#handles.get(id);
+    if (!entry) {
+      throw protocolError('UNKNOWN_RESULT', `No named result exists for ${id}.`, { id });
+    }
+    return entry;
   }
 
   #prepareOperation(command) {
@@ -132,10 +258,13 @@ export class DeclarativeResearchSession {
         this.#handles.set(command.resultId, {
           value: ownHandleValue(result),
           descriptor,
+          revision: this.#revision + 1,
         });
         return [command.resultId];
       },
-      present: (result) => presentResult(result, command.resultId, descriptor, this.#revision),
+      present: (result) => presentResult(
+        result, command.resultId, descriptor, this.#revision, command.command, this.#memory,
+      ),
     };
   }
 
@@ -161,6 +290,7 @@ export class DeclarativeResearchSession {
           this.#handles.set(resultId, {
             value: ownHandleValue(stage.result),
             descriptor: descriptors.get(stageId),
+            revision: this.#revision + 1,
           });
         }
         return targetIds;
@@ -174,7 +304,9 @@ export class DeclarativeResearchSession {
               outputs.get(id), descriptors.get(id), result, this.#revision,
             ),
           } : {}),
-          ...(EXTERNAL.has(operation) ? { external: externalStatus(result) } : {}),
+          ...(EXTERNAL.has(operation) ? {
+            external: externalStatus(result, operation, this.#memory),
+          } : {}),
         })),
       }),
     };
@@ -272,17 +404,35 @@ function validateId(id, label) {
   }
 }
 
-function presentResult(result, id, descriptor, revision) {
+function presentResult(result, id, descriptor, revision, operation, memory) {
   const metadata = id === undefined
     ? { kind: descriptor.kind, count: resultCount(result) }
     : handleMetadata(id, descriptor, result, revision);
-  return EXTERNAL.has(resultOperation(result))
-    ? { handle: metadata, external: externalStatus(result) }
+  return EXTERNAL.has(operation)
+    ? { handle: metadata, external: externalStatus(result, operation, memory) }
     : { handle: metadata };
 }
 
 function handleMetadata(id, descriptor, value, revision) {
   return { id, kind: descriptor.kind, count: resultCount(value), revision };
+}
+
+function readOnly(run) {
+  return { run, mutates: () => false, install: null, present: (value) => value };
+}
+
+function collectionValue(value) {
+  return value?.collection?.type === 'result-collection' ? value.collection : value;
+}
+
+function projectionOptions(parameters, allowMode = false) {
+  const allowed = new Set([
+    ...(allowMode ? ['mode'] : []),
+    'previewLimit', 'excerptLimit', 'includeEvidence', 'sizeLimit',
+  ]);
+  const unknown = Object.keys(parameters).find((key) => !allowed.has(key));
+  if (unknown) throw protocolError('INVALID_COMMAND', `Unknown projection parameter: ${unknown}.`);
+  return cloneJson(parameters);
 }
 
 function resultCount(value) {
@@ -308,30 +458,50 @@ function stableSubjectCollection(collection) {
   };
 }
 
-function resultOperation(result) {
-  return Array.isArray(result?.relays) && result?.coverage ? 'acquire' : null;
-}
-
-function externalStatus(result) {
-  const boundsReached = result.completionReason === 'completed'
+function externalStatus(result, operation, memory) {
+  let boundsReached = result.completionReason === 'completed'
     ? [] : [result.completionReason];
+  const hydration = operation === 'hydrate';
+  const requestedAuthors = hydration && Array.isArray(result.requested?.filter?.authors)
+    ? new Set(result.requested.filter.authors) : null;
+  const resolvedAuthors = requestedAuthors === null ? null : new Set(
+    [...requestedAuthors].filter((id) => {
+      try {
+        return memory.inspect({ type: 'account', id }).resident;
+      } catch {
+        return false;
+      }
+    }),
+  );
+  const requested = requestedAuthors?.size ?? null;
+  const resolved = resolvedAuthors?.size ?? null;
+  const missing = requested === null ? null : Math.max(0, requested - resolved);
+  if (missing > 0 && boundsReached.length === 0) boundsReached = ['unresolved-subjects'];
   return {
     status: boundsReached.length ? 'partial' : 'complete',
     completeness: {
-      requested: {
+      requested,
+      resolved,
+      missing,
+      boundsReached,
+      requestBounds: {
         relays: result.requested.relays.length,
         observationLimit: result.budget.observationLimit,
         distinctEventLimit: result.budget.distinctEventLimit,
       },
       observed: result.counts.acceptedObservations,
       distinctEvents: result.counts.distinctEventsAcquired,
-      boundsReached,
     },
     coverage: cloneJson(result.coverage),
   };
 }
 
 function externalWarnings(result) {
+  if (result?.type === 'research-plan-report') {
+    return result.stages.flatMap(({ id, result: stageResult }) => (
+      externalWarnings(stageResult).map((warning) => `Stage ${id}: ${warning}`)
+    ));
+  }
   if (!result?.coverage || result.completionReason === 'completed') return [];
   return [`External operation completed with ${result.completionReason}.`];
 }

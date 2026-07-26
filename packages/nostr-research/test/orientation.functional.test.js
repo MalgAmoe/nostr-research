@@ -49,6 +49,7 @@ test('presentation and facets orient surviving research values', () => {
     const shownCollection = environment.research.show(selected, {
       previewLimit: 1, excerptLimit: 40, includeEvidence: true,
     });
+    const shownFacets = environment.research.show(facets, { previewLimit: 1 });
     const shownSet = environment.research.show(memory.getSet(retained.id));
     const shownCorpus = environment.research.show(memory.describe());
     const projected = environment.research.project(selected, { mode: 'ids' });
@@ -56,6 +57,12 @@ test('presentation and facets orient surviving research values', () => {
     assert.equal(shownCollection.type, 'result-collection');
     assert.equal(shownCollection.count, 2);
     assert.ok(shownCollection.preview[0].evidence.event.content.length <= 40);
+    assert.equal(shownFacets.type, 'facets');
+    assert.equal(shownFacets.authors.values.length, 1);
+    assert.equal(shownFacets.tags.values.length, 1);
+    assert.equal(shownFacets.tags.omitted, 0);
+    assert.equal(shownFacets.presence.values.length, 1);
+    assert.equal(shownFacets.presence.omitted, 2);
     assert.equal(shownSet.type, 'set');
     assert.equal(shownSet.count, 2);
     assert.equal(shownCorpus.type, 'corpus-summary');

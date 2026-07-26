@@ -1,6 +1,6 @@
 ---
 id: 037-bounded-session-observation
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/037-bounded-session-observation.validate.sh
 depends_on: 036-persistent-declarative-session
