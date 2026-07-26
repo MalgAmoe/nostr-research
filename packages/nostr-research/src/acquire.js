@@ -1,4 +1,5 @@
 import { isCanonicalNostrEvent, ResearchMemoryError } from './index.js';
+import { connect as connectTcp } from 'node:net';
 import { connect as connectTls } from 'node:tls';
 import { matchFilter } from 'nostr-tools';
 import WebSocket from 'ws';
@@ -104,9 +105,13 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
 
       socket = new WebSocket(relay, {
         createConnection(options) {
-          transport = connectTls(options);
+          // Own the TCP transport explicitly. A TLSSocket may finish its local
+          // teardown before the wrapped connection's peer has observed
+          // closure, so cancellation must be bounded by the raw transport
+          // rather than only by the WebSocket/TLS wrapper.
+          transport = connectTcp(options);
           transport.once('close', settle);
-          return transport;
+          return connectTls({ ...options, socket: transport });
         },
       });
       sockets.add(socket);
@@ -316,11 +321,16 @@ function finishSocket(socket, subscriptionId, onClosed, force = false, transport
   if (force && socket.readyState !== WebSocket.CLOSED) {
     // Cancellation is an ownership boundary, not a normal relay completion.
     // During a TLS/WebSocket handshake `ws.terminate()` can run before `ws`
-    // has attached the transport as its active socket. Destroy the transport
-    // we created as well, so awaiting acquisition cancellation also awaits the
-    // actual owned TCP/TLS connection closing.
-    transport?.destroy();
-    socket.terminate();
+    // has attached the transport as its active socket. Destroy the raw TCP
+    // transport we created as well, so awaiting acquisition cancellation also
+    // awaits the actual owned connection closing.
+    if (transport && !transport.destroyed) {
+      // End the raw connection with a FIN. A reset closes faster but leaks an
+      // ECONNRESET across the process boundary instead of clean cancellation.
+      transport.end();
+    } else {
+      socket.terminate();
+    }
     return;
   }
   if (socket.readyState === WebSocket.OPEN) {
