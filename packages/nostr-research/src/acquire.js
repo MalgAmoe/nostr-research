@@ -1,5 +1,5 @@
 import { isCanonicalNostrEvent, ResearchMemoryError } from './index.js';
-import { connect as connectTcp } from 'node:net';
+import { connect as connectTcp, isIP } from 'node:net';
 import { connect as connectTls } from 'node:tls';
 import { matchFilter } from 'nostr-tools';
 import WebSocket from 'ws';
@@ -105,13 +105,13 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
 
       socket = new WebSocket(relay, {
         createConnection(options) {
-          // Own the TCP transport explicitly. A TLSSocket may finish its local
-          // teardown before the wrapped connection's peer has observed
-          // closure, so cancellation must be bounded by the raw transport
-          // rather than only by the WebSocket/TLS wrapper.
           transport = connectTcp(options);
           transport.once('close', settle);
-          return connectTls({ ...options, socket: transport });
+          return connectTls({
+            ...options,
+            socket: transport,
+            servername: options.servername ?? (isIP(options.host) ? '' : options.host),
+          });
         },
       });
       sockets.add(socket);
@@ -321,13 +321,10 @@ function finishSocket(socket, subscriptionId, onClosed, force = false, transport
   if (force && socket.readyState !== WebSocket.CLOSED) {
     // Cancellation is an ownership boundary, not a normal relay completion.
     // During a TLS/WebSocket handshake `ws.terminate()` can run before `ws`
-    // has attached the transport as its active socket. Destroy the raw TCP
-    // transport we created as well, so awaiting acquisition cancellation also
-    // awaits the actual owned connection closing.
+    // has attached the transport as its active socket. Reset the transport we
+    // created so cancellation stays bounded even when the peer is silent.
     if (transport && !transport.destroyed) {
-      // End the raw connection with a FIN. A reset closes faster but leaks an
-      // ECONNRESET across the process boundary instead of clean cancellation.
-      transport.end();
+      transport.resetAndDestroy();
     } else {
       socket.terminate();
     }

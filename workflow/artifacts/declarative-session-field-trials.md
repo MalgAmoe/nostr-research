@@ -102,6 +102,24 @@ connection-failure diagnostic, no observed events, and `exhaustive: false`.
 
 ## Findings and verdict
 
+## Positive network verification
+
+A later network-enabled run repeated the executable trial with a capacity of
+200 and two public relays. It acquired 20 current kind-1 events from
+`wss://nos.lol/`, stopped at the explicit distinct-event budget, installed the
+`live-notes` handle, selected those events into `selected-notes`, previewed five
+bounded note records, and grouped the selection by `event.author`. The grouped
+handle contained ten bounded groups and `show` returned five with `omitted: 6`.
+All of this occurred in one JSONL process without dynamic JavaScript.
+
+That trial caught and corrected one real transport regression: explicit raw
+TCP ownership for bounded handshake cancellation must preserve TLS SNI.
+Restoring `servername` made the same public acquisition succeed. The
+process-boundary cancellation scenario also established that aborting an
+unfinished TLS handshake may legitimately surface `ECONNRESET` to the peer;
+the functional test now treats that as socket closure while still requiring
+the child and owned connection to terminate promptly.
+
 - Dynamic JavaScript needed: none.
 - Agent usability: JSONL was better than the JavaScript REPL for correlation,
   replay, bounded output, explicit handles, and revision checks. It was less
@@ -132,8 +150,6 @@ connection-failure diagnostic, no observed events, and `exhaustive: false`.
   executable. The only trial-driven correction was relay-error completeness.
 
 Verdict: the JSONL process can replace the JavaScript REPL's practical role for
-agent-driven declarative research. Keep the REPL for now, as required. A later
-deprecation decision should include a successful live relay trial in an
-environment with DNS/network access; this field trial proved the protocol and
-failure-direction workflow but could not compare rich positive evidence
-navigation.
+agent-driven declarative research. Keep the REPL for now, as required. Both
+failure-direction behavior and positive bounded evidence navigation have now
+been exercised through the executable.

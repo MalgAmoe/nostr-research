@@ -154,14 +154,20 @@ test('JSONL executable cancels active external work on a termination signal', as
   const [relaySocket] = await withTimeout(
     once(relay, 'connection'), 2_000, 'external operation did not start',
   );
-  const relaySocketClosed = once(relaySocket, 'close');
+  const relaySocketClosed = new Promise((resolve, reject) => {
+    relaySocket.once('close', resolve);
+    relaySocket.once('error', (error) => {
+      if (error.code === 'ECONNRESET') return;
+      reject(error);
+    });
+  });
   const started = Date.now();
   child.kill('SIGTERM');
   const [code, signal] = await withTimeout(
     once(child, 'exit'), 2_000, 'signal shutdown did not cancel active external work',
   );
 
-  assert.equal(code, 143);
+  assert.equal(code, 143, stderr);
   assert.equal(signal, null);
   assert.ok(Date.now() - started < 2_000);
   assert.equal(stderr, '');
