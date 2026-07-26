@@ -144,7 +144,124 @@ was removed and relay networking returned to the standard WebSocket client.
   options should be added. Do not duplicate interpreter validation in the
   executable. The only trial-driven correction was relay-error completeness.
 
-Verdict: the JSONL process can replace the JavaScript REPL's practical role for
-agent-driven declarative research. Keep the REPL for now, as required. Both
-failure-direction behavior and positive bounded evidence navigation have now
-been exercised through the executable.
+Initial verdict at the time, superseded by the comparative trial below: the
+JSONL process appeared able to replace the JavaScript REPL's practical role for
+agent-driven declarative research. Both failure-direction behavior and a short
+positive bounded path had been exercised through the executable.
+
+## Comparative live trial after removing dynamic JavaScript
+
+Date: 2026-07-26.
+
+This later trial supersedes the verdict immediately above. The earlier JSONL
+trials established protocol correctness, persistence, and bounded observation,
+but they were too shallow to establish parity with the JavaScript research
+workflow. Several were dominated by unavailable relay evidence, and the later
+positive trial followed a short predetermined acquire/select/group path.
+
+The comparative trial started without a topic and used only literal JSONL
+commands in one capacity-300 process:
+
+1. Acquired 40 distinct recent kind-1 events from `nos.lol` and
+   `relay.primal.net`, recording 47 observations and seven cross-relay
+   duplicates.
+2. Selected and previewed the resident notes.
+3. Applied a caller-chosen negative boolean filter for four visible machine or
+   promotional patterns.
+4. Grouped notes by author and inspected bounded samples.
+5. Chose a Bitcoin block-art trail from the evidence.
+6. Moved two matching notes to their authors and hydrated their profiles.
+7. Identified `blockstr`, with its attributed NIP-05 and source repository.
+8. Manually copied that account's public key into another acquisition and
+   selection to inspect 20 authored notes.
+9. Selected the account by stable subject ID and retained it.
+
+The corpus ended with 61 resident events, no eviction, and pressure
+`61 / 300`. Fourteen session mutations produced twelve live result handles and
+two retained sets, one of which was accidentally empty.
+
+### What the process actually owns
+
+The executable owns one `InMemoryResearchMemory`, not a database. Relay
+acquisition validates and ingests canonical events plus attributed
+observations into a capacity-bounded indexed JavaScript corpus. Named session
+results keep engine-owned values; ordinary subject collections deliberately
+strip embedded records and retain stable subject identities, reasons, and
+provenance. `show` and collection coercion resolve current evidence from the
+corpus. All of it disappears when the process exits.
+
+An acquisition command currently returns a handle and a detailed external
+coverage structure. It does not print all event records, but it does emit every
+accepted observation in the coverage response. In this trial the first
+orientation command therefore emitted 47 observation records before any
+research view was requested.
+
+`select` is also easy to misunderstand: an acquisition handle supplied as its
+input is an ordering dependency, not a scope. The selection queries the entire
+current resident corpus. Filter, group, summarize, and move then create further
+named views over explicit collections.
+
+### Comparison with the JavaScript trials
+
+| Research need | Persistent JavaScript console | Declarative JSONL session |
+| --- | --- | --- |
+| Inspect arbitrary evidence | Direct access to collection items and records | Only predefined bounded projections |
+| Refine by judgment | Arbitrary predicates, regular expressions, positive and negative combinations | Boolean predicates over a fixed field vocabulary |
+| Build orientation views | Facets plus handwritten reductions, sorting, sampling, and longer slices | Fixed group, summarize, and show operations; no automatic orientation view |
+| Build account evidence | Handwritten grouping, samples, domains, profile joins, and caller-selected reasons | Separate group, move, hydrate, and show handles; limited joined presentation |
+| Continue from selected accounts | `expand` accepted a collection directly | No authored-note/expansion command from an account handle; the public key had to be copied into a new acquisition |
+| Correlate hydrated evidence | Arbitrary ID joins | Stable subjects re-resolve, but only through predefined fields and projections |
+| Preserve caller judgment | Constructed reason-bearing members and annotations dynamically | Retains existing collection reasons; cannot freely construct per-member reasons |
+| Manage intermediate work | Ordinary variables and collections | Named engine handles with explicit list/release lifecycle |
+| Safety and portability | Arbitrary executable JavaScript | Plain-data commands with stable envelopes and no code execution |
+
+The JavaScript trials used their freedom for genuinely recurring work:
+
+- long-tail tag aggregation;
+- per-author evidence views containing counts, samples, and domains;
+- arbitrary positive and negative predicates;
+- balancing and representative sampling;
+- ID joins after hydration;
+- intersecting and comparing candidate sets;
+- navigating directly from a selected account collection;
+- attaching caller-written reasons to selected members; and
+- inspecting or formatting intermediate values at whatever depth the current
+  judgment required.
+
+Some of that JavaScript was incidental, but the comparative trial shows that
+the declarative replacement removed too much of the exploratory workbench.
+
+### Specific interface failures
+
+- Acquisition responses expose detailed coverage before the caller requests
+  it; the default should orient rather than dump observation bookkeeping.
+- There is no first-class initial view over a new buffer: facets, candidate
+  tags, domains, authors, media, and representative examples must be assembled
+  through several commands.
+- A selected account handle cannot directly drive bounded authored-note
+  acquisition or the existing expansion capability.
+- The fixed predicate vocabulary is useful but insufficient for emerging
+  task-specific criteria.
+- `account.name` means `display_name ?? name`, although presentation exposes
+  `name` and `displayName` separately. Filtering for the displayed literal
+  `name: "blockstr"` therefore returned an empty collection.
+- Retaining an empty collection succeeds without warning.
+- Releasing a result handle does not remove its retained set, and the
+  declarative lifecycle exposes no retained-set deletion.
+- A short investigation accumulated twelve handles, making the working state
+  harder to read than ordinary named JavaScript values.
+
+### Revised verdict
+
+The JSONL protocol is a useful safe adapter and session boundary, but the
+current command vocabulary does **not** replace the practical research role of
+the JavaScript console. It proves persistence, correlation, bounded
+presentation, and plain-data execution. It does not yet provide an equally
+capable exploratory workbench.
+
+The next design should not respond by adding isolated commands one at a time or
+by returning to unrestricted JavaScript as the final interface. It should
+recover the compositional capabilities observed in the JavaScript trials:
+working buffers, reusable projections, richer collection composition,
+selection-driven continuation, explicit user judgments, and controlled
+inspection—while retaining a plain-data execution boundary.
