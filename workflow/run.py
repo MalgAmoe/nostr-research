@@ -222,6 +222,15 @@ def build_review_prompt(task_path: Path, attempt_dir: Path) -> str:
     sections.extend([
         "\n# Selected task\n",
         task_path.read_text(encoding="utf-8"),
+    ])
+    task_metadata, _ = parse_task(task_path)
+    previous_review = latest_review(task_metadata["id"])
+    if previous_review:
+        sections.extend([
+            "\n# Previous independent review\n",
+            previous_review.read_text(encoding="utf-8"),
+        ])
+    sections.extend([
         "\n# Worker report\n",
         (attempt_dir / "worker-output.md").read_text(encoding="utf-8"),
         "\n# Validation output\n",

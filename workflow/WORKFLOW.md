@@ -17,6 +17,11 @@ UI-independent Nostr research library.
 6. `CHANGES_REQUIRED` starts another attempt and gives the worker the review.
 7. `BLOCKED` stops the task for human discussion.
 
+`CONTEXT.md` contains durable project principles and constrains every task.
+The selected task defines the current work within those principles. Completed
+task files and run records are historical evidence; they do not override the
+current context or silently preserve superseded architecture.
+
 The runner, not either Codex invocation, owns task status.
 
 Worker or reviewer process failures are infrastructure failures, not failed
@@ -58,6 +63,20 @@ protected_paths: src server.mjs index.html vite.config.js package.json package-l
 ---
 ```
 
+Each new task should also contain a short verification section:
+
+```text
+## Verification
+
+- Permanent tests expected: yes/no.
+- Stable public behavior protected: ...
+- Temporary task validation or field evidence: ...
+- Explicitly excluded test levels or mechanisms: ...
+```
+
+Use `no` unless a durable test is genuinely needed. The section describes the
+verification boundary; it is not a quota requiring a new test.
+
 Supported statuses are `ready`, `in_progress`, `done`, and `blocked`.
 Dependencies are optional comma-separated task IDs. Tasks are processed in
 filename order.
@@ -78,13 +97,26 @@ available for independent runtime verification.
 
 - Workers may only make changes permitted by the selected task.
 - Reviewers are read-only and never repair the work they review.
+- `CONTEXT.md` principles apply even when an old completed task used a
+  different approach.
 - Product-code changes are forbidden unless a task explicitly permits them.
 - Validation success is necessary but not sufficient.
+- Permanent tests are reviewed as product code. Passing tests may still be
+  unnecessary, over-specific, or harmful.
+- Tests must not force public APIs, abstractions, dependencies, or low-level
+  production machinery unless those are justified product requirements.
+- Live-network and environment-specific checks normally belong in task
+  validation or run artifacts, not the permanent suite.
 - A successful Codex process is not evidence that a task is complete.
 - Review output must begin with `PASS`, `CHANGES_REQUIRED`, or `BLOCKED`.
 - Runtime-capable reviewers may create disposable ignored data but may not
   change repository source, deliverables, or task state.
 - The runner stops when the maximum attempt count is reached.
+- If substantially the same finding survives two attempts, stop and reassess
+  the requirement, reproduction, or test instead of mechanically trying a
+  third implementation.
+- Do not increase `max_attempts` merely to continue a repeated failure. Reopen
+  a task only after recording a new diagnosis or changed premise.
 - Process failures stop immediately instead of entering the review loop.
 - `CONTEXT.md` is durable project context and is injected into every worker and
   reviewer prompt once it exists.
