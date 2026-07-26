@@ -51,3 +51,9 @@ The five declarative-operation field trials now justify the next milestone:
 
 This milestone does not commit the project to a textual DSL, plan graph, Rust
 executor, UI, persistence model, or automated account classification.
+
+The first post-milestone root review identified one narrow correctness pass
+before further field work: fully preflight plans before external effects,
+constrain select dependencies to acquisition ordering, refresh stable subjects
+inside reusable typed groups, reject duplicate aggregation names, and make
+bounded group counts and omissions explicit.
