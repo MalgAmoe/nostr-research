@@ -6,6 +6,10 @@ const OPTION_KEYS = new Set([
   'relays', 'filter', 'timeoutMs', 'observationLimit', 'distinctEventLimit',
   'concurrency', 'signal', 'preserve',
 ]);
+const HYDRATION_OPTION_KEYS = new Set([
+  'relays', 'kinds', 'timeoutMs', 'observationLimit', 'distinctEventLimit',
+  'concurrency', 'signal', 'preserve',
+]);
 
 export const DEFAULT_ACQUISITION_TIMEOUT_MS = 10_000;
 export const DEFAULT_ACQUISITION_OBSERVATION_LIMIT = 100;
@@ -259,6 +263,45 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
     )).sort((a, b) => a.observationId - b.observationId),
   };
   return result;
+}
+
+/** Acquires current account metadata/contact evidence for an explicit account selection. */
+export async function hydrateAccounts(memory, selection, options) {
+  if (!memory || typeof memory.asCollection !== 'function') {
+    throw new ResearchMemoryError('An open research memory is required.');
+  }
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    throw new ResearchMemoryError('Account hydration options are required.');
+  }
+  const unknown = Object.keys(options).filter((key) => !HYDRATION_OPTION_KEYS.has(key));
+  if (unknown.length) {
+    throw new ResearchMemoryError(`Unknown account hydration options: ${unknown.join(', ')}.`);
+  }
+  const kinds = options.kinds ?? [0];
+  if (!Array.isArray(kinds) || kinds.length === 0
+      || kinds.some((kind) => ![0, 3].includes(kind))) {
+    throw new ResearchMemoryError('Account hydration kinds must contain only 0 and/or 3.');
+  }
+  const authors = [...new Set(memory.asCollection(selection).items
+    .filter(({ subject }) => subject.type === 'account')
+    .map(({ subject }) => subject.id))];
+  if (authors.length === 0) {
+    throw new ResearchMemoryError('Account hydration requires at least one account subject.');
+  }
+  const {
+    relays, timeoutMs, observationLimit, distinctEventLimit,
+    concurrency, signal, preserve,
+  } = options;
+  return acquireRelayEvents(memory, {
+    relays,
+    filter: { authors, kinds: [...new Set(kinds)] },
+    timeoutMs,
+    observationLimit,
+    distinctEventLimit,
+    concurrency,
+    signal,
+    preserve,
+  });
 }
 
 function describeWebSocketError(error) {

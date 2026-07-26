@@ -11,6 +11,7 @@ import {
   acquireRelayEvents,
   createInMemoryResearchMemory,
   expandResearch,
+  hydrateAccounts,
   ResearchMemoryError,
   resolveReplyContexts,
   subject,
@@ -92,6 +93,43 @@ test('public acquisition handles NIP-01 outcomes, validation, deduplication, pro
   } finally {
     await firstRelay.close();
     await secondRelay.close();
+    context.close();
+  }
+});
+
+test('account hydration derives a bounded metadata filter from account subjects', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  const key = Uint8Array.from(Buffer.from('b'.repeat(64), 'hex'));
+  const publicKey = getPublicKey(key);
+  const metadata = finalizeEvent({
+    kind: 0, created_at: 20, tags: [], content: '{"name":"hydrated"}',
+  }, key);
+  let requestedFilter;
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send, filter) => {
+      requestedFilter = filter;
+      send(['EVENT', subscriptionId, metadata]);
+      send(['EOSE', subscriptionId]);
+    });
+  }, context.directory);
+  try {
+    const result = await hydrateAccounts(
+      context.memory,
+      accountCollection(context.memory, [publicKey]),
+      {
+        relays: [relay.url],
+        kinds: [0],
+        timeoutMs: 2_000,
+        observationLimit: 2,
+        distinctEventLimit: 2,
+      },
+    );
+    assert.deepEqual(requestedFilter, { authors: [publicKey], kinds: [0] });
+    assert.deepEqual(result.acquiredEventIds, [metadata.id]);
+    assert.equal(context.memory.resolveAccount(publicKey).profile.name, 'hydrated');
+  } finally {
+    await relay.close();
     context.close();
   }
 });
@@ -350,6 +388,21 @@ test('acquisition rejects unusable public inputs before networking', async () =>
         relays: ['wss://localhost:1'], filter: {}, distinctEventLmit: 1,
       }),
       /Unknown acquisition options: distinctEventLmit/,
+    );
+    const account = context.memory.collection([
+      { subject: subject('account', 'a'.repeat(64)), reasons: [], provenance: [] },
+    ], { operation: 'account-candidates' });
+    await assert.rejects(
+      hydrateAccounts(context.memory, account, {
+        relays: ['wss://localhost:1'], kinds: [1],
+      }),
+      /kinds must contain only 0 and\/or 3/,
+    );
+    await assert.rejects(
+      hydrateAccounts(context.memory, context.memory.collection([], { operation: 'empty' }), {
+        relays: ['wss://localhost:1'],
+      }),
+      /at least one account subject/,
     );
   } finally {
     context.close();

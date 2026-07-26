@@ -110,8 +110,27 @@ expressions. Top-level `await` is available. Query and analysis operations
 return values and never replace the active selection: `acquire`, `events`,
 `accounts`, `currentEvent`, `follows`, `expand`, `replyContexts`, `traverse`,
 `connections`, `exclude`, `distinctBy`, `limitPer`, `discoveries`, `facets`, `compare`,
-`inspect`, `project`, and `show`. `traverse(result, options)` always traverses the supplied
+`inspect`, `project`, `hydrate`, `annotate`, `annotated`, `removeAnnotation`, and `show`.
+`traverse(result, options)` always traverses the supplied
 result without changing active state.
+
+Annotations are process-local interpretations attached to stable subjects. They
+contain only caller-defined labels and a free-text note; the library assigns no
+universal status or credibility meaning to them. `annotated(query)` returns a
+normal result collection that composes with traversal, expansion, retention,
+and projection.
+
+```js
+const connected = research.connections(seeds, {
+  relationshipTypes: ['follow'],
+  minimumSources: 2,
+});
+await research.hydrate(connected, { relays, kinds: [0] });
+research.annotate(connected.items[0].subject, {
+  labels: ['keep'],
+  note: 'Inspect this account again',
+});
+```
 
 State changes have separate, plainly named operations:
 

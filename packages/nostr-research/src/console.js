@@ -5,6 +5,7 @@ import {
   createInMemoryResearchMemory,
   createResearchSession,
   expandResearch,
+  hydrateAccounts,
   ResearchMemoryError,
   resolveReplyContexts,
 } from './index.js';
@@ -20,15 +21,19 @@ Starts a process-local JavaScript research REPL. The prepared research object
 owns one bounded in-memory corpus and one explicit active selection.
 
 Read/return operations:
-  acquire(options), events(query), accounts(query), currentEvent(account, kind)
-  follows(account), expand(result, options), replyContexts(accounts, options)
+  acquire(options), hydrate(accounts, options), events(query), accounts(query)
+  currentEvent(account, kind), follows(account), connections(result, options)
+  expand(result, options), replyContexts(accounts, options)
   traverse(result, options), exclude(result, predicate), distinctBy(result, selector)
   limitPer(result, selector, limit), discoveries(result), facets(result)
-  compare(left, right), inspect(subject), show(value, options), summary()
+  compare(left, right), inspect(subject), project(value, options), show(value, options)
+  annotated(query), summary()
   collection(items, context); memory and activeSelection expose current state
 
 State operations:
   activate(result)             replace the active selection
+  annotate(subject, value)     attach process-local labels and a note
+  removeAnnotation(subject)    remove a process-local annotation
   retain(result, name, options) retain an explicit result
   checkpoint(name, options)    retain the active selection
 
@@ -193,6 +198,34 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
       }
     },
 
+    async hydrate(accounts, options) {
+      const controller = new AbortController();
+      activeAcquisitions.add(controller);
+      const suppliedSignal = options?.signal;
+      const abort = () => controller.abort(suppliedSignal?.reason);
+      suppliedSignal?.addEventListener('abort', abort, { once: true });
+      if (suppliedSignal?.aborted) abort();
+      progress.write(
+        `Hydrating accounts from ${options?.relays?.length ?? 0} relay(s), `
+        + `kinds ${(options?.kinds ?? [0]).join(', ')}...\n`,
+      );
+      try {
+        const result = await hydrateAccounts(memory, accounts, {
+          ...options,
+          signal: controller.signal,
+        });
+        progress.write(
+          `Hydration ${result.completionReason}: `
+          + `${result.counts.distinctEventsAcquired} distinct event(s), `
+          + `${result.additions.added.length} corpus event(s) added.\n`,
+        );
+        return result;
+      } finally {
+        suppliedSignal?.removeEventListener('abort', abort);
+        activeAcquisitions.delete(controller);
+      }
+    },
+
     events(query = {}) {
       return memory.select(query);
     },
@@ -274,6 +307,18 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
 
     project(value, options = {}) {
       return memory.project(value, options);
+    },
+
+    annotate(subject, annotation) {
+      return memory.annotate(subject, annotation);
+    },
+
+    annotated(query = {}) {
+      return memory.annotated(query);
+    },
+
+    removeAnnotation(subject) {
+      return memory.removeAnnotation(subject);
     },
 
     facets(value, options = {}) {

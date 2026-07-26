@@ -165,6 +165,7 @@ export class InMemoryResearchMemory {
   #nextObservationId = 1;
   #evictions = 0;
   #sets = new Map();
+  #annotations = new Map();
 
   constructor(capacity) {
     if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > MAX_QUERY_LIMIT) {
@@ -654,6 +655,61 @@ export class InMemoryResearchMemory {
     return { subject: item, resident: collection.context.relationships.length > 0, collection };
   }
 
+  annotate(reference, value) {
+    this.#assertOpen();
+    const item = normalizeSubject(reference);
+    const annotation = normalizeAnnotation(value);
+    const key = memberKey(item);
+    const existing = this.#annotations.get(key);
+    const now = new Date().toISOString();
+    const stored = {
+      subject: item,
+      labels: annotation.labels,
+      note: annotation.note,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.#annotations.set(key, stored);
+    return cloneJson(stored);
+  }
+
+  getAnnotation(reference) {
+    this.#assertOpen();
+    const item = normalizeSubject(reference);
+    return cloneJson(this.#annotations.get(memberKey(item)) ?? null);
+  }
+
+  annotated(query = {}) {
+    this.#assertOpen();
+    const normalized = normalizeAnnotationQuery(query);
+    const items = [...this.#annotations.values()]
+      .filter((annotation) => normalized.labels.every(
+        (label) => annotation.labels.includes(label),
+      ))
+      .sort((left, right) => (
+        right.updatedAt.localeCompare(left.updatedAt)
+        || memberKey(left.subject).localeCompare(memberKey(right.subject))
+      ))
+      .slice(0, normalized.limit)
+      .map((annotation) => ({
+        subject: annotation.subject,
+        role: 'discovery',
+        reasons: [{ type: 'annotation', annotation }],
+        provenance: [],
+      }));
+    return resultCollection(items, {
+      operation: 'annotation-query',
+      labels: normalized.labels,
+      limit: normalized.limit,
+    });
+  }
+
+  removeAnnotation(reference) {
+    this.#assertOpen();
+    const item = normalizeSubject(reference);
+    return { subject: item, removed: this.#annotations.delete(memberKey(item)) };
+  }
+
   #createPopulatedSet(name, entries, options = {}) {
     this.#assertOpen();
     const members = new Map();
@@ -777,7 +833,10 @@ export class InMemoryResearchMemory {
           : { type: 'set', ...this.#setSummary(this.getSet(reference.id)) };
       } else projection = reference;
       return {
-        ...projection, role: item.role ?? 'discovery',
+        ...projection,
+        ...(this.#annotations.has(memberKey(reference))
+          ? { annotation: cloneJson(this.#annotations.get(memberKey(reference))) } : {}),
+        role: item.role ?? 'discovery',
         reasons: cloneJson(item.reasons), provenance: cloneJson(item.provenance),
       };
     });
@@ -831,6 +890,7 @@ export class InMemoryResearchMemory {
     this.#assertOpen();
     this.#corpus.clear();
     this.#sets.clear();
+    this.#annotations.clear();
     this.#nextObservationId = 1; this.#evictions = 0;
   }
 
@@ -1376,6 +1436,34 @@ function normalizeReason(reason) {
   return cloneJson(reason);
 }
 
+function normalizeAnnotation(value) {
+  assertPlainObject(value, 'Annotation');
+  rejectUnknownKeys(value, new Set(['labels', 'note']), 'annotation');
+  const labels = value.labels === undefined ? [] : normalizeStringList(value.labels, 'labels', false);
+  const uniqueLabels = [...new Set((labels ?? []).map((label) => label.trim()))].sort();
+  if (uniqueLabels.some((label) => label.length === 0)) {
+    throw new ResearchMemoryError('Annotation labels must be non-empty strings.');
+  }
+  const note = value.note ?? '';
+  if (typeof note !== 'string') throw new ResearchMemoryError('Annotation note must be a string.');
+  if (uniqueLabels.length === 0 && note.trim().length === 0) {
+    throw new ResearchMemoryError('An annotation requires at least one label or a note.');
+  }
+  return { labels: uniqueLabels, note };
+}
+
+function normalizeAnnotationQuery(query) {
+  assertPlainObject(query, 'Annotation query');
+  rejectUnknownKeys(query, new Set(['labels', 'limit']), 'annotation query');
+  const labels = query.labels === undefined ? [] : normalizeStringList(
+    query.labels, 'labels', false,
+  );
+  return {
+    labels: [...new Set((labels ?? []).map((label) => label.trim()))].sort(),
+    limit: normalizeLimit(query.limit),
+  };
+}
+
 function retainedProvenance(item) {
   if (item.subject.type === 'event' && item.provenance.length > 0) {
     return [{ type: 'stored-event-observations', eventId: item.subject.id }];
@@ -1432,6 +1520,7 @@ function sortJson(value) {
 
 export {
   acquireRelayEvents,
+  hydrateAccounts,
   DEFAULT_ACQUISITION_OBSERVATION_LIMIT,
   DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT,
   DEFAULT_ACQUISITION_TIMEOUT_MS,

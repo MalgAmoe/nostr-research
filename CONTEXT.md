@@ -43,6 +43,7 @@ no presentation layer defines the domain boundary.
 | **acquisition coverage** | Information returned by one bounded relay attempt: exact filter and budgets, contacted relays and outcomes, and observations. It does not claim exhaustive indexing or create a global history record. |
 | **query** | An operation over local memory that selects and explains results; it does not itself require relay access. |
 | **retained selection** | A deliberately retained, named result collection with its subjects and reasons for later inspection during the running process. |
+| **annotation** | A process-local interpretation attached to a stable subject: caller-defined labels and a free-text note. It is navigation state, not source evidence or a universal claim. |
 | **provenance** | Observable source and acquisition history for evidence, including the context needed to assess it. |
 | **derived relationship** | A reproducible interpretation connecting evidence (for example reply, mention, tag, author, or citation); it is not raw evidence and can be replaced. |
 
@@ -121,3 +122,8 @@ Explicit session activation accepts both retained summaries and full retained
 selections through the same retained-to-collection conversion. It restores
 subjects and retained reasons without relay access or reconstruction of
 evicted canonical evidence.
+
+Annotations belong to memory's replaceable derived material. They can outlive
+eviction of the canonical event or profile they reference, but disappear with
+`reset()`, `close()`, or process exit. Annotation labels have only the meaning
+assigned by their caller.

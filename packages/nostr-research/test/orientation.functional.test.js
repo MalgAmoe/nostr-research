@@ -32,6 +32,11 @@ test('presentation and facets orient surviving research values', () => {
     const selected = environment.research.events({ kinds: [1], order: 'oldest' });
     const facets = environment.research.facets(selected);
     const retained = memory.retain(selected, 'orientation seed');
+    const annotatedSubject = selected.items[0].subject;
+    const annotation = environment.research.annotate(annotatedSubject, {
+      labels: ['keep', 'privacy'],
+      note: 'Useful evidence',
+    });
 
     assert.equal(facets.count, 2);
     assert.equal(facets.authors.values[0].count, 2);
@@ -47,6 +52,7 @@ test('presentation and facets orient surviving research values', () => {
     const shownSet = environment.research.show(memory.getSet(retained.id));
     const shownCorpus = environment.research.show(memory.describe());
     const projected = environment.research.project(selected, { mode: 'ids' });
+    const projectedWithAnnotation = environment.research.project(selected, { mode: 'compact' });
     assert.equal(shownCollection.type, 'result-collection');
     assert.equal(shownCollection.count, 2);
     assert.ok(shownCollection.preview[0].evidence.event.content.length <= 40);
@@ -57,6 +63,19 @@ test('presentation and facets orient surviving research values', () => {
       projected,
       selected.items.map(({ subject: item }) => ({ type: item.type, id: item.id })),
     );
+    assert.deepEqual(annotation.labels, ['keep', 'privacy']);
+    assert.deepEqual(
+      environment.research.annotated({ labels: ['keep'] })
+        .items.map(({ subject: item }) => item),
+      [annotatedSubject],
+    );
+    assert.equal(
+      projectedWithAnnotation.results.find(({ id }) => id === annotatedSubject.id)
+        .annotation.note,
+      'Useful evidence',
+    );
+    assert.equal(environment.research.removeAnnotation(annotatedSubject).removed, true);
+    assert.equal(environment.research.annotated().items.length, 0);
   } finally {
     environment.close();
   }
