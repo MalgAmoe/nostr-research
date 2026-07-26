@@ -26,7 +26,7 @@ Read/return operations:
   expand(result, options), replyContexts(accounts, options)
   traverse(result, options), exclude(result, predicate), distinctBy(result, selector)
   limitPer(result, selector, limit), discoveries(result), facets(result)
-  compare(left, right), inspect(subject), project(value, options), show(value, options)
+  compare(left, right), lookup(subject), inspect(subject), project(value, options), show(value, options)
   annotated(query), summary()
   collection(items, context); memory and activeSelection expose current state
 
@@ -236,6 +236,10 @@ export function createResearchEnvironment(memory, progress = process.stderr) {
 
     currentEvent(account, kind, options = {}) {
       return memory.currentEvent(account, kind, options);
+    },
+
+    lookup(subject) {
+      return memory.lookup(subject);
     },
 
     follows(account) {

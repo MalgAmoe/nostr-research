@@ -39,17 +39,15 @@ test('one console process preserves JavaScript state and composes a bounded rese
       "await Promise.resolve('AWAIT_OK')",
       "const found = research.events({ text: ['console evidence'], limit: 30 })",
       "const manual = research.collection(found.items.slice(0, 8), { operation: 'manual-selection', label: 'field trial' })",
-      "let fabricatedRejected = false; try { research.collection([{ ...manual.items[0], record: "
-        + "{ ...manual.items[0].record, event: { ...manual.items[0].record.event, content: 'invented' } } }]) "
-        + "} catch (error) { fabricatedRejected = /exactly match/.test(error.message) }",
-      "let fabricatedProvenanceRejected = false; try { research.collection([{ ...manual.items[0], record: "
-        + "{ ...manual.items[0].record, observations: [{ ...manual.items[0].record.observations[0], "
-        + "relay: 'wss://fabricated.example/' }] } }]) "
-        + "} catch (error) { fabricatedProvenanceRejected = /exactly match/.test(error.message) }",
+      "const fabricatedEvent = research.collection([{ ...manual.items[0], "
+        + "record: { event: fixtures[0], observations: [] }, "
+        + "provenance: [{ relay: 'wss://fabricated.example/' }] }]).items[0]",
+      "const fabricatedRejected = fabricatedEvent.record === undefined",
+      "const fabricatedProvenanceRejected = fabricatedEvent.provenance.length === 0",
       "const account = research.accounts({ text: ['unwanted profile'] }).items[0]",
-      "let fabricatedProfileRejected = false; try { research.collection([{ ...account, record: "
-        + "{ ...account.record, profile: { ...account.record.profile, name: 'fabricated profile' } } }]) "
-        + "} catch (error) { fabricatedProfileRejected = /exactly match/.test(error.message) }",
+      "const fabricatedAccount = research.collection([{ ...account, "
+        + "record: { ...account.record, profile: { name: 'fabricated profile' } } }]).items[0]",
+      "const fabricatedProfileRejected = fabricatedAccount.record === undefined",
       "let invalidRejected = 0; for (const operation of [() => research.exclude(manual, true), "
         + "() => research.distinctBy(manual, null), () => research.limitPer(manual, item => item, -1), "
         + "() => research.traverse(manual), () => research.follows()]) "

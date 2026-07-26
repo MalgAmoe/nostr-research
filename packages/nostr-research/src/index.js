@@ -270,8 +270,11 @@ export class InMemoryResearchMemory {
         throw new ResearchMemoryError('Each collection item must be a result item.');
       }
       const normalizedSubject = normalizeSubject(item.subject);
-      if (item.record !== undefined) this.#assertStoredRecord(normalizedSubject, item.record);
-      return { ...cloneJson(item), subject: normalizedSubject };
+      return {
+        subject: normalizedSubject,
+        role: item.role,
+        reasons: cloneJson(item.reasons ?? []),
+      };
     });
     return resultCollection(normalized, context);
   }
@@ -288,7 +291,8 @@ export class InMemoryResearchMemory {
     }
     if (value?.type === 'result-collection') {
       assertResultCollection(value);
-      return cloneJson(value);
+      return resultCollection(value.items.map((item) => this.#resolveCollectionItem(item)),
+        value.context);
     }
     if (value?.collection?.type === 'result-collection') return this.asCollection(value.collection);
     if (Array.isArray(value?.acquiredObservations)) {
@@ -311,6 +315,41 @@ export class InMemoryResearchMemory {
     throw new ResearchMemoryError('Unsupported public result shape.');
   }
 
+  lookup(reference) {
+    this.#assertOpen();
+    const item = this.#resolveTyped(normalizeSubject(reference));
+    if (!['event', 'account'].includes(item.type)) {
+      throw new ResearchMemoryError('Exact lookup supports event and account subjects.');
+    }
+    return resultCollection([this.#resolveCollectionItem({
+      subject: item,
+      reasons: [{ type: 'exact-subject' }],
+    })], { operation: 'exact-subject-lookup' });
+  }
+
+  #resolveCollectionItem(item) {
+    const reference = normalizeSubject(item.subject);
+    let record;
+    if (reference.type === 'event') {
+      record = this.getEvent(reference.id);
+    } else if (reference.type === 'account') {
+      const metadata = this.#currentByKey(reference.id, 0);
+      if (metadata) {
+        record = {
+          profile: parseProfile(metadata.event),
+          metadataEvent: metadata.event,
+          observations: metadata.observations,
+        };
+      }
+    }
+    return {
+      subject: reference,
+      role: item.role,
+      reasons: cloneJson(item.reasons ?? []),
+      ...(record ? { record, provenance: cloneJson(record.observations ?? []) } : {}),
+    };
+  }
+
   resolve(reference, type) {
     this.#assertOpen();
     if (type !== undefined) return this.#resolveTyped({ type, id: reference });
@@ -329,7 +368,11 @@ export class InMemoryResearchMemory {
         ? subject('event', item.id)
         : subject('event', resolveOnePrefix(item.id, [...this.#corpus.records.keys()], 'event ID'));
     }
-    if (item.type === 'account') return this.#resolveAccountSubject(item.id);
+    if (item.type === 'account') {
+      return EVENT_ID.test(item.id)
+        ? subject('account', item.id)
+        : this.#resolveAccountSubject(item.id);
+    }
     if (item.type === 'set') return subject('set', this.getSet(item.id).id);
     return subject(item.type, item.id);
   }
@@ -648,6 +691,20 @@ export class InMemoryResearchMemory {
         relationships: cloneJson(this.#corpus.outbound.get(memberKey(item)) ?? []),
       };
     }
+    if (item.type === 'account') {
+      const metadata = this.#currentByKey(item.id, 0);
+      const evidence = metadata ? {
+        profile: parseProfile(metadata.event),
+        metadataEvent: metadata.event,
+        observations: metadata.observations,
+      } : null;
+      return {
+        subject: item,
+        resident: Boolean(evidence),
+        evidence,
+        provenance: evidence?.observations ?? [],
+      };
+    }
     const collection = this.traverse([item], {
       relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
       direction: 'both', depth: 1, limit: this.#capacity,
@@ -780,7 +837,7 @@ export class InMemoryResearchMemory {
   }
 
   retain(collection, name, options = {}) {
-    assertResultCollection(collection);
+    collection = this.asCollection(collection);
     assertPlainObject(options, 'Retention options');
     const retentionContext = options.reason ? normalizeReason(options.reason) : undefined;
     return this.#createPopulatedSet(name, collection.items
@@ -801,7 +858,8 @@ export class InMemoryResearchMemory {
     if (!['compact', 'full', 'ids', 'ndjson'].includes(mode)) {
       throw new ResearchMemoryError('Projection mode must be compact, full, ids, or ndjson.');
     }
-    const collection = coerceCollection(value);
+    const collection = value?.type === 'result-collection'
+      ? this.asCollection(value) : coerceCollection(value);
     const results = collection.items.map((item) => {
       const reference = item.subject;
       let projection;
@@ -820,10 +878,11 @@ export class InMemoryResearchMemory {
             }) : { type: 'event', id: reference.id, resolved: false };
       } else if (reference.type === 'account') {
         const summary = this.#accountSummary(reference.id, options.excerptLimit ?? 160);
-        const metadata = mode === 'full' ? this.#currentByKey(reference.id, 0) : null;
+        const metadata = this.#currentByKey(reference.id, 0);
         projection = {
-          type: 'account', id: reference.id, ...summary,
-          ...(metadata ? {
+          type: 'account', id: reference.id, resolved: Boolean(metadata), ...summary,
+          ...(mode === 'full' && metadata ? {
+            profile: parseProfile(metadata.event),
             metadataEvent: metadata.event, observations: metadata.observations,
           } : {}),
         };
@@ -863,22 +922,6 @@ export class InMemoryResearchMemory {
       metadataEventId: metadata?.event.id,
       relays: distinctRelays(observations),
     };
-  }
-
-  #assertStoredRecord(item, record) {
-    const canonical = item.type === 'event' ? this.getEvent(item.id)
-      : (() => {
-          const metadata = this.#currentByKey(item.id, 0);
-          return metadata && {
-            profile: parseProfile(metadata.event), metadataEvent: metadata.event,
-            observations: metadata.observations,
-          };
-        })();
-    if (!canonical || stableJson(canonical) !== stableJson(record)) {
-      throw new ResearchMemoryError(
-        'Embedded record must exactly match the canonical record stored in research memory.',
-      );
-    }
   }
 
   describe() {

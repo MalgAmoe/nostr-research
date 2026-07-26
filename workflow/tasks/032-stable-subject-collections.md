@@ -1,6 +1,6 @@
 ---
 id: 032-stable-subject-collections
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/032-stable-subject-collections.validate.sh
 depends_on: 031-production-interface-cleanup

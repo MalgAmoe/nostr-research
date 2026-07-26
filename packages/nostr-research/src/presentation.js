@@ -16,9 +16,7 @@ export function showResearchValue(memory, session, value, options = {}) {
   else if (isSessionDescription(value)) shown = showSession(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
   else if (isResearchSet(value)) shown = showSet(memory, value, settings);
-  else if (isSubject(value?.subject)) shown = showSubject(
-    memory, value.subject, settings, value.record,
-  );
+  else if (isSubject(value?.subject)) shown = showSubject(memory, value.subject, settings);
   else if (isEventRecord(value)) shown = showSubject(memory, {
     type: 'event', id: value.event.id,
   }, settings, value);
@@ -42,7 +40,7 @@ export function facetResearchCollection(memory, value, options = {}) {
   const records = new Map();
   for (const item of collection.items) {
     if (item.subject.type !== 'event' || records.has(item.subject.id)) continue;
-    const record = item.record?.event ? item.record : memory.getEvent(item.subject.id);
+    const record = memory.getEvent(item.subject.id);
     if (record) records.set(item.subject.id, record);
   }
 
@@ -103,7 +101,8 @@ export function facetResearchCollection(memory, value, options = {}) {
 
 function showCollection(memory, collection, settings) {
   const preview = { ...collection, items: collection.items.slice(0, settings.previewLimit) };
-  const projected = memory.project(preview, {
+  const resolved = memory.asCollection(preview);
+  const projected = memory.project(resolved, {
     mode: 'compact',
     excerptLimit: settings.excerptLimit,
     previewLimit: settings.previewLimit,
@@ -114,25 +113,27 @@ function showCollection(memory, collection, settings) {
     preview: projected.results.map((item, index) => ({
       ...compactResult(item),
       ...(settings.includeEvidence
-        ? evidenceDetail(collection.items[index], settings.excerptLimit) : {}),
+        ? evidenceDetail(resolved.items[index], settings.excerptLimit) : {}),
     })),
     omitted: Math.max(0, collection.items.length - preview.items.length),
     context: compactContext(collection.context, collection.items.length),
-    provenance: provenanceSummary(collection.items),
+    provenance: provenanceSummary(resolved.items),
   };
 }
 
-function showSubject(memory, item, settings, suppliedRecord) {
+function showSubject(memory, item, settings) {
   const projected = memory.project(item, {
     mode: 'compact', excerptLimit: settings.excerptLimit, previewLimit: settings.previewLimit,
   }).results[0];
-  const record = suppliedRecord ?? (item.type === 'event' ? memory.getEvent(item.id) : null);
+  const inspected = memory.inspect(item);
+  const record = inspected.evidence;
   return {
     type: item.type,
     id: item.id,
     preview: projected,
-    context: { resolved: projected.resolved !== false },
-    provenance: record?.observations ? provenanceSummary([{ provenance: record.observations }]) : [],
+    resident: inspected.resident,
+    context: { resolved: inspected.resident },
+    provenance: provenanceSummary([{ provenance: inspected.provenance ?? [] }]),
     ...(settings.includeEvidence && record ? { evidence: evidenceDetail({ record }, settings.excerptLimit).evidence } : {}),
   };
 }

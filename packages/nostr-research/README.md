@@ -37,7 +37,8 @@ when a retained event reference no longer has canonical evidence in the
 corpus.
 
 Local operations never contact relays. `select` is the canonical local event
-selection operation. Account resolution, `searchAccounts`, `currentEvent`,
+selection operation. `lookup(subject)` is the direct exact-subject selection
+path for a full event or account identity. Account resolution, `searchAccounts`, `currentEvent`,
 `follows`, `traverse`, `thread`, `project`, facets, sessions, and retained
 selection operations all use the same resident corpus.
 
@@ -154,6 +155,11 @@ It accepts ordinary result collections, retained summaries returned by
 `retain()`, and full retained selections returned by `memory.getSet()`.
 Reactivation restores retained subjects and reasons; an evicted event remains
 an unresolved subject reference and is not recreated.
+Result collections retain stable subject identities, roles, and reasons rather
+than treating embedded canonical records as collection identity. Operations
+resolve current event evidence, account metadata, and provenance from the
+resident corpus. Thus later observations or replacement metadata do not stale
+a collection, while eviction leaves an inspectable nonresident reference.
 The current value is available read-only as `research.activeSelection`.
 `retain(result, name, options)` retains an explicit value, while
 `checkpoint(name, options)` retains the active selection. `summary()` returns

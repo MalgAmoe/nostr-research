@@ -1,0 +1,5 @@
+CHANGES_REQUIRED
+
+1. `showResearchValue()` still presents stale embedded evidence and provenance for collections. In `packages/nostr-research/src/presentation.js:115` and `:119`, evidence and provenance come from the original `collection.items`, even though `memory.project()` re-resolves current records. After new observations or replacement metadata, `show(collection, { includeEvidence: true })` can therefore display stale evidence. Resolve the collection first and use those resolved items consistently.
+
+2. The focused regression at `packages/nostr-research/test/in-memory-memory.functional.test.js:81` does not reproduce the exact duplicate-event Trial 4 failure: it creates a reference-only collection via `memory.collection()` rather than retaining a selected item containing the original embedded snapshot. Change the scenario to select or look up the event before the second observation, then verify collection operations and presentation use the updated record and provenance through eviction.
