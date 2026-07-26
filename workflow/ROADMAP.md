@@ -72,3 +72,29 @@ as an interaction environment. The next milestone is therefore:
 This milestone adds an interactive execution environment around the existing
 algebra. It does not expand the algebra or commit to a browser, Rust,
 persistence, UI, DSL, or concurrency architecture.
+
+The JSONL field trial subsequently showed that the persistent session is a
+sound adapter and lifecycle boundary, but its fixed operation vocabulary does
+not yet replace the exploratory usefulness of the JavaScript console. The
+next queued milestone therefore adds, in order:
+
+1. acquisition-scoped working buffers with concise bounded orientation;
+2. one coherent typed pipeline for neutral collection composition;
+3. selection-driven bounded continuation through Nostr relationships;
+4. bounded research views which expose evidence without interpreting it; and
+5. explicit provisional judgment plus a complete session lifecycle, followed
+   by a no-JavaScript field trial.
+
+The architecture remains:
+
+```text
+canonical corpus
+  -> scoped working buffers
+  -> composable collection operations
+  -> evidence views
+  -> explicit researcher judgment
+  -> bounded continuation
+```
+
+These tasks do not add persistence, UI, automated identity classification,
+universal discovery rules, arbitrary code execution, or a new memory model.
