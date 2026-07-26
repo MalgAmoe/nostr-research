@@ -5,7 +5,6 @@ import {
   createInMemoryResearchMemory,
     subject,
 } from '@nostr-research/memory';
-import { createResearchEnvironment } from '../src/console.js';
 
 const ALICE_KEY = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
 const BOB_KEY = Uint8Array.from(Buffer.from('8'.repeat(64), 'hex'));
@@ -72,7 +71,6 @@ test('mixed ingestion and FIFO eviction leave coherent public indexes and source
 
 test('collections re-resolve stable subjects across observations, replacement metadata, and eviction', () => {
   const memory = createInMemoryResearchMemory({ capacity: 3 });
-  const environment = createResearchEnvironment(memory);
   const note = sign(1, 10, [], 'stable note', ALICE_KEY);
   const oldMetadata = sign(0, 20, [], JSON.stringify({ name: 'old name' }), ALICE_KEY);
   const newMetadata = sign(0, 30, [], JSON.stringify({ name: 'current name' }), ALICE_KEY);
@@ -95,51 +93,21 @@ test('collections re-resolve stable subjects across observations, replacement me
     const currentEvent = memory.project(eventCollection, { mode: 'full' }).results[0];
     assert.equal(currentEvent.observations.length, 2);
     assert.deepEqual(currentEvent.reasons, originalReasons);
-    const shownCurrentEvent = environment.research.show(eventCollection, {
-      includeEvidence: true,
-    });
-    assert.equal(shownCurrentEvent.preview[0].evidence.observationCount, 2);
-    assert.equal(shownCurrentEvent.provenance.observations, 2);
     const currentAccount = memory.project(accountCollection, { mode: 'full' }).results[0];
     assert.equal(currentAccount.profile.name, 'current name');
     assert.equal(currentAccount.metadataEvent.id, newMetadata.id);
-    const shownCurrentAccount = environment.research.show(accountCollection, {
-      includeEvidence: true,
-    });
-    assert.equal(shownCurrentAccount.preview[0].resolved, true);
-    assert.equal(shownCurrentAccount.preview[0].evidence.profile.name, 'current name');
-    assert.equal(shownCurrentAccount.preview[0].evidence.metadataEvent.id, newMetadata.id);
-    const shownCurrentAccountSubject = environment.research.show(subject('account', alice));
-    assert.equal(shownCurrentAccountSubject.resident, true);
-    assert.equal(shownCurrentAccountSubject.preview.resolved, true);
-
     memory.ingest(evictionTrigger, observation);
     assert.equal(memory.inspect(subject('event', note.id)).resident, false);
     const retainedReference = memory.project(eventCollection, { mode: 'full' }).results[0];
     assert.equal(retainedReference.resolved, false);
     assert.deepEqual(retainedReference.reasons, originalReasons);
-    const shownRetainedReference = environment.research.show(eventCollection, {
-      includeEvidence: true,
-    });
-    assert.equal(shownRetainedReference.preview[0].resolved, false);
-    assert.equal(shownRetainedReference.preview[0].evidence.event, undefined);
-    assert.deepEqual(shownRetainedReference.preview[0].evidence.reasons, originalReasons);
-    assert.equal(shownRetainedReference.provenance.observations, 1);
-    assert.equal(environment.research.show(subject('event', note.id)).resident, false);
     assert.equal(memory.lookup(subject('event', note.id)).items[0].record, undefined);
 
     memory.ingest(accountEvictionTrigger, observation);
     memory.ingest(replacementEvictionTrigger, observation);
-    const shownEvictedAccount = environment.research.show(accountCollection, {
-      includeEvidence: true,
-    });
-    assert.equal(shownEvictedAccount.preview[0].resolved, false);
-    assert.equal(shownEvictedAccount.preview[0].evidence.profile, undefined);
-    const shownEvictedAccountSubject = environment.research.show(subject('account', alice));
-    assert.equal(shownEvictedAccountSubject.resident, false);
-    assert.equal(shownEvictedAccountSubject.preview.resolved, false);
+    assert.equal(memory.inspect(subject('account', alice)).resident, false);
   } finally {
-    environment.close();
+    memory.close();
   }
 });
 

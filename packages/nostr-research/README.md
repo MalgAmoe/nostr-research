@@ -8,14 +8,14 @@ all belong to that owner.
 ```js
 import {
   acquireRelayEvents,
+  createDeclarativeResearchSession,
   createInMemoryResearchMemory,
-  createResearchSession,
   expandResearch,
   resolveReplyContexts,
 } from '@nostr-research/memory';
 
 const memory = createInMemoryResearchMemory({ capacity: 500 });
-const session = createResearchSession(memory);
+const session = createDeclarativeResearchSession(memory);
 
 memory.ingest(event, {
   relay: 'wss://relay.example',
@@ -23,8 +23,7 @@ memory.ingest(event, {
 });
 
 const notes = memory.select({ kinds: [1], text: ['nostr'] });
-session.activate(notes);
-memory.close(); // clears all resident state
+await session.close(); // clears all resident state
 ```
 
 `ingest` stores immutable canonical evidence and records each observation.
@@ -235,98 +234,9 @@ each stage result plus a concise `resultKind`. Acquisition and hydration return
 their existing bounded completion reports and never replace an input
 collection, so a later stage can explicitly reuse the pre-hydration account
 stage. The runner infers no topics, exclusions, examples, names, or reasons,
-and does not activate session state or persist plans. A retained plan reason,
+and does not update declarative session handles or persist plans. A retained plan reason,
 when supplied, is an object with a non-empty `type`; invalid plan data is
 rejected before any external stage runs.
-
-## Process-local JavaScript console
-
-```sh
-nostr-research-console --capacity 500
-```
-
-The Node REPL keeps one memory and one explicit active selection alive between
-expressions. Top-level `await` is available. Query and analysis operations
-return values and never replace the active selection: `acquire`, `events`,
-`accounts`, `currentEvent`, `follows`, `expand`, `replyContexts`, `traverse`,
-`connections`, `exclude`, `distinctBy`, `limitPer`, `discoveries`, `facets`, `compare`,
-`inspect`, `project`, `hydrate`, `annotate`, `annotated`, `removeAnnotation`, and `show`.
-`traverse(result, options)` always traverses the supplied
-result without changing active state.
-
-Annotations are process-local interpretations attached to stable subjects. They
-may contain caller-defined labels and a free-text note, or one explicit
-provisional judgment: `interested`, `uninterested`, `uncertain`, or `anchor`.
-A judgment may carry a numeric `strength` from 0 through 1 and a caller-authored
-`reason`. The library assigns no universal status or credibility meaning and
-does not infer or train a classification from these examples.
-`annotated({ judgments, labels, limit })` returns a normal result collection
-that composes with traversal, expansion, retention, projection, and positive or
-negative set constraints.
-
-```js
-const connected = research.connections(seeds, {
-  relationshipTypes: ['follow'],
-  minimumSources: 2,
-});
-await research.hydrate(connected, { relays, kinds: [0] });
-research.annotate(connected.items[0].subject, {
-  judgment: 'interested',
-  strength: 0.8,
-  reason: 'Inspect this account again',
-});
-```
-
-State changes have separate, plainly named operations:
-
-```js
-const notes = research.events({ kinds: [1], text: ['nostr'] });
-const related = research.traverse(notes, {
-  relationshipTypes: ['reply-parent'],
-  direction: 'outbound',
-  depth: 1,
-  limit: 50,
-});
-
-research.activate(related);
-const savedResult = research.retain(notes, 'search result');
-research.activate(savedResult); // retained summary or memory.getSet(savedResult.id)
-const savedActive = research.checkpoint('active investigation');
-```
-
-`activate(result)` is the only operation that replaces the active selection.
-It accepts ordinary result collections, retained summaries returned by
-`retain()`, and full retained selections returned by `memory.getSet()`.
-Reactivation restores retained subjects and reasons; an evicted event remains
-an unresolved subject reference and is not recreated.
-Result collections retain stable subject identities, roles, and reasons rather
-than treating embedded canonical records as collection identity. Operations
-resolve current event evidence, account metadata, and provenance from the
-resident corpus. Thus later observations or replacement metadata do not stale
-a collection, while eviction leaves an inspectable nonresident reference.
-The current value is available read-only as `research.activeSelection`.
-`retain(result, name, options)` retains an explicit value, while
-`checkpoint(name, options)` retains the active selection. `summary()` returns
-one authoritative `corpus` description plus an `activeSelection` summary.
-`inspect(subject)` returns raw orientation and evidence information without
-presentation options. Bounded presentation and detailed evidence options
-belong to `show(value, options)`.
-Compact `show` output summarizes reasons; `show(value, {
-includeEvidence: true })` exposes detailed reasons, provenance, and evidence.
-Collection `show` output also includes a bounded `orientation` projection:
-population by subject type, preview ordering and omission metadata, observation
-freshness, corpus pressure and nonresident subjects, retained memberships,
-top and long-tail facets, and conversation relationship counts. These are
-reproducible descriptions of the supplied result, not rankings or conclusions.
-Membership evidence is reported separately from resident canonical evidence,
-so an account derived from authored notes remains explainable without implying
-that profile metadata is resident. Conversation counts use collection edges
-when available and otherwise use the relationship reasons preserved on members.
-`show(compare(left, right))` reports shared and side-only populations with
-bounded previews for compatible result kinds.
-`research.memory` remains the advanced route; there is no workspace object or
-database option. `.exit` or Ctrl-D cancels active acquisition and closes and
-clears the corpus.
 
 There is deliberately no database format, persistence interface, or reopen
 behavior. Retained selections live only while this memory is open. Calling
@@ -334,7 +244,7 @@ behavior. Retained selections live only while this memory is open. Calling
 A fresh process always starts empty.
 
 Removing the remaining Node dependencies (`node:crypto`, `ws`, and the Node
-test and console infrastructure) is a separate future milestone.
+test infrastructure) is a separate future milestone.
 
 ## JSON Lines session protocol
 
@@ -342,7 +252,8 @@ test and console infrastructure) is a separate future milestone.
 nostr-research-session --capacity 500
 ```
 
-The executable owns one persistent declarative research session. It reads one
+This is the sole product research-session model. The executable owns one
+persistent declarative research session. It reads one
 JSON command from each non-empty UTF-8 line and writes exactly one JSON response
 line to stdout. EOF closes the corpus; `SIGINT` and `SIGTERM` cancel owned
 external work before shutdown. Startup diagnostics use stderr. There are no

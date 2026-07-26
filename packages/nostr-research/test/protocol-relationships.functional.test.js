@@ -5,7 +5,6 @@ import {
   createInMemoryResearchMemory,
     subject,
 } from '@nostr-research/memory';
-import { createResearchEnvironment } from '../src/console.js';
 
 const ALICE_KEY = Uint8Array.from(Buffer.from('1'.repeat(64), 'hex'));
 const BOB_KEY = Uint8Array.from(Buffer.from('2'.repeat(64), 'hex'));
@@ -77,16 +76,15 @@ test('replaceable selection and follow interpretation remain stable in one proce
     }
     assert.equal(memory.follows(carol).items.length, 0);
 
-    const environment = createResearchEnvironment(memory);
     assert.deepEqual(
-      environment.research.follows(alice).items.map(({ subject: item }) => item.id),
+      memory.follows(alice).items.map(({ subject: item }) => item.id),
       [bob, unresolved],
     );
     const seeds = memory.collection([
       { subject: subject('account', alice), reasons: [], provenance: [] },
       { subject: subject('account', bob), reasons: [], provenance: [] },
     ], { operation: 'technical-seeds' });
-    const connections = environment.research.connections(seeds, {
+    const connections = memory.connections(seeds, {
       relationshipTypes: ['follow'],
       minimumSources: 2,
     });
@@ -111,8 +109,6 @@ test('replaceable selection and follow interpretation remain stable in one proce
       memory.follows(alice).items.map(({ subject: item }) => item.id),
       [bob, unresolved],
     );
-    environment.close();
-    memory = null;
   } finally {
     memory?.close();
   }

@@ -154,7 +154,7 @@ export class DeclarativeResearchSession {
     if (command.command === 'show') {
       const entry = this.#requireHandle(command.input);
       const options = projectionOptions(parameters, true);
-      return readOnly(() => showResearchValue(this.#memory, null, entry.value, options));
+      return readOnly(() => showResearchValue(this.#memory, entry.value, options));
     }
     if (command.command === 'inspect') {
       const { subject, ...rawOptions } = parameters;
@@ -162,9 +162,7 @@ export class DeclarativeResearchSession {
         throw protocolError('INVALID_COMMAND', 'inspect does not accept an input handle.');
       }
       const options = projectionOptions(rawOptions);
-      return readOnly(() => showResearchValue(
-        this.#memory, null, this.#memory.inspect(subject), options,
-      ));
+      return readOnly(() => showResearchValue(this.#memory, this.#memory.inspect(subject), options));
     }
     if (command.command === 'explain') {
       const entry = this.#requireHandle(command.input);
@@ -610,7 +608,7 @@ function presentResult(result, id, descriptor, revision, operation, memory) {
 function externalPresentation(result, operation, memory) {
   return {
     external: externalStatus(result, operation, memory),
-    preview: showResearchValue(memory, null, result.collection, {
+    preview: showResearchValue(memory, result.collection, {
       previewLimit: 5, excerptLimit: 160, sizeLimit: 8_000,
     }),
     facets: facetResearchCollection(memory, result.collection, { limit: 5 }),

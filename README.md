@@ -4,31 +4,23 @@ This repository develops Nostr research and navigation as a composable,
 UI-independent library.
 
 ```text
-packages/nostr-research/    UI-independent research library and JS console
+packages/nostr-research/    UI-independent research library and JSONL session
 workflow/                   Persistent rebuild workflow
 docs/                       Project decisions and supporting material
 ```
 
-## Run the research console
+## Run a research session
 
-The JavaScript console exposes the library directly, so research
-operations remain composable without building a second command vocabulary:
+The JSON Lines executable owns one persistent declarative research session:
 
 ```sh
-npm run research-console -- --capacity 1000
+npm run research-session -- --capacity 1000
 ```
 
-The console keeps one bounded, process-local research corpus in memory and
-makes acquisition, search, expansion, inspection, filtering, and retention
-available as JavaScript operations. It also supports profile hydration,
-connection aggregation, and caller-defined annotations without assigning
-universal meaning to an account or selection.
-
-Results do not implicitly replace the active selection:
-`research.activate(result)` is the sole activation operation, while
-`retain(result, name)` and `checkpoint(name)` separately retain an explicit
-result or the active selection. Persistence and a database format are
-deliberately absent: closing or resetting the corpus, or exiting the process,
-loses all resident evidence, annotations, and retained selections. Acquisition
-attempt coverage is returned to its caller and is not stored as global
-history. See the package README for the console bindings and examples.
+It reads one JSON command per line and writes one correlated JSON response per
+line. Named result handles make acquisition, local selection, continuation,
+inspection, transformation, annotation, and retention composable without an
+implicit current selection. Persistence and a database format are deliberately
+absent: closing or resetting the session, or exiting the process, loses all
+resident evidence, annotations, handles, and retained selections. See the
+package README for the command protocol and examples.

@@ -2724,7 +2724,6 @@ export {
 export { expandResearch } from './expansion.js';
 export { continueResearch } from './continuation.js';
 export { resolveReplyContexts } from './reply-contexts.js';
-export { createResearchSession, ResearchSession } from './session.js';
 export { executeResearchPlan } from './plan.js';
 export {
   createDeclarativeResearchSession,

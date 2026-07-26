@@ -1,6 +1,6 @@
 ---
 id: 045-remove-superseded-research-interfaces
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/045-remove-superseded-research-interfaces.validate.sh
 depends_on: 044-heterogeneous-continuation-presentation

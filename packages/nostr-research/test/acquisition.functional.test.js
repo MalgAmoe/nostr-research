@@ -18,7 +18,6 @@ import {
   resolveReplyContexts,
   subject,
 } from '@nostr-research/memory';
-import { createResearchEnvironment } from '../src/console.js';
 import { loadFixtureEvents } from '../test-support/fixtures.js';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -721,9 +720,8 @@ test('acquisition rejects unusable public inputs before networking', async () =>
   }
 });
 
-test('console expansion rejects invalid bounds and semantics before networking', async () => {
+test('expansion and reply contexts reject invalid bounds and semantics before networking', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 2 });
-  const environment = createResearchEnvironment(memory);
   const selection = memory.collection([], { operation: 'empty-start' });
   try {
     const valid = {
@@ -731,31 +729,31 @@ test('console expansion rejects invalid bounds and semantics before networking',
       relationshipTypes: ['quoted-event'],
     };
     await assert.rejects(
-      environment.research.expand(selection, { ...valid, surprise: true }),
+      expandResearch(memory, selection, { ...valid, surprise: true }),
       /Unknown expansion options/,
     );
     await assert.rejects(
-      environment.research.expand(selection, { ...valid, relays: [] }),
+      expandResearch(memory, selection, { ...valid, relays: [] }),
       /at least one explicit/,
     );
     await assert.rejects(
-      environment.research.expand(selection, { ...valid, relationshipTypes: ['recommends'] }),
+      expandResearch(memory, selection, { ...valid, relationshipTypes: ['recommends'] }),
       /Unsupported expansion relationship types/,
     );
     await assert.rejects(
-      environment.research.expand(selection, { ...valid, observationLimit: 0 }),
+      expandResearch(memory, selection, { ...valid, observationLimit: 0 }),
       /observationLimit must be a positive integer/,
     );
     await assert.rejects(
-      environment.research.expand(selection, { ...valid, authoredLimit: 0 }),
+      expandResearch(memory, selection, { ...valid, authoredLimit: 0 }),
       /authoredLimit must be a positive integer/,
     );
     await assert.rejects(
-      environment.research.expand(selection, { ...valid, authoredLimit: 2 }),
+      expandResearch(memory, selection, { ...valid, authoredLimit: 2 }),
       /requires the "author" relationship/,
     );
     await assert.rejects(
-      environment.research.expand(selection, {
+      expandResearch(memory, selection, {
         ...valid,
         relationshipTypes: ['author'],
         direction: 'outbound',
@@ -764,7 +762,7 @@ test('console expansion rejects invalid bounds and semantics before networking',
       /requires an inbound-capable direction/,
     );
     await assert.rejects(
-      environment.research.expand(selection, { ...valid, signal: {} }),
+      expandResearch(memory, selection, { ...valid, signal: {} }),
       {
         name: 'ResearchMemoryError',
         message: 'Expansion signal must be an AbortSignal.',
@@ -773,29 +771,29 @@ test('console expansion rejects invalid bounds and semantics before networking',
     const account = subject('account', '1'.repeat(64));
     const replyOptions = { relays: ['wss://relay.example/'] };
     await assert.rejects(
-      environment.research.replyContexts([account], { ...replyOptions, parentLimit: 0 }),
+      resolveReplyContexts(memory, [account], { ...replyOptions, parentLimit: 0 }),
       /parentLimit must be a positive integer/,
     );
     await assert.rejects(
-      environment.research.replyContexts([account], { ...replyOptions, observationLimit: 0 }),
+      resolveReplyContexts(memory, [account], { ...replyOptions, observationLimit: 0 }),
       /observationLimit must be a positive integer/,
     );
     await assert.rejects(
-      environment.research.replyContexts([subject('event', '2'.repeat(64))], replyOptions),
+      resolveReplyContexts(memory, [subject('event', '2'.repeat(64))], replyOptions),
       /explicit account subjects only/,
     );
     await assert.rejects(
-      environment.research.replyContexts([account], {
+      resolveReplyContexts(memory, [account], {
         ...replyOptions, relays: ['ws://relay.example/'],
       }),
       /explicit wss/,
     );
     await assert.rejects(
-      environment.research.replyContexts([account], { ...replyOptions, surprise: true }),
+      resolveReplyContexts(memory, [account], { ...replyOptions, surprise: true }),
       /Unknown reply-context options/,
     );
   } finally {
-    environment.close();
+    memory.close();
   }
 });
 
@@ -839,8 +837,6 @@ test('authored-note expansion samples only explicit account starts within per-ac
     });
   }, context.directory);
   const unavailablePort = await reserveClosedPort();
-  const environment = createResearchEnvironment(context.memory);
-
   try {
     const singleStart = accountCollection(context.memory, [alice]);
     const single = await expandResearch(
@@ -874,8 +870,7 @@ test('authored-note expansion samples only explicit account starts within per-ac
       { subject: subject('account', alice) },
       { subject: subject('account', bob) },
     ], { operation: 'explicit-account-starts' });
-    const sessionBefore = environment.research.activeSelection.items.map((item) => item.subject);
-    const expanded = await environment.research.expand(starts, {
+    const expanded = await expandResearch(context.memory, starts, {
       relays: [relay.url, `wss://127.0.0.1:${unavailablePort}/`],
       relationshipTypes: ['author', 'mentioned-account'],
       direction: 'both',
@@ -926,19 +921,12 @@ test('authored-note expansion samples only explicit account starts within per-ac
     )), 'the mentioned non-starting account is discoverable');
     assert.equal(expanded.context.expansion.options.authoredLimit, 2);
     assert.ok(expanded.context.expansion.counts.acceptedObservations <= 10);
-    assert.deepEqual(
-      environment.research.activeSelection.items.map((item) => item.subject),
-      sessionBefore,
-      'authored expansion does not mutate session selection',
-    );
-
-    const retained = environment.research.retain(expanded, 'bounded authored samples');
+    const retained = context.memory.retain(expanded, 'bounded authored samples');
     const saved = context.memory.getSet(retained.id);
     assert.equal(saved.members.filter(({ type }) => type === 'event').length >= 4, true);
     assert.ok(sampledNotes.every(({ subject: item }) => context.memory.getEvent(item.id)));
   } finally {
     await relay.close();
-    environment.close();
     context.close();
   }
 });
@@ -1164,15 +1152,12 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
     });
   }, context.directory);
   const unavailablePort = await reserveClosedPort();
-  const environment = createResearchEnvironment(context.memory);
-
   try {
     const starts = context.memory.collection([
       { subject: subject('account', author) },
       { subject: subject('account', author) },
     ], { operation: 'explicit-accounts' });
-    const sessionBefore = environment.research.activeSelection;
-    const result = await environment.research.replyContexts(starts, {
+    const result = await resolveReplyContexts(context.memory, starts, {
       relays: [relay.url, `wss://127.0.0.1:${unavailablePort}/`],
       authoredLimit: 6,
       parentLimit: 2,
@@ -1187,7 +1172,6 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
       result.report.authoredNoteCount <= context.memory.describe().capacity,
       'reply resolution uses the bounded resident corpus',
     );
-    assert.deepEqual(environment.research.activeSelection, sessionBefore);
     assert.ok(result.contexts.every(({ reply }) => reply.record.event.pubkey === author));
     assert.ok(!result.contexts.some(({ reply }) => reply.subject.id === notReply.id));
     assert.equal(
@@ -1283,12 +1267,11 @@ test('bounded reply contexts resolve direct NIP-10 parents with provenance and e
       .every((filter) => filter.limit <= 6));
   } finally {
     await relay.close();
-    environment.close();
     context.close();
   }
 });
 
-test('console expansion performs bounded targeted multi-hop acquisition', async (t) => {
+test('exported expansion performs bounded targeted multi-hop acquisition', async (t) => {
   if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
   const context = createCorpusContext(8);
   const aliceKey = Uint8Array.from(Buffer.from('4'.repeat(64), 'hex'));
@@ -1324,12 +1307,9 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
     });
   }, context.directory);
   const unavailablePort = await reserveClosedPort();
-  const environment = createResearchEnvironment(context.memory);
-
   try {
-    const sessionBefore = environment.research.activeSelection.items.map(({ subject: item }) => item);
     const starting = context.memory.select({ ids: [seed.id] });
-    const expanded = await environment.research.expand(starting, {
+    const expanded = await expandResearch(context.memory, starting, {
       relays: [relay.url, `wss://127.0.0.1:${unavailablePort}/`],
       relationshipTypes: ['quoted-event', 'reply-parent', 'author'],
       direction: 'both',
@@ -1351,12 +1331,6 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
     assert.ok(expanded.items.some((item) => item.provenance.some(({ relay: source }) => (
       source === relay.url
     ))));
-    assert.deepEqual(
-      environment.research.activeSelection.items.map(({ subject: item }) => item),
-      sessionBefore,
-      'explicit expansion does not mutate the session selection',
-    );
-
     const report = expanded.context.expansion;
     assert.equal(report.options.observationLimit, 10);
     assert.ok(report.requestCount >= 3);
@@ -1383,13 +1357,12 @@ test('console expansion performs bounded targeted multi-hop acquisition', async 
       && filter.limit === filter.authors.length
     )), 'profile acquisition requests one current candidate per account');
 
-    const retained = environment.research.retain(expanded, 'expanded evidence');
+    const retained = context.memory.retain(expanded, 'expanded evidence');
     const saved = context.memory.getSet(retained.id);
     assert.ok(saved.members.some((item) => item.id === secondHop.id));
     assert.equal(context.memory.getEvent(profile.id).event.pubkey, bob);
   } finally {
     await relay.close();
-    environment.close();
     context.close();
   }
 });

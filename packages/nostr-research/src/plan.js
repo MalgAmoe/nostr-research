@@ -23,8 +23,8 @@ const SET_TRANSFORMS = new Set(['union', 'intersection', 'difference', 'compare'
  * Executes a linear, JSON-serializable list of named research stages.
  *
  * Results stay available by stage ID for explicit reuse. The runner supplies
- * no judgments, performs no implicit acquisition, and does not activate a
- * session selection.
+ * no judgments, performs no implicit acquisition, and does not update a
+ * declarative session handle.
  */
 export async function executeResearchPlan(memory, plan, execution = {}) {
   if (!memory || typeof memory.asCollection !== 'function') {

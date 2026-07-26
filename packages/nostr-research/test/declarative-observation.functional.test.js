@@ -330,17 +330,17 @@ test('declarative judgments and retained selections survive explicit workspace l
   });
   const invalidEmptyRetention = await session.execute({
     commandId: 'retain-empty-invalid', command: 'retain', input: 'empty',
-    parameters: { name: 'invalid empty checkpoint', callback: '() => process.exit()' },
+    parameters: { name: 'invalid empty selection', callback: '() => process.exit()' },
   });
   assert.equal(invalidEmptyRetention.error.code, 'INVALID_OPERATION');
   const refusedEmptyRetention = await session.execute({
     commandId: 'retain-empty', command: 'retain', input: 'empty',
-    parameters: { name: 'deliberately empty checkpoint' },
+    parameters: { name: 'deliberately empty selection' },
   });
   assert.equal(refusedEmptyRetention.error.code, 'EMPTY_RESULT');
   const emptyRetention = await session.execute({
     commandId: 'retain-empty-explicitly', command: 'retain', input: 'empty',
-    parameters: { name: 'deliberately empty checkpoint', allowEmpty: true },
+    parameters: { name: 'deliberately empty selection', allowEmpty: true },
   });
   assert.match(emptyRetention.warnings[0], /retained selection is empty/i);
 

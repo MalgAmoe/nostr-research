@@ -7,7 +7,7 @@ const MAX_SIZE_LIMIT = 50_000;
 const DEFAULT_FACET_LIMIT = 10;
 const MAX_FACET_LIMIT = 50;
 
-export function showResearchValue(memory, session, value, options = {}) {
+export function showResearchValue(memory, value, options = {}) {
   const settings = inspectionOptions(options);
   let shown;
 
@@ -20,7 +20,6 @@ export function showResearchValue(memory, session, value, options = {}) {
   else if (value?.type === 'typed-collection') shown = showTypedCollection(memory, value, settings);
   else if (value?.type === 'facets') shown = showFacets(value, settings);
   else if (value?.type === 'result-comparison') shown = showComparison(memory, value, settings);
-  else if (isSessionDescription(value)) shown = showSession(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
   else if (isResearchSet(value)) shown = showSet(memory, value, settings);
   else if (isSubject(value?.subject)) shown = showSubject(memory, value.subject, settings);
@@ -35,8 +34,7 @@ export function showResearchValue(memory, session, value, options = {}) {
   }, settings, value);
   else if (isSubject(value)) shown = showSubject(memory, value, settings);
   else if (value === memory) shown = showCorpus(memory.describe());
-  else if (value === session) shown = showSession(memory, session.describe(), settings);
-  else throw new TypeError('research.show does not recognize this value.');
+  else throw new TypeError('show does not recognize this value.');
 
   return enforceSize(shown, settings.sizeLimit);
 }
@@ -414,16 +412,6 @@ function showCorpus(value) {
   };
 }
 
-function showSession(memory, value, settings) {
-  return {
-    type: 'session-description',
-    count: value.selection.items.length,
-    preview: showCollection(memory, value.selection, settings).preview,
-    context: { action: value.action },
-    provenance: [],
-  };
-}
-
 function showAcquisition(memory, value, settings) {
   const distinctEvents = new Set((value.acquiredObservations ?? []).map((item) => item.eventId)).size;
   const corpusChanges = acquisitionCorpusAccounting(value.additions);
@@ -484,7 +472,7 @@ function showPlanReport(memory, value, settings) {
       id: stage.id,
       operation: stage.operation,
       resultKind: stage.resultKind,
-      result: showResearchValue(memory, null, stage.result, {
+      result: showResearchValue(memory, stage.result, {
         mode: 'summary',
         previewLimit: settings.previewLimit,
         excerptLimit: settings.excerptLimit,
@@ -982,9 +970,4 @@ function isResearchSet(value) {
 function isCorpusSummary(value) {
   return value && Number.isInteger(value.capacity) && Number.isInteger(value.eventCount)
     && Number.isInteger(value.remainingCapacity);
-}
-
-function isSessionDescription(value) {
-  return value && value.selection?.type === 'result-collection'
-    && value.action && typeof value.action.type === 'string';
 }

@@ -8,7 +8,6 @@
   "scripts": {
     "test": "npm test --workspace packages/nostr-research",
     "check": "npm run check --workspace packages/nostr-research",
-    "research-console": "node packages/nostr-research/bin/nostr-research-console.js",
     "research-session": "node packages/nostr-research/bin/nostr-research-session.js"
   }
 }
