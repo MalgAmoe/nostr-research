@@ -1,4 +1,4 @@
-import { ResearchMemoryError, subject } from './index.js';
+import { ResearchMemoryError } from './index.js';
 
 export function createResearchSession(memory, initial = undefined) {
   if (!memory || typeof memory.asCollection !== 'function') {
@@ -67,22 +67,7 @@ function initialCollection(memory, initial) {
   if (initial === undefined || initial === null) {
     return memory.collection([], { operation: 'session-empty' });
   }
-  if (initial.type === 'set' || isPublicResearchSet(initial)) {
-    const retained = memory.getSet(initial.id);
-    return memory.collection(retained.members.map((item) => ({
-      subject: subject(item.type, item.id),
-      reasons: item.reasons,
-      provenance: [],
-    })), { operation: 'retained-selection', setId: initial.id });
-  }
   return memory.asCollection(initial);
-}
-
-function isPublicResearchSet(value) {
-  return value && typeof value === 'object'
-    && typeof value.id === 'string'
-    && typeof value.name === 'string'
-    && typeof value.createdAt === 'string';
 }
 
 function action(type, details = {}) {

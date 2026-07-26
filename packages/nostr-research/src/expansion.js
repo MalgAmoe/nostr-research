@@ -35,7 +35,7 @@ export async function expandResearch(memory, selection, options) {
   const requestedAuthoredAccounts = new Set();
   const requests = [];
   const totals = {
-    receivedPackets: 0, invalid: 0, acceptedObservations: 0,
+    receivedPackets: 0, invalid: 0, nonMatching: 0, acceptedObservations: 0,
     duplicateObservations: 0, newlyStoredCorpusEvents: 0,
     distinctEventsAcquired: 0,
   };
@@ -71,8 +71,8 @@ export async function expandResearch(memory, selection, options) {
       request.observationLimit ?? remainingObservations,
     );
     const requestDistinctEventLimit = Math.min(
-      remainingDistinctEvents,
-      request.distinctEventLimit ?? remainingDistinctEvents,
+      normalized.distinctEventLimit,
+      request.distinctEventLimit ?? normalized.distinctEventLimit,
     );
     const requestFilterLimit = Math.min(
       requestObservationLimit,
@@ -91,9 +91,13 @@ export async function expandResearch(memory, selection, options) {
       concurrency: normalized.concurrency,
       signal: normalized.signal,
       preserve: protectedEvents,
+    }, {
+      eventIds: operationEventIds,
+      distinctEventLimit: normalized.distinctEventLimit,
     });
     for (const key of [
-      'receivedPackets', 'invalid', 'acceptedObservations', 'newlyStoredCorpusEvents',
+      'receivedPackets', 'invalid', 'nonMatching', 'acceptedObservations',
+      'newlyStoredCorpusEvents',
     ]) totals[key] += result.counts[key];
     result.acquiredEventIds.forEach((id) => operationEventIds.add(id));
     totals.distinctEventsAcquired = operationEventIds.size;

@@ -12,7 +12,7 @@ export async function resolveReplyContexts(memory, accounts, options) {
   const startedAt = Date.now();
   const requests = [];
   const totals = {
-    receivedPackets: 0, invalid: 0, acceptedObservations: 0,
+    receivedPackets: 0, invalid: 0, nonMatching: 0, acceptedObservations: 0,
     duplicateObservations: 0, newlyStoredCorpusEvents: 0,
     distinctEventsAcquired: 0,
   };
@@ -41,8 +41,8 @@ export async function resolveReplyContexts(memory, accounts, options) {
       details.observationLimit ?? remainingObservations,
     );
     const requestDistinctEventLimit = Math.min(
-      remainingDistinctEvents,
-      details.distinctEventLimit ?? remainingDistinctEvents,
+      normalized.distinctEventLimit,
+      details.distinctEventLimit ?? normalized.distinctEventLimit,
     );
     const boundedFilter = {
       ...filter,
@@ -56,9 +56,13 @@ export async function resolveReplyContexts(memory, accounts, options) {
       distinctEventLimit: requestDistinctEventLimit,
       concurrency: normalized.concurrency,
       signal: normalized.signal,
+    }, {
+      eventIds: operationEventIds,
+      distinctEventLimit: normalized.distinctEventLimit,
     });
     for (const key of [
-      'receivedPackets', 'invalid', 'acceptedObservations', 'newlyStoredCorpusEvents',
+      'receivedPackets', 'invalid', 'nonMatching', 'acceptedObservations',
+      'newlyStoredCorpusEvents',
     ]) totals[key] += result.counts[key];
     result.acquiredEventIds.forEach((id) => operationEventIds.add(id));
     totals.distinctEventsAcquired = operationEventIds.size;

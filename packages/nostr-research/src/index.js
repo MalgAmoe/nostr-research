@@ -278,6 +278,14 @@ export class InMemoryResearchMemory {
 
   asCollection(value) {
     this.#assertOpen();
+    if (value?.type === 'set' || isPublicResearchSet(value)) {
+      const retained = this.getSet(value.id);
+      return resultCollection(retained.members.map((item) => ({
+        subject: subject(item.type, item.id),
+        reasons: item.reasons,
+        provenance: [],
+      })), { operation: 'retained-selection', setId: retained.id });
+    }
     if (value?.type === 'result-collection') {
       assertResultCollection(value);
       return cloneJson(value);
@@ -1303,6 +1311,13 @@ function cloneJson(value) {
   } catch {
     throw new ResearchMemoryError('Research records must contain JSON-serializable public data.');
   }
+}
+
+function isPublicResearchSet(value) {
+  return value && typeof value === 'object'
+    && typeof value.id === 'string'
+    && typeof value.name === 'string'
+    && typeof value.createdAt === 'string';
 }
 
 function stableJson(value) {

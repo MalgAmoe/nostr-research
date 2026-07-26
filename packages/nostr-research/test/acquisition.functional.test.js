@@ -58,6 +58,7 @@ test('public acquisition handles NIP-01 outcomes, validation, deduplication, pro
     assert.deepEqual(result.counts, {
       receivedPackets: 3,
       invalid: 1,
+      nonMatching: 0,
       acceptedObservations: 2,
       duplicateObservations: 1,
       newlyStoredCorpusEvents: 1,
@@ -186,6 +187,7 @@ test('distinct-event budget ignores duplicate observations while observation bud
     assert.deepEqual(distinctBounded.counts, {
       receivedPackets: 3,
       invalid: 0,
+      nonMatching: 0,
       acceptedObservations: 3,
       duplicateObservations: 1,
       newlyStoredCorpusEvents: 2,
@@ -232,6 +234,44 @@ test('distinct-event budget ignores duplicate observations while observation bud
       equalBudgetExpansion.context.expansion.boundedBy.distinctEventBudget,
       false,
     );
+  } finally {
+    await relay.close();
+    context.close();
+  }
+});
+
+test('canonical relay events outside the requested filter are diagnosed without ingestion', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createContext();
+  const key = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
+  const matching = finalizeEvent({
+    kind: 1, created_at: 20, tags: [['t', 'research']], content: 'matching',
+  }, key);
+  const nonMatching = finalizeEvent({
+    kind: 0, created_at: 20, tags: [['t', 'research']], content: '{}',
+  }, key);
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send) => {
+      send(['EVENT', subscriptionId, nonMatching]);
+      send(['EVENT', subscriptionId, matching]);
+      send(['EOSE', subscriptionId]);
+    });
+  }, context.directory);
+  try {
+    const result = await acquireRelayEvents(context.memory, {
+      relays: [relay.url],
+      filter: { kinds: [1], '#t': ['research'], since: 20, until: 20 },
+      timeoutMs: 2_000,
+      observationLimit: 1,
+      distinctEventLimit: 1,
+    });
+    assert.equal(result.counts.receivedPackets, 2);
+    assert.equal(result.counts.nonMatching, 1);
+    assert.equal(result.relays[0].nonMatching, 1);
+    assert.equal(result.counts.acceptedObservations, 1);
+    assert.deepEqual(result.acquiredEventIds, [matching.id]);
+    assert.equal(context.memory.getEvent(nonMatching.id), null);
+    assert.deepEqual(result.coverage.observedEvents.map(({ eventId }) => eventId), [matching.id]);
   } finally {
     await relay.close();
     context.close();
@@ -298,6 +338,18 @@ test('acquisition rejects unusable public inputs before networking', async () =>
     await assert.rejects(
       acquireRelayEvents(context.memory, { relays: ['wss://localhost:1'], filter: { nope: true } }),
       ResearchMemoryError,
+    );
+    await assert.rejects(
+      acquireRelayEvents(context.memory, {
+        relays: ['wss://localhost:1'], filter: {}, eventLimit: 1,
+      }),
+      /Unknown acquisition options: eventLimit/,
+    );
+    await assert.rejects(
+      acquireRelayEvents(context.memory, {
+        relays: ['wss://localhost:1'], filter: {}, distinctEventLmit: 1,
+      }),
+      /Unknown acquisition options: distinctEventLmit/,
     );
   } finally {
     context.close();
@@ -602,6 +654,64 @@ test('authored-note expansion obeys the complete operation budget and stays disa
       )).length,
       authoredFiltersBeforeDefaultExpansion,
       'omitting authoredLimit sends no authored-note acquisition request',
+    );
+  } finally {
+    await relay.close();
+    context.close();
+  }
+});
+
+test('expansion reuses distinct capacity when a later request repeats an earlier event', async (t) => {
+  if (!loopbackAvailable) return t.skip('sandbox forbids loopback listeners');
+  const context = createCorpusContext(10);
+  const authorKey = Uint8Array.from(Buffer.from('1'.repeat(64), 'hex'));
+  const otherKey = Uint8Array.from(Buffer.from('2'.repeat(64), 'hex'));
+  const author = getPublicKey(authorKey);
+  const seed = finalizeEvent({
+    kind: 1, created_at: 10, tags: [], content: 'seed',
+  }, otherKey);
+  const repeated = finalizeEvent({
+    kind: 1, created_at: 20, tags: [['e', seed.id, '', 'reply']], content: 'first',
+  }, authorKey);
+  const genuinelyNew = finalizeEvent({
+    kind: 1, created_at: 21, tags: [['e', seed.id, '', 'reply']], content: 'second',
+  }, otherKey);
+  context.memory.ingest(seed, {
+    relay: 'wss://seed.example/', observedAt: '2026-07-26T00:00:00.000Z',
+  });
+  const relay = await startRelay((connection) => {
+    connection.onRequest((subscriptionId, send, filter) => {
+      if (filter.authors?.includes(author)) {
+        send(['EVENT', subscriptionId, repeated]);
+      } else if (filter['#e']?.includes(seed.id)) {
+        send(['EVENT', subscriptionId, repeated]);
+        send(['EVENT', subscriptionId, genuinelyNew]);
+      }
+      send(['EOSE', subscriptionId]);
+    });
+  }, context.directory);
+  try {
+    const starts = context.memory.collection([
+      { subject: subject('account', author) },
+      { subject: subject('event', seed.id), record: context.memory.getEvent(seed.id) },
+    ], { operation: 'overlapping-expansion-starts' });
+    const expanded = await expandResearch(context.memory, starts, {
+      relays: [relay.url],
+      relationshipTypes: ['author', 'reply-parent'],
+      direction: 'both',
+      authoredLimit: 1,
+      depth: 1,
+      limit: 10,
+      timeoutMs: 2_000,
+      observationLimit: 4,
+      distinctEventLimit: 2,
+    });
+    assert.equal(expanded.context.expansion.counts.distinctEventsAcquired, 2);
+    assert.ok(context.memory.getEvent(genuinelyNew.id));
+    assert.deepEqual(
+      expanded.context.expansion.requests.map(({ counts }) => counts.distinctEventsAcquired),
+      [1, 2],
+      'each request retains its own distinct count while the aggregate deduplicates IDs',
     );
   } finally {
     await relay.close();

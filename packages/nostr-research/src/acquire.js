@@ -1,5 +1,11 @@
 import { isCanonicalNostrEvent, ResearchMemoryError } from './index.js';
+import { matchFilter } from 'nostr-tools';
 import WebSocket from 'ws';
+
+const OPTION_KEYS = new Set([
+  'relays', 'filter', 'timeoutMs', 'observationLimit', 'distinctEventLimit',
+  'concurrency', 'signal', 'preserve',
+]);
 
 export const DEFAULT_ACQUISITION_TIMEOUT_MS = 10_000;
 export const DEFAULT_ACQUISITION_OBSERVATION_LIMIT = 100;
@@ -11,7 +17,7 @@ export const DEFAULT_RELAY_CONCURRENCY = 4;
  * process-local research corpus. Observation and distinct-event budgets are
  * both enforced operation-wide across all relays.
  */
-export async function acquireRelayEvents(memory, options) {
+export async function acquireRelayEvents(memory, options, composedBudget = undefined) {
   if (!memory || typeof memory.ingest !== 'function') {
     throw new ResearchMemoryError('An open research memory is required.');
   }
@@ -24,6 +30,7 @@ export async function acquireRelayEvents(memory, options) {
     outcome: 'pending',
     receivedPackets: 0,
     invalid: 0,
+    nonMatching: 0,
     duplicateObservations: 0,
     newlyStoredCorpusEvents: 0,
     acceptedObservations: 0,
@@ -33,6 +40,7 @@ export async function acquireRelayEvents(memory, options) {
   const counts = {
     receivedPackets: 0,
     invalid: 0,
+    nonMatching: 0,
     acceptedObservations: 0,
     duplicateObservations: 0,
     newlyStoredCorpusEvents: 0,
@@ -41,6 +49,13 @@ export async function acquireRelayEvents(memory, options) {
   const acquiredEventIds = [];
   const acquiredObservations = new Map();
   const acquiredIds = new Set();
+  const budgetEventIds = composedBudget?.eventIds ?? new Set();
+  const composedDistinctEventLimit = composedBudget?.distinctEventLimit
+    ?? normalized.distinctEventLimit;
+  if (!(budgetEventIds instanceof Set)) {
+    throw new ResearchMemoryError('Composed acquisition event IDs must be a Set.');
+  }
+  positiveInteger(composedDistinctEventLimit, 'Composed distinctEventLimit');
   const additions = { added: [], refreshed: [], evicted: [] };
   const sockets = new Set();
   let stopReason = null;
@@ -115,14 +130,21 @@ export async function acquireRelayEvents(memory, options) {
             counts.invalid += 1;
             return;
           }
+          if (!matchFilter(normalized.filter, event)) {
+            relayResult.nonMatching += 1;
+            counts.nonMatching += 1;
+            return;
+          }
           // This check and ingest are synchronous, so concurrent socket
           // callbacks cannot exceed the shared operation-wide limit.
           if (counts.acceptedObservations >= normalized.observationLimit) {
             return stop('observation-budget');
           }
           const alreadyAcquired = acquiredIds.has(event.id);
-          if (!alreadyAcquired
-              && counts.distinctEventsAcquired >= normalized.distinctEventLimit) {
+          const alreadyCountedForBudget = budgetEventIds.has(event.id);
+          if (!alreadyCountedForBudget
+              && (budgetEventIds.size >= composedDistinctEventLimit
+                || counts.distinctEventsAcquired >= normalized.distinctEventLimit)) {
             return stop('distinct-event-budget');
           }
           const ingested = memory.ingest(
@@ -146,13 +168,15 @@ export async function acquireRelayEvents(memory, options) {
           }
           if (!alreadyAcquired) {
             acquiredIds.add(event.id);
+            budgetEventIds.add(event.id);
             acquiredEventIds.push(event.id);
             relayResult.distinctEventsAcquired += 1;
             counts.distinctEventsAcquired += 1;
           }
           if (counts.acceptedObservations >= normalized.observationLimit) {
             stop('observation-budget');
-          } else if (counts.distinctEventsAcquired >= normalized.distinctEventLimit) {
+          } else if (budgetEventIds.size >= composedDistinctEventLimit
+              || counts.distinctEventsAcquired >= normalized.distinctEventLimit) {
             stop('distinct-event-budget');
           }
         } else if (packet[0] === 'EOSE') {
@@ -276,6 +300,10 @@ function finishSocket(socket, subscriptionId, onClosed) {
 function normalizeOptions(options) {
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
     throw new ResearchMemoryError('Acquisition options are required.');
+  }
+  const unknown = Object.keys(options).filter((key) => !OPTION_KEYS.has(key));
+  if (unknown.length) {
+    throw new ResearchMemoryError(`Unknown acquisition options: ${unknown.join(', ')}.`);
   }
   if (!Array.isArray(options.relays) || options.relays.length === 0) {
     throw new ResearchMemoryError('At least one explicit wss:// relay is required.');

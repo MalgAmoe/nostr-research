@@ -57,10 +57,13 @@ const acquired = await acquireRelayEvents(memory, {
 The observation limit bounds accepted valid `EVENT` messages across all
 relays; the distinct-event limit bounds unique canonical event IDs. Duplicate
 relay observations consume only the observation budget. The result reports
-received packets, accepted and duplicate observations, distinct acquired
-events, newly stored corpus events, the stopping bound, provenance, complete
-attempt coverage, and corpus changes. Attempt coverage is returned directly;
-the corpus does not keep a global acquisition history.
+received packets, invalid events, canonical events that did not match the
+exact requested NIP-01 filter, accepted and duplicate observations, distinct
+acquired events, newly stored corpus events, the stopping bound, provenance,
+complete attempt coverage, and corpus changes. Non-matching events are not
+ingested and consume neither budget. Unknown acquisition options are rejected
+before relay contact. Attempt coverage is returned directly; the corpus does
+not keep a global acquisition history.
 Cancellation uses an `AbortSignal`.
 
 Targeted operations also receive the single corpus:
@@ -92,6 +95,9 @@ const contexts = await resolveReplyContexts(
 Explicit event starts are protected during bounded expansion additions.
 Reports expose corpus state before and after the operation, request filters,
 relay outcomes, unresolved subjects, completion reason, and bounds reached.
+Observation and distinct-event limits apply across the complete composed
+operation; an event ID returned again by a later nested request is counted only
+once against the composed distinct-event limit.
 
 ## Process-local JavaScript console
 
@@ -120,10 +126,15 @@ const related = research.traverse(notes, {
 
 research.activate(related);
 const savedResult = research.retain(notes, 'search result');
+research.activate(savedResult); // retained summary or memory.getSet(savedResult.id)
 const savedActive = research.checkpoint('active investigation');
 ```
 
 `activate(result)` is the only operation that replaces the active selection.
+It accepts ordinary result collections, retained summaries returned by
+`retain()`, and full retained selections returned by `memory.getSet()`.
+Reactivation restores retained subjects and reasons; an evicted event remains
+an unresolved subject reference and is not recreated.
 The current value is available read-only as `research.activeSelection`.
 `retain(result, name, options)` retains an explicit value, while
 `checkpoint(name, options)` retains the active selection. `summary()` returns

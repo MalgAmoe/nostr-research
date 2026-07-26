@@ -1,6 +1,6 @@
 ---
 id: 030-acquisition-and-reactivation-correctness
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/030-acquisition-and-reactivation-correctness.validate.sh
 depends_on: 029-explicit-console-research-state
