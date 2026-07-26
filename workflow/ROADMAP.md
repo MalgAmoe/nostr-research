@@ -98,3 +98,8 @@ canonical corpus
 
 These tasks do not add persistence, UI, automated identity classification,
 universal discovery rules, arbitrary code execution, or a new memory model.
+
+The accepted JSONL milestone trial exposed one final bounded-presentation
+cleanup: heterogeneous continuation handles must be showable or return a clear
+semantic type error, never `INTERNAL_ERROR`. Task 044 addresses only that
+field-evidenced defect.
