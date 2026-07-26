@@ -243,7 +243,11 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
     corpusBefore,
     corpusAfter: typeof memory.describe === 'function' ? memory.describe() : null,
   };
-  result.collection = memory.asCollection(result);
+  result.collection = memory.collection(result.acquiredObservations.map((item) => ({
+    subject: { type: 'event', id: item.eventId },
+    reasons: [{ type: 'acquisition', requested: result.requested }],
+    provenance: item.observations,
+  })), { operation: 'acquisition', completionReason: result.completionReason }, 'events');
   result.coverage = {
     requested: {
       filter: result.requested.filter,

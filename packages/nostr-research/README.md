@@ -1,9 +1,15 @@
-# Nostr Research memory
+# Nostr Research
 
 `@nostr-research/memory` is a UI-independent research library for canonical
 Nostr evidence. The active runtime is one capacity-bounded, process-local
 corpus. Events, observations, derived relationships, and retained selections
 all belong to that owner.
+
+The product path has four layers: the memory owns evidence and derived
+material; normalized operations select, transform, and acquire against that
+memory; the declarative session owns named result handles; and the JSON Lines
+executable adapts those commands for persistent process use. Operation results
+use the same collection-kind vocabulary at each layer.
 
 ```js
 import {
@@ -35,9 +41,9 @@ corpus.
 
 Local operations never contact relays. `select` is the canonical local event
 selection operation. `lookup(subject)` is the direct exact-subject selection
-path for a full event or account identity. Account resolution, `searchAccounts`, `currentEvent`,
-`follows`, `traverse`, `thread`, `project`, facets, sessions, and retained
-selection operations all use the same resident corpus.
+path for a full event or account identity. Collection transforms,
+continuations, inspection, facets, and retained selections all use the same
+resident corpus.
 
 Relay acquisition is explicit:
 

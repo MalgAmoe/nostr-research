@@ -304,7 +304,10 @@ test('account hydration derives a bounded metadata filter from account subjects'
     );
     assert.deepEqual(requestedFilter, { authors: [publicKey], kinds: [0] });
     assert.deepEqual(result.acquiredEventIds, [metadata.id]);
-    assert.equal(context.memory.resolveAccount(publicKey).profile.name, 'hydrated');
+    assert.equal(
+      context.memory.inspect({ type: 'account', id: publicKey }).evidence.profile.name,
+      'hydrated',
+    );
   } finally {
     await relay.close();
     context.close();

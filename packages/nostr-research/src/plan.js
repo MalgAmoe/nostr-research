@@ -371,7 +371,7 @@ function emptyHydrationReport(memory, options) {
     corpusBefore: corpus,
     corpusAfter: corpus,
   };
-  result.collection = memory.asCollection(result);
+  result.collection = memory.collection([], { operation: 'hydration' }, 'events');
   result.coverage = {
     requested,
     budget,

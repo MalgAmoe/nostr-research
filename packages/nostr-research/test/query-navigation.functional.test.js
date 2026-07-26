@@ -58,29 +58,6 @@ test('public local search composes constraints, explains matches, and preserves 
   });
 });
 
-test('current account metadata uses replaceable semantics and profile search returns source evidence', () => {
-  withMemory((memory) => {
-    const fixtures = makeFixtures();
-    for (const event of [fixtures.aliceOld, fixtures.aliceCurrent, fixtures.bobMetadata]) {
-      ingest(memory, event, 'wss://profiles.example');
-    }
-    const account = memory.resolveAccount(alice.slice(0, 12));
-    assert.equal(account.metadataEvent.id, fixtures.aliceCurrent.id);
-    assert.equal(account.profile.display_name, 'Alice Current');
-    assert.equal(account.observations[0].relay, 'wss://profiles.example');
-
-    const search = memory.searchAccounts({ text: ['alice', 'example.org'], limit: 10 });
-    assert.deepEqual(search.results.map(({ publicKey }) => publicKey), [alice]);
-    assert.deepEqual(search.results[0].matchReasons.map(({ type }) => type), [
-      'profile-term', 'profile-term',
-    ]);
-    const byDescription = memory.searchAccounts({ text: ['cryptography'], limit: 10 });
-    assert.deepEqual(byDescription.results.map(({ publicKey }) => publicKey), [alice]);
-    assert.deepEqual(byDescription.results[0].matchReasons[0].fields, ['about']);
-    assert.throws(() => memory.resolveAccount(carol), /No stored account public key matches/);
-  });
-});
-
 function withMemory(run) {
   const memory = createInMemoryResearchMemory({ capacity: 1000 });
   try {

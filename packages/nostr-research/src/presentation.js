@@ -23,15 +23,6 @@ export function showResearchValue(memory, value, options = {}) {
   else if (isCorpusSummary(value)) shown = showCorpus(value);
   else if (isResearchSet(value)) shown = showSet(memory, value, settings);
   else if (isSubject(value?.subject)) shown = showSubject(memory, value.subject, settings);
-  else if (isEventRecord(value)) shown = showSubject(memory, {
-    type: 'event', id: value.event.id,
-  }, settings, value);
-  else if (isAccountRecord(value)) shown = showSubject(memory, {
-    type: 'account', id: value.metadataEvent.pubkey,
-  }, settings, value);
-  else if (isAccountResult(value)) shown = showSubject(memory, {
-    type: 'account', id: value.publicKey,
-  }, settings, value);
   else if (isSubject(value)) shown = showSubject(memory, value, settings);
   else if (value === memory) shown = showCorpus(memory.describe());
   else throw new TypeError('show does not recognize this value.');
@@ -833,19 +824,6 @@ function isSubject(value) {
 function isAcquisition(value) {
   return value && value.requested && value.budget && Array.isArray(value.acquiredObservations)
     && value.counts && Array.isArray(value.relays);
-}
-
-function isEventRecord(value) {
-  return value?.event && typeof value.event.id === 'string' && Array.isArray(value.observations);
-}
-
-function isAccountRecord(value) {
-  return value?.metadataEvent && typeof value.metadataEvent.pubkey === 'string'
-    && Array.isArray(value.observations);
-}
-
-function isAccountResult(value) {
-  return value && typeof value.publicKey === 'string';
 }
 
 function isResearchSet(value) {

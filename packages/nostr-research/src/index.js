@@ -268,7 +268,7 @@ export class InMemoryResearchMemory {
     })), { operation: 'selection', query: publicEventQuery(normalized) }, 'events');
   }
 
-  collection(items, context = {}) {
+  collection(items, context = {}, kind = undefined) {
     this.#assertOpen();
     if (!Array.isArray(items)) throw new ResearchMemoryError('Collection items must be an array.');
     assertPlainObject(context, 'Collection context');
@@ -281,9 +281,10 @@ export class InMemoryResearchMemory {
         subject: normalizedSubject,
         role: item.role,
         reasons: cloneJson(item.reasons ?? []),
+        provenance: cloneJson(item.provenance ?? []),
       };
     });
-    return resultCollection(normalized, context);
+    return resultCollection(normalized, context, kind);
   }
 
   /**
@@ -392,23 +393,6 @@ export class InMemoryResearchMemory {
       return typedCollection(value.kind, value.items, value.context, value.itemKind);
     }
     if (value?.collection?.type === 'result-collection') return this.asCollection(value.collection);
-    if (Array.isArray(value?.acquiredObservations)) {
-      return resultCollection(value.acquiredObservations.map(({ eventId, observations }) => ({
-        subject: subject('event', eventId),
-        reasons: [{ type: 'acquisition', requested: value.requested }],
-        provenance: observations,
-      })), { operation: 'acquisition', completionReason: value.completionReason }, 'events');
-    }
-    if (Array.isArray(value?.results)) {
-      return resultCollection(value.results.map((item) => ({
-        subject: subject('account', item.publicKey),
-        record: {
-          profile: item.profile, metadataEvent: item.metadataEvent,
-          observations: item.observations ?? [],
-        },
-        reasons: item.matchReasons ?? [], provenance: item.observations ?? [],
-      })), { operation: 'account-search', query: value.query }, 'accounts');
-    }
     throw new ResearchMemoryError('Unsupported public result shape.');
   }
 
@@ -521,17 +505,6 @@ export class InMemoryResearchMemory {
     return candidates[0] ? cloneJson(candidates[0]) : null;
   }
 
-  resolveAccount(publicKeyOrPrefix) {
-    const publicKey = resolveOnePrefix(
-      publicKeyOrPrefix, [...this.#corpus.authors.keys()], 'account public key',
-    );
-    const metadata = this.#currentByKey(publicKey, 0);
-    if (!metadata) {
-      throw new ResearchMemoryError(`No stored kind-0 metadata event found for account ${publicKey}.`);
-    }
-    return accountResult(publicKey, metadata, [{ type: 'public-key', value: publicKey }]);
-  }
-
   currentEvent(account, kind, options = {}) {
     this.#assertOpen();
     assertPlainObject(options, 'Current event options');
@@ -550,40 +523,6 @@ export class InMemoryResearchMemory {
       throw new ResearchMemoryError('Current event d applies only to kinds 30000-39999.');
     }
     return this.#currentByKey(owner.id, kind, options.d ?? '');
-  }
-
-  searchAccounts(query = {}) {
-    this.#assertOpen();
-    const normalized = normalizeAccountQuery(query);
-    const results = [];
-    for (const publicKey of [...this.#corpus.kinds.get(0) ?? []]
-      .map((id) => this.#corpus.records.get(id).event.pubkey)
-      .filter((key, i, all) => all.indexOf(key) === i).sort()) {
-      if (normalized.publicKeys
-        && !normalized.publicKeys.some((prefix) => publicKey.startsWith(prefix))) continue;
-      const metadata = this.#currentByKey(publicKey, 0);
-      const profile = parseProfile(metadata.event);
-      const matchReasons = [];
-      if (normalized.publicKeys) matchReasons.push({
-        type: 'public-key-prefix',
-        prefixes: normalized.publicKeys.filter((prefix) => publicKey.startsWith(prefix)),
-        value: publicKey,
-      });
-      let matched = true;
-      for (const term of normalized.terms) {
-        const fields = ['name', 'display_name', 'nip05', 'about'].filter(
-          (field) => typeof profile[field] === 'string'
-            && profile[field].toLocaleLowerCase().includes(term.toLocaleLowerCase()),
-        );
-        if (!fields.length) { matched = false; break; }
-        matchReasons.push({ type: 'profile-term', term, fields });
-      }
-      if (matched) results.push(accountResult(publicKey, metadata, matchReasons));
-    }
-    return {
-      query: { publicKeys: normalized.publicKeys, text: normalized.terms, limit: normalized.limit },
-      results: cloneJson(results.slice(0, normalized.limit)),
-    };
   }
 
   follows(account) {
@@ -743,43 +682,6 @@ export class InMemoryResearchMemory {
       direction: normalized.direction, depth: normalized.depth,
       limit: normalized.limit, relationships,
     });
-  }
-
-  thread(eventIdOrPrefix, options = {}) {
-    const start = this.resolve(eventIdOrPrefix, 'event');
-    const depth = options.depth ?? 10;
-    const limit = options.limit ?? DEFAULT_QUERY_LIMIT;
-    const descendants = this.traverse([start], {
-      relationshipTypes: ['reply-root', 'reply-parent'], direction: 'inbound', depth, limit,
-    });
-    const ancestors = this.traverse([start], {
-      relationshipTypes: ['reply-root', 'reply-parent'], direction: 'outbound', depth, limit,
-    });
-    const eventSubjects = uniqueSubjects([start, ...descendants.items.map((item) => item.subject),
-      ...ancestors.items.map((item) => item.subject)])
-      .filter((item) => item.type === 'event' && this.#corpus.records.has(item.id));
-    const participants = this.traverse(eventSubjects, {
-      relationshipTypes: ['author', 'mentioned-account'], direction: 'outbound', depth: 1, limit,
-    });
-    const allEdges = [...ancestors.context.relationships, ...descendants.context.relationships];
-    const known = (edge) => edge.evidence?.interpretation === 'known';
-    return {
-      type: 'thread', start,
-      collection: resultCollection(uniqueSubjects([
-        ...eventSubjects, ...participants.items.map((item) => item.subject)
-          .filter(({ type }) => type === 'account'),
-      ]).map((item) => ({ subject: item, reasons: [], provenance: [] })), {
-        operation: 'thread', relationships: [...allEdges, ...participants.context.relationships],
-      }),
-      ancestors: allEdges.filter((edge) => known(edge) && edge.direction === 'outbound'),
-      directReplies: allEdges.filter((edge) => known(edge)
-        && edge.direction === 'inbound' && edge.depth === 1),
-      descendants: allEdges.filter((edge) => known(edge)
-        && edge.direction === 'inbound' && edge.depth > 1),
-      participants: uniqueSubjects(participants.items.map((item) => item.subject)
-        .filter(({ type }) => type === 'account')),
-      ambiguous: allEdges.filter((edge) => !known(edge)),
-    };
   }
 
   inspect(reference) {
@@ -1167,16 +1069,6 @@ function normalizeEventQuery(query) {
   return { ids, authors, kinds, since, until, tags, terms, limit, order };
 }
 
-function normalizeAccountQuery(query) {
-  assertPlainObject(query, 'Account query');
-  rejectUnknownKeys(query, new Set(['publicKeys', 'text', 'limit']), 'account query');
-  return {
-    publicKeys: normalizeStringList(query.publicKeys, 'publicKeys', true),
-    terms: normalizeStringList(query.text, 'text', false) ?? [],
-    limit: normalizeLimit(query.limit),
-  };
-}
-
 function normalizeTags(tags) {
   if (tags === undefined) return {};
   assertPlainObject(tags, 'Event query tags');
@@ -1404,16 +1296,6 @@ function parseProfile(event) {
   } catch {
     return {};
   }
-}
-
-function accountResult(publicKey, metadata, matchReasons) {
-  return {
-    publicKey,
-    profile: parseProfile(metadata.event),
-    metadataEvent: metadata.event,
-    observations: metadata.observations,
-    matchReasons,
-  };
 }
 
 function resultCollection(items, context = {}, explicitKind) {

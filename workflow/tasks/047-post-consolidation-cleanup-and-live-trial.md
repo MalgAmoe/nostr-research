@@ -1,6 +1,6 @@
 ---
 id: 047-post-consolidation-cleanup-and-live-trial
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/047-post-consolidation-cleanup-and-live-trial.validate.sh
 depends_on: 046-authoritative-operation-and-collection-kinds

@@ -1,3 +1,58 @@
+# Worker role
+
+You are the implementation worker in a repository-backed workflow.
+
+Read `workflow/WORKFLOW.md` and the selected task completely. Treat the task
+definition, its scope, and its acceptance criteria as authoritative within the
+durable principles in `CONTEXT.md`. Historical completed tasks are evidence of
+past work, not current policy.
+
+Work directly in the repository. Produce every required deliverable. Inspect
+real source and tests rather than relying on assumptions. Do not change task
+status, files under `workflow/runs/`, or the workflow runner.
+Do not stage or commit changes; the runner owns the task commit after review.
+
+If a previous review is supplied, address every applicable finding explicitly.
+Do not implement a finding blindly when it conflicts with `CONTEXT.md`, expands
+the selected task, or would add production complexity only to satisfy a test.
+Explain that conflict in the worker report so the reviewer can assess it.
+Do not merely describe work that should be done: perform the task within its
+stated permissions.
+
+## Verification discipline
+
+Permanent tests are exceptional durable product code, not an automatic
+deliverable for every feature or bug.
+
+- Follow the testing policy in `CONTEXT.md`.
+- Prefer a small public-boundary functional scenario over helper-level tests.
+- Add a permanent test only when it protects stable, important behavior that is
+  expensive or risky to verify otherwise.
+- Do not test TCP, TLS, WebSocket-library mechanics, process scheduling,
+  private state, private helpers, or exact timing unless that mechanism is
+  explicitly the product behavior selected by the task.
+- Use task validation or a run artifact for exploratory, live-network,
+  environment-specific, and one-off verification.
+- If a proposed test requires new public API, abstraction, dependency, or
+  low-level production machinery, challenge the test before changing the
+  product.
+- Existing tests are not requirements by themselves. Remove or update a test
+  when the selected product behavior intentionally changes.
+
+When permanent tests are added or materially expanded, the final report must
+name the stable public behavior each one protects and why temporary validation
+was insufficient.
+
+Finish with a concise plain-text report listing:
+
+- deliverables created or changed;
+- validation or checks performed;
+- permanent tests added or expanded, with their justification, or `none`;
+- unresolved uncertainties.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -85,13 +140,6 @@ there is no active or current selection. A result collection is the shared
 operation result passed between the library and session layers. Retained
 selections disappear with the corpus; sessions are not serialized.
 
-The coherent product path is memory, normalized operations, the declarative
-session, and its JSONL adapter. Operation names and collection kinds have one
-authoritative definition shared by validation, execution, session handles,
-schema output, and presentation. `show`, `inspect`, and `explain` remain one
-deep bounded-observation module over those real result shapes; presentation
-does not define alternate domain results or compatibility shapes.
-
 Local selection asks what the current resident memory contains and has no network
 side effects. Relay acquisition is separately invoked by a caller, may add
 evidence and observations, returns the same reusable result vocabulary, and
@@ -132,3 +180,81 @@ Annotations belong to memory's replaceable derived material. They can outlive
 eviction of the canonical event or profile they reference, but disappear with
 `reset()`, `close()`, or process exit. Annotation labels have only the meaning
 assigned by their caller.
+
+
+# Selected task
+
+---
+id: 047-post-consolidation-cleanup-and-live-trial
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/047-post-consolidation-cleanup-and-live-trial.validate.sh
+depends_on: 046-authoritative-operation-and-collection-kinds
+protected_paths: workflow/run.py workflow/prompts
+reviewer_sandbox: workspace-write
+---
+
+# Simplify presentation and verify the consolidated research path
+
+## Objective
+
+After deleting obsolete interfaces and consolidating operation/type semantics,
+remove the compensating presentation branches, documentation, exports, and
+tests that no longer earn their complexity. Then repeat the live research path
+which exposed the design problem.
+
+## Work
+
+- Review presentation and interpreter handling for branches that only
+  normalize obsolete or incorrectly typed result shapes.
+- Keep `show`, `inspect`, and `explain` as one deep bounded-observation module;
+  do not split them into shallow presenter modules.
+- Remove unreachable adapters, helpers, exports, documentation, workflow-era
+  compatibility language, and duplicated schema/result-kind logic.
+- Review the permanent tests under the project testing policy. Remove tests
+  tied to deleted interfaces or implementation shape; retain difficult
+  protocol/algorithm coverage and a small number of public functional
+  workflows.
+- Update the package README and `CONTEXT.md` to the reduced architecture.
+
+## Live trial
+
+Use the real JSONL executable with bounded public relay acquisition to repeat:
+
+```text
+orientation
+  -> choose a long-tail topic
+  -> account
+  -> authored notes
+  -> referenced accounts
+  -> hydrate a bounded neighbor set
+  -> followed accounts
+  -> hydrate a bounded followed set
+```
+
+The trial must use handles directly after the initial research choice. Record
+exact commands, bounded results, friction, and whether any dynamic JavaScript
+or manual stable-ID extraction was needed in:
+
+`workflow/artifacts/consolidated-navigation-field-trial.md`
+
+## Acceptance criteria
+
+- The package exposes one coherent research path: memory, normalized
+  operations, declarative session, and JSONL adapter.
+- Presentation contains no special cases required solely by deleted
+  interfaces or false generic typing.
+- The permanent suite is smaller or more focused without losing stable
+  protocol/algorithm and public workflow coverage.
+- The complete live trial succeeds through named handles.
+- No dynamic JavaScript or manual ID copying performs research operations.
+- Full validation passes and the repository is clean.
+
+## Verification
+
+- Permanent tests expected: no new tests unless an independently identified
+  stable public regression remains uncovered.
+- Stable public behavior protected: existing reduced public workflows.
+- Temporary task validation or field evidence: the bounded live trial.
+- Explicitly excluded test levels or mechanisms: UI, screenshots,
+  implementation snapshots, tests per command, and permanent live-relay tests.
