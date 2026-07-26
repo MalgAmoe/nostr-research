@@ -118,10 +118,9 @@ stopped an operation.
 Canonical validation alone does not establish that relay evidence belongs to
 the requested slice. Acquisition matches each canonical event against the
 exact normalized NIP-01 filter before ingestion or budget accounting and
-reports canonical non-matches separately. For composed expansion and
-reply-context operations, the distinct-event bound is shared across nested
-requests, so a repeated ID consumes distinct capacity only on its first
-appearance.
+reports canonical non-matches separately. A continuation that performs nested
+relay requests shares one distinct-event bound across those requests, so a
+repeated ID consumes distinct capacity only on its first appearance.
 
 Explicit session activation accepts both retained summaries and full retained
 selections through the same retained-to-collection conversion. It restores

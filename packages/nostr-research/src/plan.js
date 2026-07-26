@@ -165,7 +165,8 @@ export function normalizeResearchPlan(plan) {
  */
 export function preflightResearchOperation(memory, operation, input = undefined, references = undefined) {
   const { operation: name, parameters } = operation;
-  if (!operationSemantics(name) || !isPlainObject(parameters)) {
+  const semantics = operationSemantics(name);
+  if (!semantics || !isPlainObject(parameters)) {
     throw new ResearchMemoryError(`Unsupported research operation: ${name}.`);
   }
   if (name === 'acquire') {
@@ -174,7 +175,9 @@ export function preflightResearchOperation(memory, operation, input = undefined,
     }
     normalizeAcquisitionOptions(parameters);
     return {
-      kind: 'events', itemKind: 'events', resultKind: 'acquisition-report',
+      kind: semantics.outputKind,
+      itemKind: semantics.outputKind,
+      resultKind: semantics.resultKind,
       scope: 'acquisition',
     };
   }
@@ -185,7 +188,9 @@ export function preflightResearchOperation(memory, operation, input = undefined,
     const query = normalizeSelectionScope(parameters, Boolean(input));
     memory.validateSelection(query);
     return {
-      kind: 'events', itemKind: 'events', resultKind: 'events',
+      kind: semantics.outputKind,
+      itemKind: semantics.outputKind,
+      resultKind: semantics.resultKind,
       scope: input ? 'acquisition' : 'corpus',
     };
   }
@@ -207,7 +212,11 @@ export function preflightResearchOperation(memory, operation, input = undefined,
       throw new ResearchMemoryError('Research hydrate operation requires an accounts collection.');
     }
     normalizeHydrationOptions(parameters);
-    return { kind: 'events', itemKind: 'events', resultKind: 'hydration-report' };
+    return {
+      kind: semantics.outputKind,
+      itemKind: semantics.outputKind,
+      resultKind: semantics.resultKind,
+    };
   }
   if (name === 'continue') {
     normalizeContinuation(memory, descriptorCollection(input), parameters);
@@ -215,7 +224,7 @@ export function preflightResearchOperation(memory, operation, input = undefined,
     return {
       kind: relationship.outputKind,
       itemKind: relationship.outputKind,
-      resultKind: 'continuation-report',
+      resultKind: semantics.resultKind,
     };
   }
   const { name: retainedName, options = {} } = parameters;
@@ -224,7 +233,7 @@ export function preflightResearchOperation(memory, operation, input = undefined,
     new Set(['name', 'options']),
   );
   memory.validateRetention(retainedName, options, input.kind);
-  return { ...input, resultKind: 'retained-selection' };
+  return { ...input, resultKind: semantics.resultKind };
 }
 
 function inputForSetOperation(outputs, id, operation) {
