@@ -37,7 +37,7 @@ export const CONTINUATION_RELATIONSHIPS = Object.freeze({
 });
 
 const TRANSFORMS = [
-  'filter', 'project', 'distinct', 'sort', 'limit', 'sample', 'group', 'summarize', 'move',
+  'filter', 'pick', 'project', 'distinct', 'sort', 'limit', 'sample', 'group', 'summarize', 'move',
   'union', 'intersection', 'difference', 'compare',
 ];
 const SET_OPERATIONS = ['union', 'intersection', 'difference', 'compare'];
@@ -92,7 +92,7 @@ export function transformOutputKind(inputKind, itemKind, operation) {
     return { kind: 'projections', itemKind };
   }
   if (operation.operation === 'compare') return { kind: 'summaries', itemKind: 'summaries' };
-  if (['sort', 'limit', 'sample', 'union', 'intersection', 'difference']
+  if (['pick', 'sort', 'limit', 'sample', 'union', 'intersection', 'difference']
     .includes(operation.operation)) return { kind: inputKind, itemKind };
   if (operation.operation === 'group') return { kind: 'groups', itemKind };
   if (operation.operation === 'summarize') return { kind: 'summaries', itemKind: 'summaries' };

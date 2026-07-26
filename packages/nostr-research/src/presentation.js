@@ -438,8 +438,8 @@ function showAcquisition(memory, value, settings) {
       startedAt: value.startedAt, finishedAt: value.finishedAt,
       counts: { ...value.counts, distinctEventsAcquired: distinctEvents },
       corpus: {
-        before: corpusCapacity(value.corpusBefore),
-        after: corpusCapacity(value.corpusAfter),
+        before: corpusSnapshot(value.corpusBefore),
+        after: corpusSnapshot(value.corpusAfter),
         ...corpusChanges,
       },
       exhaustive: false,
@@ -542,11 +542,69 @@ function provenanceSummary(items) {
 
 function compactContext(context) {
   if (!context || typeof context !== 'object') return context;
-  const { relationships, ...rest } = context;
+  if (context.operation === 'transform') {
+    const stages = context.stages ?? [];
+    return {
+      operation: 'transform',
+      sourceOperation: sourceOperation(context.input),
+      stageCount: stages.length,
+      ...(stages.length ? { latestStage: compactStage(stages.at(-1)) } : {}),
+      ...(context.cardinality ? { cardinality: structuredClone(context.cardinality) } : {}),
+      ...(context.name ? { name: context.name } : {}),
+    };
+  }
+  if (context.operation === 'continuation') {
+    return {
+      operation: 'continuation',
+      relationship: context.relationship,
+      source: context.source,
+      startCount: context.starts?.length ?? 0,
+      limit: context.limit,
+      ...(context.completeness ? {
+        completeness: {
+          status: context.completeness.status,
+          exhaustive: context.completeness.exhaustive,
+          omissionCount: context.completeness.omissions?.length ?? 0,
+          boundsReached: structuredClone(context.completeness.boundsReached ?? []),
+        },
+      } : {}),
+    };
+  }
+  const { relationships, starts, completeness, input, stages, ...rest } = context;
   return {
     ...rest,
     ...(Array.isArray(relationships) ? { relationshipCount: relationships.length } : {}),
+    ...(Array.isArray(starts) ? { startCount: starts.length } : {}),
   };
+}
+
+function sourceOperation(context) {
+  let current = context;
+  while (current?.operation === 'transform' && current.input) current = current.input;
+  return current?.operation;
+}
+
+function compactStage(stage) {
+  if (!stage || typeof stage !== 'object') return stage;
+  if (stage.operation === 'filter') {
+    return { operation: 'filter', where: structuredClone(stage.where), limit: stage.limit };
+  }
+  if (stage.operation === 'pick') {
+    return { operation: 'pick', positions: structuredClone(stage.positions) };
+  }
+  if (['union', 'intersection', 'difference', 'compare'].includes(stage.operation)) {
+    return {
+      operation: stage.operation,
+      with: structuredClone(stage.with),
+      limit: stage.limit,
+    };
+  }
+  const {
+    operation, as, by, direction, limit, itemLimit, fields, to, aggregations,
+  } = stage;
+  return Object.fromEntries(Object.entries({
+    operation, as, by, direction, limit, itemLimit, fields, to, aggregations,
+  }).filter(([, value]) => value !== undefined));
 }
 
 function collectionOrientation(memory, collection, settings) {
@@ -691,6 +749,17 @@ function corpusEffects(memory, items) {
 
 function corpusState(memory) {
   const corpus = memory.describe();
+  return {
+    capacity: corpus.capacity,
+    residentEvents: corpus.eventCount,
+    remainingCapacity: corpus.remainingCapacity,
+    pressure: corpus.capacity === 0 ? 0 : corpus.eventCount / corpus.capacity,
+    evictions: corpus.evictions,
+  };
+}
+
+function corpusSnapshot(corpus) {
+  if (!corpus) return null;
   return {
     capacity: corpus.capacity,
     residentEvents: corpus.eventCount,

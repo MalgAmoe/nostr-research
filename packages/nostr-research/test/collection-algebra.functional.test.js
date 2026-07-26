@@ -73,6 +73,12 @@ test('typed local stages refine, balance, summarize, and move trial-shaped evide
     assert.equal(refined.context.name, 'media except Carol');
     assert.doesNotThrow(() => JSON.stringify(refined));
 
+    const picked = memory.transform(refined, {
+      operation: 'pick', as: 'first and third visible results', positions: [1, 3],
+    });
+    assert.equal(picked.kind, 'events');
+    assert.deepEqual(picked.items.map(({ subject }) => subject.id), [first.id, bobNote.id]);
+
     const grouped = memory.transform(refined, {
       operation: 'group', as: 'balanced authors', by: 'event.author', itemLimit: 2, limit: 10,
     });
@@ -358,8 +364,15 @@ test('stable bounds and compatible set composition share the public pipeline alg
         id: 'shared', operation: 'intersection', input: 'alice',
         parameters: { with: 'newest', limit: 10 },
       },
+      {
+        id: 'chosen', operation: 'pick', input: 'alice',
+        parameters: { positions: [1, 3] },
+      },
     ]);
-    assert.equal(report.stages.at(-1).result.items.length, 1);
+    assert.deepEqual(
+      report.stages.at(-1).result.items.map(({ subject }) => subject.id),
+      [0, 2].map((position) => report.stages[1].result.items[position].subject.id),
+    );
   } finally {
     memory.close();
   }

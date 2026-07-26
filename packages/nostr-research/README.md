@@ -73,7 +73,7 @@ Cancellation uses an `AbortSignal`.
 ## Local collection algebra
 
 `memory.transform(collection, stages)` applies a fully JSON-serializable local
-pipeline. Supported stage operations are `filter`, `project`, `distinct`,
+pipeline. Supported stage operations are `filter`, `pick`, `project`, `distinct`,
 `sort`, `limit`, `sample`, `group`, `summarize`, `move`, `union`,
 `intersection`, `difference`, and `compare`; the complete typed path is checked
 before the first stage runs. Stages may carry an `as` name and always record
@@ -81,6 +81,12 @@ their normalized description in the result context. Cardinality-changing
 stages report their input, output, omitted count, and truncation state.
 Defaults and caller limits bound groups, members, projections, summaries,
 samples, and collected values.
+
+`pick` keeps explicit one-based positions from the current stable collection
+order. It is useful after a bounded `show` preview: the caller can select the
+visible items without copying identifiers or writing JavaScript. A position
+outside the current collection fails instead of silently selecting a different
+item.
 
 ```js
 const evidence = memory.transform(memory.select({ kinds: [1] }), [
@@ -244,7 +250,7 @@ commands with `REVISION_CONFLICT`. Revisions advance when corpus, retained-set,
 or named-handle state changes; observation commands and failed commands do not
 advance them.
 
-Research commands are `acquire`, `select`, `filter`, `group`, `summarize`,
+Research commands are `acquire`, `select`, `filter`, `pick`, `group`, `summarize`,
 `move`, `hydrate`, `continue`, `retain`, and `plan`. Single operations accept plain JSON
 `parameters`, optional `input`, and optional `resultId`; `replace: true`
 explicitly replaces an existing named result. Plans accept the documented

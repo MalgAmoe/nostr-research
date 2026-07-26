@@ -34,6 +34,32 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   assert.equal(shown.result.count, 1);
   assert.equal(shown.sessionRevision, 1);
 
+  const picked = await session.execute({
+    commandId: 'pick',
+    command: 'pick',
+    input: 'finding',
+    parameters: { positions: [1] },
+    resultId: 'chosen',
+  });
+  assert.equal(picked.result.handle.kind, 'events');
+  assert.equal(picked.result.handle.count, 1);
+
+  const pickedShown = await session.execute({
+    commandId: 'show-picked',
+    command: 'show',
+    input: 'chosen',
+    parameters: { mode: 'summary' },
+  });
+  assert.deepEqual(pickedShown.result.context, {
+    operation: 'transform',
+    sourceOperation: 'selection',
+    stageCount: 1,
+    latestStage: { operation: 'pick', positions: [1] },
+    cardinality: {
+      inputCount: 1, outputCount: 1, omittedCount: 0, truncated: false,
+    },
+  });
+
   const inspected = await session.execute({
     commandId: 'inspect',
     command: 'inspect',
@@ -45,7 +71,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   });
   assert.equal(inspected.result.resident, true);
   assert.equal(inspected.result.evidence.event.content.length <= 40, true);
-  assert.equal(inspected.sessionRevision, 1);
+  assert.equal(inspected.sessionRevision, 2);
 
   const explained = await session.execute({
     commandId: 'explain',
@@ -58,7 +84,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   });
   assert.equal(explained.result.member, true);
   assert.equal(explained.result.reasons.length, 1);
-  assert.equal(explained.sessionRevision, 1);
+  assert.equal(explained.sessionRevision, 2);
 
   const retained = await session.execute({
     commandId: 'retain',
@@ -67,7 +93,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
     parameters: { name: 'kept independently' },
     resultId: 'retained',
   });
-  assert.equal(retained.sessionRevision, 2);
+  assert.equal(retained.sessionRevision, 3);
   const retainedId = retained.result.handle.id;
   const setId = memory.listSets()[0].id;
   assert.equal(retainedId, 'retained');
@@ -77,9 +103,9 @@ test('declarative observation and lifecycle form one bounded public workflow', a
     command: 'list',
     parameters: { limit: 1 },
   });
-  assert.equal(listed.result.count, 2);
-  assert.equal(listed.result.omitted, 1);
-  assert.equal(listed.sessionRevision, 2);
+  assert.equal(listed.result.count, 3);
+  assert.equal(listed.result.omitted, 2);
+  assert.equal(listed.sessionRevision, 3);
 
   const released = await session.execute({
     commandId: 'release',
@@ -87,7 +113,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
     input: 'retained',
     parameters: {},
   });
-  assert.equal(released.sessionRevision, 3);
+  assert.equal(released.sessionRevision, 4);
   assert.equal(memory.getEvent(event.id).event.id, event.id);
   assert.equal(memory.getSet(setId).id, setId);
 
@@ -96,18 +122,18 @@ test('declarative observation and lifecycle form one bounded public workflow', a
     command: 'status',
     parameters: {},
   });
-  assert.equal(status.result.revision, 3);
-  assert.equal(status.result.handleCount, 1);
+  assert.equal(status.result.revision, 4);
+  assert.equal(status.result.handleCount, 2);
   assert.equal(status.result.retainedSetCount, 1);
-  assert.equal(status.sessionRevision, 3);
+  assert.equal(status.sessionRevision, 4);
 
   const reset = await session.execute({
     commandId: 'reset',
-    ifRevision: 3,
+    ifRevision: 4,
     command: 'reset',
     parameters: {},
   });
-  assert.equal(reset.sessionRevision, 4);
+  assert.equal(reset.sessionRevision, 5);
   assert.equal(memory.describe().eventCount, 0);
   assert.deepEqual(memory.listSets(), []);
 
@@ -116,14 +142,14 @@ test('declarative observation and lifecycle form one bounded public workflow', a
     command: 'close',
     parameters: {},
   });
-  assert.equal(closed.sessionRevision, 5);
+  assert.equal(closed.sessionRevision, 6);
   const rejected = await session.execute({
     commandId: 'after-close',
     command: 'status',
     parameters: {},
   });
   assert.equal(rejected.error.code, 'SESSION_CLOSED');
-  assert.equal(rejected.sessionRevision, 5);
+  assert.equal(rejected.sessionRevision, 6);
 });
 
 test('declarative show bounds grouped and summarized named results', async () => {

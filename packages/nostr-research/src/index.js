@@ -1560,7 +1560,7 @@ function normalizeTransformOperation(value, inputKind, itemKind, index) {
   assertPlainObject(value, `Transform stage ${index + 1}`);
   const operation = value.operation;
   if (![
-    'filter', 'project', 'distinct', 'sort', 'limit', 'sample',
+    'filter', 'pick', 'project', 'distinct', 'sort', 'limit', 'sample',
     'group', 'summarize', 'move', 'union', 'intersection', 'difference', 'compare',
   ].includes(operation)) {
     throw new ResearchMemoryError(`Unsupported transform operation at stage ${index + 1}: ${operation}.`);
@@ -1609,6 +1609,24 @@ function normalizeTransformOperation(value, inputKind, itemKind, index) {
       ...common, limit: normalizeTransformLimit(value.limit),
       ...(operation === 'sample' ? { seed: value.seed ?? 'nostr-research' } : {}),
     };
+  }
+  if (operation === 'pick') {
+    rejectUnknownKeys(value, new Set(['operation', 'as', 'positions']), 'pick stage');
+    if (!TRANSFORM_KINDS.has(inputKind)) {
+      throw new ResearchMemoryError(`Pick does not support ${inputKind} collections.`);
+    }
+    if (!Array.isArray(value.positions) || value.positions.length === 0
+        || value.positions.some((position) => (
+          !Number.isSafeInteger(position) || position < 1 || position > MAX_QUERY_LIMIT
+        ))) {
+      throw new ResearchMemoryError(
+        `Pick positions must be a non-empty array of integers from 1 to ${MAX_QUERY_LIMIT}.`,
+      );
+    }
+    if (new Set(value.positions).size !== value.positions.length) {
+      throw new ResearchMemoryError('Pick positions must be distinct.');
+    }
+    return { ...common, positions: [...value.positions].sort((left, right) => left - right) };
   }
   if (operation === 'project') {
     rejectUnknownKeys(value, new Set(['operation', 'as', 'fields', 'limit']), 'project stage');
@@ -1807,6 +1825,7 @@ function normalizeAggregation(value, itemKind) {
 function applyTransform(memory, collection, operation) {
   let output;
   if (operation.operation === 'filter') output = applyFilter(memory, collection, operation);
+  else if (operation.operation === 'pick') output = applyPick(collection, operation);
   else if (operation.operation === 'project') output = applyProject(memory, collection, operation);
   else if (operation.operation === 'distinct') output = applyDistinct(memory, collection, operation);
   else if (operation.operation === 'sort') output = applySort(memory, collection, operation);
@@ -1820,6 +1839,20 @@ function applyTransform(memory, collection, operation) {
   output.context = transformContext(collection, operation);
   output.context.cardinality = cloneJson(output.bounds);
   return output;
+}
+
+function applyPick(collection, operation) {
+  const last = operation.positions.at(-1);
+  if (last > collection.items.length) {
+    throw new ResearchMemoryError(
+      `Pick position ${last} exceeds the input collection count ${collection.items.length}.`,
+    );
+  }
+  return resultCollection(
+    operation.positions.map((position) => collection.items[position - 1]),
+    {},
+    collection.kind,
+  );
 }
 
 function transformContext(input, operation) {
@@ -2304,6 +2337,11 @@ export function collectionPipelineSchema() {
       },
     },
     operations: {
+      pick: {
+        inputKinds: [...TRANSFORM_KINDS],
+        positions: `non-empty distinct 1-based integer[] up to ${MAX_QUERY_LIMIT}`,
+        ordering: 'source collection order',
+      },
       filter: {
         inputKinds: [...TRANSFORM_KINDS],
         fieldsByInputKind: filterFields,
