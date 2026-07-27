@@ -203,17 +203,10 @@ export class DeclarativeResearchSession {
           this.#memory, command.input, entry, operation, this.#configuration,
         ));
       }
-      if (Object.keys(parameters).length) {
-        throw protocolError(
-          'INVALID_COMMAND',
-          'Global schema parameters must be an empty object.',
-        );
-      }
-      return readOnly(() => ({
-        ...this.#memory.describeCollectionPipeline(),
-        session: sessionSchema(this.#configuration),
-        constraints: researchConstraints(),
-      }));
+      const detail = globalSchemaDetail(parameters);
+      return readOnly(() => globalSessionSchema(
+        this.#memory, this.#configuration, detail,
+      ));
     }
     if (command.input !== undefined) {
       throw protocolError('INVALID_COMMAND', `${command.command} does not accept an input handle.`);
@@ -790,6 +783,50 @@ function contextualSchemaOperation(parameters) {
   return parameters.operation;
 }
 
+function globalSchemaDetail(parameters) {
+  const unknown = Object.keys(parameters).find((name) => name !== 'detail');
+  if (unknown) {
+    throw protocolError('INVALID_COMMAND', `Unknown global schema parameter: ${unknown}.`);
+  }
+  const detail = parameters.detail ?? 'summary';
+  if (!['summary', 'full'].includes(detail)) {
+    throw protocolError('INVALID_COMMAND', 'Global schema detail must be summary or full.');
+  }
+  return detail;
+}
+
+function globalSessionSchema(memory, configuration, detail) {
+  const schema = memory.describeCollectionPipeline();
+  if (detail === 'summary') {
+    const {
+      parameterContracts: ignoredContracts,
+      operationFacts: ignoredFacts,
+      constraints: ignoredConstraints,
+      definitions,
+      ...research
+    } = schema.research;
+    schema.research = {
+      ...research,
+      definitions: Object.fromEntries(Object.entries(definitions).map(([name, value]) => [
+        name,
+        {
+          input: value.input,
+          outputKind: value.outputKind,
+          resultKind: value.resultKind,
+          locality: value.locality,
+        },
+      ])),
+      contractAccess: 'Use schema with an input handle and parameters.operation, or request global detail "full".',
+    };
+  }
+  return {
+    ...schema,
+    detail,
+    session: sessionSchema(configuration),
+    constraints: researchConstraints(),
+  };
+}
+
 function collectionStructure(collection) {
   const subjectTypes = [...collection.items.reduce((counts, { subject }) => {
     counts.set(subject.type, (counts.get(subject.type) ?? 0) + 1);
@@ -1082,6 +1119,7 @@ function sessionSchema(configuration) {
           input: 'optional named result handle; omitted returns the global schema',
           parameters: {
             operation: 'optional research operation name; accepted only with an input handle',
+            detail: 'summary or full; accepted only without an input handle and defaults to summary',
           },
         },
       },

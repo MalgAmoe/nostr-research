@@ -240,13 +240,21 @@ test('relation handles resolve references across evidence lifetime and keep boun
   assert.equal(aggregate.result.preview[0].values.samples.truncation.inputCount, 1);
   assert.ok(aggregate.result.preview.every(({ values }) => values.groupText.length <= 280));
   assert.ok(aggregate.result.preview.every(({ values }) => values.maximumText.length <= 280));
-  assert.ok(aggregate.result.preview.every(({ values }) => (
-    values['groupText.truncation'].truncated === true
-    && values['maximumText.truncation'].truncated === true
+  assert.ok(aggregate.result.preview.every(({ values, fieldMetadata }) => (
+    !('groupText.truncation' in values)
+    && !('maximumText.truncation' in values)
+    && fieldMetadata.groupText.truncation.truncated === true
+    && fieldMetadata.maximumText.truncation.truncated === true
   )));
-  assert.equal(aggregate.result.preview[0].values['groupTags.truncation'].truncated, true);
-  assert.equal(aggregate.result.preview[0].values['minimumTags.truncation'].truncated, true);
-  assert.equal(aggregate.result.preview[0].values['maximumTags.truncation'].truncated, true);
+  assert.equal(
+    aggregate.result.preview[0].fieldMetadata.groupTags.truncation.truncated, true,
+  );
+  assert.equal(
+    aggregate.result.preview[0].fieldMetadata.minimumTags.truncation.truncated, true,
+  );
+  assert.equal(
+    aggregate.result.preview[0].fieldMetadata.maximumTags.truncation.truncated, true,
+  );
   assert.ok(aggregate.result.preview[0].values.minimumTags[0][1].length <= 280);
   assert.ok(aggregate.result.preview[0].values.maximumTags[0][1].length <= 280);
 

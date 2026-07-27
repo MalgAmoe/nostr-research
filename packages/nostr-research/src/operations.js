@@ -546,7 +546,6 @@ function contextualCollectionOperations(add, kind, structure, configuration) {
     const hasRelays = defaults?.relays.length > 0;
     add('hydrate', {
       reason: 'Account handles can acquire profile or contact-list evidence.',
-      choices: { kinds: [0, 3] },
       ...(defaults ? { effectiveDefaults: { ...defaults, kinds: [0] } } : {}),
       remainingChoices: hasRelays ? [] : ['Configure or supply one or more relay URLs.'],
     });
@@ -573,7 +572,10 @@ function contextualCollectionOperations(add, kind, structure, configuration) {
 }
 
 function contextualRelationOperations(add, structure, value, configuration) {
-  const fields = structure?.fields ?? [];
+  const fields = [
+    ...(structure?.fields ?? []),
+    ...(structure?.technicalFields ?? []),
+  ];
   const names = fields.map(({ name }) => name);
   const populated = fields.filter(({ rowsWithValue }) => rowsWithValue > 0);
   const fieldsByType = (type) => fields
@@ -613,7 +615,6 @@ function contextualRelationOperations(add, structure, value, configuration) {
   });
   fieldOperation('sort', populated, {
     reason: 'Sort orders rows by fields present in this relation.',
-    choices: { direction: ['ascending', 'descending'] },
     remainingChoices: ['Choose fields and directions.'],
   });
   add('join', {
@@ -627,10 +628,7 @@ function contextualRelationOperations(add, structure, value, configuration) {
   });
   fieldOperation('aggregate', populated, {
     reason: 'Aggregate groups rows and computes bounded derived values.',
-    choices: {
-      operations: ['count', 'countDistinct', 'collect', 'sample', 'min', 'max', 'sum'],
-      numericFields: numberFields.map(({ name }) => name),
-    },
+    numericFields: numberFields.map(({ name }) => name),
     remainingChoices: ['Choose grouping fields and aggregations.'],
   });
   fieldOperation('derive', populated, {
@@ -671,7 +669,6 @@ function contextualRelationOperations(add, structure, value, configuration) {
       arrays: arrayFields.map(({ name }) => name),
     },
     populatedFields: [...stringFields, ...arrayFields],
-    choices: { bindings: ['ids', 'authors', '#e', '#p', '#t'] },
     ...(defaults ? { effectiveDefaults: defaults } : {}),
     remainingChoices: [
       ...(!hasRelays ? ['Configure or supply one or more relay URLs.'] : []),
@@ -705,6 +702,20 @@ function relationSubjectTransitions(value, structure = undefined) {
         && authorField.types.includes('string')) {
       transitions.push({ field: 'event.author', subjectType: 'account' });
     }
+  }
+  for (const field of [
+    ...(structure?.fields ?? []),
+    ...(structure?.technicalFields ?? []),
+  ]) {
+    if (!['event', 'account'].includes(field.subjectType)
+        || field.rowsWithValue !== structure.count
+        || !field.types.includes('string')
+        || transitions.some(({ field: existing }) => existing === field.name)) continue;
+    transitions.push({
+      field: field.name,
+      subjectType: field.subjectType,
+      ...(field.lineage ? { lineage: field.lineage } : {}),
+    });
   }
   return transitions;
 }

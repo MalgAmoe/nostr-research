@@ -48,6 +48,7 @@ no presentation layer defines the domain boundary.
 | **result handle** | A session-owned name for an engine view. Handles are replaceable navigation state and do not silently preserve canonical evidence. |
 | **subject collection** | A bounded set of stable Nostr subjects with membership reasons and provenance. |
 | **research relation** | A bounded composable view of stable subjects, derived values, reasons, and provenance. Source-backed fields resolve from the archive or buffer; a relation must not accidentally become an undocumented evidence archive. |
+| **field lineage** | Lightweight relation metadata recording which earlier field produced a renamed or grouped value and, when known, whether that value is a stable account or event identifier. It assists navigation without interpreting the value itself. |
 | **acquisition** | The operation of contacting or otherwise reading sources to obtain events and record observations. |
 | **acquisition coverage** | Information returned by one bounded relay attempt: exact filter and budgets, contacted relays and outcomes, and observations. It does not claim exhaustive indexing or create a global history record. |
 | **query** | An operation over local memory that selects and explains results; it does not itself require relay access. |
@@ -133,6 +134,13 @@ consumes relation fields, so acquisition can be directed by the current
 analysis rather than hidden inside task-specific workflows. Pure `extract`
 crosses relation values into stable subjects; protocol continuation starts
 only from an explicit subject collection.
+
+Relation transformations retain field lineage when fields are renamed or used
+as grouping keys. This allows a later `extract` operation to recover a known
+account/event transition without inferring meaning from the new field name.
+Lineage is metadata, not evidence or a general type system. Technical
+presentation facts such as per-row truncation remain separate from ordinary
+analysis values.
 
 Local selection asks what the current resident memory contains and has no network
 side effects. Relay acquisition is separately invoked by a caller, may add

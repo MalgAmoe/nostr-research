@@ -39,10 +39,12 @@ export function isResearchRelation(value) {
 
 export function describeResearchRelation(memory, relation) {
   const resolved = resolveRelationForPresentation(memory, relation);
+  const catalog = relationFieldCatalog(resolved);
   return {
     kind: 'relation',
     count: resolved.rows.length,
-    fields: relationFieldCatalog(resolved),
+    fields: catalog.filter(({ role }) => role !== 'technical'),
+    technicalFields: catalog.filter(({ role }) => role === 'technical'),
   };
 }
 
@@ -52,7 +54,7 @@ function relationFrom(memory, value) {
   if (!['subjects', 'events', 'accounts', 'relationships'].includes(collection.kind)) {
     throw new ResearchMemoryError(`Cannot convert ${collection.kind} into a research relation.`);
   }
-  return researchRelation(collection.items.map((item) => ({
+  const relation = researchRelation(collection.items.map((item) => ({
     values: relationValues(item),
     references: Object.fromEntries(SOURCE_FIELDS.map((field) => [
       field, { subject: item.subject, field },
@@ -65,6 +67,14 @@ function relationFrom(memory, value) {
     sourceKind: collection.kind,
     sourceContext: collection.context,
   });
+  relation.fieldDefinitions = {
+    'event.author': { subjectType: 'account', lineage: ['event.author'] },
+    ...(collection.kind === 'events'
+      ? { 'subject.id': { subjectType: 'event', lineage: ['subject.id'] } } : {}),
+    ...(collection.kind === 'accounts'
+      ? { 'subject.id': { subjectType: 'account', lineage: ['subject.id'] } } : {}),
+  };
+  return relation;
 }
 
 export function validateRelationOperation(name, parameters, inputs) {
@@ -116,6 +126,7 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
   else if (name === 'explode') output = applyExplode(input, normalized);
   else if (name === 'scan') output = applyScan(input, normalized);
   else output = applyBalance(input, normalized);
+  output.fieldDefinitions = transformFieldDefinitions(name, normalized, input, right);
   output.context = {
     operation: 'relation-pipeline',
     input: input.context,
@@ -134,13 +145,75 @@ export function relationFieldCatalog(relation) {
   return [...names].sort().map((name) => {
     const values = relation.rows.map(({ values: rowValues }) => rowValues[name]);
     const withValue = values.filter((value) => value !== null && value !== undefined);
+    const definition = relation.fieldDefinitions?.[name] ?? {};
+    const truncatedRows = relation.rows.filter(
+      ({ fieldMetadata }) => fieldMetadata?.[name]?.truncation?.truncated === true,
+    ).length;
     return {
       name,
       rowsWithValue: withValue.length,
       nullRows: values.length - withValue.length,
       types: [...new Set(withValue.map(valueType))].sort(),
+      ...(definition.role ? { role: definition.role } : {}),
+      ...(definition.lineage ? { lineage: clone(definition.lineage) } : {}),
+      ...(definition.subjectType ? { subjectType: definition.subjectType } : {}),
+      ...(truncatedRows ? { truncatedRows } : {}),
     };
   });
+}
+
+function transformFieldDefinitions(name, operation, input, right) {
+  const current = clone(input.fieldDefinitions ?? {});
+  if (['filter', 'distinct', 'sort', 'slice', 'balance'].includes(name)) return current;
+  if (name === 'project') {
+    return Object.fromEntries(operation.fields.map(({ field: source, name: output }) => [
+      output, mappedFieldDefinition(input, source),
+    ]));
+  }
+  if (name === 'join') {
+    return {
+      ...current,
+      ...Object.fromEntries(operation.select.map(({ field: source, name: output }) => [
+        output, mappedFieldDefinition(right, source),
+      ])),
+    };
+  }
+  if (name === 'aggregate') {
+    return Object.fromEntries(operation.by.map(({ field: source, name: output }) => [
+      output, mappedFieldDefinition(input, source),
+    ]));
+  }
+  if (name === 'derive') return current;
+  if (name === 'explode') {
+    return {
+      ...current,
+      [operation.as]: mappedFieldDefinition(input, operation.field),
+      [operation.indexAs]: { role: 'technical' },
+    };
+  }
+  if (name !== 'scan') return current;
+  return {
+    ...current,
+    'match.field': { role: 'technical' },
+    'match.term': { role: 'technical' },
+    'match.sourceSubject': { role: 'technical' },
+    'match.excerpt': { role: 'technical' },
+    'match.start': { role: 'technical' },
+    'match.end': { role: 'technical' },
+  };
+}
+
+function mappedFieldDefinition(relation, source) {
+  const existing = relation.fieldDefinitions?.[source] ?? {};
+  return {
+    ...clone(existing),
+    lineage: lineageFor(relation, source),
+  };
+}
+
+function lineageFor(relation, source) {
+  const lineage = relation.fieldDefinitions?.[source]?.lineage ?? [];
+  return [...new Set([...lineage, source])];
 }
 
 function validateAvailableFields(name, operation, input, right) {
@@ -376,6 +449,9 @@ function applyProject(relation, operation) {
     references: Object.fromEntries(operation.fields.flatMap(({ field: source, name }) => (
       row.references?.[source] ? [[name, row.references[source]]] : []
     ))),
+    fieldMetadata: Object.fromEntries(operation.fields.flatMap(({ field: source, name }) => (
+      row.fieldMetadata?.[source] ? [[name, row.fieldMetadata[source]]] : []
+    ))),
   })), {});
 }
 
@@ -445,6 +521,12 @@ function applyJoin(left, right, operation) {
             rightRow.references?.[source] ? [[name, rightRow.references[source]]] : []
           ))),
         },
+        fieldMetadata: {
+          ...(leftRow.fieldMetadata ?? {}),
+          ...Object.fromEntries(operation.select.flatMap(({ field: source, name }) => (
+            rightRow.fieldMetadata?.[source] ? [[name, rightRow.fieldMetadata[source]]] : []
+          ))),
+        },
         subjects: uniqueJson([...leftRow.subjects, ...rightRow.subjects]),
         reasons: uniqueJson([...leftRow.reasons, ...rightRow.reasons]),
         provenance: uniqueJson([...leftRow.provenance, ...rightRow.provenance]),
@@ -465,42 +547,40 @@ function applyAggregate(relation, operation) {
     if (!groups.has(key)) groups.set(key, { values, rows: [] });
     groups.get(key).rows.push(row);
   }
-  const rows = [...groups.values()].slice(0, operation.limit).map((group) => ({
-    values: Object.fromEntries([
-      ...Object.entries(group.values).flatMap(([name, value]) => (
-        boundedAggregateEntries(name, value)
-      )),
-      ...operation.aggregations.flatMap((aggregation) => {
-        const value = aggregate(group.rows, aggregation);
-        return ['min', 'max'].includes(aggregation.operation)
-          ? boundedAggregateEntries(aggregation.name, value)
-          : [[aggregation.name, value]];
-      }),
-    ]),
-    subjects: uniqueJson(group.rows.flatMap((row) => row.subjects)),
-    reasons: uniqueJson(group.rows.flatMap((row) => row.reasons)),
-    provenance: uniqueJson(group.rows.flatMap((row) => row.provenance)),
-  }));
+  const rows = [...groups.values()].slice(0, operation.limit).map((group) => {
+    const values = {};
+    const fieldMetadata = {};
+    for (const [name, value] of Object.entries(group.values)) {
+      addBoundedField(values, fieldMetadata, name, value);
+    }
+    for (const aggregation of operation.aggregations) {
+      const value = aggregate(group.rows, aggregation);
+      if (['min', 'max'].includes(aggregation.operation)) {
+        addBoundedField(values, fieldMetadata, aggregation.name, value);
+      } else {
+        values[aggregation.name] = value;
+      }
+    }
+    return {
+      values,
+      fieldMetadata,
+      subjects: uniqueJson(group.rows.flatMap((row) => row.subjects)),
+      reasons: uniqueJson(group.rows.flatMap((row) => row.reasons)),
+      provenance: uniqueJson(group.rows.flatMap((row) => row.provenance)),
+    };
+  });
   return researchRelation(rows, {});
 }
 
 function applyDerive(relation, operation) {
-  return researchRelation(relation.rows.map((row) => ({
-    ...row,
-    values: {
-      ...row.values,
-      ...Object.fromEntries(operation.fields.flatMap(({ name, expression }) => {
-        const bounded = boundDerived(evaluate(expression, row.values));
-        return bounded.truncated ? [
-          [name, bounded.value], [`${name}.truncation`, {
-            truncated: bounded.truncated,
-            ...(bounded.originalLength === undefined
-              ? {} : { originalLength: bounded.originalLength }),
-          }],
-        ] : [[name, bounded.value]];
-      })),
-    },
-  })), {});
+  return researchRelation(relation.rows.map((row) => {
+    const values = clone(row.values);
+    const fieldMetadata = clone(row.fieldMetadata ?? {});
+    for (const { name, expression } of operation.fields) {
+      addBoundedField(values, fieldMetadata, name, evaluate(expression, row.values));
+    }
+    return { ...row, values, fieldMetadata };
+  }), {});
 }
 
 function applyExplode(relation, operation) {
@@ -819,17 +899,18 @@ function boundDerived(value) {
   return { value: clone(value), truncated: false };
 }
 
-function boundedAggregateEntries(name, value) {
+function addBoundedField(values, fieldMetadata, name, value) {
   const bounded = boundDerived(value);
-  return [
-    [name, bounded.value],
-    [`${name}.truncation`, {
-      derived: true,
-      truncated: bounded.truncated,
+  values[name] = bounded.value;
+  if (!bounded.truncated) return;
+  fieldMetadata[name] = {
+    ...(fieldMetadata[name] ?? {}),
+    truncation: {
+      truncated: true,
       ...(bounded.originalLength === undefined
         ? {} : { originalLength: bounded.originalLength }),
-    }],
-  ];
+    },
+  };
 }
 
 function linksIn(content) {
@@ -872,7 +953,7 @@ function parseProfile(content) {
   }
 }
 
-function researchRelation(rows, context) {
+function researchRelation(rows, context, fieldDefinitions = {}) {
   return {
     type: 'research-relation',
     kind: 'relation',
@@ -884,14 +965,16 @@ function researchRelation(rows, context) {
       subjects: uniqueJson(row.subjects ?? []),
       reasons: uniqueJson(row.reasons ?? []),
       provenance: uniqueJson(row.provenance ?? []),
+      fieldMetadata: clone(row.fieldMetadata ?? {}),
     })),
     context: clone(context),
+    fieldDefinitions: clone(fieldDefinitions),
   };
 }
 
 function cloneRelation(value) {
   if (!isResearchRelation(value)) throw new ResearchMemoryError('A research relation is required.');
-  return researchRelation(value.rows, value.context ?? {});
+  return researchRelation(value.rows, value.context ?? {}, value.fieldDefinitions ?? {});
 }
 
 function relationDescriptor() {

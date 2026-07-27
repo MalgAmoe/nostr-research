@@ -52,6 +52,8 @@ function showRelation(memory, value, settings) {
   const effectiveOffset = Math.min(settings.offset, resolved.rows.length);
   const preview = resolved.rows.slice(effectiveOffset, effectiveOffset + limit).map((row) => ({
     values: compactRelationValue(row.values, settings.excerptLimit),
+    ...(Object.keys(row.fieldMetadata ?? {}).length
+      ? { fieldMetadata: structuredClone(row.fieldMetadata) } : {}),
     subjectCount: row.subjects.length,
     reasonCount: row.reasons.length,
     provenanceCount: row.provenance.length,

@@ -18,7 +18,7 @@ test('factual schemas construct commands accepted through the public session sea
   }
 
   const global = await session.execute({
-    commandId: 'global-schema', command: 'schema',
+    commandId: 'global-schema', command: 'schema', parameters: { detail: 'full' },
   });
   const contracts = global.result.research.parameterContracts;
   assert.deepEqual(contracts.filter.limit, {
@@ -45,6 +45,12 @@ test('factual schemas construct commands accepted through the public session sea
     global.result.session.commands.observation.inspect.parameters.subject,
     'event, account, or tag subject',
   );
+  const summary = await session.execute({
+    commandId: 'summary-schema', command: 'schema',
+  });
+  assert.equal(summary.result.detail, 'summary');
+  assert.equal('parameterContracts' in summary.result.research, false);
+  assert.match(summary.result.research.contractAccess, /detail "full"/);
 
   const selected = await session.execute({
     commandId: 'select', command: 'select',
@@ -99,6 +105,36 @@ test('factual schemas construct commands accepted through the public session sea
     resultId: 'counted',
   });
   assert.equal(aggregated.ok, true);
+
+  const authorCounts = await session.execute({
+    commandId: 'author-counts', command: 'aggregate', input: 'rows',
+    parameters: {
+      by: [{ field: 'event.author', name: 'author' }],
+      aggregations: [{ name: 'count', operation: 'count' }],
+    },
+    resultId: 'author-counts',
+  });
+  assert.equal(authorCounts.ok, true);
+  const authorSchema = await session.execute({
+    commandId: 'author-schema', command: 'schema', input: 'author-counts',
+  });
+  assert.deepEqual(
+    authorSchema.result.structure.fields.find(({ name }) => name === 'author').lineage,
+    ['event.author'],
+  );
+  const extractSchema = await session.execute({
+    commandId: 'author-extract-schema', command: 'schema', input: 'author-counts',
+    parameters: { operation: 'extract' },
+  });
+  assert.deepEqual(extractSchema.result.operation.recognizedTransitions, [{
+    field: 'author', subjectType: 'account', lineage: ['event.author'],
+  }]);
+  const authors = await session.execute({
+    commandId: 'authors', command: 'extract', input: 'author-counts',
+    parameters: { field: 'author', subjectType: 'account' },
+    resultId: 'authors',
+  });
+  assert.equal(authors.ok, true);
 
   const invalidCompare = await session.execute({
     commandId: 'invalid-compare', command: 'compare', input: 'events',

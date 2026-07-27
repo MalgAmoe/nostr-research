@@ -324,7 +324,7 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.equal(joinedPastEnd.result.omittedBefore, 1);
   assert.equal(joinedPastEnd.result.omittedAfter, 0);
   const schema = await session.execute({
-    commandId: 'schema', command: 'schema', parameters: {},
+    commandId: 'schema', command: 'schema', parameters: { detail: 'full' },
   });
   assert.equal(schema.ok, true);
   assert.ok(schema.result.operations.set.operations.includes('difference'));

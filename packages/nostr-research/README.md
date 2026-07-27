@@ -402,10 +402,15 @@ advance them.
 
 Research commands include source operations, subject-collection transforms,
 relation operations, explicit archive and notebook operations, and `plan`.
-`schema` without an input reports the authoritative global vocabulary and
-configuration. `schema` with a named input and empty parameters reports that
-handle's structure and complete compatible-operation inventory without
+`schema` without an input reports a compact global vocabulary and
+configuration. Request `{ "detail": "full" }` when the exhaustive parameter
+contracts are needed. `schema` with a named input and empty parameters reports
+that handle's structure and complete compatible-operation inventory without
 duplicating every operation contract:
+
+```json
+{"commandId":"full-schema","command":"schema","parameters":{"detail":"full"}}
+```
 
 ```json
 {"commandId":"authors-schema","command":"schema","input":"authors","parameters":{}}
@@ -440,6 +445,13 @@ Contextual schema adds actual available and populated fields, effective
 external-operation defaults, and caller choices still required.
 `compatibleOperations` is the exhaustive operation inventory for the handle;
 focused schema supplies the selected operation's details.
+
+Relation transformations retain lightweight field lineage when a field is
+renamed or used as an aggregation key. This allows later operations such as
+`extract` to recognize account or event identifiers without guessing from the
+new field name. Technical fields are reported separately in relation structure,
+and row-specific truncation details appear under `fieldMetadata` rather than as
+ordinary analysis columns.
 
 Configuration has explicit levels. Engine constraints are immutable supported
 ranges. Memory, archive, and notebook capacities are construction-time
