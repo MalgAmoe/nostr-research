@@ -1,3 +1,0 @@
-BLOCKED
-
-The required temporary public-command evidence is unavailable. Validation passes the permanent suite, but does not demonstrate the complete named acquisition → scoped selection → concise default → opt-in coverage → non-destructive replacement workflow. The worker reports that loopback verification cannot run because this sandbox prohibits listeners. Since runtime verification is explicitly required and cannot be completed here, acceptance cannot be confirmed.

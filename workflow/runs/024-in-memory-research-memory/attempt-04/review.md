@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. Account projection does not preserve SQLite behavior. In `packages/nostr-research/src/index.js:2305`, `#accountSummary()` derives relays only from the current metadata event and omits `descriptionExcerpt`. The SQLite oracle aggregates relays from every stored event authored by the account and includes the profile description excerpt (`index.js:3225`). Update the in-memory projection to match that public behavior and add compact account/event projection parity coverage using distinct relays across an author’s events.

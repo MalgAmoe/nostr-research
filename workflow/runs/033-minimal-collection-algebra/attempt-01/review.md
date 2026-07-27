@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `sample` aggregations ignore their required `field`. In `packages/nostr-research/src/index.js`, `normalizeAggregation()` requires and validates `field`, but `aggregate()` returns complete items via `items.slice(...)` regardless of that field. Consequently, documented plans such as `field: 'subject'` and `field: 'event.text'` produce identical results, and the functional test never verifies the sampled value. Make the operation’s behavior match its declared JSON description—either return bounded values from the requested field or remove the field from the public contract and documentation—and add a public-boundary assertion covering the result.

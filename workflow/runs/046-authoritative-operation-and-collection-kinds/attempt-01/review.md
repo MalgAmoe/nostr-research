@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `continuation.functional.test.js` does not execute the complete first required path through either consumer. The session path stops after `referencedAccounts`, while the plan uses `select -> expansion -> filter -> referencedAccounts` and also stops before `hydrate`. Extend the public workflow so both the declarative session and a plan execute and preflight the exact route `account -> authored-notes -> filter subject.type=event -> referencedAccounts -> hydrate`, asserting kind agreement at each stage.

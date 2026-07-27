@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. The termination lifecycle remains broken. `packages/nostr-research/test/jsonl-session.functional.test.js:113` fails because the relay socket remains open after SIGTERM, despite the `transport.destroy()` change in `packages/nostr-research/src/acquire.js`. Update cancellation so all owned relay transports close reliably, and make the full validation—including this functional scenario—pass.

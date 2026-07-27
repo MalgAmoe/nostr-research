@@ -5,8 +5,7 @@ UI-independent library.
 
 ```text
 packages/nostr-research/    UI-independent research library and JSONL session
-workflow/                   Persistent rebuild workflow
-docs/                       Project decisions and supporting material
+workflow/                   Worker/reviewer task generator
 ```
 
 ## Run a research session

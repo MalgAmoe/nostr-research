@@ -1,5 +1,0 @@
-CHANGES_REQUIRED
-
-1. Operation result kinds disagree across discovery, preflight, execution, and plan reporting. `preserve` and `release-archive` are registered as returning `subjects` in `src/operations.js:57-60`, while preflight and execution preserve the input collection kind in `src/plan.js:286-294` and `src/plan.js:415-430`. Plan reporting then forces the registry’s `subjects` value in `src/plan.js:508-509`. Make one authoritative result-kind contract so events/accounts inputs, handles, preflight descriptors, and plan reports agree.
-
-2. An empty `preserve` operation changes no archive state—`memory.preserve()` returns a zero-count mutation—but the session unconditionally increments its revision for every preserve command or plan stage in `src/interpreter.js:391-393` and `src/interpreter.js:483-488`. Revision changes must reflect actual archive mutations, including no-op empty preservation.

@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. The required validation fails. In `src/interpreter.js:345`, empty-result handling occurs before validating retained-operation fields, so the unsupported `callback` parameter returns `EMPTY_RESULT` instead of `INVALID_OPERATION`, breaking the existing public functional scenario at `test/acquisition.functional.test.js:196`. Validate retain parameters before applying the empty-retention guard, preserving clear input errors and making `npm test` and the task validation script pass.

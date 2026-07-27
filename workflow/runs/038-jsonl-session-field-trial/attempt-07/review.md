@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. Signal cancellation is still broken. Validation fails at `jsonl-session.functional.test.js:160` because the executable does not exit within two seconds after SIGTERM. In `acquire.js:327`, cancellation calls `transport.end()` and waits for the raw socket’s `close` event, but a peer can leave that half-closed connection open indefinitely. Change teardown to guarantee bounded closure of the owned transport and make the signal-cancellation functional test pass.

@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. Account compact projections incorrectly report resident metadata as unresolved. In `packages/nostr-research/src/index.js:881`, metadata is resolved only in `full` mode, so `resolved` is always `false` in compact mode. Consequently, `show()` can report `resident: true` while its preview reports `resolved: false` (`presentation.js:124-135`), violating consistent resident-state presentation. Resolve metadata for the status in every projection mode, and extend the functional regression to assert consistency for resident and evicted account subjects.

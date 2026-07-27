@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `packages/nostr-research/src/presentation.js`: `showResearchValue()` does not recognize values produced by `facetResearchCollection()` (`type: "facets"`), so the shared console call `research.show(research.facets(collection))` throws “research.show does not recognize this value.” Add a concise bounded facet projection with omitted counts and cover it through the public presentation workflow.

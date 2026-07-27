@@ -1,3 +1,0 @@
-PASS
-
-All acceptance criteria are materially satisfied. The implementation is explicit, validated before networking, bounded per starting account and globally, excludes discovered accounts from sampling, preserves reasons/provenance and session independence, reports authored-note requests, retains/reopens results, and leaves default expansion unchanged. The live-trial artifact and retained SQLite evidence support the reported findings, and the complete validation passed.

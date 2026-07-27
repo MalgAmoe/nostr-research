@@ -1,6 +1,6 @@
 # Repository workflow
 
-This directory is the durable memory for developing the project around a
+This directory contains the worker/reviewer machinery used to develop the
 UI-independent Nostr research library.
 
 ## Operating model
@@ -18,9 +18,9 @@ UI-independent Nostr research library.
 7. `BLOCKED` stops the task for human discussion.
 
 `CONTEXT.md` contains durable project principles and constrains every task.
-The selected task defines the current work within those principles. Completed
-task files and run records are historical evidence; they do not override the
-current context or silently preserve superseded architecture.
+The selected task defines the current work within those principles. Task,
+artifact, and run directories are working records for the current milestone;
+they may be emptied after their useful conclusions reach the code or context.
 
 The runner, not either Codex invocation, owns task status.
 

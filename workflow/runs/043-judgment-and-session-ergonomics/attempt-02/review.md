@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `workflow/artifacts/composable-session-field-trial.md` does not perform the iterative research trial through the JSONL session as explicitly required. It records only failed acquisition and `release-all` through the executable; the substantive navigation uses an in-process interpreter harness and explicitly admits it was not end-to-end JSONL. Repeat the genuine iterative navigation through the JSONL session—using a bounded temporary/local relay if external relays are unavailable—and record that transcript and assessment in the artifact.

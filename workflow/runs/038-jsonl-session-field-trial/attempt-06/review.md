@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `packages/nostr-research/src/acquire.js` uses `resetAndDestroy()` during signal cancellation, causing the process-boundary regression test in `test/jsonl-session.functional.test.js` to fail with `ECONNRESET`. The canonical validation exits 1 with 37/38 tests passing. Cancellation must close the owned transport cleanly while preserving bounded process shutdown, and the full functional suite and canonical validation must pass.

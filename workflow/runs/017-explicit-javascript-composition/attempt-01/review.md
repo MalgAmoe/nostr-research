@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `ResearchMemory.collection()` does not fully enforce embedded-record integrity. `#assertStoredRecord()` compares only the embedded event, so callers can supply fabricated `record.observations`, account `record.profile`, or other record fields alongside a genuine stored event. Validate the complete embedded record against the canonical record derived from SQLite, and extend the functional scenario to prove altered record metadata/provenance is rejected.

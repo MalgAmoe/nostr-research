@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `packages/nostr-research/src/index.js:1569` trusts an embedded `item.record` instead of hydrating the subject from attached SQLite memory. Public result-collection validation checks only the subject, so `workspace.add()` can admit fabricated or non-stored evidence and can restore stale observations from an older collection. Change incremental hydration to resolve canonical evidence and current observations from `ResearchMemory`, and extend the public functional scenario to verify collection-based refresh after a new relay observation.

@@ -1,3 +1,0 @@
-PASS
-
-All acceptance criteria are materially satisfied. The previous review finding is resolved: the public declarative comparison `show` path now structurally reports operation bounds, truncation, corpus capacity/pressure, and eviction effects, with appropriate public functional coverage. The coherent bounded field trial documents actionable orientation, account, topic/long-tail, conversation, comparison, and corpus views. Validation passed.

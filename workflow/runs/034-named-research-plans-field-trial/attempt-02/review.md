@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `workflow/artifacts/declarative-research-plan-field-trial.md` does not contain the actual remaining JavaScript required by the live trial. It only describes the initial orientation/facet inspection, plan construction, and reporting projection, then shows the single `executeResearchPlan()` call. Add the exact JavaScript actually used outside the plan for those steps, as explicitly required by the acceptance criteria.

@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. The required temporary field validation is missing. The task requires orienting from one noisy live buffer and recording the next decision enabled by each useful view. The validation script only runs syntax checks and permanent tests, and `workflow/runs/042-bounded-research-views/attempt-01/` contains no such field-evidence artifact. Add disposable validation evidence covering the account, topic, conversation, comparison, long-tail, and corpus/eviction views and the navigation decision each enabled.

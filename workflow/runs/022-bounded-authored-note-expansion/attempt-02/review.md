@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `workflow/artifacts/authored-note-expansion-field-trial.md` records zero newly acquired notes because every public-relay connection failed. The required live trial therefore did not acquire and orient a fresh authored-note sample or validate its usefulness for continued research. Repeat the trial in an environment with public-relay access and record the successful commands, counts, findings, provenance, retention, and reopen result.

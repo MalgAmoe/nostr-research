@@ -1,5 +1,0 @@
-CHANGES_REQUIRED
-
-1. Collection/relation overlap was documented but not materially reduced. `filter`, `project`, `distinct`, `sort`, and `limit` still retain separate implementations in `src/index.js` and `src/relation.js`, with kind-based dispatch in `src/plan.js`. Collection `group`/`summarize` also remain alongside relation aggregation. The task requires this overlap to be merged, lowered, or removed—not merely described in the README. Consolidate according to the inventory, preserving only intentional identity-oriented collection behavior.
-
-2. Profile hydration overlap remains unresolved. `hydrate` still routes separately through `hydrateAccounts` in `src/acquire.js`, while `continue` with `relationship: "profiles"` independently builds and projects a profile acquisition in `src/continuation.js`. The README only explains the duplication. These paths must share one lowered acquisition/continuation implementation or otherwise be substantively unified as required by the task.
