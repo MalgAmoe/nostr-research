@@ -1,9 +1,9 @@
 # Nostr Research
 
 `@nostr-research/memory` is a UI-independent research library for canonical
-Nostr evidence. The active runtime is one capacity-bounded, process-local
-corpus. Events, observations, derived relationships, and retained selections
-all belong to that owner.
+Nostr evidence. The active runtime is one process-local memory with a renewable
+observation buffer, a bounded deliberate evidence archive, and explicit
+research knowledge.
 
 The product path has four layers: the memory owns evidence and derived
 material; normalized operations select, transform, and acquire against that
@@ -18,7 +18,10 @@ import {
   createInMemoryResearchMemory,
 } from '@nostr-research/memory';
 
-const memory = createInMemoryResearchMemory({ capacity: 500 });
+const memory = createInMemoryResearchMemory({
+  capacity: 500,
+  archiveCapacity: 100,
+});
 const session = createDeclarativeResearchSession(memory);
 
 memory.ingest(event, {
@@ -30,14 +33,31 @@ const notes = memory.select({ kinds: [1], text: ['nostr'] });
 await session.close(); // clears all resident state
 ```
 
-`ingest` stores immutable canonical evidence and records each observation.
-Capacity uses deterministic FIFO eviction. `describe()` reports capacity,
-resident counts, index counts, pressure, and total evictions; ingestion and
-acquisition results identify additions, refreshes, and evictions. Eviction
-removes resident evidence and its derived indexes, while retained selections keep
-their stable subject references. `inspect(subject)` reports `resident: false`
-when a retained event reference no longer has canonical evidence in the
-corpus.
+`ingest` stores immutable canonical evidence and records each observation in
+the observation buffer. Buffer capacity uses deterministic FIFO eviction.
+`describe()` reports buffer and archive capacity and counts. Eviction removes
+buffer evidence and its derived indexes, while retained selections keep stable
+subject references. `inspect(subject)` reports `resolutionSource` as
+`"archive"`, `"buffer"`, or `"unresolved"`.
+
+Evidence survives buffer turnover only through an explicit preservation
+operation:
+
+```js
+const selected = memory.select({ ids: [event.id] });
+memory.preserve(selected, {
+  level: 'canonical', // or "excerpt" / "reference"
+  reason: { type: 'research-anchor' },
+});
+
+memory.archived({ level: 'canonical' });
+memory.releaseEvidence([{ type: 'event', id: event.id }]);
+```
+
+Reference entries preserve identity and reason only. Excerpts are visibly
+non-canonical bounded snapshots. Canonical entries preserve the unmodified
+event and selected observation provenance. A full archive rejects the whole
+preservation request; acquisition never evicts archive entries.
 
 Local operations never contact relays. `select` is the canonical local event
 selection operation. `lookup(subject)` is the direct exact-subject selection

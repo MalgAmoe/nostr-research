@@ -1,6 +1,6 @@
 ---
 id: 048-deliberate-evidence-preservation
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/048-deliberate-evidence-preservation.validate.sh
 depends_on: 047-post-consolidation-cleanup-and-live-trial

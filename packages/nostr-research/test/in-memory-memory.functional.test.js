@@ -37,7 +37,9 @@ test('mixed ingestion and FIFO eviction leave coherent public indexes and source
     assert.equal(memory.describe().evictions, 1);
     assert.deepEqual(memory.inspect(subject('event', target.id)), {
       subject: subject('event', target.id),
+      resolved: false,
       resident: false,
+      resolutionSource: 'unresolved',
       evidence: null,
       provenance: [],
       relationships: [],

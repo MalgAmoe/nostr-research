@@ -13,6 +13,7 @@ import {
   isRelationOperation,
   isSetOperation,
   isTransformOperation,
+  operationResultKind,
   operationSemantics,
 } from './operations.js';
 import {
@@ -66,7 +67,7 @@ export async function executeResearchPlan(memory, plan, execution = {}) {
       operation: stage.operation,
       ...(stage.input === undefined ? {} : { input: stage.input }),
       ...(stage.inputs === undefined ? {} : { inputs: stage.inputs }),
-      resultKind: planResultKind(stage.operation, result),
+      resultKind: operationResultKind(stage.operation, result.kind) ?? result.kind ?? result.type,
       result,
     });
   }
@@ -233,6 +234,15 @@ export function preflightResearchOperation(
       scope: input ? 'acquisition' : 'corpus',
     };
   }
+  if (name === 'archived') {
+    if (input !== undefined) {
+      throw new ResearchMemoryError('Research archived operation must not have an input.');
+    }
+    memory.archived(parameters);
+    return {
+      kind: 'subjects', itemKind: 'subjects', resultKind: 'subjects', scope: 'archive',
+    };
+  }
   if (name === 'fetch') return validatePipelineFetch(parameters, input);
   if (name === 'expand') return validatePipelineExpand(memory, parameters, input);
   if (isRelationOperation(name)
@@ -273,6 +283,16 @@ export function preflightResearchOperation(
       itemKind: relationship.outputKind,
       resultKind: semantics.resultKind,
     };
+  }
+  if (name === 'preserve') {
+    memory.validatePreservation(parameters, input.kind);
+    return { ...input, resultKind: operationResultKind(name, input.kind) };
+  }
+  if (name === 'release-archive') {
+    if (Object.keys(parameters).length) {
+      throw new ResearchMemoryError('Research release-archive parameters must be empty.');
+    }
+    return { ...input, resultKind: operationResultKind(name, input.kind) };
   }
   const { name: retainedName, options = {} } = parameters;
   rejectUnknownParameterKeys(
@@ -369,6 +389,19 @@ export async function executeResearchOperation(memory, operation, input = undefi
       },
     };
   }
+  if (name === 'archived') {
+    const archive = memory.archived(parameters);
+    return memory.collection(archive.entries.map((entry) => ({
+      subject: entry.subject,
+      reasons: [{ type: 'archived-evidence', level: entry.level, reason: entry.reason }],
+      provenance: entry.excerpt?.provenance ?? entry.canonical?.observations ?? [],
+    })), {
+      operation: 'archived',
+      query: cloneJson(parameters),
+      count: archive.count,
+      omitted: archive.omitted,
+    }, 'subjects');
+  }
   if (isTransformOperation(name)) {
     return memory.transform(input, { operation: name, ...parameters });
   }
@@ -380,6 +413,23 @@ export async function executeResearchOperation(memory, operation, input = undefi
     return hydrateAccounts(memory, input, parameters);
   }
   if (name === 'continue') return continueResearch(memory, input, parameters);
+  if (name === 'preserve') {
+    const collection = memory.asCollection(input);
+    const mutation = memory.preserve(collection, parameters);
+    return {
+      ...collection,
+      context: { operation: 'preserve', input: collection.context, archiveMutation: mutation },
+    };
+  }
+  if (name === 'release-archive') {
+    const collection = memory.asCollection(input);
+    const mutation = memory.releaseEvidence(collection.items.map(({ subject }) => subject));
+    return memory.collection(mutation.subjects.map((item) => ({
+      subject: item,
+      reasons: [{ type: 'released-archived-evidence' }],
+      provenance: [],
+    })), { operation: 'release-archive', archiveMutation: mutation }, collection.kind);
+  }
   const { name: retainedName, options = {} } = parameters;
   return memory.retain(input, retainedName, options);
 }
@@ -454,10 +504,6 @@ function emptyHydrationReport(memory, options) {
     observedEvents: [],
   };
   return result;
-}
-
-function planResultKind(operation, result) {
-  return operationSemantics(operation).resultKind ?? result.kind ?? result.type;
 }
 
 function normalizeSelectionScope(parameters, hasInput) {

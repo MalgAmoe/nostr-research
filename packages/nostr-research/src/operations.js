@@ -54,6 +54,11 @@ export const RESEARCH_OPERATIONS = Object.freeze({
   hydrate: { input: 'accounts', outputKind: 'events', resultKind: 'hydration-report', external: true },
   continue: { input: 'subjects', resultKind: 'continuation-report', external: 'by-source' },
   retain: { input: 'subjects', resultKind: 'retained-selection', external: false },
+  preserve: { input: 'subjects', resultKind: 'input', external: false },
+  archived: { input: 'forbidden', outputKind: 'subjects', resultKind: 'subjects', external: false },
+  'release-archive': {
+    input: 'subjects', resultKind: 'input', external: false,
+  },
   relate: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
   join: { input: 'named', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
   aggregate: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
@@ -72,6 +77,11 @@ export function researchOperationNames() {
 
 export function operationSemantics(name) {
   return RESEARCH_OPERATIONS[name];
+}
+
+export function operationResultKind(name, inputKind = undefined) {
+  const resultKind = operationSemantics(name)?.resultKind;
+  return resultKind === 'input' ? inputKind : resultKind;
 }
 
 export function isTransformOperation(name) {

@@ -62,7 +62,7 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
   );
   const normalized = normalizeRelationParameters(name, parameters);
   if (name === 'relate') return relationFrom(memory, inputs.input);
-  const input = cloneRelation(inputs.input ?? inputs.left);
+  const input = refreshResolution(memory, cloneRelation(inputs.input ?? inputs.left));
   let output;
   if (name === 'filter') output = applyFilter(input, normalized);
   else if (name === 'project') output = applyProject(input, normalized);
@@ -70,7 +70,9 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
   else if (name === 'sort') output = applySort(input, normalized);
   else if (name === 'limit') output = applySlice(input, { offset: 0, limit: normalized.limit });
   else if (name === 'slice') output = applySlice(input, normalized);
-  else if (name === 'join') output = applyJoin(input, cloneRelation(inputs.right), normalized);
+  else if (name === 'join') {
+    output = applyJoin(input, refreshResolution(memory, cloneRelation(inputs.right)), normalized);
+  }
   else if (name === 'aggregate') output = applyAggregate(input, normalized);
   else if (name === 'derive') output = applyDerive(input, normalized);
   else if (name === 'explode') output = applyExplode(input, normalized);
@@ -521,11 +523,13 @@ function normalizePredicate(value) {
 function relationValues(memory, item) {
   const event = item.record?.event;
   const profile = item.record?.profile ?? (event?.kind === 0 ? parseProfile(event.content) : null);
+  const resolution = memory.inspect(item.subject);
   return {
     subject: clone(item.subject),
     'subject.type': item.subject.type,
     'subject.id': item.subject.id,
-    'evidence.resident': memory.inspect(item.subject).resident,
+    'evidence.resident': resolution.resident,
+    'evidence.resolutionSource': resolution.resolutionSource,
     observedRelays: uniqueJson(item.provenance.map(({ relay }) => relay).filter(Boolean)),
     ...(event ? {
       'event.author': event.pubkey,
@@ -543,6 +547,21 @@ function relationValues(memory, item) {
       'account.nip05': profile.nip05 ?? null,
     } : {}),
   };
+}
+
+function refreshResolution(memory, relation) {
+  for (const row of relation.rows) {
+    const item = row.subjects[0];
+    if (!item) continue;
+    const resolution = memory.inspect(item);
+    if ('evidence.resident' in row.values) {
+      row.values['evidence.resident'] = resolution.resident;
+    }
+    if ('evidence.resolutionSource' in row.values) {
+      row.values['evidence.resolutionSource'] = resolution.resolutionSource;
+    }
+  }
+  return relation;
 }
 
 function linksIn(content) {

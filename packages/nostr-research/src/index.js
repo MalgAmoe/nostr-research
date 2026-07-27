@@ -44,14 +44,21 @@ export class InvalidNostrEventError extends ResearchMemoryError {
 /** Creates the authoritative capacity-bounded, process-local research corpus. */
 export function createInMemoryResearchMemory(options = {}) {
   assertPlainObject(options, 'In-memory research memory options');
-  rejectUnknownKeys(options, new Set(['capacity']), 'in-memory research memory option');
+  rejectUnknownKeys(options, new Set(['capacity', 'archiveCapacity']), 'in-memory research memory option');
   const capacity = options.capacity;
   if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > MAX_QUERY_LIMIT) {
     throw new ResearchMemoryError(
       `In-memory research memory capacity must be an integer from 1 to ${MAX_QUERY_LIMIT}.`,
     );
   }
-  return new InMemoryResearchMemory(capacity);
+  const archiveCapacity = options.archiveCapacity ?? capacity;
+  if (!Number.isSafeInteger(archiveCapacity) || archiveCapacity < 1
+      || archiveCapacity > MAX_QUERY_LIMIT) {
+    throw new ResearchMemoryError(
+      `Evidence archive capacity must be an integer from 1 to ${MAX_QUERY_LIMIT}.`,
+    );
+  }
+  return new InMemoryResearchMemory(capacity, archiveCapacity);
 }
 
 /** Creates a minimal stable subject reference. */
@@ -69,7 +76,7 @@ export function subject(type, id) {
 }
 
 /** The private indexed owner for canonical records and every derived index. */
-class IndexedEventCorpus {
+class IndexedObservationBuffer {
   records = new Map();
   authors = new Map();
   kinds = new Map();
@@ -167,20 +174,30 @@ class IndexedEventCorpus {
 /** The single authoritative bounded process-local research corpus. */
 export class InMemoryResearchMemory {
   #capacity;
+  #archiveCapacity;
   #closed = false;
-  #corpus = new IndexedEventCorpus();
+  #buffer = new IndexedObservationBuffer();
+  #archive = new Map();
+  #archivedCanonical = new IndexedObservationBuffer();
   #nextObservationId = 1;
   #evictions = 0;
   #sets = new Map();
   #annotations = new Map();
 
-  constructor(capacity) {
+  constructor(capacity, archiveCapacity = capacity) {
     if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > MAX_QUERY_LIMIT) {
       throw new ResearchMemoryError(
         `In-memory research memory capacity must be an integer from 1 to ${MAX_QUERY_LIMIT}.`,
       );
     }
     this.#capacity = capacity;
+    if (!Number.isSafeInteger(archiveCapacity) || archiveCapacity < 1
+        || archiveCapacity > MAX_QUERY_LIMIT) {
+      throw new ResearchMemoryError(
+        `Evidence archive capacity must be an integer from 1 to ${MAX_QUERY_LIMIT}.`,
+      );
+    }
+    this.#archiveCapacity = archiveCapacity;
   }
 
   #assertOpen() {
@@ -190,35 +207,22 @@ export class InMemoryResearchMemory {
   ingest(event, observation, options = {}) {
     this.#assertOpen();
     assertPlainObject(options, 'In-memory ingest options');
-    rejectUnknownKeys(options, new Set(['preserve']), 'in-memory ingest option');
-    const preserve = new Set((options.preserve ?? []).map((item) => {
-      const normalized = normalizeSubject(item);
-      if (normalized.type !== 'event') {
-        throw new ResearchMemoryError('Preserved subjects must be events.');
-      }
-      return normalized.id;
-    }));
-    if (preserve.size > this.#capacity) {
-      throw new ResearchMemoryError('Research memory capacity cannot accommodate preserved events.');
-    }
+    rejectUnknownKeys(options, new Set(), 'in-memory ingest option');
     assertCanonicalEvent(event);
     const normalized = normalizeObservation(observation);
     // Validation and relationship derivation must complete before owned state changes.
     const canonical = cloneJson(event);
     // Derive before insertion so invalid relationship material cannot cause a
-    // partial mutation. IndexedEventCorpus derives again from the owned clone.
+    // partial mutation. IndexedObservationBuffer derives again from the owned clone.
     eventRelationships(canonical);
-    const stored = this.#corpus.records.has(canonical.id);
-    if (!stored) this.#corpus.insert({ event: canonical, observations: [] });
+    const stored = this.#buffer.records.has(canonical.id);
+    if (!stored) this.#buffer.insert({ event: canonical, observations: [] });
     const recorded = { id: this.#nextObservationId++, ...normalized };
-    this.#corpus.records.get(canonical.id).observations.push(recorded);
+    this.#buffer.records.get(canonical.id).observations.push(recorded);
     const evicted = [];
-    if (this.#corpus.records.size > this.#capacity) {
-      const oldest = [...this.#corpus.records.keys()].find((id) => !preserve.has(id));
-      if (oldest === undefined) {
-        throw new ResearchMemoryError('Research memory capacity cannot accommodate preserved events.');
-      }
-      this.#corpus.remove(oldest);
+    if (this.#buffer.records.size > this.#capacity) {
+      const oldest = this.#buffer.records.keys().next().value;
+      this.#buffer.remove(oldest);
       this.#evictions += 1;
       evicted.push(oldest);
     }
@@ -235,22 +239,20 @@ export class InMemoryResearchMemory {
     if (typeof eventId !== 'string' || !EVENT_ID.test(eventId)) {
       throw new ResearchMemoryError('Event ID must be a 64-character lowercase hexadecimal string.');
     }
-    const record = this.#corpus.records.get(eventId);
-    return record ? cloneJson(record) : null;
+    return this.#resolveEventRecord(eventId).record;
   }
 
   select(query = {}) {
     this.#assertOpen();
     const normalized = normalizeEventQuery(query);
-    const events = [...this.#corpus.records.values()].map(({ event }) => event);
+    const records = this.#completeRecords();
+    const events = [...records.values()].map(({ event }) => event);
     const ids = resolvePrefixes(normalized.ids, events.map(({ id }) => id), 'event ID');
     const authors = resolvePrefixes(
       normalized.authors, events.map(({ pubkey }) => pubkey), 'author public key',
     );
-    const candidates = this.#corpus.candidateIds(normalized, ids, authors);
     const results = [];
-    for (const eventId of candidates) {
-      const { event, observations } = this.#corpus.records.get(eventId);
+    for (const [eventId, { event, observations }] of records) {
       const matchReasons = matchEvent(event, normalized, ids, authors);
       if (matchReasons) {
         results.push({
@@ -348,6 +350,27 @@ export class InMemoryResearchMemory {
     if (collectionKind !== undefined) validateRetainableCollectionKind(collectionKind);
   }
 
+  validatePreservation(options, collectionKind = undefined) {
+    this.#assertOpen();
+    assertPlainObject(options, 'Evidence preservation options');
+    rejectUnknownKeys(options, new Set(['level', 'reason', 'excerptLimit']),
+      'evidence preservation option');
+    if (!['reference', 'excerpt', 'canonical'].includes(options.level)) {
+      throw new ResearchMemoryError(
+        'Evidence preservation level must be reference, excerpt, or canonical.',
+      );
+    }
+    normalizeReason(options.reason);
+    if (options.excerptLimit !== undefined
+        && (!Number.isSafeInteger(options.excerptLimit)
+          || options.excerptLimit < 1 || options.excerptLimit > 2000)) {
+      throw new ResearchMemoryError('Evidence excerptLimit must be an integer from 1 to 2000.');
+    }
+    if (collectionKind !== undefined && !SUBJECT_COLLECTION_KINDS.includes(collectionKind)) {
+      throw new ResearchMemoryError('Evidence preservation requires a subject collection.');
+    }
+  }
+
   asCollection(value) {
     this.#assertOpen();
     if (value?.type === 'set' || isPublicResearchSet(value)) {
@@ -410,6 +433,160 @@ export class InMemoryResearchMemory {
       item.type === 'event' ? 'events' : 'accounts');
   }
 
+  /**
+   * Deliberately copies selected evidence into the bounded archive. Validation
+   * and capacity checks complete before the first archive entry is changed.
+   */
+  preserve(value, options = {}) {
+    this.#assertOpen();
+    this.validatePreservation(options);
+    const level = options.level;
+    const reason = normalizeReason(options.reason);
+    const excerptLimit = options.excerptLimit ?? 280;
+    const collection = this.asCollection(value);
+    const prepared = collection.items.map(({ subject: item }) => {
+      const resolution = item.type === 'event'
+        ? this.#resolveEventRecord(item.id)
+        : item.type === 'account'
+          ? this.#resolveAccountEvidence(item.id)
+          : { source: 'unresolved', record: null };
+      if (level !== 'reference' && !resolution.record) {
+        throw new ResearchMemoryError(
+          `Cannot preserve ${level} evidence for unresolved ${item.type}:${item.id}.`,
+        );
+      }
+      const entry = {
+        subject: cloneJson(item),
+        level,
+        reason: cloneJson(reason),
+        preservedAt: new Date().toISOString(),
+      };
+      if (level === 'excerpt') {
+        entry.excerpt = evidenceExcerpt(item, resolution.record, excerptLimit);
+      } else if (level === 'canonical') {
+        const canonical = item.type === 'event'
+          ? resolution.record : {
+              event: resolution.record.metadataEvent,
+              observations: resolution.record.observations,
+            };
+        entry.canonical = cloneJson(canonical);
+      }
+      return [memberKey(item), entry];
+    });
+    const uniquePrepared = new Map(prepared);
+    const additions = [...uniquePrepared.keys()].filter((key) => !this.#archive.has(key)).length;
+    if (this.#archive.size + additions > this.#archiveCapacity) {
+      throw new ResearchMemoryError(
+        `Evidence archive capacity ${this.#archiveCapacity} cannot accommodate `
+        + `${additions} new entries.`,
+      );
+    }
+    for (const [key, entry] of uniquePrepared) {
+      this.#archive.set(key, cloneJson(entry));
+    }
+    this.#rebuildArchivedCanonical();
+    return {
+      type: 'archive-mutation',
+      level,
+      count: uniquePrepared.size,
+      entries: [...uniquePrepared.values()].map(publicArchiveSummary),
+    };
+  }
+
+  archived(options = {}) {
+    this.#assertOpen();
+    assertPlainObject(options, 'Evidence archive query');
+    rejectUnknownKeys(options, new Set(['subject', 'level', 'limit']), 'evidence archive query');
+    const wanted = options.subject === undefined ? null : normalizeSubject(options.subject);
+    if (options.level !== undefined
+        && !['reference', 'excerpt', 'canonical'].includes(options.level)) {
+      throw new ResearchMemoryError('Archive level must be reference, excerpt, or canonical.');
+    }
+    const limit = options.limit ?? 50;
+    if (!Number.isSafeInteger(limit) || limit < 0 || limit > MAX_QUERY_LIMIT) {
+      throw new ResearchMemoryError(`Archive limit must be an integer from 0 to ${MAX_QUERY_LIMIT}.`);
+    }
+    const entries = [...this.#archive.values()]
+      .filter((entry) => !wanted || memberKey(entry.subject) === memberKey(wanted))
+      .filter((entry) => options.level === undefined || entry.level === options.level)
+      .sort((left, right) => memberKey(left.subject).localeCompare(memberKey(right.subject)));
+    return {
+      type: 'evidence-archive',
+      count: entries.length,
+      entries: entries.slice(0, limit).map(publicArchiveEntry),
+      omitted: Math.max(0, entries.length - limit),
+    };
+  }
+
+  releaseEvidence(references) {
+    this.#assertOpen();
+    if (!Array.isArray(references) || references.length === 0) {
+      throw new ResearchMemoryError('Archive release requires a non-empty subject array.');
+    }
+    const subjects = references.map(normalizeSubject);
+    const keys = [...new Set(subjects.map(memberKey))];
+    const released = [];
+    for (const key of keys) {
+      const entry = this.#archive.get(key);
+      if (!entry) continue;
+      this.#archive.delete(key);
+      released.push(entry.subject);
+    }
+    this.#rebuildArchivedCanonical();
+    return { type: 'released-archived-evidence', count: released.length, subjects: released };
+  }
+
+  #rebuildArchivedCanonical() {
+    this.#archivedCanonical.clear();
+    for (const entry of this.#archive.values()) {
+      if (entry.level === 'canonical') this.#archivedCanonical.insert(entry.canonical);
+    }
+  }
+
+  #resolveEventRecord(eventId) {
+    const archived = this.#archivedCanonical.records.get(eventId);
+    const buffered = this.#buffer.records.get(eventId);
+    if (!archived && !buffered) return { source: 'unresolved', record: null };
+    const primary = archived ?? buffered;
+    const observations = [];
+    mergeUniqueJson(observations, archived?.observations ?? []);
+    mergeUniqueJson(observations, buffered?.observations ?? []);
+    return {
+      source: archived ? 'archive' : 'buffer',
+      record: cloneJson({ event: primary.event, observations }),
+    };
+  }
+
+  #resolveAccountEvidence(publicKey) {
+    const metadata = this.#currentByKey(publicKey, 0);
+    if (!metadata) return { source: 'unresolved', record: null };
+    const resolved = this.#resolveEventRecord(metadata.event.id);
+    return {
+      source: resolved.source,
+      record: {
+        profile: parseProfile(metadata.event),
+        metadataEvent: metadata.event,
+        observations: metadata.observations,
+      },
+    };
+  }
+
+  #completeRecords() {
+    const records = new Map();
+    for (const id of new Set([
+      ...this.#archivedCanonical.records.keys(),
+      ...this.#buffer.records.keys(),
+    ])) records.set(id, this.#resolveEventRecord(id).record);
+    return records;
+  }
+
+  #relationships(direction, key) {
+    return uniqueJson([
+      ...(this.#archivedCanonical[direction].get(key) ?? []),
+      ...(this.#buffer[direction].get(key) ?? []),
+    ]);
+  }
+
   #resolveCollectionItem(item) {
     const reference = normalizeSubject(item.subject);
     let record;
@@ -452,7 +629,7 @@ export class InMemoryResearchMemory {
       // evicted; only abbreviated references require resident prefix lookup.
       return EVENT_ID.test(item.id)
         ? subject('event', item.id)
-        : subject('event', resolveOnePrefix(item.id, [...this.#corpus.records.keys()], 'event ID'));
+        : subject('event', resolveOnePrefix(item.id, [...this.#completeRecords().keys()], 'event ID'));
     }
     if (item.type === 'account') {
       return EVENT_ID.test(item.id)
@@ -464,8 +641,14 @@ export class InMemoryResearchMemory {
   }
 
   #accountKeys() {
-    const keys = new Set(this.#corpus.authors.keys());
-    for (const relations of this.#corpus.outbound.values()) {
+    const keys = new Set([
+      ...this.#buffer.authors.keys(),
+      ...this.#archivedCanonical.authors.keys(),
+    ]);
+    for (const relations of [
+      ...this.#buffer.outbound.values(),
+      ...this.#archivedCanonical.outbound.values(),
+    ]) {
       for (const relation of relations) if (relation.target.type === 'account') keys.add(relation.target.id);
     }
     return [...keys].sort();
@@ -496,9 +679,9 @@ export class InMemoryResearchMemory {
   }
 
   #currentByKey(publicKey, kind, d = '') {
-    const candidates = [...(this.#corpus.authors.get(publicKey) ?? [])]
-      .map((id) => this.#corpus.records.get(id))
+    const candidates = [...this.#completeRecords().values()]
       .filter(({ event }) => event.kind === kind
+        && event.pubkey === publicKey
         && (kind < 30000 || (event.tags.find((tag) => tag[0] === 'd')?.[1] ?? '') === d))
       .sort((left, right) => right.event.created_at - left.event.created_at
         || left.event.id.localeCompare(right.event.id));
@@ -631,9 +814,9 @@ export class InMemoryResearchMemory {
       if (current.depth >= normalized.depth) continue;
       const relations = [
         ...(normalized.direction !== 'inbound'
-          ? this.#corpus.outbound.get(memberKey(current.subject)) ?? [] : []),
+          ? this.#relationships('outbound', memberKey(current.subject)) : []),
         ...(normalized.direction !== 'outbound'
-          ? this.#corpus.inbound.get(memberKey(current.subject)) ?? [] : []),
+          ? this.#relationships('inbound', memberKey(current.subject)) : []),
       ].sort((left, right) => (
         left.direction.localeCompare(right.direction)
         || left.sourceEventId.localeCompare(right.sourceEventId)
@@ -664,7 +847,7 @@ export class InMemoryResearchMemory {
           visited.set(key, {
             subject: next, role: 'discovery', reasons: [reason],
             provenance: cloneJson(
-              this.#corpus.records.get(relation.sourceEventId)?.observations ?? [],
+              this.#resolveEventRecord(relation.sourceEventId).record?.observations ?? [],
             ),
           });
           queue.push({ subject: next, depth });
@@ -688,23 +871,26 @@ export class InMemoryResearchMemory {
     this.#assertOpen();
     const item = normalizeSubject(reference);
     if (item.type === 'event') {
-      const record = this.getEvent(item.id);
+      const resolution = this.#resolveEventRecord(item.id);
+      const record = resolution.record;
       return {
-        subject: item, resident: Boolean(record), evidence: record,
+        subject: item,
+        resolved: Boolean(record),
+        resident: resolution.source === 'buffer',
+        resolutionSource: resolution.source,
+        evidence: record,
         provenance: record?.observations ?? [],
-        relationships: cloneJson(this.#corpus.outbound.get(memberKey(item)) ?? []),
+        relationships: cloneJson(this.#relationships('outbound', memberKey(item))),
       };
     }
     if (item.type === 'account') {
-      const metadata = this.#currentByKey(item.id, 0);
-      const evidence = metadata ? {
-        profile: parseProfile(metadata.event),
-        metadataEvent: metadata.event,
-        observations: metadata.observations,
-      } : null;
+      const resolution = this.#resolveAccountEvidence(item.id);
+      const evidence = resolution.record;
       return {
         subject: item,
-        resident: Boolean(evidence),
+        resolved: Boolean(evidence),
+        resident: resolution.source === 'buffer',
+        resolutionSource: resolution.source,
         evidence,
         provenance: evidence?.observations ?? [],
       };
@@ -917,10 +1103,12 @@ export class InMemoryResearchMemory {
       if (mode === 'ids') projection = reference;
       else if (reference.type === 'event') {
         const record = this.getEvent(reference.id);
+        const resolutionSource = this.inspect(reference).resolutionSource;
         projection = record ? (mode === 'full'
-          ? { type: 'event', id: reference.id, ...record }
+          ? { type: 'event', id: reference.id, resolutionSource, ...record }
           : {
               type: 'event', id: reference.id, kind: record.event.kind,
+              resolutionSource,
               author: this.#accountSummary(record.event.pubkey, options.excerptLimit ?? 160),
               createdAt: record.event.created_at,
               contentExcerpt: excerpt(record.event.content, options.excerptLimit ?? 160),
@@ -930,8 +1118,9 @@ export class InMemoryResearchMemory {
       } else if (reference.type === 'account') {
         const summary = this.#accountSummary(reference.id, options.excerptLimit ?? 160);
         const metadata = this.#currentByKey(reference.id, 0);
+        const resolutionSource = this.inspect(reference).resolutionSource;
         projection = {
-          type: 'account', id: reference.id, resolved: Boolean(metadata), ...summary,
+          type: 'account', id: reference.id, resolved: Boolean(metadata), resolutionSource, ...summary,
           ...(mode === 'full' && metadata ? {
             profile: parseProfile(metadata.event),
             metadataEvent: metadata.event, observations: metadata.observations,
@@ -964,8 +1153,9 @@ export class InMemoryResearchMemory {
   #accountSummary(publicKey, excerptLimit = 160) {
     const metadata = this.#currentByKey(publicKey, 0);
     const profile = metadata ? parseProfile(metadata.event) : {};
-    const observations = [...(this.#corpus.authors.get(publicKey) ?? [])]
-      .flatMap((eventId) => this.#corpus.records.get(eventId)?.observations ?? []);
+    const observations = [...this.#completeRecords().values()]
+      .filter(({ event }) => event.pubkey === publicKey)
+      .flatMap(({ observations: found }) => found);
     return {
       publicKey, name: profile.name, displayName: profile.display_name, nip05: profile.nip05,
       descriptionExcerpt: typeof profile.about === 'string'
@@ -977,12 +1167,24 @@ export class InMemoryResearchMemory {
 
   describe() {
     this.#assertOpen();
-    return this.#corpus.describe(this.#capacity, this.#evictions);
+    const buffer = this.#buffer.describe(this.#capacity, this.#evictions);
+    return {
+      ...buffer,
+      observationBuffer: buffer,
+      archive: {
+        capacity: this.#archiveCapacity,
+        entryCount: this.#archive.size,
+        remainingCapacity: this.#archiveCapacity - this.#archive.size,
+        levels: countedArchiveLevels(this.#archive.values()),
+      },
+    };
   }
 
   reset() {
     this.#assertOpen();
-    this.#corpus.clear();
+    this.#buffer.clear();
+    this.#archive.clear();
+    this.#archivedCanonical.clear();
     this.#sets.clear();
     this.#annotations.clear();
     this.#nextObservationId = 1; this.#evictions = 0;
@@ -994,6 +1196,61 @@ export class InMemoryResearchMemory {
       this.#closed = true;
     }
   }
+}
+
+function evidenceExcerpt(item, record, limit) {
+  if (item.type === 'event') {
+    return {
+      eventId: record.event.id,
+      author: record.event.pubkey,
+      kind: record.event.kind,
+      createdAt: record.event.created_at,
+      content: excerpt(record.event.content, limit),
+      tags: cloneJson(record.event.tags.slice(0, 20)),
+      provenance: cloneJson(record.observations),
+    };
+  }
+  if (item.type === 'account') {
+    return {
+      publicKey: item.id,
+      metadataEventId: record.metadataEvent.id,
+      profile: {
+        name: record.profile.name,
+        display_name: record.profile.display_name,
+        nip05: record.profile.nip05,
+        about: typeof record.profile.about === 'string'
+          ? excerpt(record.profile.about, limit) : undefined,
+      },
+      provenance: cloneJson(record.observations),
+    };
+  }
+  throw new ResearchMemoryError('Excerpt preservation supports event and account subjects.');
+}
+
+function publicArchiveEntry(entry) {
+  return cloneJson({
+    subject: entry.subject,
+    level: entry.level,
+    reason: entry.reason,
+    preservedAt: entry.preservedAt,
+    ...(entry.excerpt ? { excerpt: entry.excerpt } : {}),
+    ...(entry.canonical ? { canonical: entry.canonical } : {}),
+  });
+}
+
+function publicArchiveSummary(entry) {
+  return cloneJson({
+    subject: entry.subject,
+    level: entry.level,
+    reason: entry.reason,
+    preservedAt: entry.preservedAt,
+  });
+}
+
+function countedArchiveLevels(entries) {
+  const levels = { reference: 0, excerpt: 0, canonical: 0 };
+  for (const entry of entries) levels[entry.level] += 1;
+  return levels;
 }
 
 export function isCanonicalNostrEvent(event) {
@@ -1538,7 +1795,10 @@ function eventRelationships(event) {
 
 const TRANSFORM_KINDS = new Set(SUBJECT_COLLECTION_KINDS);
 const PIPELINE_FIELDS = Object.freeze({
-  common: ['subject', 'subject.type', 'subject.id', 'evidence.resident', 'observedRelay'],
+  common: [
+    'subject', 'subject.type', 'subject.id',
+    'evidence.resident', 'evidence.resolutionSource', 'observedRelay',
+  ],
   events: [
     'event.author', 'event.kind', 'event.text', 'event.createdAt', 'event.tag',
     'event.linkedDomain', 'event.hasMedia',
@@ -1729,7 +1989,8 @@ function normalizePredicate(value) {
   const fields = new Set([
     'subject.type', 'subject.id', 'event.author', 'event.kind', 'event.text',
     'event.createdAt', 'event.tag', 'event.linkedDomain', 'event.hasMedia',
-    'account.name', 'account.display_name', 'account.description', 'evidence.resident',
+    'account.name', 'account.display_name', 'account.description',
+    'evidence.resident', 'evidence.resolutionSource',
   ]);
   if (!fields.has(value.field)) throw new ResearchMemoryError(`Unsupported filter field: ${value.field}.`);
   const operators = ['equals', 'in', 'contains'].filter((key) => key in value);
@@ -2036,6 +2297,8 @@ function transformField(memory, item, field) {
   if (field === 'account.description') return profile?.about;
   if (field === 'evidence.resident') return item.subject
     ? memory.inspect(item.subject).resident : false;
+  if (field === 'evidence.resolutionSource') return item.subject
+    ? memory.inspect(item.subject).resolutionSource : 'unresolved';
   if (field === 'group.key') return item.key;
   if (field === 'event.createdAt') return event?.created_at;
   if (field === 'observedRelay') return item.provenance?.[0]?.relay;
@@ -2268,11 +2531,13 @@ export function collectionPipelineSchema() {
       'subject.type': stringPredicateSchema(),
       'subject.id': stringPredicateSchema(),
       'evidence.resident': scalarPredicateSchema('boolean'),
+      'evidence.resolutionSource': stringPredicateSchema(),
     },
     events: {
       'subject.type': stringPredicateSchema(),
       'subject.id': stringPredicateSchema(),
       'evidence.resident': scalarPredicateSchema('boolean'),
+      'evidence.resolutionSource': stringPredicateSchema(),
       'event.author': stringPredicateSchema(),
       'event.kind': scalarPredicateSchema('number'),
       'event.text': stringPredicateSchema(),
@@ -2288,6 +2553,7 @@ export function collectionPipelineSchema() {
       'subject.type': stringPredicateSchema(),
       'subject.id': stringPredicateSchema(),
       'evidence.resident': scalarPredicateSchema('boolean'),
+      'evidence.resolutionSource': stringPredicateSchema(),
       'account.name': stringPredicateSchema(),
       'account.display_name': stringPredicateSchema(),
       'account.description': stringPredicateSchema(),
@@ -2296,6 +2562,7 @@ export function collectionPipelineSchema() {
       'subject.type': stringPredicateSchema(),
       'subject.id': stringPredicateSchema(),
       'evidence.resident': scalarPredicateSchema('boolean'),
+      'evidence.resolutionSource': stringPredicateSchema(),
     },
   };
   const groupFields = {
@@ -2323,6 +2590,7 @@ export function collectionPipelineSchema() {
         'subject.type': 'string',
         'subject.id': 'string',
         'evidence.resident': 'boolean',
+        'evidence.resolutionSource': 'string',
         observedRelay: 'string',
         'event.author': 'string',
         'event.kind': 'number',

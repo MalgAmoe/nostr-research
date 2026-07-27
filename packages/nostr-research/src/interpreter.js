@@ -389,6 +389,9 @@ export class DeclarativeResearchSession {
       run: () => externallyBacked
         ? this.#runExternal(operation, inputEntry?.value, namedValues) : execute(),
       mutates: (result) => command.command === 'retain'
+        || (command.command === 'preserve'
+          && (result.context?.archiveMutation?.count ?? 0) > 0)
+        || (command.command === 'release-archive' && resultCount(result) > 0)
         || (externallyBacked && (result.counts?.acceptedObservations ?? 0) > 0),
       install: command.resultId === undefined ? null : (result) => {
         this.#handles.set(command.resultId, {
@@ -481,6 +484,9 @@ export class DeclarativeResearchSession {
       run: () => this.#runPlan(plan),
       mutates: (report) => report.stages.some(({ operation, result }) => (
         operation === 'retain'
+        || (operation === 'preserve'
+          && (result.context?.archiveMutation?.count ?? 0) > 0)
+        || (operation === 'release-archive' && resultCount(result) > 0)
         || ((isExternalOperation(operation) || result.type === 'continuation-report')
           && (result.counts?.acceptedObservations ?? 0) > 0)
       )),
@@ -742,7 +748,7 @@ function externalStatus(result, operation, memory) {
   const resolvedAuthors = requestedAuthors === null ? null : new Set(
     [...requestedAuthors].filter((id) => {
       try {
-        return memory.inspect({ type: 'account', id }).resident;
+        return memory.inspect({ type: 'account', id }).resolved;
       } catch {
         return false;
       }

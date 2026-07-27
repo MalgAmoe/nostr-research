@@ -8,7 +8,7 @@ import { isResearchRelation } from './relation.js';
 
 const FETCH_KEYS = new Set([
   'relays', 'filter', 'bindings', 'timeoutMs', 'observationLimit',
-  'distinctEventLimit', 'concurrency', 'preserve', 'signal',
+  'distinctEventLimit', 'concurrency', 'signal',
 ]);
 const EXPAND_KEYS = new Set([
   'relationship', 'field', 'subjectType', 'source', 'relays', 'since', 'until',

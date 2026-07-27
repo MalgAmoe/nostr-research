@@ -4,11 +4,11 @@ import WebSocket from 'ws';
 
 const OPTION_KEYS = new Set([
   'relays', 'filter', 'timeoutMs', 'observationLimit', 'distinctEventLimit',
-  'concurrency', 'signal', 'preserve',
+  'concurrency', 'signal',
 ]);
 const HYDRATION_OPTION_KEYS = new Set([
   'relays', 'kinds', 'timeoutMs', 'observationLimit', 'distinctEventLimit',
-  'concurrency', 'signal', 'preserve',
+  'concurrency', 'signal',
 ]);
 
 export const DEFAULT_ACQUISITION_TIMEOUT_MS = 10_000;
@@ -154,7 +154,6 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
           const ingested = memory.ingest(
             event,
             { relay, observedAt: new Date().toISOString() },
-            { preserve: normalized.preserve },
           );
           (ingested.eventStored ? additions.added : additions.refreshed).push(event.id);
           additions.evicted.push(...(ingested.evicted ?? []));
@@ -283,7 +282,7 @@ export async function hydrateAccounts(memory, selection, options) {
   }
   const {
     relays, kinds, timeoutMs, observationLimit, distinctEventLimit,
-    concurrency, signal, preserve,
+    concurrency, signal,
   } = normalized;
   return acquireRelayEvents(memory, {
     relays,
@@ -293,7 +292,6 @@ export async function hydrateAccounts(memory, selection, options) {
     distinctEventLimit,
     concurrency,
     signal,
-    preserve,
   });
 }
 
@@ -362,13 +360,9 @@ export function normalizeAcquisitionOptions(options) {
   if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) {
     throw new ResearchMemoryError('signal must be an AbortSignal.');
   }
-  if (options.preserve !== undefined && !Array.isArray(options.preserve)) {
-    throw new ResearchMemoryError('preserve must be an array of event subjects.');
-  }
   return {
     relays, filter, timeoutMs, observationLimit, distinctEventLimit,
     concurrency, signal: options.signal,
-    preserve: structuredClone(options.preserve ?? []),
   };
 }
 
