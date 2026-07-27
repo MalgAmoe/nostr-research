@@ -1,6 +1,6 @@
 ---
 id: 050-reference-resolved-research-views
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/050-reference-resolved-research-views.validate.sh
 depends_on: 049-research-notebook
@@ -77,3 +77,23 @@ copies.
 - Explicitly excluded test levels or mechanisms: snapshots of internal row
   shape, tests per algebra operation, private resolver tests, live relays,
   socket transport, UI, and compatibility tests for copied relation fields.
+
+## Reassessment after attempt 2
+
+The aggregate source-value leak was addressed, but the recursive bounding
+result is still semantically incorrect: when an array or object contains a
+truncated nested value, the parent currently discards that nested truncation
+flag and may report `truncated: false`.
+
+One further attempt must:
+
+- propagate truncation from every nested array/object child into the bounded
+  parent result;
+- ensure aggregate `by`, `min`, and `max` metadata reports truncation whenever
+  any retained nested source value was shortened or omitted;
+- extend the existing public relation workflow with a genuinely oversized
+  nested tag/source value and verify behavior after buffer turnover.
+
+Do not introduce a second bounding helper or expose internal recursion as a
+public interface. This is a corrected invariant for the existing bounded
+derived-value implementation.

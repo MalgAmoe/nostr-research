@@ -261,7 +261,6 @@ test('typed local stages and composable relations refine trial-shaped evidence',
       2,
     );
     assert.deepEqual(candidateRows.map(({ values }) => values.noteCount), [3, 1]);
-    assert.equal(candidateRows[0].values.name, 'alice');
     assert.equal(candidateRows[0].values.score, 6);
     assert.ok(candidateRows.every(({ provenance }) => provenance.length));
   } finally {

@@ -142,8 +142,12 @@ acquire, hydrate, remember, or evict evidence.
 ## Composable research relations
 
 Subject collections enter the general relation algebra with `relate`.
-Relations retain row values together with the stable subjects, reasons, and
-provenance that produced them. They support `filter`, `project`, `distinct`,
+Relations retain stable subjects, bounded derived values, reasons, provenance
+references, and references to source-backed fields. Source fields resolve
+through the current archive or observation buffer when an operation or
+projection needs them; a handle therefore reports `archive`, `buffer`, or
+`unresolved` as evidence lifetime changes instead of retaining a stale source
+snapshot. They support `filter`, `project`, `distinct`,
 `sort`, `limit`, `join`, `aggregate`, `derive`, `slice`, `explode`, `scan`,
 and `balance`. Unlike the older group and summary shapes, every relation
 remains usable by later relation operations.
@@ -155,9 +159,12 @@ to `indexAs`, and array elements are also exposed numerically. Exploding
 Related event fields include extracted `event.links` and `event.domains`.
 
 `scan` searches a caller-selected vocabulary across several fields and emits
-the matched field, term, and original value as `match.field`, `match.term`,
-and `match.value`. It performs mechanical matching only; it does not classify
-the result. `balance` retains at most `limitPer` rows for each selected key,
+`match.field`, `match.term`, `match.sourceSubject`, a bounded `match.excerpt`,
+and match coordinates. It does not retain the unlimited original field and
+performs mechanical matching only; it does not classify the result.
+Relation `sample` and `collect` aggregations return retained values together
+with explicit input, retained, omitted, and truncation counts. `balance`
+retains at most `limitPer` rows for each selected key,
 so one prolific author cannot consume an evidence window.
 
 Plans may give a stage one `input` or a named `inputs` object. `join` uses
@@ -436,10 +443,12 @@ Observation commands are `show`, `inspect`, `explain`, `list`, `memberships`, `m
 `subject` in `parameters`. Projection parameters are `previewLimit`,
 `excerptLimit`, `includeEvidence`, and `sizeLimit`; `show` additionally accepts
 `mode` and `offset`. Relation previews show bounded values and evidence counts by default;
-`includeEvidence: true` adds bounded subject and provenance details. `offset`
-selects another preview window without creating a new result. Responses report
-counts plus `omitted` or truncation metadata rather than emitting unbounded
-values.
+`includeEvidence: true` adds bounded subject and provenance-reference details.
+`offset` selects another preview window without creating a new result.
+Relation responses return their effective `offset`, `limit`, `nextOffset`,
+`omittedBefore`, and `omittedAfter`; `sizeBounded` and `sizeOmitted` identify
+rows omitted to satisfy the byte bound. Responses report counts plus `omitted`
+or truncation metadata rather than emitting unbounded values.
 
 Handle lifecycle commands are `release` and `release-all`; neither deletes
 notebook knowledge. Named membership is listed with `memberships`, inspected

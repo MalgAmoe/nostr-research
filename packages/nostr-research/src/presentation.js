@@ -1,3 +1,5 @@
+import { resolveRelationForPresentation } from './relation.js';
+
 const DEFAULT_PREVIEW_LIMIT = 5;
 const MAX_PREVIEW_LIMIT = 20;
 const DEFAULT_EXCERPT_LIMIT = 160;
@@ -18,7 +20,7 @@ export function showResearchValue(memory, value, options = {}) {
     shown = showCollection(memory, value.collection, settings);
   }
   else if (value?.type === 'typed-collection') shown = showTypedCollection(memory, value, settings);
-  else if (value?.type === 'research-relation') shown = showRelation(value, settings);
+  else if (value?.type === 'research-relation') shown = showRelation(memory, value, settings);
   else if (value?.type === 'facets') shown = showFacets(value, settings);
   else if (value?.type === 'result-comparison') shown = showComparison(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
@@ -30,9 +32,11 @@ export function showResearchValue(memory, value, options = {}) {
   return enforceSize(shown, settings.sizeLimit);
 }
 
-function showRelation(value, settings) {
+function showRelation(memory, value, settings) {
+  const resolved = resolveRelationForPresentation(memory, value);
   const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
-  const preview = value.rows.slice(settings.offset, settings.offset + limit).map((row) => ({
+  const effectiveOffset = Math.min(settings.offset, resolved.rows.length);
+  const preview = resolved.rows.slice(effectiveOffset, effectiveOffset + limit).map((row) => ({
     values: compactRelationValue(row.values, settings.excerptLimit),
     subjectCount: row.subjects.length,
     reasonCount: row.reasons.length,
@@ -46,12 +50,15 @@ function showRelation(value, settings) {
   }));
   return {
     type: 'research-relation',
-    count: value.rows.length,
+    count: resolved.rows.length,
     preview,
-    offset: settings.offset,
-    omittedBefore: Math.min(settings.offset, value.rows.length),
-    omittedAfter: Math.max(0, value.rows.length - settings.offset - preview.length),
-    omitted: Math.max(0, value.rows.length - preview.length),
+    offset: effectiveOffset,
+    limit,
+    nextOffset: effectiveOffset + preview.length,
+    omittedBefore: effectiveOffset,
+    omittedAfter: Math.max(0, resolved.rows.length - effectiveOffset - preview.length),
+    omitted: Math.max(0, resolved.rows.length - preview.length),
+    sizeBounded: false,
     context: compactContext(value.context),
   };
 }
@@ -864,6 +871,8 @@ function enforceSize(value, maximum) {
     copy.preview.pop();
     copy.omitted = (copy.omitted ?? 0) + 1;
     if (Number.isSafeInteger(copy.omittedAfter)) copy.omittedAfter += 1;
+    if ('sizeBounded' in copy) copy.sizeBounded = true;
+    if (Number.isSafeInteger(copy.nextOffset)) copy.nextOffset -= 1;
   }
   if (Buffer.byteLength(JSON.stringify(copy)) <= maximum) return copy;
   return {
@@ -871,15 +880,29 @@ function enforceSize(value, maximum) {
     ...(copy.count !== undefined ? { count: copy.count } : {}),
     preview: [],
     ...(copy.offset !== undefined ? { offset: copy.offset } : {}),
+    ...(copy.limit !== undefined ? { limit: copy.limit } : {}),
+    ...(copy.nextOffset !== undefined ? {
+      nextOffset: Math.min(
+        copy.count ?? copy.offset + 1,
+        copy.offset + (Array.isArray(copy.preview) && copy.preview.length > 0 ? 1 : 0),
+      ),
+    } : {}),
     ...(copy.omittedBefore !== undefined ? { omittedBefore: copy.omittedBefore } : {}),
     ...(copy.omittedAfter !== undefined ? {
-      omittedAfter: copy.omittedAfter
-        + (Array.isArray(copy.preview) ? copy.preview.length : 0),
+      omittedAfter: Math.max(
+        0,
+        (copy.count ?? 0) - Math.min(
+          copy.count ?? copy.offset + 1,
+          copy.offset + (Array.isArray(copy.preview) && copy.preview.length > 0 ? 1 : 0),
+        ),
+      ),
+      sizeOmitted: Array.isArray(copy.preview) && copy.preview.length > 0 ? 1 : 0,
     } : {}),
     omitted: copy.truncation
       ? sum(Object.values(copy.truncation.omitted ?? {}).map((count) => ({ count })), 'count')
       : (copy.omitted ?? 0) + (Array.isArray(copy.preview) ? copy.preview.length : 0),
     context: { bounded: true, note: `Inspection exceeded the ${maximum}-byte approximate bound.` },
+    ...('sizeBounded' in copy ? { sizeBounded: true } : {}),
     ...(copy.orientation ? {
       orientation: {
         population: copy.orientation.population,

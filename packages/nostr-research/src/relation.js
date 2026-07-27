@@ -1,6 +1,23 @@
 import { ResearchMemoryError } from './index.js';
 
 const MAX_LIMIT = 1000;
+const MAX_DERIVED_STRING = 280;
+const MAX_DERIVED_ARRAY = 20;
+const SOURCE_FIELDS = Object.freeze([
+  'evidence.resolutionSource',
+  'observedRelays',
+  'event.author',
+  'event.kind',
+  'event.text',
+  'event.createdAt',
+  'event.tags',
+  'event.links',
+  'event.domains',
+  'account.name',
+  'account.display_name',
+  'account.description',
+  'account.nip05',
+]);
 const RELATION_OPERATIONS = new Set([
   'relate', 'filter', 'project', 'distinct', 'sort', 'limit',
   'join', 'aggregate', 'derive', 'slice', 'explode', 'scan', 'balance',
@@ -21,10 +38,13 @@ export function relationFrom(memory, value) {
     throw new ResearchMemoryError(`Cannot convert ${collection.kind} into a research relation.`);
   }
   return researchRelation(collection.items.map((item) => ({
-    values: relationValues(memory, item),
+    values: relationValues(item),
+    references: Object.fromEntries(SOURCE_FIELDS.map((field) => [
+      field, { subject: item.subject, field },
+    ])),
     subjects: [item.subject],
     reasons: item.reasons,
-    provenance: item.provenance,
+    provenance: provenanceReferences(item),
   })), {
     operation: 'relate',
     sourceKind: collection.kind,
@@ -62,7 +82,7 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
   );
   const normalized = normalizeRelationParameters(name, parameters);
   if (name === 'relate') return relationFrom(memory, inputs.input);
-  const input = refreshResolution(memory, cloneRelation(inputs.input ?? inputs.left));
+  const input = resolveRelation(memory, cloneRelation(inputs.input ?? inputs.left));
   let output;
   if (name === 'filter') output = applyFilter(input, normalized);
   else if (name === 'project') output = applyProject(input, normalized);
@@ -71,7 +91,7 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
   else if (name === 'limit') output = applySlice(input, { offset: 0, limit: normalized.limit });
   else if (name === 'slice') output = applySlice(input, normalized);
   else if (name === 'join') {
-    output = applyJoin(input, refreshResolution(memory, cloneRelation(inputs.right)), normalized);
+    output = applyJoin(input, resolveRelation(memory, cloneRelation(inputs.right)), normalized);
   }
   else if (name === 'aggregate') output = applyAggregate(input, normalized);
   else if (name === 'derive') output = applyDerive(input, normalized);
@@ -148,8 +168,12 @@ function normalizeRelationParameters(name, value) {
     onlyKeys(value, ['fields', 'terms', 'match', 'caseSensitive', 'limit'], name);
     const selectedFields = fields(value.fields, 'scan fields');
     if (!Array.isArray(value.terms) || value.terms.length === 0
-        || value.terms.some((term) => typeof term !== 'string' || term.length === 0)) {
-      throw new ResearchMemoryError('scan terms must be a non-empty string array.');
+        || value.terms.length > 50
+        || value.terms.some((term) => typeof term !== 'string'
+          || term.length === 0 || term.length > 200)) {
+      throw new ResearchMemoryError(
+        'scan terms must contain 1 to 50 strings of at most 200 characters.',
+      );
     }
     if (value.match !== undefined && !['any', 'all'].includes(value.match)) {
       throw new ResearchMemoryError('scan match must be any or all.');
@@ -243,6 +267,9 @@ function applyProject(relation, operation) {
     values: Object.fromEntries(operation.fields.map(({ field: source, name }) => (
       [name, clone(row.values[source] ?? null)]
     ))),
+    references: Object.fromEntries(operation.fields.flatMap(({ field: source, name }) => (
+      row.references?.[source] ? [[name, row.references[source]]] : []
+    ))),
   })), {});
 }
 
@@ -295,6 +322,7 @@ function applyJoin(left, right, operation) {
           ...leftRow.values,
           ...Object.fromEntries(operation.select.map(({ name }) => [name, null])),
         },
+        references: clone(leftRow.references ?? {}),
       });
     }
     for (const rightRow of matches) {
@@ -303,6 +331,12 @@ function applyJoin(left, right, operation) {
           ...leftRow.values,
           ...Object.fromEntries(operation.select.map(({ field: source, name }) => (
             [name, clone(rightRow.values[source] ?? null)]
+          ))),
+        },
+        references: {
+          ...(leftRow.references ?? {}),
+          ...Object.fromEntries(operation.select.flatMap(({ field: source, name }) => (
+            rightRow.references?.[source] ? [[name, rightRow.references[source]]] : []
           ))),
         },
         subjects: uniqueJson([...leftRow.subjects, ...rightRow.subjects]),
@@ -326,12 +360,17 @@ function applyAggregate(relation, operation) {
     groups.get(key).rows.push(row);
   }
   const rows = [...groups.values()].slice(0, operation.limit).map((group) => ({
-    values: {
-      ...group.values,
-      ...Object.fromEntries(operation.aggregations.map((aggregation) => (
-        [aggregation.name, aggregate(group.rows, aggregation)]
-      ))),
-    },
+    values: Object.fromEntries([
+      ...Object.entries(group.values).flatMap(([name, value]) => (
+        boundedAggregateEntries(name, value)
+      )),
+      ...operation.aggregations.flatMap((aggregation) => {
+        const value = aggregate(group.rows, aggregation);
+        return ['min', 'max'].includes(aggregation.operation)
+          ? boundedAggregateEntries(aggregation.name, value)
+          : [[aggregation.name, value]];
+      }),
+    ]),
     subjects: uniqueJson(group.rows.flatMap((row) => row.subjects)),
     reasons: uniqueJson(group.rows.flatMap((row) => row.reasons)),
     provenance: uniqueJson(group.rows.flatMap((row) => row.provenance)),
@@ -344,9 +383,16 @@ function applyDerive(relation, operation) {
     ...row,
     values: {
       ...row.values,
-      ...Object.fromEntries(operation.fields.map(({ name, expression }) => (
-        [name, evaluate(expression, row.values)]
-      ))),
+      ...Object.fromEntries(operation.fields.flatMap(({ name, expression }) => {
+        const bounded = boundDerived(evaluate(expression, row.values));
+        return bounded.truncated ? [
+          [name, bounded.value], [`${name}.truncation`, {
+            truncated: bounded.truncated,
+            ...(bounded.originalLength === undefined
+              ? {} : { originalLength: bounded.originalLength }),
+          }],
+        ] : [[name, bounded.value]];
+      })),
     },
   })), {});
 }
@@ -386,7 +432,7 @@ function applyScan(relation, operation) {
         const needle = operation.caseSensitive ? term : term.toLocaleLowerCase();
         if (!text.includes(needle)) continue;
         matchedTerms.add(term);
-        matches.push({ field: fieldName, term, value });
+        matches.push({ field: fieldName, term, ...scanMatch(value, needle, operation.caseSensitive) });
       }
     }
     if (operation.match === 'all' && matchedTerms.size !== operation.terms.length) continue;
@@ -397,7 +443,10 @@ function applyScan(relation, operation) {
           ...row.values,
           'match.field': match.field,
           'match.term': match.term,
-          'match.value': clone(match.value),
+          'match.sourceSubject': clone(row.references?.[match.field]?.subject ?? row.subjects[0]),
+          'match.excerpt': match.excerpt,
+          'match.start': match.start,
+          'match.end': match.end,
         },
       });
       if (rows.length === operation.limit) return researchRelation(rows, {});
@@ -429,8 +478,21 @@ function aggregate(rows, operation) {
   if (operation.operation === 'count') return rows.length;
   const values = rows.map((row) => row.values[operation.field]).filter((value) => value != null);
   if (operation.operation === 'countDistinct') return new Set(values.map(stable)).size;
-  if (operation.operation === 'collect') return uniqueJson(values).slice(0, operation.limit);
-  if (operation.operation === 'sample') return clone(values.slice(0, operation.limit));
+  if (operation.operation === 'collect' || operation.operation === 'sample') {
+    const candidates = operation.operation === 'collect' ? uniqueJson(values) : values;
+    const bounded = candidates.slice(0, operation.limit).map(boundDerived);
+    return {
+      values: bounded.map(({ value }) => value),
+      truncation: {
+        truncated: candidates.length > bounded.length
+          || bounded.some((item) => item.truncated === true),
+        inputCount: candidates.length,
+        retainedCount: bounded.length,
+        omittedCount: Math.max(0, candidates.length - bounded.length),
+        truncatedValueCount: bounded.filter(({ truncated }) => truncated).length,
+      },
+    };
+  }
   if (operation.operation === 'sum') {
     return values.reduce((total, value) => total + (typeof value === 'number' ? value : 0), 0);
   }
@@ -520,48 +582,133 @@ function normalizePredicate(value) {
   return clone(value);
 }
 
-function relationValues(memory, item) {
-  const event = item.record?.event;
-  const profile = item.record?.profile ?? (event?.kind === 0 ? parseProfile(event.content) : null);
-  const resolution = memory.inspect(item.subject);
+function relationValues(item) {
   return {
     subject: clone(item.subject),
     'subject.type': item.subject.type,
     'subject.id': item.subject.id,
-    'evidence.resident': resolution.resident,
-    'evidence.resolutionSource': resolution.resolutionSource,
-    observedRelays: uniqueJson(item.provenance.map(({ relay }) => relay).filter(Boolean)),
-    ...(event ? {
-      'event.author': event.pubkey,
-      'event.kind': event.kind,
-      'event.text': event.content,
-      'event.createdAt': event.created_at,
-      'event.tags': clone(event.tags),
-      'event.links': linksIn(event.content),
-      'event.domains': domainsIn(event.content),
-    } : {}),
-    ...(profile ? {
-      'account.name': profile.name ?? null,
-      'account.display_name': profile.display_name ?? null,
-      'account.description': profile.about ?? null,
-      'account.nip05': profile.nip05 ?? null,
-    } : {}),
   };
 }
 
-function refreshResolution(memory, relation) {
-  for (const row of relation.rows) {
-    const item = row.subjects[0];
-    if (!item) continue;
-    const resolution = memory.inspect(item);
-    if ('evidence.resident' in row.values) {
-      row.values['evidence.resident'] = resolution.resident;
-    }
-    if ('evidence.resolutionSource' in row.values) {
-      row.values['evidence.resolutionSource'] = resolution.resolutionSource;
+function resolveRelation(memory, relation) {
+  const unresolved = [];
+  const resolutions = new Map();
+  for (const [rowIndex, row] of relation.rows.entries()) {
+    for (const [name, reference] of Object.entries(row.references ?? {})) {
+      const key = stable(reference.subject);
+      if (!resolutions.has(key)) resolutions.set(key, memory.inspect(reference.subject));
+      const resolution = resolutions.get(key);
+      row.values[name] = resolveSourceField(reference, resolution);
+      if (!resolution.resolved && name !== 'evidence.resolutionSource') {
+        unresolved.push({ row: rowIndex, field: name, subject: reference.subject });
+      }
     }
   }
+  relation.context = {
+    ...(relation.context ?? {}),
+    resolution: {
+      unresolvedFieldCount: unresolved.length,
+      examples: unresolved.slice(0, 20),
+      omittedExamples: Math.max(0, unresolved.length - 20),
+    },
+  };
   return relation;
+}
+
+export function resolveRelationForPresentation(memory, relation) {
+  return resolveRelation(memory, cloneRelation(relation));
+}
+
+function resolveSourceField(reference, resolution) {
+  if (reference.field === 'evidence.resolutionSource') return resolution.resolutionSource;
+  if (!resolution.resolved) return null;
+  if (reference.field === 'observedRelays') {
+    return uniqueJson((resolution.provenance ?? []).map(({ relay }) => relay).filter(Boolean));
+  }
+  const event = resolution.evidence?.event ?? resolution.evidence?.metadataEvent;
+  const profile = resolution.evidence?.profile
+    ?? (event?.kind === 0 ? parseProfile(event.content) : null);
+  const fields = {
+    'event.author': event?.pubkey,
+    'event.kind': event?.kind,
+    'event.text': event?.content,
+    'event.createdAt': event?.created_at,
+    'event.tags': event?.tags,
+    'event.links': event ? linksIn(event.content) : undefined,
+    'event.domains': event ? domainsIn(event.content) : undefined,
+    'account.name': profile?.name ?? null,
+    'account.display_name': profile?.display_name ?? null,
+    'account.description': profile?.about ?? null,
+    'account.nip05': profile?.nip05 ?? null,
+  };
+  return clone(fields[reference.field] ?? null);
+}
+
+function provenanceReferences(item) {
+  if (item.subject.type === 'event' && item.provenance?.length) {
+    return [{ type: 'stored-event-observations', eventId: item.subject.id }];
+  }
+  const metadataEventId = item.record?.metadataEvent?.id;
+  if (item.subject.type === 'account' && metadataEventId && item.provenance?.length) {
+    return [{ type: 'stored-event-observations', eventId: metadataEventId }];
+  }
+  return uniqueJson(item.provenance ?? []);
+}
+
+function scanMatch(value, needle, caseSensitive) {
+  const raw = scanText(value, true);
+  const searched = caseSensitive ? raw : raw.toLocaleLowerCase();
+  const start = searched.indexOf(needle);
+  const excerptStart = Math.max(0, start - 80);
+  const excerptEnd = Math.min(raw.length, start + needle.length + 80);
+  return {
+    excerpt: `${excerptStart > 0 ? '…' : ''}${raw.slice(excerptStart, excerptEnd)}${excerptEnd < raw.length ? '…' : ''}`,
+    start,
+    end: start + needle.length,
+  };
+}
+
+function boundDerived(value) {
+  if (typeof value === 'string') {
+    return value.length <= MAX_DERIVED_STRING
+      ? { value, truncated: false }
+      : {
+          value: `${value.slice(0, MAX_DERIVED_STRING - 1)}…`,
+          truncated: true,
+          originalLength: value.length,
+        };
+  }
+  if (Array.isArray(value)) {
+    const bounded = value.slice(0, MAX_DERIVED_ARRAY).map(boundDerived);
+    return {
+      value: bounded.map((item) => item.value),
+      truncated: value.length > bounded.length || bounded.some((item) => item.truncated),
+    };
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value);
+    const bounded = entries.slice(0, MAX_DERIVED_ARRAY)
+      .map(([key, item]) => [key, boundDerived(item)]);
+    return {
+      value: Object.fromEntries(bounded.map(([key, item]) => [key, item.value])),
+      truncated: entries.length > bounded.length
+        || bounded.some(([, item]) => item.truncated),
+    };
+  }
+  return { value: clone(value), truncated: false };
+}
+
+function boundedAggregateEntries(name, value) {
+  const bounded = boundDerived(value);
+  return [
+    [name, bounded.value],
+    [`${name}.truncation`, {
+      derived: true,
+      truncated: bounded.truncated,
+      ...(bounded.originalLength === undefined
+        ? {} : { originalLength: bounded.originalLength }),
+    }],
+  ];
 }
 
 function linksIn(content) {
@@ -589,7 +736,10 @@ function researchRelation(rows, context) {
     type: 'research-relation',
     kind: 'relation',
     rows: rows.map((row) => ({
-      values: clone(row.values),
+      values: Object.fromEntries(Object.entries(row.values ?? {})
+        .filter(([name]) => !(name in (row.references ?? {})))
+        .map(([name, value]) => [name, clone(value)])),
+      references: clone(row.references ?? {}),
       subjects: uniqueJson(row.subjects ?? []),
       reasons: uniqueJson(row.reasons ?? []),
       provenance: uniqueJson(row.provenance ?? []),

@@ -685,8 +685,22 @@ function ownHandleValue(value) {
 function stableSubjectCollection(collection) {
   return {
     ...collection,
-    items: collection.items.map(({ record: ignored, ...item }) => cloneJson(item)),
+    items: collection.items.map(({ record: ignored, ...item }) => ({
+      ...cloneJson(item),
+      provenance: observationReferences(item),
+    })),
   };
+}
+
+function observationReferences(item) {
+  const provenance = item.provenance ?? [];
+  if (!provenance.some((entry) => entry?.relay || entry?.observedAt)) {
+    return cloneJson(provenance);
+  }
+  return [{
+    type: 'stored-subject-observations',
+    subject: cloneJson(item.subject),
+  }];
 }
 
 function externalStatus(result, operation, memory) {
@@ -865,7 +879,9 @@ function semanticError(error) {
     return { code: 'INTERNAL_ERROR', message: 'The command could not be completed.', details: {} };
   }
   let code = 'INVALID_OPERATION';
-  if (/requires an? (accounts|subject) collection|not supported|contain no retainable/.test(error.message)) {
+  if (/could not resolve values|unresolved evidence/i.test(error.message)) {
+    code = 'UNRESOLVED_EVIDENCE';
+  } else if (/requires an? (accounts|subject) collection|not supported|contain no retainable/.test(error.message)) {
     code = 'TYPE_MISMATCH';
   } else if (/subject|public key|Event ID/.test(error.message)) {
     code = 'INVALID_SUBJECT';

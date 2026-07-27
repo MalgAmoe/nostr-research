@@ -4,7 +4,7 @@ import {
 } from './acquire.js';
 import { continueResearch, normalizeContinuation } from './continuation.js';
 import { ResearchMemoryError } from './index.js';
-import { isResearchRelation } from './relation.js';
+import { isResearchRelation, resolveRelationForPresentation } from './relation.js';
 
 const FETCH_KEYS = new Set([
   'relays', 'filter', 'bindings', 'timeoutMs', 'observationLimit',
@@ -49,10 +49,11 @@ export function validatePipelineFetch(parameters, input) {
 export async function executePipelineFetch(memory, parameters, input) {
   validatePipelineFetch(parameters, { kind: 'relation' });
   if (!isResearchRelation(input)) throw new ResearchMemoryError('fetch requires a research relation.');
+  const resolvedInput = resolveRelationForPresentation(memory, input);
   const bindings = Object.fromEntries(Object.entries(parameters.bindings).map(
     ([filterField, relationField]) => [
       filterField,
-      unique(input.rows.flatMap((row) => {
+      unique(resolvedInput.rows.flatMap((row) => {
         const value = row.values[relationField];
         return Array.isArray(value) ? value : value == null ? [] : [value];
       })),
@@ -70,7 +71,7 @@ export async function executePipelineFetch(memory, parameters, input) {
     filter: { ...parameters.filter, ...bindings },
   });
   result.inputResolution = {
-    rowCount: input.rows.length,
+    rowCount: resolvedInput.rows.length,
     bindings: Object.fromEntries(Object.entries(bindings).map(([name, values]) => [
       name, { count: values.length },
     ])),
@@ -97,7 +98,8 @@ export function validatePipelineExpand(memory, parameters, input) {
 
 export async function executePipelineExpand(memory, parameters, input) {
   if (!isResearchRelation(input)) throw new ResearchMemoryError('expand requires a research relation.');
-  const ids = unique(input.rows.flatMap((row) => {
+  const resolvedInput = resolveRelationForPresentation(memory, input);
+  const ids = unique(resolvedInput.rows.flatMap((row) => {
     const value = row.values[parameters.field];
     return Array.isArray(value) ? value : value == null ? [] : [value];
   }));
@@ -111,7 +113,7 @@ export async function executePipelineExpand(memory, parameters, input) {
     parameters, ['field', 'subjectType'],
   ));
   result.inputResolution = {
-    rowCount: input.rows.length,
+    rowCount: resolvedInput.rows.length,
     distinctSubjects: ids.length,
     field: parameters.field,
   };
