@@ -184,7 +184,8 @@ The final public flow is sustained through one declarative session and its
 JSONL executable: acquire explicitly, select locally, navigate subject
 collections, cross into relations for value analysis, preserve only deliberate
 evidence or attributed notebook knowledge, and inspect every bound and
-omission. Operation discovery and named inputs cover ordinary sequential
-research without executable JavaScript. Profile claims, protocol metadata,
+omission. Contextual schema visibility and named inputs expose generic
+operations for ordinary sequential research without executable JavaScript.
+Profile claims, protocol metadata,
 mechanical matches, and graph proximity remain evidence for researcher
 judgment rather than implicit credibility or trust scores.

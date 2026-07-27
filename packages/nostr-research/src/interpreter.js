@@ -16,7 +16,6 @@ import {
 } from './plan.js';
 import {
   acquisitionCorpusAccounting,
-  boundResearchPresentation,
   explainResearchMembership,
   presentHandleList,
   presentSessionStatus,
@@ -173,10 +172,7 @@ export class DeclarativeResearchSession {
       const options = projectionOptions(
         presentationParametersWithSessionDefaults(parameters, this.#configuration), true,
       );
-      return readOnly(() => boundResearchPresentation(
-        showResearchValue(this.#memory, entry.value, options),
-        options.sizeLimit,
-      ));
+      return readOnly(() => showResearchValue(this.#memory, entry.value, options));
     }
     if (command.command === 'inspect') {
       const { subject, ...rawOptions } = parameters;

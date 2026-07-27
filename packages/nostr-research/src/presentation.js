@@ -32,12 +32,6 @@ export function showResearchValue(memory, value, options = {}) {
   return enforceSize(shown, settings.sizeLimit);
 }
 
-export function boundResearchPresentation(value, sizeLimit) {
-  return enforceSize(value, boundedInteger(
-    sizeLimit, DEFAULT_SIZE_LIMIT, MAX_SIZE_LIMIT, 'sizeLimit', 1000,
-  ));
-}
-
 export function validateResearchPresentationOptions(options = {}) {
   inspectionOptions(options);
 }
