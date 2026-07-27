@@ -35,9 +35,11 @@ await session.close(); // clears all resident state
 
 `ingest` stores immutable canonical evidence and records each observation in
 the observation buffer. Buffer capacity uses deterministic FIFO eviction.
-`describe()` reports buffer and archive capacity and counts. Eviction removes
-buffer evidence and its derived indexes, while notebook entries and named
-membership keep stable subject references. `inspect(subject)` reports `resolutionSource` as
+`describe()` reports separate observation-buffer, archive, and notebook
+capacity and counts; it does not duplicate buffer state under a legacy corpus
+shape. Eviction removes buffer evidence and its derived indexes, while notebook
+entries and named membership keep stable subject references.
+`inspect(subject)` reports `resolutionSource` as
 `"archive"`, `"buffer"`, or `"unresolved"`.
 
 Evidence survives buffer turnover only through an explicit preservation
@@ -399,7 +401,7 @@ archive, or named-handle state changes; observation commands and failed commands
 advance them.
 
 Research commands include source operations, subject-collection transforms,
-relation operations, retention, and `plan`; `schema` reports the authoritative
+relation operations, explicit archive and notebook operations, and `plan`; `schema` reports the authoritative
 current list. Individual operations accept plain JSON `parameters`, either an
 optional `input` or named `inputs`, and optional `resultId`; `replace: true`
 explicitly replaces an existing named result. Named inputs are primarily used
@@ -449,6 +451,13 @@ Relation responses return their effective `offset`, `limit`, `nextOffset`,
 `omittedBefore`, and `omittedAfter`; `sizeBounded` and `sizeOmitted` identify
 rows omitted to satisfy the byte bound. Responses report counts plus `omitted`
 or truncation metadata rather than emitting unbounded values.
+
+`status` exposes observation-buffer pressure and evictions, archive entries by
+preservation level, notebook entry and membership counts, and the total handle
+count. `list` exposes each named handle's kind and cardinality. Together these
+make the ownership and approximate size of resident evidence, deliberate
+evidence, research knowledge, and working views observable without presenting
+one store as another.
 
 Handle lifecycle commands are `release` and `release-all`; neither deletes
 notebook knowledge. Named membership is listed with `memberships`, inspected

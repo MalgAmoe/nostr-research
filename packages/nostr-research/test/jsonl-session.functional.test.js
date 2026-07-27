@@ -106,6 +106,6 @@ test('JSONL executable provides one persistent bounded process workflow', async 
   assert.equal(responses[10].sessionRevision, 3);
   assert.equal(responses[11].sessionRevision, 4);
   assert.equal(responses[12].result.handleCount, 0);
-  assert.equal(responses[12].result.corpus.eventCount, 0);
+  assert.equal(responses[12].result.observationBuffer.eventCount, 0);
   assert.equal(responses[12].sessionRevision, 4);
 });

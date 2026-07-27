@@ -24,3 +24,7 @@ implicit current selection. Persistence and a database format are deliberately
 absent: closing or resetting the session, or exiting the process, loses all
 resident evidence, notebook entries, named membership, and handles. See the
 package README for the command protocol and examples.
+
+`status` reports the observation buffer, evidence archive, and research
+notebook separately. `list` reports named working-view cardinalities, making
+complete buffer turnover and accidental evidence duplication observable.

@@ -1,6 +1,6 @@
 ---
 id: 051-research-memory-turnover-trial
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/051-research-memory-turnover-trial.validate.sh
 depends_on: 050-reference-resolved-research-views

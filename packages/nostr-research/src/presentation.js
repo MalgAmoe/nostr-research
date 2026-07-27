@@ -21,6 +21,9 @@ export function showResearchValue(memory, value, options = {}) {
   }
   else if (value?.type === 'typed-collection') shown = showTypedCollection(memory, value, settings);
   else if (value?.type === 'research-relation') shown = showRelation(memory, value, settings);
+  else if (value?.type === 'notebook-membership') {
+    shown = showCollection(memory, memory.asCollection(value), settings);
+  }
   else if (value?.type === 'facets') shown = showFacets(value, settings);
   else if (value?.type === 'result-comparison') shown = showComparison(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
@@ -119,18 +122,17 @@ export function presentHandleList(handles, options = {}) {
 
 export function presentSessionStatus(memory, status, options = {}) {
   const settings = listOptions(options);
-  const corpus = memory.describe();
+  const state = memory.describe();
+  const buffer = state.observationBuffer;
   return enforceSize({
     type: 'declarative-session-status',
     revision: status.revision,
-    corpus: {
-      capacity: corpus.capacity,
-      eventCount: corpus.eventCount,
-      remainingCapacity: corpus.remainingCapacity,
-      pressure: corpus.capacity === 0 ? 0 : corpus.eventCount / corpus.capacity,
-      evictions: corpus.evictions,
+    observationBuffer: {
+      ...buffer,
+      pressure: buffer.capacity === 0 ? 0 : buffer.eventCount / buffer.capacity,
     },
-    notebookMembershipCount: memory.listMemberships().length,
+    archive: structuredClone(state.archive),
+    notebook: structuredClone(state.notebook),
     activeOperationCount: status.activeOperationCount,
     handleCount: status.handleCount,
   }, settings.sizeLimit);
@@ -766,13 +768,13 @@ function corpusEffects(memory, items) {
     ...corpusState(memory),
     resident,
     nonresident: items.length - resident,
-    retainedMemberships: retained,
-    statement: 'Retained membership preserves subject identity and reasons, not evicted canonical evidence.',
+    notebookMemberships: retained,
+    statement: 'Notebook membership preserves subject identity and reasons, not evicted canonical evidence.',
   };
 }
 
 function corpusState(memory) {
-  const corpus = memory.describe();
+  const corpus = memory.describe().observationBuffer;
   return {
     capacity: corpus.capacity,
     residentEvents: corpus.eventCount,
@@ -784,12 +786,13 @@ function corpusState(memory) {
 
 function corpusSnapshot(corpus) {
   if (!corpus) return null;
+  const buffer = corpus.observationBuffer ?? corpus;
   return {
-    capacity: corpus.capacity,
-    residentEvents: corpus.eventCount,
-    remainingCapacity: corpus.remainingCapacity,
-    pressure: corpus.capacity === 0 ? 0 : corpus.eventCount / corpus.capacity,
-    evictions: corpus.evictions,
+    capacity: buffer.capacity,
+    residentEvents: buffer.eventCount,
+    remainingCapacity: buffer.remainingCapacity,
+    pressure: buffer.capacity === 0 ? 0 : buffer.eventCount / buffer.capacity,
+    evictions: buffer.evictions,
   };
 }
 

@@ -778,12 +778,13 @@ function externalStatus(result, operation, memory) {
 
 function corpusStatus(value) {
   if (!value) return null;
+  const buffer = value.observationBuffer ?? value;
   return {
-    eventCount: value.eventCount,
-    capacity: value.capacity,
-    remainingCapacity: value.remainingCapacity,
-    pressure: value.capacity === 0 ? 0 : value.eventCount / value.capacity,
-    evictions: value.evictions,
+    eventCount: buffer.eventCount,
+    capacity: buffer.capacity,
+    remainingCapacity: buffer.remainingCapacity,
+    pressure: buffer.capacity === 0 ? 0 : buffer.eventCount / buffer.capacity,
+    evictions: buffer.evictions,
   };
 }
 
@@ -881,7 +882,7 @@ function semanticError(error) {
   let code = 'INVALID_OPERATION';
   if (/could not resolve values|unresolved evidence/i.test(error.message)) {
     code = 'UNRESOLVED_EVIDENCE';
-  } else if (/requires an? (accounts|subject) collection|not supported|contain no retainable/.test(error.message)) {
+  } else if (/requires an? (accounts|subject) collection|not supported|contain no stable subjects/.test(error.message)) {
     code = 'TYPE_MISMATCH';
   } else if (/subject|public key|Event ID/.test(error.message)) {
     code = 'INVALID_SUBJECT';

@@ -5,7 +5,7 @@ import { createInMemoryResearchMemory } from '@nostr-research/memory';
 
 const SECRET = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
 
-test('large retention is atomic, bounded, process-local, and directly navigable', () => {
+test('large notebook membership is atomic, bounded, process-local, and directly navigable', () => {
   let memory = createInMemoryResearchMemory({ capacity: 1000 });
   try {
     const events = [];

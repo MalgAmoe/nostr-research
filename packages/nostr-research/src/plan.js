@@ -304,12 +304,12 @@ export function preflightResearchOperation(
     normalizeRememberParameters(parameters);
     return { ...input, resultKind: input.kind };
   }
-  const { name: retainedName, options = {} } = parameters;
+  const { name: membershipName, options = {} } = parameters;
   rejectUnknownParameterKeys(
     { id: 'operation', operation: 'remember-membership', parameters },
     new Set(['name', 'options']),
   );
-  memory.validateNotebookMembership(retainedName, options, input.kind);
+  memory.validateNotebookMembership(membershipName, options, input.kind);
   return { ...input, resultKind: semantics.resultKind };
 }
 
@@ -446,8 +446,8 @@ export async function executeResearchOperation(memory, operation, input = undefi
     for (const item of collection.items) memory.remember(item.subject, parameters);
     return collection;
   }
-  const { name: retainedName, options = {} } = parameters;
-  return memory.rememberMembership(input, retainedName, options);
+  const { name: membershipName, options = {} } = parameters;
+  return memory.rememberMembership(input, membershipName, options);
 }
 
 function normalizeRememberParameters(parameters) {

@@ -127,7 +127,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   });
   assert.equal(status.result.revision, 4);
   assert.equal(status.result.handleCount, 2);
-  assert.equal(status.result.notebookMembershipCount, 1);
+  assert.equal(status.result.notebook.membershipCount, 1);
   assert.equal(status.sessionRevision, 4);
 
   const reset = await session.execute({
@@ -137,7 +137,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
     parameters: {},
   });
   assert.equal(reset.sessionRevision, 5);
-  assert.equal(memory.describe().eventCount, 0);
+  assert.equal(memory.describe().observationBuffer.eventCount, 0);
   assert.deepEqual(memory.listMemberships(), []);
 
   const closed = await session.execute({
@@ -377,7 +377,7 @@ test('declarative notebook knowledge survives turnover and remains independent f
   }
   assert.equal(memory.inspect({ type: 'event', id: interestedEvent.id }).resolutionSource, 'unresolved');
   assert.equal(memory.inspect({ type: 'event', id: uninterestedEvent.id }).resolutionSource, 'unresolved');
-  assert.equal(memory.describe().evictions, 2);
+  assert.equal(memory.describe().observationBuffer.evictions, 2);
 
   const notebookAfterTurnover = await session.execute({
     commandId: 'notebook-after-turnover', command: 'filter', input: 'positives',
@@ -391,6 +391,13 @@ test('declarative notebook knowledge survives turnover and remains independent f
     resultId: 'membership-after-turnover',
   });
   assert.equal(membershipAfterTurnover.result.handle.count, 1);
+  const shownMembershipAfterTurnover = await session.execute({
+    commandId: 'show-membership-after-turnover', command: 'show', input: 'retained-handle',
+    parameters: { includeEvidence: true, previewLimit: 10 },
+  });
+  assert.equal(shownMembershipAfterTurnover.ok, true);
+  assert.equal(shownMembershipAfterTurnover.result.type, 'result-collection');
+  assert.equal(shownMembershipAfterTurnover.result.preview[0].resolved, false);
 
   const turnoverSelection = await session.execute({
     commandId: 'turnover-source', command: 'select',

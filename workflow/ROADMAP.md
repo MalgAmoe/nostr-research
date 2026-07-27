@@ -1,139 +1,44 @@
 # Workflow status
 
 Task definitions under `workflow/tasks/` are the authoritative record of
-completed and ready work. Worker and reviewer runs remain committed as the
-durable execution and review history for those tasks.
+completed and ready work. Run records are execution history, not current
+product policy.
 
-The completed foundation through task 047 provides:
+The current foundation is one UI-independent, process-local research memory:
 
-- canonical Nostr evidence in one bounded process-local corpus;
-- bounded live relay acquisition with explicit coverage;
-- composable search, selection, traversal, expansion, and retention;
-- transparent connection aggregation, profile hydration, and process-local
-  annotations;
-- a process-lifetime JavaScript console for agent-operated research;
-- protocol-correct account relationships and replaceable events;
-- bounded inspection, authored-note expansion, and reply contexts.
+- a renewable, capacity-bounded observation buffer owns recently acquired
+  canonical events, observations, and reproducible temporary indexes;
+- a bounded evidence archive owns only explicitly preserved references,
+  excerpts, and complete canonical events;
+- a research notebook owns attributed judgments, notes, bounded derived
+  observations, and named stable-subject membership;
+- subject collections, research relations, and declarative-session handles are
+  replaceable working views which resolve source evidence from the archive,
+  then the current buffer, or report it unresolved; and
+- normalized operations, named plans, the declarative session, and the JSONL
+  executable share one operation and result vocabulary.
 
-Persistence and a database format remain deliberately absent. Closing or
-resetting memory, or ending its Node process, loses every process-local layer.
-Tasks 048-051 now replace the earlier single-lifetime corpus semantics with a
-renewable observation buffer, deliberate evidence archive, research notebook,
-and reference-resolved working views. Acquisition coverage remains returned
-directly and is not registered as history. Removing the remaining Node
-dependencies belongs to a separate future milestone.
+Acquisition and local querying remain separate. Relay attempts expose exact
+filters, budgets, per-relay outcomes, and bounded coverage directly to the
+caller. Acquisition writes only to the observation buffer. It does not infer
+trust or quality, preserve evidence, write notebook knowledge, or claim an
+exhaustive relay index.
 
-New tasks should be derived from console-driven research. The project should
-not pre-encode universal discovery or quality rules without field evidence.
+The complete turnover trial confirms that notebook knowledge and named
+membership remain navigable after every original buffer event is evicted;
+canonical archive evidence continues to resolve; unarchived and excerpt-only
+references report unresolved; a relation derived from notebook knowledge can
+bind a later `fetch` without copied IDs; releasing archive evidence changes
+resolution without erasing notebook history; and reset clears all layers and
+handles. The durable evidence is
+`workflow/artifacts/research-memory-turnover-field-trial.md`.
 
-The acquisition and interface cleanup completed in tasks 027-031:
+There is deliberately no persistence format, database, UI, implicit active
+selection, JavaScript research console, legacy retention store, annotation
+store, ingest-time preservation mode, or copied-event relation archive.
 
-- make observation and distinct-event acquisition budgets explicit;
-- remove inactive run, coverage-history, set-algebra, and alias surfaces; and
-- make console selection changes explicit and simplify session and
-  presentation around the reduced research model;
-- enforce relay filters, correct composed distinct-event budgets, reject
-  unknown acquisition options, and restore retained-selection activation; and
-- remove fixture loading and ignored inspection options from the production
-  interface.
-
-Subsequent direct field work added local account-description search,
-connection aggregation, bounded profile hydration, and caller-defined
-annotations. JavaScript remains the experimental composition surface while the
-project gathers evidence for a smaller declarative operation vocabulary.
-
-The five declarative-operation field trials now justify the next milestone:
-
-1. make collections stable subject/reason references which resolve current
-   canonical evidence;
-2. add a minimal typed local algebra for filtering, grouping, summarizing, and
-   moving between subjects; and
-3. compose that algebra with explicit bounded acquisition, hydration, and
-   retention as named plain-data stages, then validate it through live use.
-
-This milestone does not commit the project to a textual DSL, plan graph, Rust
-executor, UI, persistence model, or automated account classification.
-
-The first post-milestone root review identified one narrow correctness pass
-before further field work: fully preflight plans before external effects,
-constrain select dependencies to acquisition ordering, refresh stable subjects
-inside reusable typed groups, reject duplicate aggregation names, and make
-bounded group counts and omissions explicit.
-
-After that correctness pass, live plan use showed that the algebra can express
-the research operations but cannot yet replace the persistent JavaScript REPL
-as an interaction environment. The next milestone is therefore:
-
-1. a persistent declarative session with engine-owned named handles, stable
-   response envelopes, mutation-only revisions, and shared plan execution;
-2. bounded `show`, `inspect`, and membership `explain` projections plus handle
-   lifecycle; and
-3. a protocol-clean JSONL adapter validated through live investigations with
-   no dynamically authored JavaScript.
-
-This milestone adds an interactive execution environment around the existing
-algebra. It does not expand the algebra or commit to a browser, Rust,
-persistence, UI, DSL, or concurrency architecture.
-
-The JSONL field trial subsequently showed that the persistent session is a
-sound adapter and lifecycle boundary, but its fixed operation vocabulary does
-not yet replace the exploratory usefulness of the JavaScript console. The
-next queued milestone therefore adds, in order:
-
-1. acquisition-scoped working buffers with concise bounded orientation;
-2. one coherent typed pipeline for neutral collection composition;
-3. selection-driven bounded continuation through Nostr relationships;
-4. bounded research views which expose evidence without interpreting it; and
-5. explicit provisional judgment plus a complete session lifecycle, followed
-   by a no-JavaScript field trial.
-
-The architecture remains:
-
-```text
-canonical corpus
-  -> scoped working buffers
-  -> composable collection operations
-  -> evidence views
-  -> explicit researcher judgment
-  -> bounded continuation
-```
-
-These tasks do not add persistence, UI, automated identity classification,
-universal discovery rules, arbitrary code execution, or a new memory model.
-
-The accepted JSONL milestone trial exposed one final bounded-presentation
-cleanup: heterogeneous continuation handles must be showable or return a clear
-semantic type error, never `INTERNAL_ERROR`. Task 044 addresses only that
-field-evidenced defect.
-
-The subsequent live research trial showed that the remaining problem is
-architectural rather than another isolated presentation case. The package
-still exposes several generations of research interface, while operation and
-collection-kind knowledge is reconstructed independently by memory, plans,
-continuation, and the interpreter. Tasks 045-047 therefore:
-
-1. delete the superseded JavaScript console and active-selection session;
-2. make operation semantics and collection kinds authoritative, absorbing or
-   deleting older expansion/reply interfaces where continuation supersedes
-   them; and
-3. remove compensating presentation/test complexity and validate the reduced
-   design through the real JSONL navigation path.
-
-The next strict field trial proved that this consolidated path can conduct a
-difficult investigation, but exposed a deeper storage contradiction. The
-bounded corpus evicts canonical evidence, retained selections keep only
-references, annotations survive eviction, and relations silently clone source
-fields into handles. Tasks 048-051 therefore replace the single-lifetime model
-with one process-local research memory containing:
-
-1. a renewable indexed observation buffer and an explicit evidence archive;
-2. a research notebook consolidating judgments and named membership;
-3. reference-resolved, bounded working views which do not accidentally archive
-   complete events; and
-4. a full buffer-turnover field trial followed by deletion of superseded
-   retention and copied-evidence behavior.
-
-The contract is recorded in
-`workflow/artifacts/research-memory-milestone.md`. This milestone remains
-process-local and introduces no database, persistence format, UI, automatic
-classification, or speculative storage adapter architecture.
+Future work must come from field evidence. Open areas include relay reliability
+and retry contracts, validation and trust boundaries, provenance and notebook
+semantics, relay metadata and planning, pagination and portability, and any
+future adapter. Removing the remaining Node dependencies is a separate
+milestone.

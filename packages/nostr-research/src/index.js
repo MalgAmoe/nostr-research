@@ -13,7 +13,7 @@ const DEFAULT_QUERY_LIMIT = 50;
 const MAX_QUERY_LIMIT = 1000;
 const DEFAULT_TRANSFORM_LIMIT = 100;
 const SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
-const RETAINABLE_SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
+const NOTEBOOK_SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
 const NAVIGATION_RELATIONSHIP_TYPES = new Set([
   'author',
   'reply-root',
@@ -40,7 +40,7 @@ export class InvalidNostrEventError extends ResearchMemoryError {
   }
 }
 
-/** Creates the authoritative capacity-bounded, process-local research corpus. */
+/** Creates the authoritative bounded, process-local research memory. */
 export function createInMemoryResearchMemory(options = {}) {
   assertPlainObject(options, 'In-memory research memory options');
   rejectUnknownKeys(options, new Set(['capacity', 'archiveCapacity']), 'in-memory research memory option');
@@ -170,7 +170,7 @@ class IndexedObservationBuffer {
   }
 }
 
-/** The single authoritative bounded process-local research corpus. */
+/** The single authoritative bounded process-local research memory. */
 export class InMemoryResearchMemory {
   #capacity;
   #archiveCapacity;
@@ -347,7 +347,7 @@ export class InMemoryResearchMemory {
     assertPlainObject(options, 'Notebook membership options');
     rejectUnknownKeys(options, new Set(['reason', 'attribution']), 'notebook membership option');
     if (options.reason !== undefined) normalizeReason(options.reason);
-    if (collectionKind !== undefined) validateRetainableCollectionKind(collectionKind);
+    if (collectionKind !== undefined) validateNotebookCollectionKind(collectionKind);
   }
 
   validatePreservation(options, collectionKind = undefined) {
@@ -374,12 +374,12 @@ export class InMemoryResearchMemory {
   asCollection(value) {
     this.#assertOpen();
     if (value?.type === 'notebook-membership') {
-      const retained = this.getMembership(value.name);
-      return resultCollection(retained.members.map((item) => ({
+      const membership = this.getMembership(value.name);
+      return resultCollection(membership.members.map((item) => ({
         subject: subject(item.type, item.id),
         reasons: item.reasons,
         provenance: [],
-      })), { operation: 'notebook-membership', name: retained.name });
+      })), { operation: 'notebook-membership', name: membership.name });
     }
     if (value?.type === 'result-collection') {
       assertResultCollection(value);
@@ -1007,7 +1007,7 @@ export class InMemoryResearchMemory {
   }
 
   #membershipSummary(set, previewLimit = 5) {
-    const counts = Object.fromEntries([...RETAINABLE_SUBJECT_TYPES].map((type) => [type, 0]));
+    const counts = Object.fromEntries([...NOTEBOOK_SUBJECT_TYPES].map((type) => [type, 0]));
     for (const member of set.members) counts[member.type] += 1;
     return {
       id: set.id, name: set.name, createdAt: set.createdAt,
@@ -1034,23 +1034,23 @@ export class InMemoryResearchMemory {
   replaceMembership(name, collection, options = {}) {
     const previous = this.getMembership(name);
     collection = this.asCollection(collection);
-    validateRetainableCollectionKind(collection.kind);
+    validateNotebookCollectionKind(collection.kind);
     assertPlainObject(options, 'Notebook membership replacement options');
     rejectUnknownKeys(options, new Set(['name', 'reason', 'attribution']), 'notebook membership replacement options');
-    const retentionContext = options.reason ? normalizeReason(options.reason) : undefined;
+    const membershipContext = options.reason ? normalizeReason(options.reason) : undefined;
     const attribution = options.attribution ?? 'caller';
     if (typeof attribution !== 'string' || attribution.trim().length === 0) {
       throw new ResearchMemoryError('Notebook membership attribution must be a non-empty string.');
     }
     const entries = collection.items
-      .filter((item) => RETAINABLE_SUBJECT_TYPES.has(item.subject.type))
+      .filter((item) => NOTEBOOK_SUBJECT_TYPES.has(item.subject.type))
       .map((item) => ({
         member: item.subject,
         reasons: (item.reasons.length ? item.reasons : [{ type: 'remembered-result' }])
           .map((reason) => ({
-            ...reason, ...(retentionContext ? { retentionContext } : {}),
+            ...reason, ...(membershipContext ? { membershipContext } : {}),
             operation: collection.context.operation, attribution,
-            sourceReferences: retainedProvenance(item),
+            sourceReferences: membershipProvenance(item),
           })),
       }));
     const members = new Map();
@@ -1084,23 +1084,23 @@ export class InMemoryResearchMemory {
 
   rememberMembership(collection, name, options = {}) {
     collection = this.asCollection(collection);
-    validateRetainableCollectionKind(collection.kind);
+    validateNotebookCollectionKind(collection.kind);
     assertPlainObject(options, 'Notebook membership options');
     rejectUnknownKeys(options, new Set(['reason', 'attribution', 'signal']), 'notebook membership options');
-    const retentionContext = options.reason ? normalizeReason(options.reason) : undefined;
+    const membershipContext = options.reason ? normalizeReason(options.reason) : undefined;
     const attribution = options.attribution ?? 'caller';
     if (typeof attribution !== 'string' || attribution.trim().length === 0) {
       throw new ResearchMemoryError('Notebook membership attribution must be a non-empty string.');
     }
     return this.#createMembership(name, collection.items
-      .filter((item) => RETAINABLE_SUBJECT_TYPES.has(item.subject.type))
+      .filter((item) => NOTEBOOK_SUBJECT_TYPES.has(item.subject.type))
       .map((item) => ({
         member: item.subject,
         reasons: (item.reasons.length ? item.reasons : [{ type: 'remembered-result' }])
           .map((reason) => ({
-            ...reason, ...(retentionContext ? { retentionContext } : {}),
+            ...reason, ...(membershipContext ? { membershipContext } : {}),
             operation: collection.context.operation, attribution: attribution.trim(),
-            sourceReferences: retainedProvenance(item),
+            sourceReferences: membershipProvenance(item),
           })),
       })), { signal: options.signal });
   }
@@ -1181,7 +1181,6 @@ export class InMemoryResearchMemory {
     this.#assertOpen();
     const buffer = this.#buffer.describe(this.#capacity, this.#evictions);
     return {
-      ...buffer,
       observationBuffer: buffer,
       archive: {
         capacity: this.#archiveCapacity,
@@ -1819,7 +1818,7 @@ const PIPELINE_FIELDS = Object.freeze({
   accounts: ['account.name', 'account.display_name', 'account.description'],
 });
 
-function validateRetainableCollectionKind(kind) {
+function validateNotebookCollectionKind(kind) {
   if (!TRANSFORM_KINDS.has(kind)) {
     throw new ResearchMemoryError(
       `Notebook membership requires a subject collection; ${kind} collections contain no stable subjects.`,
@@ -2769,7 +2768,7 @@ function normalizeMember(member) {
   if (!member || typeof member !== 'object' || Array.isArray(member)) {
     throw new ResearchMemoryError('Notebook membership member must be an object.');
   }
-  if (!RETAINABLE_SUBJECT_TYPES.has(member.type)) {
+  if (!NOTEBOOK_SUBJECT_TYPES.has(member.type)) {
     throw new ResearchMemoryError('Notebook membership member has an unsupported subject type.');
   }
   if (typeof member.id !== 'string' || member.id.length === 0
@@ -2880,7 +2879,7 @@ function normalizeNotebookQuery(query) {
   };
 }
 
-function retainedProvenance(item) {
+function membershipProvenance(item) {
   if (item.subject.type === 'event' && item.provenance.length > 0) {
     return [{ type: 'stored-event-observations', eventId: item.subject.id }];
   }

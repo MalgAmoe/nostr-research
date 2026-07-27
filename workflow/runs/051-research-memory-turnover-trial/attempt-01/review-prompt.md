@@ -1,3 +1,52 @@
+# Reviewer role
+
+You are the independent reviewer in a repository-backed workflow.
+
+Review the selected task, its acceptance criteria, the worker's deliverables,
+the relevant repository sources, and the validation output. Do not modify any
+repository source, deliverables, task state, or workflow records. Do not repair
+the work. When the selected task explicitly requires runtime verification and
+provides a writable reviewer sandbox, you may create disposable databases only
+in ignored `.data/` paths or the system temporary directory.
+
+The first non-empty line of your response must be exactly one of:
+
+- `PASS`
+- `CHANGES_REQUIRED`
+- `BLOCKED`
+
+Use `PASS` only when all acceptance criteria are materially satisfied.
+
+Treat the durable principles in `CONTEXT.md` as constraints on every task.
+Historical completed tasks do not override current policy. Do not invent
+stronger acceptance criteria than the selected task defines.
+
+Audit test changes as carefully as production changes:
+
+- Permanent tests are exceptional and must protect stable public behavior.
+- Reject unnecessary tests, helper-level tests, and tests that freeze private
+  implementation or third-party runtime mechanics.
+- Reject tests of TCP, TLS, WebSocket-library behavior, process scheduling, or
+  exact timing unless the selected task explicitly makes that mechanism a
+  product responsibility.
+- Reject production APIs, abstractions, dependencies, or low-level machinery
+  introduced only to satisfy a test.
+- Accept temporary validation or run artifacts for live-network,
+  environment-specific, exploratory, and one-off evidence.
+- Passing validation is not evidence that every test is worth keeping.
+
+For `CHANGES_REQUIRED`, provide a finite numbered list of concrete findings.
+Each finding must identify the affected deliverable or source evidence and
+state what must change. Do not request optional polish or expand the task.
+
+Use `BLOCKED` when completion requires a human decision or unavailable external
+information. Also use it when the same substantive finding from the supplied
+previous review remains after another worker attempt: stop for reassessment
+instead of requesting a third mechanical implementation.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -170,3 +219,172 @@ honestly unresolved, and a relation built from notebook knowledge can bind a
 later relay `fetch` without copied identifiers. Releasing archive evidence
 changes resolution but not notebook history; reset clears all owners and
 handles.
+
+
+# Selected task
+
+---
+id: 051-research-memory-turnover-trial
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/051-research-memory-turnover-trial.validate.sh
+depends_on: 050-reference-resolved-research-views
+protected_paths: workflow/run.py workflow/prompts
+reviewer_sandbox: workspace-write
+---
+
+# Validate research continuity across complete buffer turnover
+
+## Objective
+
+Exercise the integrated buffer, archive, notebook, views, declarative session,
+and JSONL adapter as one research system. Remove superseded storage and
+presentation code revealed by the trial.
+
+## Work
+
+- Perform the complete milestone acceptance scenario from
+  `workflow/artifacts/research-memory-milestone.md`.
+- Use the real JSONL executable. Deterministic events may establish exact
+  turnover behavior; use a bounded live relay phase where network access is
+  available to judge actual research ergonomics.
+- Conduct an iterative investigation:
+  - acquire and orient;
+  - select candidates;
+  - record both positive and negative notebook knowledge;
+  - preserve a small amount of exact and excerpt evidence;
+  - completely replace the observation buffer;
+  - continue research from notebook knowledge and archive evidence;
+  - direct another acquisition without manual stable-ID extraction;
+  - release selected evidence and inspect the resulting resolution change.
+- Record commands, judgments, evidence sources, completeness, friction, and
+  approximate counts or serialized sizes of buffer, archive, notebook, and
+  named views in:
+
+  `workflow/artifacts/research-memory-turnover-field-trial.md`
+
+- Review the implementation after the trial and delete:
+  - superseded retention, annotation, ingest-preserve, or copied-evidence code;
+  - unreachable presentation and lifecycle branches;
+  - outdated documentation and exports;
+  - permanent tests tied only to removed implementation shapes.
+- Update `CONTEXT.md`, package documentation, and `workflow/ROADMAP.md` to
+  describe only the final model.
+
+Do not add new storage concepts merely to make the trial pass. Report genuine
+remaining limitations.
+
+## Acceptance criteria
+
+- Research can continue coherently after complete buffer turnover.
+- Preserved evidence, notebook knowledge, and working views have distinct and
+  observable ownership and lifecycle.
+- Later acquisition can be directed from prior research knowledge through
+  named handles, without dynamic JavaScript or manual ID copying.
+- Archive, buffer, notebook, and view sizes are visible enough to detect
+  accidental duplication.
+- The field artifact distinguishes system capability from researcher judgment
+  and reports unresolved evidence honestly.
+- The final package contains no parallel old/new storage semantics.
+- Full validation passes with a focused permanent suite.
+
+## Verification
+
+- Permanent tests expected: no new tests unless the integrated trial reveals a
+  stable public regression not covered by tasks 048-050.
+- Stable public behavior protected: the final coherent memory, operation,
+  session, and JSONL workflow.
+- Temporary task validation or field evidence: the deterministic turnover
+  scenario and bounded live investigation recorded in the artifact.
+- Explicitly excluded test levels or mechanisms: permanent live-relay tests,
+  WebSocket/TCP tests, UI, screenshots, persistence, implementation snapshots,
+  and tests per command or storage method.
+
+
+# Worker report
+
+Implemented the complete research-memory turnover trial.
+
+Deliverables changed:
+
+- Added `workflow/artifacts/research-memory-turnover-field-trial.md`.
+- Removed duplicate legacy corpus fields from `describe()`.
+- Made session status expose buffer, archive, notebook, and handle sizes separately.
+- Fixed `show` for notebook-membership handles after turnover.
+- Removed remaining retention-oriented internal naming.
+- Updated `CONTEXT.md`, root/package documentation, and `workflow/ROADMAP.md`.
+- Updated affected functional assertions for the final ownership model.
+
+Validation performed:
+
+- Deterministic full-turnover scenario through the real JSONL executable.
+- Bounded public-relay attempt; network access was denied and recorded honestly.
+- `npm run check`: passed.
+- `npm test`: 22/22 passed.
+- Task validation script: passed.
+- `git diff --check`: passed.
+
+Permanent tests expanded:
+
+- Extended the existing notebook-turnover functional scenario to protect the stable public behavior that a notebook-membership handle remains showable after its evidence becomes unresolved. Temporary validation was insufficient because the trial uncovered an actual `INTERNAL_ERROR` at the public session boundary.
+
+Unresolved uncertainties:
+
+- Public-relay ergonomics require a network-enabled environment.
+- Over-limit presentation options can still surface a generic internal error; documented as outside this storage-lifecycle task.
+
+# Validation output
+
+Exit code: 0
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/acquire.js && node --check src/operations.js && node --check src/relation.js && node --check src/pipeline-source.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/presentation.js && node --check src/jsonl-session.js && node --check bin/nostr-research-session.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+✔ acquisition rejects unusable public inputs before networking (0.946125ms)
+✔ typed local stages and composable relations refine trial-shaped evidence (58.150625ms)
+✔ empty paths retain typed context and invalid plans fail before execution (0.293917ms)
+✔ bounded groups expose exact membership, refresh evidence, and summarize exact counts (11.321875ms)
+✔ a local-only named plan can query resident memory without implicit acquisition (0.386583ms)
+✔ stable bounds and compatible set composition share the public pipeline algebra (14.80875ms)
+✔ pipeline schema exposes literal fields and preflight rejects invalid composition (3.002292ms)
+✔ bounded groups preserve complete derived inputs and provenance for aggregation (12.239709ms)
+✔ named account and note handles continue with bounded relationship provenance (2305.773834ms)
+✔ declarative observation and lifecycle form one bounded public workflow (36.690625ms)
+✔ declarative show bounds grouped and summarized named results (5.776916ms)
+✔ declarative named results compose compatible sets and expose their schema (11.94175ms)
+✔ declarative notebook knowledge survives turnover and remains independent from evidence (15.677ms)
+✔ explicit archive preservation survives complete buffer turnover and releases atomically (78.252709ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (30.169625ms)
+✔ collections re-resolve stable subjects across observations, replacement metadata, and eviction (28.776916ms)
+✔ JSONL executable provides one persistent bounded process workflow (118.418792ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (35.283084ms)
+✔ replaceable selection and follow interpretation remain stable in one process (60.439291ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (25.411541ms)
+✔ relation handles resolve references across evidence lifetime and keep bounded views composable (41.424042ms)
+✔ large notebook membership is atomic, bounded, process-local, and directly navigable (2350.408083ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2588.062083
+
+
+# Review instruction
+
+Inspect the actual deliverables and relevant repository sources now. Do not rely only on the worker report.

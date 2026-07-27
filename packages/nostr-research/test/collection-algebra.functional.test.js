@@ -404,7 +404,7 @@ test('a local-only named plan can query resident memory without implicit acquisi
       ]),
       /input must name an acquisition stage/,
     );
-    assert.equal(memory.describe().eventCount, 0);
+    assert.equal(memory.describe().observationBuffer.eventCount, 0);
   } finally {
     memory.close();
   }

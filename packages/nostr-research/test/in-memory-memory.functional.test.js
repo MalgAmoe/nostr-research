@@ -30,11 +30,11 @@ test('mixed ingestion and FIFO eviction leave coherent public indexes and source
     memory.ingest(retainedSource, { ...observation, relay: 'wss://duplicate.example' });
     memory.ingest(newest, observation);
 
-    assert.equal(memory.describe().eventCount, 2);
+    assert.equal(memory.describe().observationBuffer.eventCount, 2);
     assert.equal(memory.getEvent(target.id), null);
     assert.equal(memory.select({ text: ['target'] }).items.length, 0);
     assert.deepEqual(memory.resolve(target.id, 'event'), subject('event', target.id));
-    assert.equal(memory.describe().evictions, 1);
+    assert.equal(memory.describe().observationBuffer.evictions, 1);
     assert.deepEqual(memory.inspect(subject('event', target.id)), {
       subject: subject('event', target.id),
       resolved: false,
