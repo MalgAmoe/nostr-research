@@ -336,6 +336,12 @@ test('declarative named results compose compatible sets and expose their schema'
     ['substring', 'word', 'phrase'],
   );
   assert.equal(
+    schema.result.research.parameterContracts.select.filter,
+    undefined,
+  );
+  assert.equal('kinds' in schema.result.research.parameterContracts.select, true);
+  assert.equal('where' in schema.result.research.parameterContracts.filter, true);
+  assert.equal(
     schema.result.session.commands.observation.show.parameters.offset,
     'non-negative integer',
   );

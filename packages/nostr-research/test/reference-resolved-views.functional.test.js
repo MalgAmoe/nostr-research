@@ -39,7 +39,7 @@ test('relation handles resolve references across evidence lifetime and keep boun
   });
   await session.execute({
     commandId: 'relate', command: 'relate', input: 'notes',
-    parameters: {}, resultId: 'rows',
+    resultId: 'rows',
   });
   await session.execute({
     commandId: 'scan', command: 'scan', input: 'rows',
@@ -107,10 +107,13 @@ test('relation handles resolve references across evidence lifetime and keep boun
     commandId: 'show-aggregate', command: 'show', input: 'aggregate',
     parameters: { previewLimit: 2 },
   });
-  const aggregateSuggestions = JSON.stringify(aggregateView.result.nextOperations);
-  assert.equal(aggregateSuggestions.includes('subject.id'), false);
-  assert.equal(aggregateSuggestions.includes('event.author'), false);
-  assert.equal(aggregateSuggestions.includes('groupText'), true);
+  assert.ok(aggregateView.result.nextOperations.length > 0);
+  assert.ok(aggregateView.result.nextOperations.every((suggestion) => (
+    typeof suggestion.operation === 'string'
+      && typeof suggestion.purpose === 'string'
+      && !('example' in suggestion)
+      && !('accepts' in suggestion)
+  )));
   const rows = await session.execute({
     commandId: 'show-rows', command: 'show', input: 'rows',
     parameters: { previewLimit: 2 },
@@ -162,6 +165,12 @@ test('relation handles resolve references across evidence lifetime and keep boun
   );
   assert.equal('operations' in scanSchema.result, false);
   assert.equal('compatibleOperations' in scanSchema.result, false);
+
+  const relateSchema = await session.execute({
+    commandId: 'schema-relate', command: 'schema', input: 'notes',
+    parameters: { operation: 'relate' },
+  });
+  assert.deepEqual(relateSchema.result.operation.parameters, {});
 
   const extractSchema = await session.execute({
     commandId: 'schema-extract', command: 'schema', input: 'rows',

@@ -225,8 +225,7 @@ export function operationSchema() {
     )),
     parameterContracts: {
       filter: {
-        collection: 'identity predicates on subject.type or subject.id',
-        relation: 'row-value predicate',
+        where: 'predicate object; collections accept subject.type or subject.id, relations accept row fields',
         limit: 'non-negative output bound',
       },
       pick: {
@@ -257,9 +256,7 @@ export function operationSchema() {
         with: 'named compatible subject collection',
         limit: RESULT_LIMIT_CONTRACT,
       },
-      relate: {
-        transition: 'subject collection to research relation',
-      },
+      relate: {},
       project: {
         fields: 'bounded relation field selections',
       },
@@ -305,8 +302,16 @@ export function operationSchema() {
         concurrency: 'positive relay concurrency',
       },
       select: {
-        scope: ['corpus'],
-        filter: 'local selection fields; no relay access',
+        scope: '"corpus" without an input; omitted or "acquisition" with an acquisition input',
+        ids: 'optional event ID prefix or prefix array',
+        authors: 'optional author public-key prefix or prefix array',
+        kinds: 'optional non-negative kind or kind array',
+        since: 'optional non-negative Unix timestamp',
+        until: 'optional non-negative Unix timestamp',
+        tags: 'optional single-letter tag constraints',
+        text: 'optional text term or term array',
+        limit: RESULT_LIMIT_CONTRACT,
+        order: ['newest', 'oldest'],
       },
       hydrate: {
         relays: 'non-empty relay URL array',
@@ -659,90 +664,53 @@ function relationSubjectTransitions(value, structure = undefined) {
 
 /**
  * Returns bounded, contextual navigation help derived from the authoritative
- * operation registry. Examples are session envelopes minus caller correlation
- * and result IDs, so callers can supply their own names without rewriting
- * subjects from a preview.
+ * operation registry. It reports applicable operation names and purposes
+ * without inventing caller choices or parameters.
  */
-export function discoverResearchOperations(descriptor, input, value = undefined) {
+export function discoverResearchOperations(descriptor, value = undefined) {
   const kind = descriptor?.kind;
   const collectionCapable = supportsCollectionOperations(descriptor);
   const candidates = [];
-  const add = (operation, parameters, purpose, extra = {}) => {
-    const semantics = operationSemantics(operation);
-    if (!semantics) return;
-    candidates.push({
-      operation,
-      purpose,
-      accepts: extra.accepts ?? operationSchema().parameterContracts[operation] ?? {},
-      example: {
-        command: operation,
-        ...(semantics.input === 'named' ? extra : { input }),
-        parameters,
-      },
-    });
+  const add = (operation, purpose) => {
+    if (!operationSemantics(operation)) return;
+    candidates.push({ operation, purpose });
   };
 
   if (descriptor?.resultKind === 'acquisition-report') {
-    add('select', { kinds: [1], limit: 20 },
-      'Select stable subjects from this bounded acquisition attempt.', {
-        accepts: {
-          scope: ['acquisition', 'omitted'],
-          filter: 'local selection fields applied only to events from this acquisition attempt',
-        },
-      });
+    add('select', 'Select stable subjects from this bounded acquisition attempt.');
   } else if (collectionCapable) {
     if (kind === 'subjects') {
-      add('filter', { where: { field: 'subject.type', equals: 'event' }, limit: 20 },
-        'Refine a mixed subject collection by stable identity.');
+      add('filter', 'Refine a mixed subject collection by stable identity.');
     }
-    add('pick', { positions: [1] },
-      'Select members from the current preview page without copying stable IDs.');
-    add('relate', {}, 'Cross explicitly from subjects into value analysis.');
-    add('remember-membership', {
-      name: 'candidate-set', reason: { type: 'explicit-selection' },
-    }, 'Preserve named subject membership and its caller-authored reason.');
+    add('pick', 'Select members from the current preview page without copying stable IDs.');
+    add('relate', 'Cross explicitly from subjects into value analysis.');
+    add('remember-membership', 'Preserve named subject membership and its caller-authored reason.');
   } else if (kind === 'relation') {
     const fields = relationFields(value);
     const scalarFields = fields.filter((field) => relationFieldHasScalar(value, field));
-    const projected = scalarFields.slice(0, 3);
-    if (projected.length) {
-      add('project', {
-        fields: projected.map((field, index) => ({
-          field,
-          name: `field${index + 1}`,
-        })),
-      }, 'Choose a bounded relation shape from fields present in this result.');
+    if (scalarFields.length) {
+      add('project', 'Choose a bounded relation shape from fields present in this result.');
     }
     const numericField = fields.find((field) => relationFieldHasType(value, field, 'number'));
     if (numericField) {
-      add('sort', {
-        by: [{ field: numericField, direction: 'descending' }],
-      }, 'Order this relation by a numeric field present in the result.');
+      add('sort', 'Order this relation by a numeric field present in the result.');
     }
     const subjectField = relationSubjectSuggestion(value);
     if (subjectField) {
-      add('extract', {
-        field: subjectField.field, subjectType: subjectField.subjectType, limit: 20,
-      }, 'Extract a known stable-subject field into a pure subject collection.');
+      add('extract', 'Extract a known stable-subject field into a pure subject collection.');
     }
-    const groupingField = scalarFields[0];
-    if (groupingField) {
-      add('aggregate', {
-        by: [{ field: groupingField, name: 'group' }],
-        aggregations: [{ name: 'count', operation: 'count' }],
-      }, 'Summarize this relation using a field present in the result.');
+    if (scalarFields.length) {
+      add('aggregate', 'Summarize this relation using a field present in the result.');
     }
     if (candidates.length === 0) {
-      add('slice', { offset: 0, limit: 20 }, 'Take an explicit bounded relation window.');
+      add('slice', 'Take an explicit bounded relation window.');
     }
   }
 
   if (collectionCapable && kind === 'events') {
-    add('move', { to: 'authors', limit: 20 },
-      'Cross explicitly from event subjects to author subjects.');
+    add('move', 'Cross explicitly from event subjects to author subjects.');
   } else if (collectionCapable && kind === 'accounts') {
-    add('move', { to: 'authoredEvents', limit: 20 },
-      'Cross explicitly from account subjects to resident event subjects.');
+    add('move', 'Cross explicitly from account subjects to resident event subjects.');
   }
   return candidates.slice(0, 4);
 }

@@ -485,9 +485,10 @@ remains the direct exact-subject evidence view and `explain` the direct
 exact-subject membership view.
 
 Every `show` response also contains a short `nextOperations` list derived from
-the authoritative operation registry. Its examples name the current handle
-and state accepted constraints. It is deliberately a small orientation list,
-not the exhaustive operation space; use contextual `schema` for that. In
+the authoritative operation registry. It contains only applicable operation
+names and their purpose; it does not invent parameters or choose fields for
+the researcher. It is deliberately a small orientation list, not the
+exhaustive operation space; use contextual `schema` for exact parameters. In
 particular, `relate` explicitly crosses a
 subject collection into a relation; `extract` crosses a selected relation field
 back into stable subjects; `move` crosses event and account collections; and

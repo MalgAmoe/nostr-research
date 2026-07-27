@@ -177,7 +177,7 @@ export class DeclarativeResearchSession {
       return readOnly(() => boundResearchPresentation({
         ...showResearchValue(this.#memory, entry.value, options),
         nextOperations: discoverResearchOperations(
-          entry.descriptor, command.input, entry.value,
+          entry.descriptor, entry.value,
         ),
       }, options.sizeLimit));
     }
@@ -384,7 +384,8 @@ export class DeclarativeResearchSession {
     if (!COMMANDS.has(command.command) || command.command === 'plan') {
       throw protocolError('INVALID_COMMAND', `Unsupported command: ${command.command}.`);
     }
-    if (!isPlainObject(command.parameters)) {
+    const rawParameters = command.parameters === undefined ? {} : command.parameters;
+    if (!isPlainObject(rawParameters)) {
       throw protocolError('INVALID_OPERATION', 'Command parameters must be a plain object.');
     }
     if (command.input !== undefined && command.inputs !== undefined) {
@@ -405,10 +406,10 @@ export class DeclarativeResearchSession {
     const namedDescriptors = namedEntries === undefined ? undefined
       : Object.fromEntries([...namedEntries].map(([name, entry]) => [name, entry.descriptor]));
     const operationParameters = operationParametersWithSessionDefaults(
-      command.command, command.parameters, this.#configuration,
+      command.command, rawParameters, this.#configuration,
     );
     const referenced = isSetOperation(command.command)
-      ? this.#requireHandle(command.parameters.with) : undefined;
+      ? this.#requireHandle(rawParameters.with) : undefined;
     const operation = normalizeResearchOperation({
       operation: command.command,
       parameters: isSetOperation(command.command)
@@ -420,7 +421,7 @@ export class DeclarativeResearchSession {
       ? { operation: command.command, parameters: cloneJson(operationParameters) }
       : operation;
     const references = referenced === undefined ? undefined
-      : new Map([[command.parameters.with, referenced.descriptor]]);
+      : new Map([[rawParameters.with, referenced.descriptor]]);
     const descriptor = preflightResearchOperation(
       this.#memory, descriptorOperation, inputEntry?.descriptor, references, namedDescriptors,
     );
