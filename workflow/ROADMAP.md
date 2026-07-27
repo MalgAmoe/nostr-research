@@ -4,7 +4,7 @@ Task definitions under `workflow/tasks/` are the authoritative record of
 completed and ready work. Worker and reviewer runs remain committed as the
 durable execution and review history for those tasks.
 
-The completed foundation provides:
+The completed foundation through task 047 provides:
 
 - canonical Nostr evidence in one bounded process-local corpus;
 - bounded live relay acquisition with explicit coverage;
@@ -15,11 +15,13 @@ The completed foundation provides:
 - protocol-correct account relationships and replaceable events;
 - bounded inspection, authored-note expansion, and reply contexts.
 
-Persistence and a database format are deliberately absent. Closing or
-resetting the corpus, or ending its Node process, loses events, observations,
-and retained selections. Acquisition coverage is returned directly and is not
-registered as history. Removing the remaining Node dependencies belongs to a
-separate future milestone.
+Persistence and a database format remain deliberately absent. Closing or
+resetting memory, or ending its Node process, loses every process-local layer.
+Tasks 048-051 now replace the earlier single-lifetime corpus semantics with a
+renewable observation buffer, deliberate evidence archive, research notebook,
+and reference-resolved working views. Acquisition coverage remains returned
+directly and is not registered as history. Removing the remaining Node
+dependencies belongs to a separate future milestone.
 
 New tasks should be derived from console-driven research. The project should
 not pre-encode universal discovery or quality rules without field evidence.
@@ -116,3 +118,22 @@ continuation, and the interpreter. Tasks 045-047 therefore:
    them; and
 3. remove compensating presentation/test complexity and validate the reduced
    design through the real JSONL navigation path.
+
+The next strict field trial proved that this consolidated path can conduct a
+difficult investigation, but exposed a deeper storage contradiction. The
+bounded corpus evicts canonical evidence, retained selections keep only
+references, annotations survive eviction, and relations silently clone source
+fields into handles. Tasks 048-051 therefore replace the single-lifetime model
+with one process-local research memory containing:
+
+1. a renewable indexed observation buffer and an explicit evidence archive;
+2. a research notebook consolidating judgments and named membership;
+3. reference-resolved, bounded working views which do not accidentally archive
+   complete events; and
+4. a full buffer-turnover field trial followed by deletion of superseded
+   retention and copied-evidence behavior.
+
+The contract is recorded in
+`workflow/artifacts/research-memory-milestone.md`. This milestone remains
+process-local and introduces no database, persistence format, UI, automatic
+classification, or speculative storage adapter architecture.

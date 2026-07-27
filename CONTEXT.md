@@ -13,8 +13,11 @@ no presentation layer defines the domain boundary.
 
 ## Settled principles
 
-- Memory is one capacity-bounded, process-local corpus shared by the library,
-  CLI, functional verification, and future applications.
+- Memory is one process-local research environment shared by the library, CLI,
+  functional verification, and future applications. It owns a renewable,
+  capacity-bounded observation buffer, deliberately preserved evidence, and
+  explicit research knowledge. These have different lifetimes and must not be
+  conflated.
 - A raw, valid Nostr event is immutable source evidence. Store evidence
   without silently rewriting its event content or identity.
 - Indexes, relationship views, search terms, rankings, labels, and other
@@ -36,15 +39,18 @@ no presentation layer defines the domain boundary.
 | --- | --- |
 | **event** | A raw, valid Nostr event: immutable source evidence. |
 | **observation** | A record that evidence was encountered through a particular acquisition context, such as a relay and its outcome. |
-| **memory** | The bounded process-local research corpus of evidence, observations, and replaceable derived material. |
+| **memory** | The process-local owner of the observation buffer, evidence archive, research notebook, and their derived indexes. |
+| **observation buffer** | The renewable, capacity-bounded store of canonical events recently acquired from relays, their observations, and temporary indexes. Buffer evidence may be evicted. |
+| **evidence archive** | Deliberately preserved evidence copied from the observation buffer at an explicit preservation level. Archive evidence is not silently evicted to make room for relay acquisition. |
+| **research notebook** | Explicit process-local research knowledge: subject judgments, labels, notes, retained membership and selected derived observations with reasons and source references. It is interpretation, not Nostr source evidence. |
 | **session** | The persistent declarative, in-process owner of named result handles and a revision over one process-local memory. |
-| **result handle** | A session-owned name for an engine result. Handles are replaceable navigation state and do not copy or own corpus evidence. |
+| **result handle** | A session-owned name for an engine view. Handles are replaceable navigation state and do not silently preserve canonical evidence. |
 | **subject collection** | A bounded set of stable Nostr subjects with membership reasons and provenance. |
-| **research relation** | Bounded rows of values that retain the stable subjects, reasons, and provenance from which they were derived. Relations are the composable analysis boundary for filtering, projection, joins, aggregation, derivation, exploding nested values, vocabulary scans, balancing, sorting, and windows. |
+| **research relation** | A bounded composable view of stable subjects, derived values, reasons, and provenance. Source-backed fields resolve from the archive or buffer; a relation must not accidentally become an undocumented evidence archive. |
 | **acquisition** | The operation of contacting or otherwise reading sources to obtain events and record observations. |
 | **acquisition coverage** | Information returned by one bounded relay attempt: exact filter and budgets, contacted relays and outcomes, and observations. It does not claim exhaustive indexing or create a global history record. |
 | **query** | An operation over local memory that selects and explains results; it does not itself require relay access. |
-| **retained selection** | A deliberately retained, named result collection with its subjects and reasons for later inspection during the running process. |
+| **retained selection** | Named notebook membership preserving stable subjects and reasons. Preserving the source evidence itself is a separate, explicit choice. |
 | **annotation** | A process-local interpretation attached to a stable subject: caller-defined labels and a free-text note. It is navigation state, not source evidence or a universal claim. |
 | **provenance** | Observable source and acquisition history for evidence, including the context needed to assess it. |
 | **derived relationship** | A reproducible interpretation connecting evidence (for example reply, mention, tag, author, or citation); it is not raw evidence and can be replaced. |
@@ -80,12 +86,29 @@ must still decide, through evidence and experimentation where appropriate:
 
 ## Process-local boundaries
 
-Memory is the only authoritative corpus. A session is the persistent
-declarative research session: it owns named result handles and a revision over
-one process-local memory. Commands name their inputs and outputs explicitly;
-there is no active or current selection. A result collection is the shared
-operation result passed between the library and session layers. Retained
-selections disappear with the corpus; sessions are not serialized.
+Memory is the process-local owner of three distinct kinds of state:
+
+- the observation buffer owns canonical relay events, observations, and
+  temporary indexes, and may evict them according to its explicit capacity;
+- the evidence archive owns only material deliberately preserved as a
+  reference, bounded excerpt, or complete canonical event;
+- the research notebook owns explicit interpretation and navigation knowledge,
+  including judgments, labels, notes, memberships, reasons, and source
+  references.
+
+Resolution reports whether evidence came from the archive, the buffer, or is
+currently unresolved. Ordinary acquisition never silently grows the archive
+or notebook. Buffer eviction never silently deletes archived evidence or
+notebook knowledge. Archive and notebook limits fail explicitly rather than
+silently discarding research state.
+
+A session is the persistent declarative research session: it owns named result
+handles and a revision over one process-local memory. Commands name their
+inputs and outputs explicitly; there is no active or current selection. A
+result collection is the shared operation result passed between the library
+and session layers. Handles remain views and do not silently copy complete
+events. All state disappears on reset, close, or process exit; sessions are
+not serialized.
 
 The coherent product path is memory, subject collections and research
 relations, normalized operations, the declarative session, and its JSONL
