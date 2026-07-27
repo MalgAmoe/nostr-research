@@ -158,27 +158,18 @@ export function normalizeResearchPlan(plan) {
       );
     }
     if (stage.operation === 'remember-membership') {
-      rejectUnknownParameterKeys(stage, new Set(['name', 'options']));
+      rejectUnknownParameterKeys(stage, new Set(['name', 'reason', 'attribution']));
       if (typeof stage.parameters.name !== 'string' || stage.parameters.name.trim().length === 0) {
         throw new ResearchMemoryError(`Research plan remember-membership stage ${id} requires a name.`);
       }
-      if (stage.parameters.options !== undefined && !isPlainObject(stage.parameters.options)) {
-        throw new ResearchMemoryError(`Research plan remember-membership stage ${id} options must be an object.`);
-      }
-      if (stage.parameters.options !== undefined) {
-        rejectUnknownParameterKeys(
-          { ...stage, operation: 'remember-membership options', parameters: stage.parameters.options },
-          new Set(['reason', 'attribution']),
-        );
-        if (stage.parameters.options.reason !== undefined) {
-          const reason = stage.parameters.options.reason;
-          if (!isPlainObject(reason)
-              || typeof reason.type !== 'string'
-              || reason.type.trim().length === 0) {
-            throw new ResearchMemoryError(
-              `Research plan remember-membership stage ${id} reason requires a non-empty type.`,
-            );
-          }
+      if (stage.parameters.reason !== undefined) {
+        const reason = stage.parameters.reason;
+        if (!isPlainObject(reason)
+            || typeof reason.type !== 'string'
+            || reason.type.trim().length === 0) {
+          throw new ResearchMemoryError(
+            `Research plan remember-membership stage ${id} reason requires a non-empty type.`,
+          );
         }
       }
     }
@@ -304,10 +295,10 @@ export function preflightResearchOperation(
     normalizeRememberParameters(parameters);
     return { ...input, resultKind: input.kind };
   }
-  const { name: membershipName, options = {} } = parameters;
+  const { name: membershipName, ...options } = parameters;
   rejectUnknownParameterKeys(
     { id: 'operation', operation: 'remember-membership', parameters },
-    new Set(['name', 'options']),
+    new Set(['name', 'reason', 'attribution']),
   );
   memory.validateNotebookMembership(membershipName, options, input.kind);
   return { ...input, resultKind: semantics.resultKind };
@@ -446,7 +437,7 @@ export async function executeResearchOperation(memory, operation, input = undefi
     for (const item of collection.items) memory.remember(item.subject, parameters);
     return collection;
   }
-  const { name: membershipName, options = {} } = parameters;
+  const { name: membershipName, ...options } = parameters;
   return memory.rememberMembership(input, membershipName, options);
 }
 

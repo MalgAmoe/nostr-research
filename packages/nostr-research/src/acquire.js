@@ -21,7 +21,7 @@ export const DEFAULT_RELAY_CONCURRENCY = 4;
  * process-local research corpus. Observation and distinct-event budgets are
  * both enforced operation-wide across all relays.
  */
-export async function acquireRelayEvents(memory, options, composedBudget = undefined) {
+export async function acquireRelayEvents(memory, options) {
   if (!memory || typeof memory.ingest !== 'function') {
     throw new ResearchMemoryError('An open research memory is required.');
   }
@@ -53,13 +53,6 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
   const acquiredEventIds = [];
   const acquiredObservations = new Map();
   const acquiredIds = new Set();
-  const budgetEventIds = composedBudget?.eventIds ?? new Set();
-  const composedDistinctEventLimit = composedBudget?.distinctEventLimit
-    ?? normalized.distinctEventLimit;
-  if (!(budgetEventIds instanceof Set)) {
-    throw new ResearchMemoryError('Composed acquisition event IDs must be a Set.');
-  }
-  positiveInteger(composedDistinctEventLimit, 'Composed distinctEventLimit');
   const additions = { added: [], refreshed: [], evicted: [] };
   const sockets = new Set();
   let stopReason = null;
@@ -145,10 +138,8 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
             return stop('observation-budget');
           }
           const alreadyAcquired = acquiredIds.has(event.id);
-          const alreadyCountedForBudget = budgetEventIds.has(event.id);
-          if (!alreadyCountedForBudget
-              && (budgetEventIds.size >= composedDistinctEventLimit
-                || counts.distinctEventsAcquired >= normalized.distinctEventLimit)) {
+          if (!alreadyAcquired
+              && counts.distinctEventsAcquired >= normalized.distinctEventLimit) {
             return stop('distinct-event-budget');
           }
           const ingested = memory.ingest(
@@ -171,15 +162,13 @@ export async function acquireRelayEvents(memory, options, composedBudget = undef
           }
           if (!alreadyAcquired) {
             acquiredIds.add(event.id);
-            budgetEventIds.add(event.id);
             acquiredEventIds.push(event.id);
             relayResult.distinctEventsAcquired += 1;
             counts.distinctEventsAcquired += 1;
           }
           if (counts.acceptedObservations >= normalized.observationLimit) {
             stop('observation-budget');
-          } else if (budgetEventIds.size >= composedDistinctEventLimit
-              || counts.distinctEventsAcquired >= normalized.distinctEventLimit) {
+          } else if (counts.distinctEventsAcquired >= normalized.distinctEventLimit) {
             stop('distinct-event-budget');
           }
         } else if (packet[0] === 'EOSE') {

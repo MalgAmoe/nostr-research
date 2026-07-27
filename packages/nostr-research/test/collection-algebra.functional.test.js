@@ -387,7 +387,7 @@ test('a local-only named plan can query resident memory without implicit acquisi
           id: 'invalid-retention',
           operation: 'remember-membership',
           input: 'external',
-          parameters: { name: 'invalid', options: { reason: 'caller supplied' } },
+          parameters: { name: 'invalid', reason: 'caller supplied' },
         },
       ]),
       /reason requires a non-empty type/,

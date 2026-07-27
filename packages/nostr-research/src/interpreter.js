@@ -844,7 +844,44 @@ function sessionSchema() {
         },
         forget: { input: 'subject result handle', parameters: {} },
       },
-      observation: ['show', 'inspect', 'explain', 'list', 'memberships', 'membership', 'status', 'schema'],
+      observation: {
+        show: {
+          input: 'named result handle',
+          parameters: {
+            mode: ['summary', 'preview', 'coverage'],
+            offset: 'non-negative integer',
+            previewLimit: 'integer from 1 to 20',
+            excerptLimit: 'integer from 1 to 1000',
+            includeEvidence: 'boolean',
+            sizeLimit: 'integer from 1000 to 50000 bytes approximately',
+          },
+        },
+        inspect: {
+          input: 'forbidden',
+          parameters: {
+            subject: 'event or account subject',
+            previewLimit: 'integer from 1 to 20',
+            excerptLimit: 'integer from 1 to 1000',
+            includeEvidence: 'boolean',
+            sizeLimit: 'integer from 1000 to 50000 bytes approximately',
+          },
+        },
+        explain: {
+          input: 'named result handle',
+          parameters: {
+            subject: 'event or account subject',
+            previewLimit: 'integer from 1 to 20',
+            excerptLimit: 'integer from 1 to 1000',
+            includeEvidence: 'boolean',
+            sizeLimit: 'integer from 1000 to 50000 bytes approximately',
+          },
+        },
+        list: { parameters: { limit: 'integer from 1 to 20', sizeLimit: 'byte bound' } },
+        memberships: { parameters: { limit: 'non-negative integer' } },
+        membership: { parameters: { name: 'membership name' } },
+        status: { parameters: { limit: 'integer from 1 to 20', sizeLimit: 'byte bound' } },
+        schema: { parameters: {} },
+      },
       lifecycle: [
         'release', 'release-all', 'replace-membership', 'delete-membership', 'reset', 'close',
       ],

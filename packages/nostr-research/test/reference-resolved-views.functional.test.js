@@ -24,7 +24,7 @@ test('relation handles resolve references across evidence lifetime and keep boun
   const session = createDeclarativeResearchSession(memory);
   const oversizedTag = ['t', `nested-${'v'.repeat(4000)}`];
   const archived = note(1, `archive marker ${'a'.repeat(4000)}`, [oversizedTag]);
-  const transient = note(2, `transient marker ${'b'.repeat(4000)}`);
+  const transient = note(2, `partial transient marker ${'b'.repeat(4000)}`);
   memory.ingest(archived, observation(1));
   memory.ingest(transient, observation(2));
 
@@ -40,6 +40,20 @@ test('relation handles resolve references across evidence lifetime and keep boun
     commandId: 'scan', command: 'scan', input: 'rows',
     parameters: { fields: ['event.text'], terms: ['marker'], limit: 10 },
     resultId: 'matches',
+  });
+  await session.execute({
+    commandId: 'substring-scan', command: 'scan', input: 'rows',
+    parameters: {
+      fields: ['event.text'], terms: ['art'], matchMode: 'substring', limit: 10,
+    },
+    resultId: 'substring-matches',
+  });
+  await session.execute({
+    commandId: 'word-scan', command: 'scan', input: 'rows',
+    parameters: {
+      fields: ['event.text'], terms: ['art'], matchMode: 'word', limit: 10,
+    },
+    resultId: 'word-matches',
   });
   await session.execute({
     commandId: 'join', command: 'join',
@@ -79,6 +93,30 @@ test('relation handles resolve references across evidence lifetime and keep boun
     ['buffer', 'buffer'],
   );
   assert.ok(resident.result.preview.every(({ values }) => values.joinedText.length <= 80));
+  const secondNote = await session.execute({
+    commandId: 'second-note', command: 'show', input: 'notes',
+    parameters: { offset: 1, previewLimit: 1, excerptLimit: 80 },
+  });
+  assert.equal(secondNote.result.preview[0].id, transient.id);
+  assert.equal(secondNote.result.offset, 1);
+  assert.equal(secondNote.result.nextOffset, 2);
+  const boundedNote = await session.execute({
+    commandId: 'bounded-note', command: 'show', input: 'notes',
+    parameters: { previewLimit: 2, excerptLimit: 1000, sizeLimit: 1000 },
+  });
+  assert.equal(boundedNote.result.preview.length, 1);
+  assert.equal(boundedNote.result.preview[0].id, archived.id);
+  assert.equal(boundedNote.result.sizeBounded, true);
+  const substringMatches = await session.execute({
+    commandId: 'show-substring-scan', command: 'show', input: 'substring-matches',
+    parameters: { previewLimit: 10 },
+  });
+  const wordMatches = await session.execute({
+    commandId: 'show-word-scan', command: 'show', input: 'word-matches',
+    parameters: { previewLimit: 10 },
+  });
+  assert.equal(substringMatches.result.count, 1);
+  assert.equal(wordMatches.result.count, 0);
   const aggregate = await session.execute({
     commandId: 'show-aggregate', command: 'show', input: 'aggregate',
     parameters: { previewLimit: 2, excerptLimit: 1000 },
@@ -114,6 +152,13 @@ test('relation handles resolve references across evidence lifetime and keep boun
   );
   assert.match(changed.result.preview[0].values.joinedText, /archive marker/);
   assert.equal(changed.result.preview[1].values.joinedText, null);
+  const notesAfterTurnover = await session.execute({
+    commandId: 'notes-after-turnover', command: 'show', input: 'notes',
+    parameters: { previewLimit: 2 },
+  });
+  assert.deepEqual(notesAfterTurnover.result.orientation.population.evidenceResolution, {
+    buffer: 0, archive: 1, unresolved: 1,
+  });
 
   const aggregateAfterTurnover = await session.execute({
     commandId: 'aggregate-after-turnover', command: 'show', input: 'aggregate',

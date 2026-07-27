@@ -112,12 +112,12 @@ export function explainResearchMembership(memory, collectionValue, subjectValue,
 export function presentHandleList(handles, options = {}) {
   const settings = listOptions(options);
   const all = [...handles].sort((left, right) => left.id.localeCompare(right.id));
-  return {
+  return enforceSize({
     type: 'result-handle-list',
     count: all.length,
     preview: all.slice(0, settings.limit).map((item) => structuredClone(item)),
     omitted: Math.max(0, all.length - settings.limit),
-  };
+  }, settings.sizeLimit);
 }
 
 export function presentSessionStatus(memory, status, options = {}) {
@@ -220,7 +220,11 @@ export function facetResearchCollection(memory, value, options = {}) {
 
 function showCollection(memory, collection, settings) {
   const previewLimit = settings.mode === 'summary' ? 0 : settings.previewLimit;
-  const preview = { ...collection, items: collection.items.slice(0, previewLimit) };
+  const effectiveOffset = Math.min(settings.offset, collection.items.length);
+  const preview = {
+    ...collection,
+    items: collection.items.slice(effectiveOffset, effectiveOffset + previewLimit),
+  };
   const resolved = memory.asCollection(preview);
   const projected = memory.project(resolved, {
     mode: 'compact',
@@ -235,7 +239,13 @@ function showCollection(memory, collection, settings) {
       ...(settings.includeEvidence
         ? evidenceDetail(resolved.items[index], settings.excerptLimit) : {}),
     })),
+    offset: effectiveOffset,
+    limit: previewLimit,
+    nextOffset: effectiveOffset + preview.items.length,
+    omittedBefore: effectiveOffset,
+    omittedAfter: Math.max(0, collection.items.length - effectiveOffset - preview.items.length),
     omitted: Math.max(0, collection.items.length - preview.items.length),
+    sizeBounded: false,
     context: compactContext(collection.context, collection.items.length),
     provenance: provenanceSummary(resolved.items),
     orientation: collectionOrientation(memory, collection, settings),
@@ -246,9 +256,10 @@ function showTypedCollection(memory, collection, settings) {
   const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
   const resolved = memory.asCollection(collection);
   const bounds = collection.bounds ?? resolved.bounds;
-  const preview = resolved.items.slice(0, limit).map((item) => (
+  const effectiveOffset = Math.min(settings.offset, resolved.items.length);
+  const preview = resolved.items.slice(effectiveOffset, effectiveOffset + limit).map((item) => (
     resolved.kind === 'groups'
-      ? showGroup(memory, item, resolved.itemKind, settings)
+      ? showGroup(memory, item, resolved.itemKind, { ...settings, offset: 0 })
       : showSummary(item, settings)
   ));
   const omitted = Math.max(0, resolved.items.length - preview.length);
@@ -258,6 +269,11 @@ function showTypedCollection(memory, collection, settings) {
     itemKind: resolved.itemKind,
     count: resolved.items.length,
     preview,
+    offset: effectiveOffset,
+    limit,
+    nextOffset: effectiveOffset + preview.length,
+    omittedBefore: effectiveOffset,
+    omittedAfter: Math.max(0, resolved.items.length - effectiveOffset - preview.length),
     omitted,
     ordering: 'source collection order',
     truncation: {
@@ -435,6 +451,8 @@ function showAcquisition(memory, value, settings) {
   if (settings.mode === 'coverage') {
     const relays = value.coverage?.relays ?? [];
     const observedEvents = value.coverage?.observedEvents ?? [];
+    const relayOffset = Math.min(settings.offset, relays.length);
+    const eventOffset = Math.min(settings.offset, observedEvents.length);
     return {
       type: 'acquisition-coverage',
       count: distinctEvents,
@@ -443,21 +461,33 @@ function showAcquisition(memory, value, settings) {
       completionReason: value.completionReason,
       exhaustive: false,
       uncertainty: value.coverage?.uncertainty,
-      relays: structuredClone(relays.slice(0, settings.previewLimit)),
-      omittedRelays: Math.max(0, relays.length - settings.previewLimit),
-      observedEvents: structuredClone(observedEvents.slice(0, settings.previewLimit)),
-      omittedObservedEvents: Math.max(0, observedEvents.length - settings.previewLimit),
+      offset: settings.offset,
+      relays: structuredClone(relays.slice(relayOffset, relayOffset + settings.previewLimit)),
+      omittedRelaysBefore: relayOffset,
+      omittedRelaysAfter: Math.max(0, relays.length - relayOffset - settings.previewLimit),
+      observedEvents: structuredClone(
+        observedEvents.slice(eventOffset, eventOffset + settings.previewLimit),
+      ),
+      omittedObservedEventsBefore: eventOffset,
+      omittedObservedEventsAfter: Math.max(
+        0, observedEvents.length - eventOffset - settings.previewLimit,
+      ),
     };
   }
   const collection = value.collection ?? memory.asCollection(value);
+  const shownCollection = showCollection(memory, collection, settings);
   return {
     type: 'acquisition',
     count: distinctEvents,
     scope: { type: 'acquisition', subjects: collection.items.length },
-    preview: settings.mode === 'summary'
-      ? [] : showCollection(memory, collection, settings).preview,
-    omitted: settings.mode === 'summary'
-      ? collection.items.length : Math.max(0, collection.items.length - settings.previewLimit),
+    preview: shownCollection.preview,
+    offset: shownCollection.offset,
+    limit: shownCollection.limit,
+    nextOffset: shownCollection.nextOffset,
+    omittedBefore: shownCollection.omittedBefore,
+    omittedAfter: shownCollection.omittedAfter,
+    omitted: shownCollection.omitted,
+    sizeBounded: false,
     context: {
       requested: value.requested, budget: value.budget,
       completionReason: value.completionReason,
@@ -482,10 +512,12 @@ function showAcquisition(memory, value, settings) {
 function showPlanReport(memory, value, settings) {
   const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
   const stages = value.stages ?? [];
+  const effectiveOffset = Math.min(settings.offset, stages.length);
+  const preview = stages.slice(effectiveOffset, effectiveOffset + limit);
   return {
     type: 'research-plan-report',
     count: stages.length,
-    preview: stages.slice(0, limit).map((stage) => ({
+    preview: preview.map((stage) => ({
       id: stage.id,
       operation: stage.operation,
       resultKind: stage.resultKind,
@@ -496,7 +528,12 @@ function showPlanReport(memory, value, settings) {
         sizeLimit: Math.max(1000, Math.floor(settings.sizeLimit / Math.max(1, limit))),
       }),
     })),
-    omitted: stages.length - Math.min(stages.length, limit),
+    offset: effectiveOffset,
+    limit,
+    nextOffset: effectiveOffset + preview.length,
+    omittedBefore: effectiveOffset,
+    omittedAfter: Math.max(0, stages.length - effectiveOffset - preview.length),
+    omitted: stages.length - preview.length,
     context: { stageCount: stages.length },
     provenance: [],
   };
@@ -664,7 +701,7 @@ function collectionOrientation(memory, collection, settings) {
     population: {
       subjects: collection.items.length,
       byType: typeCounts,
-      residentEvidence: corpus.resident,
+      evidenceResolution: corpus.evidenceResolution,
       subjectsWithMembershipEvidence: membership.subjectsWithEvidence,
     },
     sampling: {
@@ -720,10 +757,9 @@ function membershipEvidence(items, limit) {
 
 function evidenceFreshness(memory, items) {
   const observations = [];
-  let resident = 0;
+  const evidenceResolution = resolutionCounts(memory, items);
   for (const item of items) {
     const inspected = memory.inspect(item.subject);
-    if (inspected.resident) resident += 1;
     const provenance = uniqueObjects([
       ...(item.provenance ?? []),
       ...(inspected.provenance ?? []),
@@ -735,8 +771,7 @@ function evidenceFreshness(memory, items) {
   observations.sort();
   return {
     basis: 'collection provenance plus current canonical evidence observations',
-    residentSubjects: resident,
-    nonresidentSubjects: items.length - resident,
+    evidenceResolution,
     observationCount: observations.length,
     oldestObservedAt: observations[0] ?? null,
     newestObservedAt: observations.at(-1) ?? null,
@@ -755,10 +790,6 @@ function uniqueObjects(values) {
 
 function corpusEffects(memory, items) {
   const keys = new Set(items.map(({ subject: item }) => `${item.type}:${item.id}`));
-  let resident = 0;
-  for (const { subject: item } of items) {
-    if (memory.inspect(item).resident) resident += 1;
-  }
   let retained = 0;
   for (const summary of memory.listMemberships()) {
     const set = memory.getMembership(summary.name);
@@ -766,11 +797,19 @@ function corpusEffects(memory, items) {
   }
   return {
     ...corpusState(memory),
-    resident,
-    nonresident: items.length - resident,
-    notebookMemberships: retained,
+    evidenceResolution: resolutionCounts(memory, items),
+    namedMemberships: retained,
     statement: 'Notebook membership preserves subject identity and reasons, not evicted canonical evidence.',
   };
+}
+
+function resolutionCounts(memory, items) {
+  const counts = { buffer: 0, archive: 0, unresolved: 0 };
+  for (const { subject: item } of items) {
+    const source = memory.inspect(item).resolutionSource;
+    counts[source] = (counts[source] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function corpusState(memory) {
@@ -869,6 +908,20 @@ function boundedInteger(value, fallback, maximum, label, minimum = 1) {
 
 function enforceSize(value, maximum) {
   const copy = structuredClone(value);
+  if (Buffer.byteLength(JSON.stringify(copy)) > maximum && copy.orientation) {
+    delete copy.orientation.facets;
+    delete copy.orientation.conversation;
+    delete copy.orientation.membershipEvidence;
+    copy.orientation.detailsOmittedForSize = true;
+  }
+  if (Buffer.byteLength(JSON.stringify(copy)) > maximum && copy.facets) {
+    delete copy.facets;
+    copy.facetsOmittedForSize = true;
+  }
+  if (Buffer.byteLength(JSON.stringify(copy)) > maximum && Array.isArray(copy.provenance)) {
+    copy.provenance = [];
+    copy.provenanceOmittedForSize = true;
+  }
   while (Buffer.byteLength(JSON.stringify(copy)) > maximum && Array.isArray(copy.preview)
       && copy.preview.length > 1) {
     copy.preview.pop();
@@ -878,59 +931,74 @@ function enforceSize(value, maximum) {
     if (Number.isSafeInteger(copy.nextOffset)) copy.nextOffset -= 1;
   }
   if (Buffer.byteLength(JSON.stringify(copy)) <= maximum) return copy;
+  if (Array.isArray(copy.preview) && copy.preview.length === 1) {
+    const minimal = {
+      type: copy.type,
+      ...(copy.id ? { id: copy.id } : {}),
+      ...(copy.count !== undefined ? { count: copy.count } : {}),
+      preview: [compactPreviewForSize(copy.preview[0])],
+      ...(copy.offset !== undefined ? { offset: copy.offset } : {}),
+      ...(copy.limit !== undefined ? { limit: copy.limit } : {}),
+      nextOffset: (copy.offset ?? 0) + 1,
+      omittedBefore: copy.offset ?? 0,
+      omittedAfter: Math.max(0, (copy.count ?? 1) - (copy.offset ?? 0) - 1),
+      omitted: Math.max(0, (copy.count ?? 1) - 1),
+      sizeBounded: true,
+      context: {
+        bounded: true,
+        note: `Secondary presentation details were omitted to preserve the requested preview within the ${maximum}-byte approximate bound.`,
+      },
+      provenance: [],
+    };
+    if (Buffer.byteLength(JSON.stringify(minimal)) <= maximum) return minimal;
+  }
   return {
-    type: copy.type, ...(copy.id ? { id: copy.id } : {}),
+    type: copy.type,
+    ...(copy.id ? { id: copy.id } : {}),
     ...(copy.count !== undefined ? { count: copy.count } : {}),
     preview: [],
     ...(copy.offset !== undefined ? { offset: copy.offset } : {}),
     ...(copy.limit !== undefined ? { limit: copy.limit } : {}),
-    ...(copy.nextOffset !== undefined ? {
-      nextOffset: Math.min(
-        copy.count ?? copy.offset + 1,
-        copy.offset + (Array.isArray(copy.preview) && copy.preview.length > 0 ? 1 : 0),
-      ),
-    } : {}),
-    ...(copy.omittedBefore !== undefined ? { omittedBefore: copy.omittedBefore } : {}),
-    ...(copy.omittedAfter !== undefined ? {
-      omittedAfter: Math.max(
-        0,
-        (copy.count ?? 0) - Math.min(
-          copy.count ?? copy.offset + 1,
-          copy.offset + (Array.isArray(copy.preview) && copy.preview.length > 0 ? 1 : 0),
-        ),
-      ),
-      sizeOmitted: Array.isArray(copy.preview) && copy.preview.length > 0 ? 1 : 0,
-    } : {}),
-    omitted: copy.truncation
-      ? sum(Object.values(copy.truncation.omitted ?? {}).map((count) => ({ count })), 'count')
-      : (copy.omitted ?? 0) + (Array.isArray(copy.preview) ? copy.preview.length : 0),
+    nextOffset: copy.offset ?? 0,
+    omittedBefore: copy.offset ?? 0,
+    omittedAfter: Math.max(0, (copy.count ?? 0) - (copy.offset ?? 0)),
+    omitted: copy.count ?? copy.omitted ?? 0,
+    sizeBounded: true,
     context: { bounded: true, note: `Inspection exceeded the ${maximum}-byte approximate bound.` },
-    ...('sizeBounded' in copy ? { sizeBounded: true } : {}),
-    ...(copy.orientation ? {
-      orientation: {
-        population: copy.orientation.population,
-        sampling: copy.orientation.sampling,
-        truncation: {
-          truncated: true,
-          omittedSubjects: copy.orientation.population?.subjects ?? 0,
-          sizeBounded: true,
-        },
-        freshness: copy.orientation.freshness,
-        corpus: copy.orientation.corpus,
-      },
-    } : {}),
-    ...(copy.freshness ? { freshness: copy.freshness } : {}),
-    ...(copy.corpus ? { corpus: copy.corpus } : {}),
     provenance: [],
   };
 }
 
-function increment(map, key) {
-  map.set(key, (map.get(key) ?? 0) + 1);
+function compactPreviewForSize(value) {
+  const copy = structuredClone(value);
+  delete copy.notebookEntry;
+  delete copy.reasonSummary;
+  delete copy.evidence;
+  delete copy.relays;
+  if (copy.author) {
+    delete copy.author.descriptionExcerpt;
+    delete copy.author.relays;
+  }
+  if (typeof copy.contentExcerpt === 'string') copy.contentExcerpt = excerpt(copy.contentExcerpt, 80);
+  if (typeof copy.descriptionExcerpt === 'string') {
+    copy.descriptionExcerpt = excerpt(copy.descriptionExcerpt, 80);
+  }
+  if (copy.values && typeof copy.values === 'object') {
+    const compactValues = compactRelationValue(copy.values, 80);
+    const preferred = Object.entries(compactValues).filter(([name]) => (
+      name.startsWith('match.')
+      || name === 'subject.id'
+      || name === 'subject.type'
+      || name === 'evidence.resolutionSource'
+    ));
+    copy.values = Object.fromEntries((preferred.length ? preferred : Object.entries(compactValues))
+      .slice(0, 10));
+  }
+  return copy;
 }
 
-function sum(items, field) {
-  return items.reduce((total, item) => total + (item[field] ?? 0), 0);
+function increment(map, key) {
+  map.set(key, (map.get(key) ?? 0) + 1);
 }
 
 function excerpt(value, maximum) {

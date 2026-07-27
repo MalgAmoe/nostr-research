@@ -162,7 +162,10 @@ Related event fields include extracted `event.links` and `event.domains`.
 
 `scan` searches a caller-selected vocabulary across several fields and emits
 `match.field`, `match.term`, `match.sourceSubject`, a bounded `match.excerpt`,
-and match coordinates. It does not retain the unlimited original field and
+and match coordinates. `matchMode` is explicitly `substring`, `word`, or
+`phrase`; `match` separately controls whether any or all supplied terms must
+occur. A match emits one row per matching field and term, and `limit` is a
+global emitted-row bound. It does not retain the unlimited original field and
 performs mechanical matching only; it does not classify the result.
 Relation `sample` and `collect` aggregations return retained values together
 with explicit input, retained, omitted, and truncation counts. `balance`
@@ -350,7 +353,7 @@ const report = await executeResearchPlan(memory, [
     input: 'authors',
     parameters: {
       name: suppliedName,
-      options: { reason: suppliedReason },
+      reason: suppliedReason,
     },
   },
 ]);
@@ -447,17 +450,21 @@ Observation commands are `show`, `inspect`, `explain`, `list`, `memberships`, `m
 `mode` and `offset`. Relation previews show bounded values and evidence counts by default;
 `includeEvidence: true` adds bounded subject and provenance-reference details.
 `offset` selects another preview window without creating a new result.
-Relation responses return their effective `offset`, `limit`, `nextOffset`,
+Collection, relation, acquisition, typed-collection, and plan previews return
+their effective `offset`, `limit`, `nextOffset`,
 `omittedBefore`, and `omittedAfter`; `sizeBounded` and `sizeOmitted` identify
 rows omitted to satisfy the byte bound. Responses report counts plus `omitted`
-or truncation metadata rather than emitting unbounded values.
+or truncation metadata rather than emitting unbounded values. When a byte
+bound is reached, optional facets, orientation details, and provenance are
+removed before the requested preview evidence.
 
 `status` exposes observation-buffer pressure and evictions, archive entries by
 preservation level, notebook entry and membership counts, and the total handle
 count. `list` exposes each named handle's kind and cardinality. Together these
-make the ownership and approximate size of resident evidence, deliberate
-evidence, research knowledge, and working views observable without presenting
-one store as another.
+report evidence resolution separately as `buffer`, `archive`, and `unresolved`,
+and count named notebook memberships separately from notebook judgments. This
+makes renewable evidence, deliberate evidence, research knowledge, and working
+views observable without presenting one store as another.
 
 Handle lifecycle commands are `release` and `release-all`; neither deletes
 notebook knowledge. Named membership is listed with `memberships`, inspected

@@ -165,7 +165,7 @@ function normalizeRelationParameters(name, value) {
     return { field: value.field, as, indexAs, limit: limit(value.limit) };
   }
   if (name === 'scan') {
-    onlyKeys(value, ['fields', 'terms', 'match', 'caseSensitive', 'limit'], name);
+    onlyKeys(value, ['fields', 'terms', 'match', 'matchMode', 'caseSensitive', 'limit'], name);
     const selectedFields = fields(value.fields, 'scan fields');
     if (!Array.isArray(value.terms) || value.terms.length === 0
         || value.terms.length > 50
@@ -181,11 +181,28 @@ function normalizeRelationParameters(name, value) {
     if (value.caseSensitive !== undefined && typeof value.caseSensitive !== 'boolean') {
       throw new ResearchMemoryError('scan caseSensitive must be a boolean.');
     }
+    const matchMode = value.matchMode ?? 'substring';
+    if (!['substring', 'word', 'phrase'].includes(matchMode)) {
+      throw new ResearchMemoryError('scan matchMode must be substring, word, or phrase.');
+    }
+    if (matchMode === 'word' && value.terms.some((term) => /\s/u.test(term))) {
+      throw new ResearchMemoryError('scan word terms must not contain whitespace.');
+    }
+    const caseSensitive = value.caseSensitive === true;
+    const deduplicatedTerms = [];
+    const seenTerms = new Set();
+    for (const term of value.terms) {
+      const key = caseSensitive ? term : term.toLocaleLowerCase();
+      if (seenTerms.has(key)) continue;
+      seenTerms.add(key);
+      deduplicatedTerms.push(term);
+    }
     return {
       fields: selectedFields,
-      terms: [...new Set(value.terms)],
+      terms: deduplicatedTerms,
       match: value.match ?? 'any',
-      caseSensitive: value.caseSensitive === true,
+      matchMode,
+      caseSensitive,
       limit: limit(value.limit),
     };
   }
@@ -430,9 +447,14 @@ function applyScan(relation, operation) {
       const text = scanText(value, operation.caseSensitive);
       for (const term of operation.terms) {
         const needle = operation.caseSensitive ? term : term.toLocaleLowerCase();
-        if (!text.includes(needle)) continue;
+        const start = scanMatchStart(text, needle, operation.matchMode, operation.caseSensitive);
+        if (start < 0) continue;
         matchedTerms.add(term);
-        matches.push({ field: fieldName, term, ...scanMatch(value, needle, operation.caseSensitive) });
+        matches.push({
+          field: fieldName,
+          term,
+          ...scanMatch(value, needle, operation.caseSensitive, start),
+        });
       }
     }
     if (operation.match === 'all' && matchedTerms.size !== operation.terms.length) continue;
@@ -655,10 +677,8 @@ function provenanceReferences(item) {
   return uniqueJson(item.provenance ?? []);
 }
 
-function scanMatch(value, needle, caseSensitive) {
+function scanMatch(value, needle, caseSensitive, start) {
   const raw = scanText(value, true);
-  const searched = caseSensitive ? raw : raw.toLocaleLowerCase();
-  const start = searched.indexOf(needle);
   const excerptStart = Math.max(0, start - 80);
   const excerptEnd = Math.min(raw.length, start + needle.length + 80);
   return {
@@ -666,6 +686,17 @@ function scanMatch(value, needle, caseSensitive) {
     start,
     end: start + needle.length,
   };
+}
+
+function scanMatchStart(text, needle, matchMode, caseSensitive) {
+  if (matchMode === 'substring') return text.indexOf(needle);
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const expression = new RegExp(
+    `(^|[^\\p{L}\\p{N}_])(${escaped})(?=$|[^\\p{L}\\p{N}_])`,
+    caseSensitive ? 'u' : 'iu',
+  );
+  const match = expression.exec(text);
+  return match ? match.index + match[1].length : -1;
 }
 
 function boundDerived(value) {

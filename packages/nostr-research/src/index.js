@@ -2680,6 +2680,15 @@ export function collectionPipelineSchema() {
         limit: 'bound',
       },
       move: { routes: cloneJson(MOVE_ROUTES), limit: 'bound' },
+      scan: {
+        fields: 'non-empty relation-field array',
+        terms: '1 to 50 strings',
+        match: ['any', 'all'],
+        matchMode: ['substring', 'word', 'phrase'],
+        caseSensitive: 'boolean',
+        output: 'one relation row per matching field and term',
+        limit: 'bound',
+      },
       set: {
         operations: ['union', 'intersection', 'difference', 'compare'],
         inputKinds: [...TRANSFORM_KINDS],

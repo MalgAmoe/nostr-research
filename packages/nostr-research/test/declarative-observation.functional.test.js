@@ -93,7 +93,11 @@ test('declarative observation and lifecycle form one bounded public workflow', a
     commandId: 'retain',
     command: 'remember-membership',
     input: 'finding',
-    parameters: { name: 'kept independently' },
+    parameters: {
+      name: 'kept independently',
+      reason: { type: 'explicit-selection' },
+      attribution: 'functional workflow',
+    },
     resultId: 'retained',
   });
   assert.equal(retained.sessionRevision, 3);
@@ -291,6 +295,14 @@ test('declarative named results compose compatible sets and expose their schema'
   });
   assert.equal(schema.ok, true);
   assert.ok(schema.result.operations.set.operations.includes('difference'));
+  assert.deepEqual(
+    schema.result.research.parameterContracts.scan.matchMode,
+    ['substring', 'word', 'phrase'],
+  );
+  assert.equal(
+    schema.result.session.commands.observation.show.parameters.offset,
+    'non-negative integer',
+  );
   assert.equal(schema.sessionRevision, 6);
   await session.close();
 });
