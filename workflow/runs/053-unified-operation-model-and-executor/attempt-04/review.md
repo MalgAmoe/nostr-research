@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. Session plan execution is not atomic on runtime failure. In `packages/nostr-research/src/interpreter.js:434`, `#preparePlan` executes stages sequentially and updates revision only after the entire plan succeeds. A plan containing two valid `preserve` stages can pass preflight, let the first mutate the archive, then have the second fail because their combined additions exceed archive capacity. The session then returns failure with unchanged revision despite mutated memory. Ensure failed plan execution cannot leave earlier local mutations applied, or otherwise preflight cumulative mutations before execution. Add public functional coverage for an actual execution-time failure; the current test only exercises preflight rejection.

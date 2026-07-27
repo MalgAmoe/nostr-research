@@ -263,24 +263,28 @@ export async function hydrateAccounts(memory, selection, options) {
     throw new ResearchMemoryError('An open research memory is required.');
   }
   const normalized = normalizeHydrationOptions(options);
+  return {
+    ...await acquireBoundAccountEvents(memory, selection, normalized),
+    type: 'hydration-report',
+  };
+}
+
+/** Lowers account-bound retrieval to one ordinary bounded acquisition. */
+export async function acquireBoundAccountEvents(memory, selection, options, filter = undefined) {
   const authors = [...new Set(memory.asCollection(selection).items
     .filter(({ subject }) => subject.type === 'account')
     .map(({ subject }) => subject.id))];
   if (authors.length === 0) {
-    throw new ResearchMemoryError('Account hydration requires at least one account subject.');
+    throw new ResearchMemoryError('Account acquisition requires at least one account subject.');
   }
-  const {
-    relays, kinds, timeoutMs, observationLimit, distinctEventLimit,
-    concurrency, signal,
-  } = normalized;
   return acquireRelayEvents(memory, {
-    relays,
-    filter: { authors, kinds: [...new Set(kinds)] },
-    timeoutMs,
-    observationLimit,
-    distinctEventLimit,
-    concurrency,
-    signal,
+    relays: options.relays,
+    filter: filter ?? { authors, kinds: [...new Set(options.kinds)] },
+    timeoutMs: options.timeoutMs,
+    observationLimit: options.observationLimit,
+    distinctEventLimit: options.distinctEventLimit,
+    concurrency: options.concurrency,
+    signal: options.signal,
   });
 }
 

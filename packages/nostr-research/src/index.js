@@ -25,6 +25,7 @@ const NAVIGATION_RELATIONSHIP_TYPES = new Set([
   'topic',
   'other-tag',
 ]);
+const MEMORY_TRANSACTION = Symbol.for('nostr-research.memory-plan-attempt');
 
 export class ResearchMemoryError extends Error {
   constructor(message) {
@@ -202,6 +203,31 @@ export class InMemoryResearchMemory {
 
   #assertOpen() {
     if (this.#closed) throw new ResearchMemoryError('This research memory has already been closed.');
+  }
+
+  async [MEMORY_TRANSACTION](operation) {
+    this.#assertOpen();
+    const snapshot = {
+      bufferRecords: cloneJson([...this.#buffer.records.values()]),
+      archive: cloneMap(this.#archive),
+      nextObservationId: this.#nextObservationId,
+      evictions: this.#evictions,
+      notebookMemberships: cloneMap(this.#notebookMemberships),
+      notebookEntries: cloneMap(this.#notebookEntries),
+    };
+    try {
+      return await operation();
+    } catch (error) {
+      this.#buffer.clear();
+      for (const record of snapshot.bufferRecords) this.#buffer.insert(record);
+      this.#archive = snapshot.archive;
+      this.#rebuildArchivedCanonical();
+      this.#nextObservationId = snapshot.nextObservationId;
+      this.#evictions = snapshot.evictions;
+      this.#notebookMemberships = snapshot.notebookMemberships;
+      this.#notebookEntries = snapshot.notebookEntries;
+      throw error;
+    }
   }
 
   ingest(event, observation, options = {}) {
@@ -395,7 +421,9 @@ export class InMemoryResearchMemory {
           if (aggregationInputs.observedRelay) {
             aggregationInputs.observedRelay = uniqueJson([
               ...aggregationInputs.observedRelay,
-              ...items.flatMap((item) => summaryField(item, 'observedRelay') ?? []),
+              ...items.flatMap(
+                (item) => item.provenance?.map(({ relay }) => relay).filter(Boolean) ?? [],
+              ),
             ]);
           }
           return {
@@ -1806,18 +1834,6 @@ function eventRelationships(event) {
 }
 
 const TRANSFORM_KINDS = new Set(SUBJECT_COLLECTION_KINDS);
-const PIPELINE_FIELDS = Object.freeze({
-  common: [
-    'subject', 'subject.type', 'subject.id',
-    'evidence.resident', 'evidence.resolutionSource', 'observedRelay',
-  ],
-  events: [
-    'event.author', 'event.kind', 'event.text', 'event.createdAt', 'event.tag',
-    'event.linkedDomain', 'event.hasMedia',
-  ],
-  accounts: ['account.name', 'account.display_name', 'account.description'],
-});
-
 function validateNotebookCollectionKind(kind) {
   if (!TRANSFORM_KINDS.has(kind)) {
     throw new ResearchMemoryError(
@@ -1825,15 +1841,11 @@ function validateNotebookCollectionKind(kind) {
     );
   }
 }
-const GROUP_KEYS = new Set([
-  'subject', 'event.author', 'event.kind', 'event.tag', 'event.linkedDomain', 'observedRelay',
-]);
 function normalizeTransformOperation(value, inputKind, itemKind, index) {
   assertPlainObject(value, `Transform stage ${index + 1}`);
   const operation = value.operation;
   if (![
-    'filter', 'pick', 'project', 'distinct', 'sort', 'limit', 'sample',
-    'group', 'summarize', 'move', 'union', 'intersection', 'difference', 'compare',
+    'filter', 'pick', 'limit', 'sample', 'move', 'union', 'intersection', 'difference', 'compare',
   ].includes(operation)) {
     throw new ResearchMemoryError(`Unsupported transform operation at stage ${index + 1}: ${operation}.`);
   }
@@ -1857,16 +1869,25 @@ function normalizeTransformOperation(value, inputKind, itemKind, index) {
       ...common, with: cloneJson(value.with), limit: normalizeTransformLimit(value.limit),
     };
   }
-  if (operation === 'sort') {
-    rejectUnknownKeys(value, new Set(['operation', 'as', 'by', 'direction']), 'sort stage');
-    if (!TRANSFORM_KINDS.has(inputKind)) {
-      throw new ResearchMemoryError(`Sort does not support ${inputKind} collections.`);
+  if (operation === 'filter') {
+    rejectUnknownKeys(value, new Set(['operation', 'as', 'where', 'limit']), 'filter stage');
+    assertPlainObject(value.where, 'Filter predicate');
+    rejectUnknownKeys(value.where, new Set(['field', 'equals', 'in']), 'filter predicate');
+    if (!['subject.type', 'subject.id'].includes(value.where.field)) {
+      throw new ResearchMemoryError(
+        'Collection filter accepts only subject.type or subject.id; use relate for value analysis.',
+      );
     }
-    validateTransformField(value.by, itemKind, 'Sort');
-    if (value.direction !== undefined && !['ascending', 'descending'].includes(value.direction)) {
-      throw new ResearchMemoryError('Sort direction must be ascending or descending.');
+    const operators = ['equals', 'in'].filter((key) => key in value.where);
+    if (operators.length !== 1
+        || (operators[0] === 'in' && (!Array.isArray(value.where.in)
+          || value.where.in.some((item) => typeof item !== 'string')))
+        || (operators[0] === 'equals' && typeof value.where.equals !== 'string')) {
+      throw new ResearchMemoryError('Collection identity filter requires one string equals or in predicate.');
     }
-    return { ...common, by: value.by, direction: value.direction ?? 'ascending' };
+    return {
+      ...common, where: cloneJson(value.where), limit: normalizeTransformLimit(value.limit),
+    };
   }
   if (operation === 'limit' || operation === 'sample') {
     rejectUnknownKeys(value, new Set(['operation', 'as', 'limit', 'seed']), `${operation} stage`);
@@ -1900,73 +1921,6 @@ function normalizeTransformOperation(value, inputKind, itemKind, index) {
     }
     return { ...common, positions: [...value.positions].sort((left, right) => left - right) };
   }
-  if (operation === 'project') {
-    rejectUnknownKeys(value, new Set(['operation', 'as', 'fields', 'limit']), 'project stage');
-    if (!Array.isArray(value.fields) || value.fields.length === 0) {
-      throw new ResearchMemoryError('Project fields must be a non-empty array.');
-    }
-    const fields = value.fields.map((field) => {
-      validateTransformField(field, itemKind, 'Project');
-      return field;
-    });
-    if (new Set(fields).size !== fields.length) {
-      throw new ResearchMemoryError('Project fields must be distinct.');
-    }
-    return { ...common, fields, limit: normalizeTransformLimit(value.limit) };
-  }
-  if (operation === 'distinct') {
-    rejectUnknownKeys(value, new Set(['operation', 'as', 'by', 'limit']), 'distinct stage');
-    if (!TRANSFORM_KINDS.has(inputKind)) {
-      throw new ResearchMemoryError(`Distinct does not support ${inputKind} collections.`);
-    }
-    validateTransformField(value.by, itemKind, 'Distinct');
-    return { ...common, by: value.by, limit: normalizeTransformLimit(value.limit) };
-  }
-  if (operation === 'filter') {
-    rejectUnknownKeys(value, new Set(['operation', 'as', 'where', 'limit']), 'filter stage');
-    if (!TRANSFORM_KINDS.has(inputKind)) {
-      throw new ResearchMemoryError(`Filter does not support ${inputKind} collections.`);
-    }
-    const where = normalizePredicate(value.where);
-    validatePredicateKind(where, itemKind);
-    return { ...common, where, limit: normalizeTransformLimit(value.limit) };
-  }
-  if (operation === 'group') {
-    rejectUnknownKeys(value, new Set(['operation', 'as', 'by', 'limit', 'itemLimit']), 'group stage');
-    if (!TRANSFORM_KINDS.has(inputKind)) {
-      throw new ResearchMemoryError(`Group does not support ${inputKind} collections.`);
-    }
-    if (!GROUP_KEYS.has(value.by)) throw new ResearchMemoryError(`Unsupported group key: ${value.by}.`);
-    if (value.by.startsWith('event.') && inputKind !== 'events') {
-      throw new ResearchMemoryError(`Group key ${value.by} requires an events collection.`);
-    }
-    return {
-      ...common, by: value.by, limit: normalizeTransformLimit(value.limit),
-      itemLimit: normalizeTransformLimit(value.itemLimit),
-    };
-  }
-  if (operation === 'summarize') {
-    rejectUnknownKeys(value, new Set(['operation', 'as', 'aggregations', 'limit']), 'summarize stage');
-    if (!['groups', ...TRANSFORM_KINDS].includes(inputKind)) {
-      throw new ResearchMemoryError(`Summarize does not support ${inputKind} collections.`);
-    }
-    if (!Array.isArray(value.aggregations) || value.aggregations.length === 0) {
-      throw new ResearchMemoryError('Summarize aggregations must be a non-empty array.');
-    }
-    const aggregations = value.aggregations.map((item) => normalizeAggregation(item, itemKind));
-    const names = new Set();
-    for (const aggregation of aggregations) {
-      if (names.has(aggregation.name)) {
-        throw new ResearchMemoryError(`Duplicate summary aggregation name: ${aggregation.name}.`);
-      }
-      names.add(aggregation.name);
-    }
-    return {
-      ...common,
-      aggregations,
-      limit: normalizeTransformLimit(value.limit),
-    };
-  }
   rejectUnknownKeys(value, new Set(['operation', 'as', 'to', 'limit']), 'move stage');
   const output = MOVE_ROUTES[`${inputKind}:${value.to}`];
   if (!output) {
@@ -1980,132 +1934,20 @@ function normalizeTransformLimit(value) {
   return normalizeLimit(value);
 }
 
-function normalizePredicate(value) {
-  assertPlainObject(value, 'Filter predicate');
-  const composition = ['all', 'any', 'not'].filter((key) => key in value);
-  if (composition.length) {
-    if (composition.length !== 1 || Object.keys(value).length !== 1) {
-      throw new ResearchMemoryError('A composed filter predicate must contain exactly one of all, any, or not.');
-    }
-    const key = composition[0];
-    if (key === 'not') return { not: normalizePredicate(value.not) };
-    if (!Array.isArray(value[key]) || value[key].length === 0) {
-      throw new ResearchMemoryError(`Filter ${key} must be a non-empty array.`);
-    }
-    return { [key]: value[key].map(normalizePredicate) };
-  }
-  rejectUnknownKeys(
-    value, new Set(['field', 'equals', 'in', 'contains', 'name', 'value']),
-    'filter predicate',
-  );
-  const fields = new Set([
-    'subject.type', 'subject.id', 'event.author', 'event.kind', 'event.text',
-    'event.createdAt', 'event.tag', 'event.linkedDomain', 'event.hasMedia',
-    'account.name', 'account.display_name', 'account.description',
-    'evidence.resident', 'evidence.resolutionSource',
-  ]);
-  if (!fields.has(value.field)) throw new ResearchMemoryError(`Unsupported filter field: ${value.field}.`);
-  const operators = ['equals', 'in', 'contains'].filter((key) => key in value);
-  if (value.field === 'event.tag') {
-    if (operators.length || typeof value.name !== 'string' || typeof value.value !== 'string') {
-      throw new ResearchMemoryError('event.tag requires string name and value fields.');
-    }
-    return { field: value.field, name: value.name, value: value.value };
-  }
-  if (operators.length !== 1 || value.name !== undefined || value.value !== undefined) {
-    throw new ResearchMemoryError('A filter predicate requires exactly one of equals, in, or contains.');
-  }
-  if (operators[0] === 'in' && (!Array.isArray(value.in) || value.in.length === 0)) {
-    throw new ResearchMemoryError('Filter in must be a non-empty array.');
-  }
-  if (operators[0] === 'contains' && typeof value.contains !== 'string') {
-    throw new ResearchMemoryError('Filter contains must be a string.');
-  }
-  const fieldType = ['event.kind', 'event.createdAt'].includes(value.field) ? 'number'
-    : ['event.hasMedia', 'evidence.resident'].includes(value.field) ? 'boolean' : 'string';
-  if (operators[0] === 'contains' && fieldType !== 'string') {
-    throw new ResearchMemoryError(`Filter contains is not supported for ${value.field}.`);
-  }
-  const operands = operators[0] === 'in' ? value.in : [value[operators[0]]];
-  if (operands.some((operand) => typeof operand !== fieldType)) {
-    throw new ResearchMemoryError(`Filter ${value.field} values must be ${fieldType}s.`);
-  }
-  return cloneJson(value);
-}
-
-function validatePredicateKind(predicate, itemKind) {
-  if (predicate.all) return predicate.all.forEach((part) => validatePredicateKind(part, itemKind));
-  if (predicate.any) return predicate.any.forEach((part) => validatePredicateKind(part, itemKind));
-  if (predicate.not) return validatePredicateKind(predicate.not, itemKind);
-  if (predicate.field.startsWith('event.') && itemKind !== 'events') {
-    throw new ResearchMemoryError(`Filter field ${predicate.field} requires an events collection.`);
-  }
-  if (predicate.field.startsWith('account.') && itemKind !== 'accounts') {
-    throw new ResearchMemoryError(`Filter field ${predicate.field} requires an accounts collection.`);
-  }
-}
-
-function validateTransformField(field, itemKind, label) {
-  if (typeof field !== 'string'
-      || !Object.values(PIPELINE_FIELDS).some((fields) => fields.includes(field))) {
-    throw new ResearchMemoryError(`Unsupported ${label.toLocaleLowerCase()} field: ${field}.`);
-  }
-  if (field.startsWith('event.') && itemKind !== 'events') {
-    throw new ResearchMemoryError(`${label} field ${field} requires an events collection.`);
-  }
-  if (field.startsWith('account.') && itemKind !== 'accounts') {
-    throw new ResearchMemoryError(`${label} field ${field} requires an accounts collection.`);
-  }
-}
-
-function normalizeAggregation(value, itemKind) {
-  assertPlainObject(value, 'Summary aggregation');
-  rejectUnknownKeys(value, new Set(['name', 'operation', 'field', 'limit']), 'summary aggregation');
-  if (typeof value.name !== 'string' || value.name.trim().length === 0) {
-    throw new ResearchMemoryError('Summary aggregation name must be a non-empty string.');
-  }
-  if (!['count', 'distinct', 'sample', 'collect', 'min', 'max'].includes(value.operation)) {
-    throw new ResearchMemoryError(`Unsupported summary aggregation: ${value.operation}.`);
-  }
-  if (value.operation === 'count' && value.field !== undefined) {
-    throw new ResearchMemoryError('count aggregation does not accept a field.');
-  }
-  if (value.operation !== 'count' && typeof value.field !== 'string') {
-    throw new ResearchMemoryError(`${value.operation} aggregation requires a field.`);
-  }
-  if (!['sample', 'collect'].includes(value.operation) && value.limit !== undefined) {
-    throw new ResearchMemoryError(`${value.operation} aggregation does not accept a limit.`);
-  }
-  const fields = new Set([
-    'subject', 'subject.id', 'event.author', 'event.kind', 'event.text',
-    'event.createdAt', 'event.linkedDomain', 'observedRelay',
-  ]);
-  if (value.operation !== 'count' && !fields.has(value.field)) {
-    throw new ResearchMemoryError(`Unsupported summary field: ${value.field}.`);
-  }
-  if (value.field?.startsWith('event.') && itemKind !== 'events') {
-    throw new ResearchMemoryError(
-      `Summary field ${value.field} requires an events collection or event groups.`,
-    );
-  }
-  return {
-    name: value.name.trim(), operation: value.operation, field: value.field,
-    ...(['sample', 'collect'].includes(value.operation)
-      ? { limit: normalizeTransformLimit(value.limit) } : {}),
-  };
-}
-
 function applyTransform(memory, collection, operation) {
   let output;
-  if (operation.operation === 'filter') output = applyFilter(memory, collection, operation);
-  else if (operation.operation === 'pick') output = applyPick(collection, operation);
-  else if (operation.operation === 'project') output = applyProject(memory, collection, operation);
-  else if (operation.operation === 'distinct') output = applyDistinct(memory, collection, operation);
-  else if (operation.operation === 'sort') output = applySort(memory, collection, operation);
+  if (operation.operation === 'filter') {
+    const { field, equals, in: choices } = operation.where;
+    const refinedKind = field === 'subject.type' && choices === undefined
+      ? { event: 'events', account: 'accounts', relationship: 'relationships' }[equals]
+      : undefined;
+    output = resultCollection(collection.items.filter(({ subject: item }) => (
+      (field === 'subject.type' ? item.type : item.id) === equals
+      || choices?.includes(field === 'subject.type' ? item.type : item.id)
+    )).slice(0, operation.limit), {}, refinedKind ?? collection.kind);
+  } else if (operation.operation === 'pick') output = applyPick(collection, operation);
   else if (operation.operation === 'limit') output = boundedSubjectCollection(collection, operation.limit);
   else if (operation.operation === 'sample') output = applySample(collection, operation);
-  else if (operation.operation === 'group') output = applyGroup(collection, operation);
-  else if (operation.operation === 'summarize') output = applySummary(collection, operation);
   else if (operation.operation === 'move') output = applyMove(memory, collection, operation);
   else output = applySetOperation(collection, operation);
   output.bounds ??= cardinalityMetadata(collection.items.length, output.items.length);
@@ -2146,66 +1988,6 @@ function transformContext(input, operation) {
     stages: [...cloneJson(previous), cloneJson(publicOperation)],
     ...(operation.as ? { name: operation.as } : {}),
   };
-}
-
-function applyFilter(memory, collection, operation) {
-  const items = collection.items.filter((item) => matchesPredicate(memory, item, operation.where))
-    .slice(0, operation.limit);
-  const { kind } = transformOutputKind(
-    collection.kind, collection.itemKind ?? collection.kind, operation,
-  );
-  return resultCollection(items, {}, kind);
-}
-
-function applyProject(memory, collection, operation) {
-  const items = collection.items.slice(0, operation.limit).map((item) => ({
-    subject: item.subject,
-    role: item.role,
-    values: Object.fromEntries(operation.fields.map((field) => [
-      field, cloneJson(transformField(memory, item, field) ?? null),
-    ])),
-    reasons: cloneJson(item.reasons),
-    provenance: cloneJson(item.provenance),
-  }));
-  return typedCollection('projections', items, {}, collection.itemKind ?? collection.kind);
-}
-
-function applyDistinct(memory, collection, operation) {
-  const found = new Map();
-  for (const item of collection.items) {
-    const value = transformField(memory, item, operation.by);
-    const key = stableJson(value ?? null);
-    if (!found.has(key)) {
-      found.set(key, {
-        value: cloneJson(value ?? null), items: [], reasons: [], provenance: [],
-      });
-    }
-    const entry = found.get(key);
-    entry.items.push(item);
-    mergeUniqueJson(entry.reasons, item.reasons);
-    mergeUniqueJson(entry.provenance, item.provenance);
-  }
-  const items = [...found.entries()].sort(([left], [right]) => left.localeCompare(right))
-    .slice(0, operation.limit).map(([, entry]) => ({
-      subject: entry.items[0].subject,
-      values: { [operation.by]: entry.value },
-      subjects: entry.items.map(({ subject: item }) => cloneJson(item)),
-      memberCount: entry.items.length,
-      reasons: entry.reasons,
-      provenance: entry.provenance,
-    }));
-  return typedCollection('projections', items, {}, collection.itemKind ?? collection.kind);
-}
-
-function applySort(memory, collection, operation) {
-  const items = collection.items.map((item, index) => ({
-    item, index, value: transformField(memory, item, operation.by),
-  }));
-  items.sort((left, right) => {
-    const order = comparePipelineValues(left.value, right.value);
-    return (operation.direction === 'descending' ? -order : order) || left.index - right.index;
-  });
-  return resultCollection(items.map(({ item }) => item), {}, collection.kind);
 }
 
 function boundedSubjectCollection(collection, limit) {
@@ -2265,199 +2047,6 @@ function applySetOperation(collection, operation) {
   output.bounds.rightCount = right.size;
   return output;
 }
-
-function matchesPredicate(memory, item, predicate) {
-  if (predicate.all) return predicate.all.every((part) => matchesPredicate(memory, item, part));
-  if (predicate.any) return predicate.any.some((part) => matchesPredicate(memory, item, part));
-  if (predicate.not) return !matchesPredicate(memory, item, predicate.not);
-  if (predicate.field === 'event.tag') {
-    return (item.record?.event?.tags ?? []).some(
-      (tag) => tag[0] === predicate.name && tag[1] === predicate.value,
-    );
-  }
-  if (predicate.field === 'event.linkedDomain') {
-    const domains = linkedDomains(item.record?.event?.content ?? '');
-    if ('equals' in predicate) return domains.includes(predicate.equals);
-    if ('in' in predicate) return domains.some((domain) => predicate.in.includes(domain));
-    return domains.some((domain) => (
-      domain.toLocaleLowerCase().includes(predicate.contains.toLocaleLowerCase())
-    ));
-  }
-  const actual = transformField(memory, item, predicate.field);
-  if ('equals' in predicate) return actual === predicate.equals;
-  if ('in' in predicate) return predicate.in.includes(actual);
-  return typeof actual === 'string'
-    && actual.toLocaleLowerCase().includes(predicate.contains.toLocaleLowerCase());
-}
-
-function transformField(memory, item, field) {
-  const event = item.record?.event;
-  const profile = item.record?.profile;
-  if (field === 'subject') return item.subject;
-  if (field === 'subject.type') return item.subject?.type;
-  if (field === 'subject.id') return item.subject?.id;
-  if (field === 'event.author') return event?.pubkey;
-  if (field === 'event.kind') return event?.kind;
-  if (field === 'event.text') return event?.content;
-  if (field === 'event.tag') return (event?.tags ?? [])
-    .filter((tag) => tag.length > 1)
-    .map((tag) => ({ name: tag[0], value: tag[1] }));
-  if (field === 'event.linkedDomain') return linkedDomains(event?.content ?? '')[0];
-  if (field === 'event.hasMedia') return hasMedia(event?.content ?? '');
-  if (field === 'account.name') return profile?.name;
-  if (field === 'account.display_name') return profile?.display_name;
-  if (field === 'account.description') return profile?.about;
-  if (field === 'evidence.resident') return item.subject
-    ? memory.inspect(item.subject).resident : false;
-  if (field === 'evidence.resolutionSource') return item.subject
-    ? memory.inspect(item.subject).resolutionSource : 'unresolved';
-  if (field === 'group.key') return item.key;
-  if (field === 'event.createdAt') return event?.created_at;
-  if (field === 'observedRelay') return item.provenance?.[0]?.relay;
-  throw new ResearchMemoryError(`Unsupported transform field: ${field}.`);
-}
-
-function applyGroup(collection, operation) {
-  const groups = new Map();
-  for (const item of collection.items) {
-    for (const key of groupKeys(item, operation.by)) {
-      const encoded = stableJson(key);
-      if (!groups.has(encoded)) {
-        groups.set(encoded, {
-          key: cloneJson(key), items: [], memberCount: 0,
-          aggregationInputs: Object.fromEntries(
-            SUMMARY_FIELDS.map((field) => [field, []]),
-          ),
-          reasons: [],
-          provenance: [],
-        });
-      }
-      const group = groups.get(encoded);
-      group.memberCount += 1;
-      for (const field of SUMMARY_FIELDS) {
-        group.aggregationInputs[field].push(...aggregationValues([item], field));
-      }
-      mergeUniqueJson(group.reasons, item.reasons);
-      mergeUniqueJson(group.provenance, item.provenance);
-      if (group.items.length < operation.itemLimit) {
-        group.items.push(cloneJson(item));
-      }
-    }
-  }
-  const items = [...groups.values()]
-    .sort((left, right) => stableJson(left.key).localeCompare(stableJson(right.key)))
-    .slice(0, operation.limit)
-    .map((group) => ({
-      ...group,
-      retainedMemberCount: group.items.length,
-      omittedMemberCount: group.memberCount - group.items.length,
-      truncated: group.memberCount > group.items.length,
-      reasons: group.reasons,
-      provenance: group.provenance,
-    }));
-  const output = typedCollection('groups', items, {}, collection.itemKind ?? collection.kind);
-  output.bounds = cardinalityMetadata(groups.size, items.length);
-  output.bounds.sourceItemCount = collection.items.length;
-  return output;
-}
-
-function groupKeys(item, by) {
-  if (by === 'subject') return [item.subject];
-  if (by === 'event.author') return [item.record.event.pubkey];
-  if (by === 'event.kind') return [item.record.event.kind];
-  if (by === 'event.tag') return item.record.event.tags
-    .filter((tag) => tag.length > 1).map((tag) => ({ name: tag[0], value: tag[1] }));
-  if (by === 'event.linkedDomain') return linkedDomains(item.record.event.content);
-  return [...new Set(item.provenance.map(({ relay }) => relay).filter(Boolean))].sort();
-}
-
-function applySummary(collection, operation) {
-  const sources = collection.kind === 'groups'
-    ? collection.items.map((group) => ({ key: group.key, values: group.items,
-      memberCount: group.memberCount, aggregationInputs: group.aggregationInputs,
-      reasons: group.reasons, provenance: group.provenance }))
-    : [{ key: null, values: collection.items,
-      reasons: uniqueJson(collection.items.flatMap((item) => item.reasons)),
-      provenance: uniqueJson(collection.items.flatMap((item) => item.provenance)) }];
-  const items = sources.slice(0, operation.limit).map((source) => ({
-    key: cloneJson(source.key),
-    values: Object.fromEntries(operation.aggregations.map((aggregation) => [
-      aggregation.name, aggregate(source, aggregation),
-    ])),
-    omissions: Object.fromEntries(operation.aggregations.map((aggregation) => [
-      aggregation.name, aggregationOmissions(source, aggregation),
-    ])),
-    reasons: cloneJson(source.reasons),
-    provenance: cloneJson(source.provenance),
-  }));
-  const output = typedCollection('summaries', items, {}, 'summaries');
-  output.bounds = cardinalityMetadata(sources.length, items.length);
-  return output;
-}
-
-function aggregate(source, aggregation) {
-  if (aggregation.operation === 'count') return source.memberCount ?? source.values.length;
-  const values = source.aggregationInputs?.[aggregation.field]
-    ?? aggregationValues(source.values, aggregation.field);
-  if (aggregation.operation === 'distinct') return uniqueJson(values).length;
-  if (aggregation.operation === 'sample') return cloneJson(values.slice(0, aggregation.limit));
-  if (aggregation.operation === 'collect') return cloneJson(values.slice(0, aggregation.limit));
-  if (values.length === 0) return null;
-  return aggregation.operation === 'min'
-    ? values.reduce((best, value) => value < best ? value : best)
-    : values.reduce((best, value) => value > best ? value : best);
-}
-
-function aggregationOmissions(source, aggregation) {
-  const sourceItemsOmitted = Math.max(
-    0, (source.memberCount ?? source.values.length) - source.values.length,
-  );
-  if (aggregation.operation === 'count') {
-    return {
-      availableCount: source.memberCount ?? source.values.length,
-      retainedCount: source.memberCount ?? source.values.length,
-      omittedCount: 0,
-      sourceItemsOmitted,
-      inputComplete: true,
-      truncated: false,
-    };
-  }
-  const available = (source.aggregationInputs?.[aggregation.field]
-    ?? aggregationValues(source.values, aggregation.field)).length;
-  const retained = ['sample', 'collect'].includes(aggregation.operation)
-    ? Math.min(available, aggregation.limit) : available;
-  return {
-    availableCount: available,
-    retainedCount: retained,
-    omittedCount: Math.max(0, available - retained),
-    sourceItemsOmitted,
-    inputComplete: source.aggregationInputs !== undefined || sourceItemsOmitted === 0,
-    truncated: available > retained,
-  };
-}
-
-function aggregationValues(items, field) {
-  return items.map((item) => summaryField(item, field))
-    .flatMap((value) => Array.isArray(value) ? value : [value])
-    .filter((value) => value !== undefined && value !== null);
-}
-
-function summaryField(item, field) {
-  if (field === 'subject') return item.subject;
-  if (field === 'subject.id') return item.subject?.id;
-  if (field === 'event.author') return item.record?.event?.pubkey;
-  if (field === 'event.kind') return item.record?.event?.kind;
-  if (field === 'event.text') return item.record?.event?.content;
-  if (field === 'event.createdAt') return item.record?.event?.created_at;
-  if (field === 'event.linkedDomain') return linkedDomains(item.record?.event?.content ?? '');
-  if (field === 'observedRelay') return item.provenance?.map(({ relay }) => relay).filter(Boolean);
-  throw new ResearchMemoryError(`Unsupported summary field: ${field}.`);
-}
-
-const SUMMARY_FIELDS = Object.freeze([
-  'subject', 'subject.id', 'event.author', 'event.kind', 'event.text',
-  'event.createdAt', 'event.linkedDomain', 'observedRelay',
-]);
 
 function applyMove(memory, collection, operation) {
   const merged = new Map();
@@ -2532,210 +2121,39 @@ function stableHash(value) {
 }
 
 export function collectionPipelineSchema() {
-  const valueFields = {
-    subjects: [...PIPELINE_FIELDS.common],
-    events: [...PIPELINE_FIELDS.common, ...PIPELINE_FIELDS.events],
-    accounts: [...PIPELINE_FIELDS.common, ...PIPELINE_FIELDS.accounts],
-    relationships: [...PIPELINE_FIELDS.common],
-  };
-  const filterFields = {
-    subjects: {
-      'subject.type': stringPredicateSchema(),
-      'subject.id': stringPredicateSchema(),
-      'evidence.resident': scalarPredicateSchema('boolean'),
-      'evidence.resolutionSource': stringPredicateSchema(),
-    },
-    events: {
-      'subject.type': stringPredicateSchema(),
-      'subject.id': stringPredicateSchema(),
-      'evidence.resident': scalarPredicateSchema('boolean'),
-      'evidence.resolutionSource': stringPredicateSchema(),
-      'event.author': stringPredicateSchema(),
-      'event.kind': scalarPredicateSchema('number'),
-      'event.text': stringPredicateSchema(),
-      'event.createdAt': scalarPredicateSchema('number'),
-      'event.tag': {
-        valueType: 'tag[]',
-        predicate: { field: 'event.tag', name: 'string', value: 'string' },
-      },
-      'event.linkedDomain': stringPredicateSchema(),
-      'event.hasMedia': scalarPredicateSchema('boolean'),
-    },
-    accounts: {
-      'subject.type': stringPredicateSchema(),
-      'subject.id': stringPredicateSchema(),
-      'evidence.resident': scalarPredicateSchema('boolean'),
-      'evidence.resolutionSource': stringPredicateSchema(),
-      'account.name': stringPredicateSchema(),
-      'account.display_name': stringPredicateSchema(),
-      'account.description': stringPredicateSchema(),
-    },
-    relationships: {
-      'subject.type': stringPredicateSchema(),
-      'subject.id': stringPredicateSchema(),
-      'evidence.resident': scalarPredicateSchema('boolean'),
-      'evidence.resolutionSource': stringPredicateSchema(),
-    },
-  };
-  const groupFields = {
-    subjects: ['subject', 'observedRelay'],
-    events: [...GROUP_KEYS],
-    accounts: ['subject', 'observedRelay'],
-    relationships: ['subject', 'observedRelay'],
-  };
-  const summaryFields = {
-    subjects: ['subject', 'subject.id', 'observedRelay'],
-    events: [...SUMMARY_FIELDS],
-    accounts: ['subject', 'subject.id', 'observedRelay'],
-    relationships: ['subject', 'subject.id', 'observedRelay'],
-  };
   return cloneJson({
     type: 'collection-pipeline-schema',
-    version: 1,
+    version: 2,
     research: operationSchema(),
-    fields: {
-      purpose: 'value fields accepted by project, distinct, and sort',
-      ...PIPELINE_FIELDS,
-      byInputKind: valueFields,
-      valueTypes: {
-        subject: 'subject',
-        'subject.type': 'string',
-        'subject.id': 'string',
-        'evidence.resident': 'boolean',
-        'evidence.resolutionSource': 'string',
-        observedRelay: 'string',
-        'event.author': 'string',
-        'event.kind': 'number',
-        'event.text': 'string',
-        'event.createdAt': 'number',
-        'event.tag': 'tag[]',
-        'event.linkedDomain': 'string',
-        'event.hasMedia': 'boolean',
-        'account.name': 'string',
-        'account.display_name': 'string',
-        'account.description': 'string',
-      },
-    },
+    statement: 'Collections hold stable identities; relations own value-oriented analysis.',
     operations: {
-      relation: {
-        kind: 'relation',
-        operations: [
-          'relate', 'filter', 'project', 'distinct', 'sort', 'limit',
-          'join', 'aggregate', 'derive', 'slice',
-        ],
-        statement: 'Relations preserve values, stable subjects, reasons, and provenance across composable stages.',
+      filter: {
+        inputKinds: [...TRANSFORM_KINDS],
+        fields: ['subject.type', 'subject.id'],
+        operators: ['equals', 'in'],
+        limit: 'bound',
       },
       pick: {
         inputKinds: [...TRANSFORM_KINDS],
         positions: `non-empty distinct 1-based integer[] up to ${MAX_QUERY_LIMIT}`,
-        ordering: 'source collection order',
       },
-      filter: {
-        inputKinds: [...TRANSFORM_KINDS],
-        fieldsByInputKind: filterFields,
-        where: {
-          composition: {
-            all: 'non-empty predicate[]',
-            any: 'non-empty predicate[]',
-            not: 'predicate',
-          },
-          rule: 'exactly one composition or one field predicate',
-        },
-        limit: 'bound',
-      },
-      project: { fieldsByInputKind: valueFields, fields: 'non-empty distinct field[]', limit: 'bound' },
-      distinct: { fieldsByInputKind: valueFields, by: 'field', limit: 'bound' },
-      sort: {
-        fieldsByInputKind: valueFields,
-        by: 'field',
-        direction: ['ascending', 'descending'],
-      },
-      limit: { limit: 'bound' },
-      sample: { limit: 'bound', seed: 'string' },
-      group: { fieldsByInputKind: groupFields, by: 'field', limit: 'bound', itemLimit: 'bound' },
-      summarize: {
-        fieldsByInputKind: summaryFields,
-        fieldTypes: {
-          subject: 'subject',
-          'subject.id': 'string',
-          'event.author': 'string',
-          'event.kind': 'number',
-          'event.text': 'string',
-          'event.createdAt': 'number',
-          'event.linkedDomain': 'string',
-          observedRelay: 'string',
-        },
-        aggregations: {
-          count: { field: 'forbidden', resultType: 'number' },
-          distinct: { field: 'summary field', resultType: 'number' },
-          sample: { field: 'summary field', limit: 'bound', resultType: 'value[]' },
-          collect: { field: 'summary field', limit: 'bound', resultType: 'value[]' },
-          min: { field: 'summary field', resultType: 'field value' },
-          max: { field: 'summary field', resultType: 'field value' },
-        },
-        aggregationShape: {
-          name: 'non-empty string',
-          operation: ['count', 'distinct', 'sample', 'collect', 'min', 'max'],
-        },
-        limit: 'bound',
-      },
+      limit: { inputKinds: [...TRANSFORM_KINDS], limit: 'bound' },
+      sample: { inputKinds: [...TRANSFORM_KINDS], limit: 'bound', seed: 'string' },
       move: { routes: cloneJson(MOVE_ROUTES), limit: 'bound' },
-      scan: {
-        fields: 'non-empty relation-field array',
-        terms: '1 to 50 strings',
-        match: ['any', 'all'],
-        matchMode: ['substring', 'word', 'phrase'],
-        caseSensitive: 'boolean',
-        output: 'one relation row per matching field and term',
-        limit: 'bound',
-      },
       set: {
         operations: ['union', 'intersection', 'difference', 'compare'],
         inputKinds: [...TRANSFORM_KINDS],
-        with: 'result-collection of the same kind',
         limit: 'bound',
       },
-    },
-    bounds: { minimum: 1, maximum: MAX_QUERY_LIMIT, default: DEFAULT_TRANSFORM_LIMIT },
-    ordering: {
-      sort: 'stable; null and absent values follow present values',
-      sample: 'stable subject identity ranked by deterministic seed hash',
-      set: 'stable subject identity order',
+      relation: {
+        operations: [
+          'relate', 'filter', 'project', 'distinct', 'sort', 'join', 'aggregate',
+          'derive', 'slice', 'explode', 'scan', 'balance',
+        ],
+        statement: 'Use relate before field filtering, projection, ordering, or aggregation.',
+      },
     },
   });
-}
-
-function scalarPredicateSchema(valueType) {
-  return {
-    valueType,
-    comparisons: {
-      equals: valueType,
-      in: `non-empty ${valueType}[]`,
-    },
-  };
-}
-
-function stringPredicateSchema() {
-  const schema = scalarPredicateSchema('string');
-  schema.comparisons.contains = 'string';
-  return schema;
-}
-
-function linkedDomains(text) {
-  const domains = [];
-  for (const match of text.matchAll(/https?:\/\/([^/\s?#]+)/giu)) {
-    try {
-      domains.push(new URL(match[0]).hostname.toLocaleLowerCase());
-    } catch {
-      // Ignore malformed URL-shaped text.
-    }
-  }
-  return [...new Set(domains)].sort();
-}
-
-function hasMedia(text) {
-  return /https?:\/\/\S+\.(?:avif|gif|jpe?g|png|webp|mp3|mp4|m4a|ogg|wav)(?:[?#]\S*)?/iu.test(text)
-    || /https?:\/\/(?:blossom\.|image\.nostr\.build)/iu.test(text);
 }
 
 function uniqueJson(values) {
@@ -2913,6 +2331,10 @@ function cloneJson(value) {
   }
 }
 
+function cloneMap(map) {
+  return new Map([...map].map(([key, value]) => [key, cloneJson(value)]));
+}
+
 function mergeUniqueJson(target, additions) {
   for (const addition of additions ?? []) {
     if (!target.some((item) => stableJson(item) === stableJson(addition))) {
@@ -2951,7 +2373,19 @@ export {
   DEFAULT_RELAY_CONCURRENCY,
 } from './acquire.js';
 export { continueResearch } from './continuation.js';
-export { executeResearchPlan } from './plan.js';
+export {
+  executeResearchOperation,
+  executeResearchPlan,
+  normalizeResearchOperation,
+  normalizeResearchPlan,
+  preflightResearchOperation,
+  preflightResearchPlan,
+} from './plan.js';
+export {
+  operationSchema,
+  operationSemantics,
+  researchOperationNames,
+} from './operations.js';
 export {
   executeRelationOperation,
   isResearchRelation,

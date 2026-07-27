@@ -104,29 +104,71 @@ test('explicit archive preservation survives complete buffer turnover and releas
       parameters: { scope: 'corpus', ids: [events[2].id] },
       resultId: 'reference',
     });
+
+    const beforeFailure = structuredClone(memory.describe());
+    const archiveBeforeFailure = structuredClone(memory.archived());
+    const revisionBeforeFailedPlan = session.revision;
+    const failedPlan = await session.execute({
+      commandId: 'runtime-failure-plan',
+      command: 'plan',
+      plan: [
+        {
+          id: 'new-event',
+          operation: 'select',
+          parameters: { scope: 'corpus', ids: [events[2].id] },
+        },
+        {
+          id: 'preserve-event',
+          operation: 'preserve',
+          input: 'new-event',
+          parameters: { level: 'reference', reason: { type: 'must-roll-back' } },
+        },
+        {
+          id: 'author',
+          operation: 'move',
+          input: 'new-event',
+          parameters: { route: 'authors' },
+        },
+        {
+          id: 'fail-at-runtime',
+          operation: 'preserve',
+          input: 'author',
+          parameters: { level: 'reference', reason: { type: 'over-capacity' } },
+        },
+      ],
+      outputs: { 'preserve-event': 'must-not-install' },
+    });
+    assert.equal(failedPlan.ok, false);
+    assert.equal(failedPlan.sessionRevision, revisionBeforeFailedPlan);
+    assert.deepEqual(memory.describe(), beforeFailure);
+    assert.deepEqual(memory.archived(), archiveBeforeFailure);
+    assert.equal((await command(session, 'handles-after-failure', 'list', {
+      parameters: { limit: 20 },
+    })).result.preview.some(({ id }) => id === 'must-not-install'), false);
+
     await command(session, 'preserve-reference', 'preserve', {
       input: 'reference',
       parameters: { level: 'reference', reason: { type: 'identity-only' } },
     });
+    const fullArchiveState = structuredClone(memory.describe());
+    const fullArchiveEntries = structuredClone(memory.archived());
 
-    const beforeFailure = structuredClone(memory.describe());
-    const archiveBeforeFailure = structuredClone(memory.archived());
     assert.throws(() => memory.preserve(memory.collection([{
       subject: subject('event', events[3].id),
     }]), {
       level: 'reference',
       reason: { type: 'over-capacity' },
     }), ResearchMemoryError);
-    assert.deepEqual(memory.describe(), beforeFailure);
-    assert.deepEqual(memory.archived(), archiveBeforeFailure);
+    assert.deepEqual(memory.describe(), fullArchiveState);
+    assert.deepEqual(memory.archived(), fullArchiveEntries);
     assert.throws(() => memory.preserve(memory.collection([{
       subject: subject('event', events[5].id),
     }]), {
       level: 'excerpt',
       reason: { type: 'invalid-unresolved-excerpt' },
     }), ResearchMemoryError);
-    assert.deepEqual(memory.describe(), beforeFailure);
-    assert.deepEqual(memory.archived(), archiveBeforeFailure);
+    assert.deepEqual(memory.describe(), fullArchiveState);
+    assert.deepEqual(memory.archived(), fullArchiveEntries);
 
     memory.ingest(events[3], observation);
     memory.ingest(events[4], observation);

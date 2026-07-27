@@ -94,15 +94,11 @@ Cancellation uses an `AbortSignal`.
 
 ## Local collection algebra
 
-`memory.transform(collection, stages)` applies a fully JSON-serializable local
-pipeline. Supported stage operations are `filter`, `pick`, `project`, `distinct`,
-`sort`, `limit`, `sample`, `group`, `summarize`, `move`, `union`,
-`intersection`, `difference`, and `compare`; the complete typed path is checked
-before the first stage runs. Stages may carry an `as` name and always record
-their normalized description in the result context. Cardinality-changing
-stages report their input, output, omitted count, and truncation state.
-Defaults and caller limits bound groups, members, projections, summaries,
-samples, and collected values.
+`memory.transform(collection, stages)` is the identity and navigation
+pipeline. Supported stages are the identity-only `filter` (on `subject.type`
+or `subject.id`), `pick`, `limit`, `sample`, `move`, `union`, `intersection`,
+`difference`, and `compare`. Use `relate` to cross into value analysis, then
+use relation `filter`, `project`, `distinct`, `sort`, `slice`, and `aggregate`.
 
 `pick` keeps explicit one-based positions from the current stable collection
 order. It is useful after a bounded `show` preview: the caller can select the
@@ -111,33 +107,14 @@ outside the current collection fails instead of silently selecting a different
 item.
 
 ```js
-const evidence = memory.transform(memory.select({ kinds: [1] }), [
-  {
-    operation: 'filter',
-    as: 'image notes excluding one author',
-    where: {
-      all: [
-        { field: 'event.hasMedia', equals: true },
-        { not: { field: 'event.author', equals: unwantedPublicKey } },
-      ],
-    },
-  },
-  { operation: 'group', as: 'balanced authors', by: 'event.author', itemLimit: 3 },
-  {
-    operation: 'summarize',
-    aggregations: [
-      { name: 'count', operation: 'count' },
-      { name: 'examples', operation: 'sample', field: 'subject', limit: 2 },
-      { name: 'domains', operation: 'collect', field: 'event.linkedDomain', limit: 10 },
-    ],
-  },
-]);
+const notes = memory.transform(memory.select({ kinds: [1] }), {
+  operation: 'filter',
+  where: { field: 'subject.type', equals: 'event' },
+});
 ```
 
-Filter predicates compose with `all`, `any`, and `not`. Group keys cover
-subjects, author, kind, structured tag, linked domain, and observed relay.
-Explicit summary aggregations are `count`, `distinct`, `sample`, `collect`,
-`min`, and `max`. Move routes cover event authors and protocol references,
+Collection filtering deliberately does not inspect evidence fields. Move
+routes cover event authors and protocol references,
 resident authored events, and current kind-3 follows. These transforms never
 acquire, hydrate, remember, or evict evidence.
 
@@ -412,6 +389,28 @@ by `join`, with `{ "left": "...", "right": "..." }`. Plans accept the documented
 research-plan array and an optional `outputs` map from stage IDs to result IDs.
 They use the same operation interpreter as in-process callers.
 
+The package exports `normalizeResearchOperation`,
+`preflightResearchOperation`, and `executeResearchOperation` for direct
+single-operation use. Plans and sessions call these same functions rather than
+reconstructing operation rules. `operationSchema()` and the session `schema`
+command are derived from the same definitions; each definition reports its
+accepted input shape, output and result kinds, locality (`local`, `external`,
+or `by-source`), memory mutation owner, and completeness contract.
+
+Subject collections remain the identity and navigation representation.
+`pick`, `sample`, `move`, and set composition are collection-specific.
+Relations remain the value-analysis representation. `project`, `distinct`,
+`sort`, and `aggregate` are relation-only, and relation windows use `slice`.
+The only shared name is `filter`: collections accept identity fields only,
+while relations filter row values. This intentional boundary lets mixed
+subject collections refine their identity kind before navigation without
+reintroducing evidence-field analysis in collections.
+
+`hydrate` and `continue` with relationship `profiles` share the same bounded
+relay-acquisition accounting and buffer-mutation contract. `hydrate` is the
+direct profile-event form; `continue` is the relationship form and additionally
+supports local resolution. Neither performs an implicit second relay request.
+
 Research commands return compact operational results by default: the named
 handle, bounded external-completeness and corpus effects where relevant, and
 warnings. They do not embed evidence previews or facets. Use `show` for a
@@ -468,7 +467,7 @@ views observable without presenting one store as another.
 
 Handle lifecycle commands are `release` and `release-all`; neither deletes
 notebook knowledge. Named membership is listed with `memberships`, inspected
-with `membership`, and changed only by `replace-membership` or
+with `membership`, and changed by another `remember-membership` using the same name or
 `delete-membership`. Releasing archived evidence and deleting notebook
 knowledge are likewise independent. Ordinary `resultId` replacement still
 requires `replace: true`.

@@ -19,7 +19,7 @@ const SOURCE_FIELDS = Object.freeze([
   'account.nip05',
 ]);
 const RELATION_OPERATIONS = new Set([
-  'relate', 'filter', 'project', 'distinct', 'sort', 'limit',
+  'relate', 'filter', 'project', 'distinct', 'sort',
   'join', 'aggregate', 'derive', 'slice', 'explode', 'scan', 'balance',
 ]);
 
@@ -88,7 +88,6 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
   else if (name === 'project') output = applyProject(input, normalized);
   else if (name === 'distinct') output = applyDistinct(input, normalized);
   else if (name === 'sort') output = applySort(input, normalized);
-  else if (name === 'limit') output = applySlice(input, { offset: 0, limit: normalized.limit });
   else if (name === 'slice') output = applySlice(input, normalized);
   else if (name === 'join') {
     output = applyJoin(input, resolveRelation(memory, cloneRelation(inputs.right)), normalized);
@@ -141,10 +140,6 @@ function normalizeRelationParameters(name, value) {
         return { field: item.field, direction: item.direction ?? 'ascending' };
       }),
     };
-  }
-  if (name === 'limit') {
-    onlyKeys(value, ['limit'], name);
-    return { limit: limit(value.limit) };
   }
   if (name === 'slice') {
     onlyKeys(value, ['offset', 'limit'], name);

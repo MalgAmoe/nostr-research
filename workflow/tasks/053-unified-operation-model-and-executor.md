@@ -1,6 +1,6 @@
 ---
 id: 053-unified-operation-model-and-executor
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/053-unified-operation-model-and-executor.validate.sh
 depends_on: 052-operation-and-state-inventory
@@ -64,3 +64,12 @@ forcing the code to match the document.
 - Explicitly excluded test levels or mechanisms: tests per operation, private
   registry/helper tests, live-relay tests, WebSocket/TCP tests, UI, and
   implementation snapshots.
+
+## Reopen diagnosis after attempt 3
+
+The repeated review finding was reassessed rather than mechanically retried.
+The remaining `project`, `distinct`, `sort`, `group`, and `summarize` branches
+were unreachable compatibility cases inside collection output inference after
+those operations moved to relation execution. This is a finite missed deletion,
+not an unresolved architectural premise. Remove those cases and independently
+revalidate the complete Task 053 result.

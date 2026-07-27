@@ -4,6 +4,7 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools';
 import {
   createDeclarativeResearchSession,
   createInMemoryResearchMemory,
+  executeResearchOperation,
   executeResearchPlan,
 } from '@nostr-research/memory';
 
@@ -206,6 +207,12 @@ test('named account and note handles continue with bounded relationship provenan
   });
   assert.equal(hydratedEmptyFollows.ok, true);
   assert.equal(hydratedEmptyFollows.result.handle.kind, 'events');
+  const emptyHydration = await executeResearchOperation(memory, {
+    operation: 'hydrate',
+    parameters: { relays: ['wss://fixture.invalid/'] },
+  }, memory.collection([], { operation: 'empty-accounts' }, 'accounts'));
+  assert.equal(emptyHydration.type, 'hydration-report');
+  assert.equal(emptyHydration.completionReason, 'no-account-subjects');
 
   await session.execute({
     commandId: 'seed-dave-note',
@@ -321,6 +328,7 @@ test('named account and note handles continue with bounded relationship provenan
     planned.stages.map(({ resultKind }) => resultKind),
     ['events', 'accounts', 'continuation-report', 'events', 'accounts', 'hydration-report'],
   );
+  assert.equal(planned.stages.at(-1).result.type, 'hydration-report');
 
   const genericRefinementPlan = [
     {
@@ -361,6 +369,7 @@ test('named account and note handles continue with bounded relationship provenan
     followedPlan.stages.map(({ resultKind }) => resultKind),
     ['events', 'accounts', 'continuation-report', 'hydration-report'],
   );
+  assert.equal(followedPlan.stages.at(-1).result.type, 'hydration-report');
 
   const schema = await session.execute({
     commandId: 'typed-schema', command: 'schema', parameters: {},

@@ -1,4 +1,4 @@
-import { acquireRelayEvents, normalizeAcquisitionOptions } from './acquire.js';
+import { acquireBoundAccountEvents, acquireRelayEvents, normalizeAcquisitionOptions } from './acquire.js';
 import { ResearchMemoryError, subject } from './index.js';
 import {
   continuationOutputKind,
@@ -28,15 +28,7 @@ export async function continueResearch(memory, input, options) {
   if (normalized.source === 'relays') {
     const filter = continuationFilter(memory, starts, normalized);
     if (filter) {
-      acquisition = await acquireRelayEvents(memory, {
-        relays: normalized.relays,
-        filter,
-        timeoutMs: normalized.timeoutMs,
-        observationLimit: normalized.observationLimit,
-        distinctEventLimit: normalized.distinctEventLimit,
-        concurrency: normalized.concurrency,
-        signal: normalized.signal,
-      });
+      acquisition = await acquireContinuationEvidence(memory, starts, normalized, filter);
     }
   }
 
@@ -86,6 +78,36 @@ export async function continueResearch(memory, input, options) {
     corpusBefore: acquisition.corpusBefore,
     corpusAfter: acquisition.corpusAfter,
   };
+}
+
+/**
+ * One lowered relay attempt used by relationship continuation and the direct
+ * profile hydration operation. Callers choose the exact relationship kinds;
+ * this boundary owns author binding and acquisition accounting.
+ */
+export async function acquireContinuationEvidence(
+  memory,
+  input,
+  options,
+  preparedFilter = undefined,
+) {
+  const starts = memory.asCollection(input);
+  const authors = [...new Set(starts.items
+    .filter(({ subject: item }) => item.type === 'account')
+    .map(({ subject: item }) => item.id))];
+  const filter = preparedFilter ?? {
+    authors,
+    kinds: options.kinds,
+    ...(options.eventLimit === undefined ? {} : { limit: options.eventLimit }),
+  };
+  if (filter === null) throw new ResearchMemoryError('Continuation has no bindable input subjects.');
+  if (authors.length) return acquireBoundAccountEvents(memory, starts, options, filter);
+  return acquireRelayEvents(memory, {
+    relays: options.relays, filter, timeoutMs: options.timeoutMs,
+    observationLimit: options.observationLimit,
+    distinctEventLimit: options.distinctEventLimit,
+    concurrency: options.concurrency, signal: options.signal,
+  });
 }
 
 export function normalizeContinuation(memory, input, options) {

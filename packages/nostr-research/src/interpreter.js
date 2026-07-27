@@ -2,6 +2,7 @@ import { ResearchMemoryError } from './index.js';
 import {
   executeResearchOperation,
   executeResearchPlan,
+  normalizeResearchOperation,
   normalizeResearchPlan,
   preflightResearchOperation,
   preflightResearchPlan,
@@ -16,6 +17,7 @@ import {
 import {
   isExternalOperation,
   isSetOperation,
+  operationMutation,
   operationSchema,
   researchOperationNames,
 } from './operations.js';
@@ -24,13 +26,13 @@ const COMMANDS = new Set([
   ...researchOperationNames(), 'plan',
   'forget',
   'show', 'inspect', 'explain', 'list', 'memberships', 'membership', 'status', 'schema',
-  'release', 'release-all', 'replace-membership', 'delete-membership', 'reset', 'close',
+  'release', 'release-all', 'delete-membership', 'reset', 'close',
 ]);
 const OBSERVATIONS = new Set([
   'show', 'inspect', 'explain', 'list', 'memberships', 'membership', 'status', 'schema',
 ]);
 const LIFECYCLE = new Set([
-  'release', 'release-all', 'replace-membership', 'delete-membership', 'reset', 'close',
+  'release', 'release-all', 'delete-membership', 'reset', 'close',
 ]);
 const UNSUCCESSFUL_RELAY_OUTCOMES = new Set(['connection-failure', 'closed']);
 const COMMAND_KEYS = new Set([
@@ -273,18 +275,6 @@ export class DeclarativeResearchSession {
       rejectKeys(parameters, new Set(['name']));
       return mutation(() => this.#memory.deleteMembership(parameters.name));
     }
-    if (command.command === 'replace-membership') {
-      const entry = this.#requireHandle(command.input);
-      rejectKeys(parameters, new Set(['name', 'reason', 'attribution']));
-      return mutation(() => this.#memory.replaceMembership(
-        parameters.name,
-        collectionValue(entry.value),
-        {
-          ...(parameters.reason === undefined ? {} : { reason: parameters.reason }),
-          ...(parameters.attribution === undefined ? {} : { attribution: parameters.attribution }),
-        },
-      ));
-    }
     if (Object.keys(parameters).length) {
       throw protocolError(
         'INVALID_COMMAND', `${command.command} parameters must be an empty object.`,
@@ -343,15 +333,15 @@ export class DeclarativeResearchSession {
       : Object.fromEntries([...namedEntries].map(([name, entry]) => [name, entry.value]));
     const namedDescriptors = namedEntries === undefined ? undefined
       : Object.fromEntries([...namedEntries].map(([name, entry]) => [name, entry.descriptor]));
-    let operationParameters = cloneJson(command.parameters);
+    const operationParameters = cloneJson(command.parameters);
     const referenced = isSetOperation(command.command)
       ? this.#requireHandle(command.parameters.with) : undefined;
-    const operation = {
+    const operation = normalizeResearchOperation({
       operation: command.command,
       parameters: isSetOperation(command.command)
         ? { ...operationParameters, with: referenced.value }
         : operationParameters,
-    };
+    });
     const externallyBacked = isExternalOperation(command.command, command.parameters);
     const descriptorOperation = isSetOperation(command.command)
       ? { operation: command.command, parameters: cloneJson(command.parameters) }
@@ -368,11 +358,7 @@ export class DeclarativeResearchSession {
     return {
       run: () => externallyBacked
         ? this.#runExternal(operation, inputEntry?.value, namedValues) : execute(),
-      mutates: (result) => ['remember', 'remember-membership'].includes(command.command)
-        || (command.command === 'preserve'
-          && (result.context?.archiveMutation?.count ?? 0) > 0)
-        || (command.command === 'release-archive' && resultCount(result) > 0)
-        || (externallyBacked && (result.counts?.acceptedObservations ?? 0) > 0),
+      mutates: (result) => operationMutation(command.command, result, command.parameters),
       install: command.resultId === undefined ? null : (result) => {
         this.#handles.set(command.resultId, {
           value: ownHandleValue(result),
@@ -447,13 +433,8 @@ export class DeclarativeResearchSession {
     for (const id of targetIds) validateResultTarget(id, command.replace, this.#handles);
     return {
       run: () => this.#runPlan(plan),
-      mutates: (report) => report.stages.some(({ operation, result }) => (
-        ['remember', 'remember-membership'].includes(operation)
-        || (operation === 'preserve'
-          && (result.context?.archiveMutation?.count ?? 0) > 0)
-        || (operation === 'release-archive' && resultCount(result) > 0)
-        || ((isExternalOperation(operation) || result.type === 'continuation-report')
-          && (result.counts?.acceptedObservations ?? 0) > 0)
+      mutates: (report) => report.stages.some(({ id, operation, result }) => (
+        operationMutation(operation, result, report.plan.find((stage) => stage.id === id)?.parameters)
       )),
       install: outputs.size === 0 ? null : (report) => {
         for (const [stageId, resultId] of outputs) {
@@ -883,14 +864,14 @@ function sessionSchema() {
         schema: { parameters: {} },
       },
       lifecycle: [
-        'release', 'release-all', 'replace-membership', 'delete-membership', 'reset', 'close',
+        'release', 'release-all', 'delete-membership', 'reset', 'close',
       ],
     },
     notebookMemberships: {
       list: { command: 'memberships', parameters: { limit: 'optional non-negative integer' } },
       inspect: { command: 'membership', parameters: { name: 'membership name' } },
       replace: {
-        command: 'replace-membership',
+        command: 'remember-membership',
         input: 'subject result handle',
         parameters: {
           name: 'membership name',

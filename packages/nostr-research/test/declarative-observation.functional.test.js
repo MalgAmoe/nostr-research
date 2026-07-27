@@ -159,65 +159,6 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   assert.equal(rejected.sessionRevision, 6);
 });
 
-test('declarative show bounds grouped and summarized named results', async () => {
-  const memory = createInMemoryResearchMemory({ capacity: 3 });
-  const session = createDeclarativeResearchSession(memory);
-  const [event] = loadFixtureEvents();
-  memory.ingest(event, {
-    relay: 'wss://fixture.example/',
-    observedAt: '2026-07-26T10:00:00.000Z',
-  });
-
-  await session.execute({
-    commandId: 'notes',
-    command: 'select',
-    parameters: { scope: 'corpus', ids: [event.id] },
-    resultId: 'notes',
-  });
-  await session.execute({
-    commandId: 'authors',
-    command: 'group',
-    input: 'notes',
-    parameters: { by: 'event.author', limit: 3, itemLimit: 3 },
-    resultId: 'authors',
-  });
-  await session.execute({
-    commandId: 'totals',
-    command: 'summarize',
-    input: 'authors',
-    parameters: {
-      aggregations: [{ name: 'count', operation: 'count' }],
-      limit: 3,
-    },
-    resultId: 'totals',
-  });
-
-  const grouped = await session.execute({
-    commandId: 'show-authors',
-    command: 'show',
-    input: 'authors',
-    parameters: { previewLimit: 1 },
-  });
-  assert.equal(grouped.ok, true);
-  assert.equal(grouped.result.kind, 'groups');
-  assert.equal(grouped.result.preview[0].count, 1);
-  assert.equal(grouped.result.preview[0].omitted, 0);
-
-  const summarized = await session.execute({
-    commandId: 'show-totals',
-    command: 'show',
-    input: 'totals',
-    parameters: { mode: 'summary' },
-  });
-  assert.equal(summarized.ok, true);
-  assert.equal(summarized.result.kind, 'summaries');
-  assert.equal(summarized.result.preview.length, 0);
-  assert.equal(summarized.result.omitted, 1);
-  assert.equal(summarized.sessionRevision, 3);
-
-  await session.close();
-});
-
 test('declarative named results compose compatible sets and expose their schema', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 3 });
   const session = createDeclarativeResearchSession(memory);
@@ -444,13 +385,13 @@ test('declarative notebook knowledge survives turnover and remains independent f
   );
 
   const replaced = await session.execute({
-    commandId: 'replace', command: 'replace-membership', input: 'negatives',
+    commandId: 'replace', command: 'remember-membership', input: 'negatives',
     parameters: {
       name: membershipName,
       reason: { type: 'explicit-negative-example', provisional: true },
     },
   });
-  assert.equal(replaced.result.memberCount, 1);
+  assert.equal(replaced.result.handle.count, 1);
   assert.equal(memory.getMembership(membershipName).members[0].id, uninterestedEvent.id);
 
   const released = await session.execute({

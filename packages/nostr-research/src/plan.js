@@ -1,11 +1,14 @@
 import {
   acquireRelayEvents,
-  hydrateAccounts,
   normalizeAcquisitionOptions,
   normalizeHydrationOptions,
 } from './acquire.js';
 import { ResearchMemoryError } from './index.js';
-import { continueResearch, normalizeContinuation } from './continuation.js';
+import {
+  acquireContinuationEvidence,
+  continueResearch,
+  normalizeContinuation,
+} from './continuation.js';
 import {
   SUBJECT_COLLECTION_KINDS,
   continuationSemantics,
@@ -28,6 +31,8 @@ import {
   validatePipelineFetch,
 } from './pipeline-source.js';
 
+const MEMORY_TRANSACTION = Symbol.for('nostr-research.memory-plan-attempt');
+
 /**
  * Executes a linear, JSON-serializable list of named research stages.
  *
@@ -39,44 +44,49 @@ export async function executeResearchPlan(memory, plan, execution = {}) {
   if (!memory || typeof memory.asCollection !== 'function') {
     throw new ResearchMemoryError('An open research memory is required.');
   }
+  if (typeof memory[MEMORY_TRANSACTION] !== 'function') {
+    throw new ResearchMemoryError('Research plan execution requires transactional research memory.');
+  }
   const normalized = normalizeResearchPlan(plan);
   preflightResearchPlan(memory, normalized);
-  const outputs = new Map();
-  const stages = [];
+  return memory[MEMORY_TRANSACTION](async () => {
+    const outputs = new Map();
+    const stages = [];
 
-  for (const stage of normalized) {
-    const namedInputs = resolveStageInputs(stage, outputs);
-    const input = namedInputs.input;
-    const executable = isSetOperation(stage.operation)
-      ? {
-          ...stage,
-          parameters: { ...stage.parameters, with: outputs.get(stage.parameters.with) },
-        }
-      : stage;
-    const result = await executeResearchOperation(memory, {
-      ...executable,
-      parameters: execution.signal && (
-        isExternalOperation(stage.operation, stage.parameters)
-      )
-        ? { ...executable.parameters, signal: execution.signal }
-        : executable.parameters,
-    }, input, namedInputs);
-    outputs.set(stage.id, result);
-    stages.push({
-      id: stage.id,
-      operation: stage.operation,
-      ...(stage.input === undefined ? {} : { input: stage.input }),
-      ...(stage.inputs === undefined ? {} : { inputs: stage.inputs }),
-      resultKind: operationResultKind(stage.operation, result.kind) ?? result.kind ?? result.type,
-      result,
-    });
-  }
+    for (const stage of normalized) {
+      const namedInputs = resolveStageInputs(stage, outputs);
+      const input = namedInputs.input;
+      const executable = isSetOperation(stage.operation)
+        ? {
+            ...stage,
+            parameters: { ...stage.parameters, with: outputs.get(stage.parameters.with) },
+          }
+        : stage;
+      const result = await executeResearchOperation(memory, {
+        ...executable,
+        parameters: execution.signal && (
+          isExternalOperation(stage.operation, stage.parameters)
+        )
+          ? { ...executable.parameters, signal: execution.signal }
+          : executable.parameters,
+      }, input, namedInputs);
+      outputs.set(stage.id, result);
+      stages.push({
+        id: stage.id,
+        operation: stage.operation,
+        ...(stage.input === undefined ? {} : { input: stage.input }),
+        ...(stage.inputs === undefined ? {} : { inputs: stage.inputs }),
+        resultKind: operationResultKind(stage.operation, result.kind) ?? result.kind ?? result.type,
+        result,
+      });
+    }
 
-  return {
-    type: 'research-plan-report',
-    plan: cloneJson(normalized),
-    stages,
-  };
+    return {
+      type: 'research-plan-report',
+      plan: cloneJson(normalized),
+      stages,
+    };
+  });
 }
 
 export function preflightResearchPlan(memory, plan) {
@@ -116,15 +126,13 @@ export function normalizeResearchPlan(plan) {
         `Unsupported research plan operation at stage ${id}: ${stage.operation}.`,
       );
     }
-    if (!isPlainObject(stage.parameters)) {
-      throw new ResearchMemoryError(`Research plan stage ${id} parameters must be an object.`);
-    }
+    const normalizedOperation = normalizeResearchOperation(stage);
     const hasInput = stage.input !== undefined;
     const hasInputs = stage.inputs !== undefined;
     if (hasInput && hasInputs) {
       throw new ResearchMemoryError(`Research plan stage ${id} cannot contain both input and inputs.`);
     }
-    const semantics = operationSemantics(stage.operation);
+    const semantics = operationSemantics(normalizedOperation.operation);
     if (semantics.input === 'forbidden' && hasInput) {
       throw new ResearchMemoryError(`Research plan acquire stage ${id} must not have an input.`);
     }
@@ -176,12 +184,29 @@ export function normalizeResearchPlan(plan) {
     ids.add(id);
     return {
       id,
-      operation: stage.operation,
+      operation: normalizedOperation.operation,
       ...(hasInput ? { input: stage.input } : {}),
       ...(hasInputs ? { inputs: cloneJson(stage.inputs) } : {}),
-      parameters: cloneJson(stage.parameters),
+      parameters: normalizedOperation.parameters,
     };
   });
+}
+
+/** Normalizes the operation representation shared by direct, plan, and session callers. */
+export function normalizeResearchOperation(value) {
+  if (!isPlainObject(value) || typeof value.operation !== 'string'
+      || !operationSemantics(value.operation)) {
+    throw new ResearchMemoryError(`Unsupported research operation: ${value?.operation}.`);
+  }
+  if (!isPlainObject(value.parameters)) {
+    throw new ResearchMemoryError('Research operation parameters must be an object.');
+  }
+  const { signal, ...parameters } = value.parameters;
+  assertJsonData({ operation: value.operation, parameters }, 'Research operation');
+  return {
+    operation: value.operation,
+    parameters: { ...cloneJson(parameters), ...(signal === undefined ? {} : { signal }) },
+  };
 }
 
 /**
@@ -195,7 +220,7 @@ export function preflightResearchOperation(
   references = undefined,
   namedInputs = undefined,
 ) {
-  const { operation: name, parameters } = operation;
+  const { operation: name, parameters } = normalizeResearchOperation(operation);
   const semantics = operationSemantics(name);
   if (!semantics || !isPlainObject(parameters)) {
     throw new ResearchMemoryError(`Unsupported research operation: ${name}.`);
@@ -241,9 +266,8 @@ export function preflightResearchOperation(
   }
   if (name === 'fetch') return validatePipelineFetch(parameters, input);
   if (name === 'expand') return validatePipelineExpand(memory, parameters, input);
-  if (isRelationOperation(name)
-      || (input?.kind === 'relation'
-        && ['filter', 'project', 'distinct', 'sort', 'limit'].includes(name))) {
+  if ((isRelationOperation(name) && operationSemantics(name).executor !== 'collection-or-relation')
+      || (input?.kind === 'relation' && isRelationOperation(name))) {
     const inputs = namedInputs ?? { input };
     return validateRelationOperation(name, parameters, inputs);
   }
@@ -252,7 +276,9 @@ export function preflightResearchOperation(
     const transformParameters = isSetOperation(name)
       ? {
           ...parameters,
-          with: descriptorCollection(inputForSetOperation(references, parameters.with, name)),
+          with: typeof parameters.with === 'string'
+            ? descriptorCollection(inputForSetOperation(references, parameters.with, name))
+            : parameters.with,
         }
       : parameters;
     const transformed = memory.validateTransform(
@@ -325,10 +351,21 @@ function descriptorCollection(descriptor) {
 
 /** Executes one preflighted operation through the same path used by plans. */
 export async function executeResearchOperation(memory, operation, input = undefined, namedInputs = undefined) {
-  const { operation: name, parameters } = operation;
+  const normalized = normalizeResearchOperation(operation);
+  preflightResearchOperation(
+    memory,
+    normalized,
+    input === undefined ? undefined : resultDescriptor(input),
+    undefined,
+    namedInputs === undefined ? undefined : Object.fromEntries(
+      Object.entries(namedInputs).map(([key, value]) => [key, resultDescriptor(value)]),
+    ),
+  );
+  const { operation: name, parameters } = normalized;
   if (name === 'fetch') return executePipelineFetch(memory, parameters, input);
   if (name === 'expand') return executePipelineExpand(memory, parameters, input);
-  if (isRelationOperation(name) || isResearchRelation(input)) {
+  if ((isRelationOperation(name) && operationSemantics(name).executor !== 'collection-or-relation')
+      || isResearchRelation(input)) {
     return executeRelationOperation(memory, name, parameters, namedInputs ?? { input });
   }
   if (name === 'acquire') return acquireRelayEvents(memory, parameters);
@@ -412,7 +449,10 @@ export async function executeResearchOperation(memory, operation, input = undefi
     const accounts = memory.asCollection(input).items
       .filter(({ subject }) => subject.type === 'account');
     if (accounts.length === 0) return emptyHydrationReport(memory, normalized);
-    return hydrateAccounts(memory, input, parameters);
+    return {
+      ...await acquireContinuationEvidence(memory, input, normalized),
+      type: 'hydration-report',
+    };
   }
   if (name === 'continue') return continueResearch(memory, input, parameters);
   if (name === 'preserve') {
@@ -434,11 +474,35 @@ export async function executeResearchOperation(memory, operation, input = undefi
   }
   if (name === 'remember') {
     const collection = memory.asCollection(input);
+    const notebook = memory.describe().notebook;
+    const additions = collection.items.filter(
+      ({ subject }) => memory.getNotebookEntry(subject) === null,
+    ).length;
+    if (notebook.entryCount + additions > notebook.capacity) {
+      throw new ResearchMemoryError(
+        `Research notebook entry capacity ${notebook.capacity} has been reached.`,
+      );
+    }
     for (const item of collection.items) memory.remember(item.subject, parameters);
     return collection;
   }
   const { name: membershipName, ...options } = parameters;
-  return memory.rememberMembership(input, membershipName, options);
+  const collection = memory.asCollection(input);
+  return {
+    ...memory.rememberMembership(collection, membershipName, options),
+    type: 'notebook-membership',
+    collection,
+  };
+}
+
+function resultDescriptor(value) {
+  if (isResearchRelation(value)) return { kind: 'relation', resultKind: 'relation' };
+  const collection = value?.collection ?? value;
+  return {
+    kind: collection?.kind,
+    itemKind: collection?.itemKind ?? collection?.kind,
+    resultKind: value?.type ?? collection?.kind,
+  };
 }
 
 function normalizeRememberParameters(parameters) {
@@ -481,6 +545,7 @@ function emptyHydrationReport(memory, options) {
   };
   const corpus = memory.describe();
   const result = {
+    type: 'hydration-report',
     requested,
     budget,
     startedAt: timestamp,

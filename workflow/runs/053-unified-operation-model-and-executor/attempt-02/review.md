@@ -1,0 +1,5 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/src/index.js:2152` retains the entire superseded version-1 collection schema—including removed `project`, `distinct`, `sort`, `group`, and `summarize` paths—as a large commented block, with obsolete supporting constants still present. Remove this dead compatibility implementation so the source has one traceable schema path, as required by the acceptance criteria.
+
+2. Hydration result-kind semantics remain inconsistent. `src/operations.js:57` declares `hydrate` as `hydration-report`, while non-empty hydration in `src/plan.js:440` returns the untyped acquisition result from `acquireContinuationEvidence`; plans merely label it `hydration-report`. Direct execution therefore does not return the same observable result kind as plan/session execution. Make the authoritative result representation agree across direct, plan, and session paths, including empty and non-empty hydration.

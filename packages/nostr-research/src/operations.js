@@ -36,42 +36,68 @@ export const CONTINUATION_RELATIONSHIPS = Object.freeze({
   expansion: { inputKinds: ['subjects', 'events', 'accounts'], outputKind: 'subjects', external: true },
 });
 
-const TRANSFORMS = [
-  'filter', 'pick', 'project', 'distinct', 'sort', 'limit', 'sample', 'group', 'summarize', 'move',
+const COLLECTION_OPERATIONS = [
+  'filter', 'pick', 'limit', 'sample', 'move',
   'union', 'intersection', 'difference', 'compare',
 ];
 const SET_OPERATIONS = ['union', 'intersection', 'difference', 'compare'];
 const RELATION_OPERATIONS = [
-  'relate', 'join', 'aggregate', 'derive', 'slice', 'explode', 'scan', 'balance',
+  'relate', 'filter', 'project', 'distinct', 'sort',
+  'join', 'aggregate', 'derive', 'slice', 'explode', 'scan', 'balance',
 ];
 
 export const RESEARCH_OPERATIONS = Object.freeze({
-  acquire: { input: 'forbidden', outputKind: 'events', resultKind: 'acquisition-report', external: true },
-  select: { input: 'optional-acquisition', outputKind: 'events', resultKind: 'events', external: false },
-  ...Object.fromEntries(TRANSFORMS.map((name) => [name, {
-    input: 'required', transform: true, set: SET_OPERATIONS.includes(name), external: false,
+  acquire: definition('forbidden', 'events', 'acquisition-report', 'external', 'buffer', 'bounded-attempt', 'acquire'),
+  select: definition('optional-acquisition', 'events', 'events', 'local', 'none', 'resident-view', 'select'),
+  ...Object.fromEntries(COLLECTION_OPERATIONS.map((name) => [name, {
+    ...definition('required', undefined, undefined, 'local', 'none', 'bounded-view', 'collection'),
+    transform: true,
+    set: SET_OPERATIONS.includes(name),
   }])),
-  hydrate: { input: 'accounts', outputKind: 'events', resultKind: 'hydration-report', external: true },
-  continue: { input: 'subjects', resultKind: 'continuation-report', external: 'by-source' },
-  'remember-membership': { input: 'subjects', resultKind: 'notebook-membership', external: false },
-  remember: { input: 'subjects', resultKind: 'subjects', external: false },
-  notebook: { input: 'forbidden', outputKind: 'subjects', resultKind: 'subjects', external: false },
-  preserve: { input: 'subjects', resultKind: 'input', external: false },
-  archived: { input: 'forbidden', outputKind: 'subjects', resultKind: 'subjects', external: false },
+  hydrate: definition('accounts', 'events', 'hydration-report', 'external', 'buffer', 'bounded-attempt', 'hydrate'),
+  continue: definition('subjects', undefined, 'continuation-report', 'by-source', 'by-source', 'bounded-attempt-or-view', 'continue'),
+  'remember-membership': definition('subjects', undefined, 'notebook-membership', 'local', 'notebook', 'complete-input', 'remember-membership'),
+  remember: definition('subjects', undefined, 'input', 'local', 'notebook', 'complete-input', 'remember'),
+  notebook: definition('forbidden', 'subjects', 'subjects', 'local', 'none', 'bounded-view', 'notebook'),
+  preserve: definition('subjects', undefined, 'input', 'local', 'archive', 'complete-input', 'preserve'),
+  archived: definition('forbidden', 'subjects', 'subjects', 'local', 'none', 'bounded-view', 'archived'),
   'release-archive': {
-    input: 'subjects', resultKind: 'input', external: false,
+    ...definition('subjects', undefined, 'input', 'local', 'archive', 'complete-input', 'release-archive'),
   },
-  relate: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
-  join: { input: 'named', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
-  aggregate: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
-  derive: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
-  slice: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
-  explode: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
-  scan: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
-  balance: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
-  fetch: { input: 'relation', outputKind: 'events', resultKind: 'acquisition-report', external: true },
-  expand: { input: 'relation', resultKind: 'continuation-report', external: 'by-source' },
+  relate: relationDefinition('required', 'relate'),
+  filter: {
+    ...definition('required', undefined, undefined, 'local', 'none', 'bounded-view',
+      'collection-or-relation'),
+    transform: true,
+    relation: true,
+  },
+  project: relationDefinition('required', 'relation'),
+  distinct: relationDefinition('required', 'relation'),
+  sort: relationDefinition('required', 'relation'),
+  join: relationDefinition('named', 'relation'),
+  aggregate: relationDefinition('required', 'relation'),
+  derive: relationDefinition('required', 'relation'),
+  slice: relationDefinition('required', 'relation'),
+  explode: relationDefinition('required', 'relation'),
+  scan: relationDefinition('required', 'relation'),
+  balance: relationDefinition('required', 'relation'),
+  fetch: definition('relation', 'events', 'acquisition-report', 'external', 'buffer', 'bounded-attempt', 'fetch'),
+  expand: definition('relation', undefined, 'continuation-report', 'by-source', 'by-source', 'bounded-attempt-or-view', 'expand'),
 });
+
+function definition(input, outputKind, resultKind, locality, mutation, completeness, executor) {
+  return Object.freeze({
+    input, outputKind, resultKind, locality, mutation, completeness, executor,
+    external: locality === 'external' ? true : locality === 'by-source' ? 'by-source' : false,
+  });
+}
+
+function relationDefinition(input, executor) {
+  return {
+    ...definition(input, 'relation', 'relation', 'local', 'none', 'bounded-view', executor),
+    relation: true,
+  };
+}
 
 export function researchOperationNames() {
   return Object.keys(RESEARCH_OPERATIONS);
@@ -84,6 +110,23 @@ export function operationSemantics(name) {
 export function operationResultKind(name, inputKind = undefined) {
   const resultKind = operationSemantics(name)?.resultKind;
   return resultKind === 'input' ? inputKind : resultKind;
+}
+
+export function operationMutation(name, result, parameters = {}) {
+  const mutation = operationSemantics(name)?.mutation;
+  if (mutation === 'notebook') return true;
+  if (mutation === 'archive') {
+    if (name === 'preserve') return (result?.context?.archiveMutation?.count ?? 0) > 0;
+    return resultCount(result) > 0;
+  }
+  if (mutation === 'buffer' || (mutation === 'by-source' && parameters.source === 'relays')) {
+    return (result?.counts?.acceptedObservations ?? 0) > 0;
+  }
+  return false;
+}
+
+function resultCount(result) {
+  return result?.items?.length ?? result?.collection?.items?.length ?? 0;
 }
 
 export function isTransformOperation(name) {
@@ -117,14 +160,9 @@ export function transformOutputKind(inputKind, itemKind, operation) {
     if (inputKind === 'subjects' && refined) return { kind: refined, itemKind: refined };
     return { kind: inputKind, itemKind };
   }
-  if (['project', 'distinct'].includes(operation.operation)) {
-    return { kind: 'projections', itemKind };
-  }
   if (operation.operation === 'compare') return { kind: 'summaries', itemKind: 'summaries' };
-  if (['pick', 'sort', 'limit', 'sample', 'union', 'intersection', 'difference']
+  if (['pick', 'limit', 'sample', 'union', 'intersection', 'difference']
     .includes(operation.operation)) return { kind: inputKind, itemKind };
-  if (operation.operation === 'group') return { kind: 'groups', itemKind };
-  if (operation.operation === 'summarize') return { kind: 'summaries', itemKind: 'summaries' };
   const kind = MOVE_ROUTES[`${inputKind}:${operation.to}`];
   return { kind, itemKind: kind };
 }
@@ -149,6 +187,18 @@ function refinedSubjectKind(predicate) {
 export function operationSchema() {
   return {
     operations: researchOperationNames(),
+    definitions: Object.fromEntries(Object.entries(RESEARCH_OPERATIONS).map(([name, value]) => [
+      name,
+      {
+        input: value.input,
+        outputKind: value.outputKind ?? 'from-input-or-parameters',
+        resultKind: value.resultKind ?? 'from-input',
+        locality: value.locality,
+        mutation: value.mutation,
+        completeness: value.completeness,
+        executor: value.executor,
+      },
+    ])),
     collectionKinds: [...SUBJECT_COLLECTION_KINDS],
     moveRoutes: { ...MOVE_ROUTES },
     continuations: Object.fromEntries(Object.entries(CONTINUATION_RELATIONSHIPS).map(
