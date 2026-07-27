@@ -192,6 +192,45 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   assert.equal(rejected.sessionRevision, 6);
 });
 
+test('relation summaries compact source selection details without losing their shape', async () => {
+  const memory = createInMemoryResearchMemory({ capacity: 10 });
+  const session = createDeclarativeResearchSession(memory);
+  const [event] = loadFixtureEvents();
+  memory.ingest(event, {
+    relay: 'wss://fixture.example/',
+    observedAt: '2026-07-26T10:00:00.000Z',
+  });
+
+  await session.execute({
+    commandId: 'select',
+    command: 'select',
+    parameters: { scope: 'corpus', ids: [event.id] },
+    resultId: 'finding',
+  });
+  await session.execute({
+    commandId: 'relate',
+    command: 'relate',
+    input: 'finding',
+    resultId: 'findingRows',
+  });
+  const shown = await session.execute({
+    commandId: 'show-related',
+    command: 'show',
+    input: 'findingRows',
+    parameters: { mode: 'summary' },
+  });
+
+  assert.deepEqual(shown.result.context, {
+    operation: 'relate',
+    sourceKind: 'events',
+    source: {
+      operation: 'selection',
+      query: { idCount: 1, limit: 50, order: 'newest' },
+    },
+  });
+  assert.equal(JSON.stringify(shown.result.context).includes(event.id), false);
+});
+
 test('declarative named results compose compatible sets and expose their schema', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 3 });
   const session = createDeclarativeResearchSession(memory);

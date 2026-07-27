@@ -578,6 +578,32 @@ function provenanceSummary(items) {
 
 function compactContext(context) {
   if (!context || typeof context !== 'object') return context;
+  if (context.operation === 'selection') {
+    return {
+      operation: 'selection',
+      ...(context.scope ? { scope: context.scope } : {}),
+      ...(context.sourceOperation ? { sourceOperation: context.sourceOperation } : {}),
+      query: compactSelectionQuery(context.query),
+    };
+  }
+  if (context.operation === 'relate') {
+    return {
+      operation: 'relate',
+      sourceKind: context.sourceKind,
+      source: compactContext(context.sourceContext),
+    };
+  }
+  if (context.operation === 'relation-pipeline') {
+    const stages = relationStages(context);
+    return {
+      operation: 'relation-pipeline',
+      sourceOperation: sourceOperation(context.input),
+      stageCount: stages.length,
+      ...(stages.length ? { latestStage: compactStage(stages.at(-1)) } : {}),
+      ...(context.cardinality ? { cardinality: structuredClone(context.cardinality) } : {}),
+      ...(context.resolution ? { resolution: structuredClone(context.resolution) } : {}),
+    };
+  }
   if (context.operation === 'transform') {
     const stages = context.stages ?? [];
     return {
@@ -615,9 +641,36 @@ function compactContext(context) {
   };
 }
 
+function compactSelectionQuery(query = {}) {
+  const { ids, authors, text, tags, ...scalars } = query;
+  const tagEntries = Object.entries(tags ?? {});
+  return {
+    ...(ids?.length ? { idCount: ids.length } : {}),
+    ...(authors?.length ? { authorCount: authors.length } : {}),
+    ...(text?.length ? { textTermCount: text.length } : {}),
+    ...(tagEntries.length ? {
+      tagKeys: tagEntries.map(([key]) => key).sort(),
+      tagValueCount: tagEntries.reduce((count, [, values]) => count + values.length, 0),
+    } : {}),
+    ...structuredClone(scalars),
+  };
+}
+
+function relationStages(context) {
+  const stages = [];
+  let current = context;
+  while (current?.operation === 'relation-pipeline') {
+    if (current.stage) stages.unshift(current.stage);
+    current = current.input;
+  }
+  return stages;
+}
+
 function sourceOperation(context) {
   let current = context;
-  while (current?.operation === 'transform' && current.input) current = current.input;
+  while (['transform', 'relation-pipeline'].includes(current?.operation) && current.input) {
+    current = current.input;
+  }
   return current?.operation;
 }
 
