@@ -292,10 +292,10 @@ has no input. `select` must explicitly name an earlier `acquire` stage to query
 only that acquisition's subjects, or omit `input` and set
 `parameters.scope` to `"corpus"` to query the authoritative current resident
 corpus.
-The supported local pipeline operations are the same ones accepted by
-`memory.transform`; plans additionally support `acquire`, `select`, `hydrate`,
-and the notebook operations `remember`, `notebook`, and `remember-membership`.
-A set operation names its left input with `input` and an earlier
+Plans accept the same normalized research operations as individual session
+commands and execute them through the same authoritative executor. Operations
+name one earlier `input` or, for operations such as `join`, a named `inputs`
+object. A set operation names its left input with `input` and an earlier
 compatible right-hand stage with `parameters.with`.
 
 ```js
@@ -317,15 +317,7 @@ const report = await executeResearchPlan(memory, [
     input: 'orientation',
     parameters: { kinds: [1], limit: 50 },
   },
-  {
-    id: 'chosen',
-    operation: 'filter',
-    input: 'notes',
-    parameters: {
-      where: { field: 'event.tag', name: 't', value: chosenTag },
-      limit: 20,
-    },
-  },
+  { id: 'chosen', operation: 'limit', input: 'notes', parameters: { limit: 20 } },
   {
     id: 'authors',
     operation: 'move',
@@ -497,9 +489,12 @@ remains the direct exact-subject evidence view and `explain` the direct
 exact-subject membership view.
 
 `show` reports only the requested evidence view. It does not recommend a next
-operation or imply a research workflow. Contextual `schema` reports the
-structure and compatible operations for a named handle; the researcher decides
-which action, if any, to take.
+operation or imply a research workflow. Summary context keeps the operation,
+bounds, and compact lineage while replacing potentially large selection values
+with counts; canonical evidence and detailed membership provenance remain
+available through `inspect`, `details`, and `explain`. Contextual `schema`
+reports the structure and compatible operations for a named handle; the
+researcher decides which action, if any, to take.
 
 ### Sequential session walkthrough
 
@@ -540,14 +535,15 @@ without deleting or rewriting corpus evidence.
 Its `relationship` is one of `authored-notes`, `profiles`, `follow-lists`,
 `followed-accounts`, `followers`, `replies`, `ancestors`, `mentions`, `quotes`,
 `referenced-events`, `conversation`, `shared-tags`, or `linked-domains`.
-`source` is `local` (the default) or `relays`; relay continuations
-also require explicit `relays` and accept time, observation, distinct-event,
-and concurrency bounds. Both forms report completeness and per-input
-omissions, while `explain` exposes the continuation relationship responsible
-for membership. The response includes a bounded `outcomes` window with each
-input subject's status and contribution count. When a bound or partial relay
-attempt affects particular inputs, `sequentialRetry` identifies those subjects
-and the original input handle so the caller can retry them one at a time.
+`source` is `local` (the default) or `relays`; relay continuations use explicit
+per-command `relays` when supplied, otherwise the session's configured relay
+defaults. They accept time, observation, distinct-event, and concurrency
+bounds. Both forms report completeness and per-input omissions, while
+`explain` exposes the continuation relationship responsible for membership.
+The response includes a bounded `outcomes` window with each input subject's
+status and contribution count. When a bound or partial relay attempt affects
+particular inputs, `sequentialRetry` identifies those subjects and the original
+input handle so the caller can retry them one at a time.
 `attemptStatus` reports whether that particular local or relay projection
 completed, `dataScope` identifies `resident-corpus` or
 `bounded-relay-attempt`, and `exhaustive` remains separate. Relay completeness
