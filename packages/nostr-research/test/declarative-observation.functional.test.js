@@ -217,14 +217,27 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.equal(leftSchema.result.compatibleOperations.includes('move'), true);
   assert.equal(leftSchema.result.compatibleOperations.includes('continue'), true);
   assert.equal(leftSchema.result.compatibleOperations.includes('preserve'), true);
-  assert.deepEqual(leftSchema.result.operations.move.choices.to, [
+  assert.equal('operations' in leftSchema.result, false);
+  const moveSchema = await session.execute({
+    commandId: 'left-move-schema', command: 'schema', input: 'left',
+    parameters: { operation: 'move' },
+  });
+  assert.deepEqual(moveSchema.result.operation.choices.to, [
     { to: 'authors', outputKind: 'accounts' },
     { to: 'referencedAccounts', outputKind: 'accounts' },
     { to: 'referencedEvents', outputKind: 'events' },
   ]);
-  assert.equal(leftSchema.result.operations.union.remainingChoices.length, 1);
+  const unionSchema = await session.execute({
+    commandId: 'left-union-schema', command: 'schema', input: 'left',
+    parameters: { operation: 'union' },
+  });
+  assert.equal(unionSchema.result.operation.remainingChoices.length, 1);
+  const continueSchema = await session.execute({
+    commandId: 'left-continue-schema', command: 'schema', input: 'left',
+    parameters: { operation: 'continue' },
+  });
   assert.equal(
-    leftSchema.result.operations.continue.choices.relationships.some(
+    continueSchema.result.operation.choices.relationships.some(
       ({ relationship }) => relationship === 'replies',
     ),
     true,

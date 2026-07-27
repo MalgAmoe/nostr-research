@@ -396,11 +396,10 @@ export function operationSchema() {
  */
 export function contextualResearchOperationSchema({
   descriptor,
-  input,
   structure,
   value,
+  configuration,
 }) {
-  const contracts = operationSchema().parameterContracts;
   const operations = {};
   const add = (name, details = {}) => {
     const semantics = operationSemantics(name);
@@ -408,57 +407,47 @@ export function contextualResearchOperationSchema({
       locality: semantics.locality,
       mutation: semantics.mutation,
       completeness: semantics.completeness,
-      parameters: contracts[name] ?? {},
       ...details,
     };
   };
 
   if (descriptor?.kind === 'relation') {
-    contextualRelationOperations(add, input, structure, value);
+    contextualRelationOperations(add, structure, value, configuration);
     return operations;
   }
   if (descriptor?.resultKind === 'acquisition-report') {
     add('select', {
       reason: 'This handle names one bounded acquisition attempt.',
-      example: commandExample('select', input, { kinds: [1], limit: 20 }),
     });
     return operations;
   }
   if (!supportsCollectionOperations(descriptor)) return operations;
-  contextualCollectionOperations(add, descriptor.kind, input, structure);
+  contextualCollectionOperations(add, descriptor.kind, structure, configuration);
   return operations;
 }
 
-function contextualCollectionOperations(add, kind, input, structure) {
+function contextualCollectionOperations(add, kind, structure, configuration) {
   const count = structure?.count ?? 0;
-  const subjectTypes = structure?.subjectTypes?.map(({ type }) => type) ?? [];
-  const firstType = subjectTypes[0];
   add('filter', {
     reason: 'Subject collections support stable identity predicates.',
     usableFields: {
       where: ['subject.type', 'subject.id'],
     },
-    ...(firstType === undefined ? {
-      remainingChoices: ['Choose an identity predicate.'],
-    } : {
-      example: commandExample('filter', input, {
-        where: { field: 'subject.type', equals: firstType },
-        limit: 20,
-      }),
-    }),
+    remainingChoices: ['Choose an identity predicate.'],
   });
   add('pick', {
     reason: 'Pick addresses the stable order exposed by a preview.',
-    remainingChoices: count > 0 ? [] : ['The collection needs at least one member.'],
-    ...(count > 0 ? { example: commandExample('pick', input, { positions: [1] }) } : {}),
+    remainingChoices: count > 0
+      ? ['Choose one or more positions from the current preview.']
+      : ['The collection needs at least one member.'],
   });
   add('limit', {
     reason: 'Limit takes a bounded prefix of this collection.',
-    example: commandExample('limit', input, { limit: 20 }),
+    remainingChoices: ['Choose the output bound.'],
   });
   add('sample', {
     reason: 'Sample takes a deterministic bounded sample.',
-    example: commandExample('sample', input, { limit: 20, seed: 'research' }),
+    remainingChoices: ['Choose the sample bound.'],
   });
 
   const routes = Object.entries(MOVE_ROUTES).filter(([route]) => route.startsWith(`${kind}:`))
@@ -470,7 +459,7 @@ function contextualCollectionOperations(add, kind, input, structure) {
     add('move', {
       reason: 'This collection kind has explicit identity transition routes.',
       choices: { to: routes },
-      example: commandExample('move', input, { to: routes[0].to, limit: 20 }),
+      remainingChoices: ['Choose one transition route.'],
     });
   }
 
@@ -482,7 +471,6 @@ function contextualCollectionOperations(add, kind, input, structure) {
   }
   add('relate', {
     reason: 'Relate crosses stable subjects into value-oriented analysis.',
-    example: commandExample('relate', input, {}),
   });
 
   const continuations = Object.entries(CONTINUATION_RELATIONSHIPS)
@@ -493,29 +481,28 @@ function contextualCollectionOperations(add, kind, input, structure) {
       sources: semantics.external ? ['local', 'relays'] : ['local'],
     }));
   if (continuations.length) {
+    const defaults = externalDefaults(configuration);
     add('continue', {
       reason: 'This subject kind supports explicit protocol relationships.',
       choices: { relationships: continuations },
-      example: commandExample('continue', input, {
-        relationship: continuations[0].relationship,
-        source: 'local',
-        eventLimit: 20,
-      }),
+      remainingChoices: ['Choose a relationship and source.'],
+      ...(defaults ? { relaySourceDefaults: defaults } : {}),
     });
   }
   if (kind === 'accounts') {
+    const defaults = externalDefaults(configuration);
+    const hasRelays = defaults?.relays.length > 0;
     add('hydrate', {
       reason: 'Account handles can acquire profile or contact-list evidence.',
-      remainingChoices: ['Choose one or more relay URLs.'],
+      choices: { kinds: [0, 3] },
+      ...(defaults ? { effectiveDefaults: { ...defaults, kinds: [0] } } : {}),
+      remainingChoices: hasRelays ? [] : ['Configure or supply one or more relay URLs.'],
     });
   }
 
   add('remember-membership', {
     reason: 'Named membership preserves this stable candidate set with a reason.',
-    example: commandExample('remember-membership', input, {
-      name: 'candidate-set',
-      reason: { type: 'explicit-selection' },
-    }),
+    remainingChoices: ['Supply a membership name and optional reason.'],
   });
   add('remember', {
     reason: 'Notebook entries record attributed researcher judgment.',
@@ -523,7 +510,6 @@ function contextualCollectionOperations(add, kind, input, structure) {
   });
   add('forget', {
     reason: 'Forget removes notebook entries for these subjects.',
-    example: commandExample('forget', input, {}),
   });
   add('preserve', {
     reason: 'Preservation explicitly copies available evidence into the archive.',
@@ -531,116 +517,89 @@ function contextualCollectionOperations(add, kind, input, structure) {
   });
   add('release-archive', {
     reason: 'Release removes archived evidence for these stable subjects.',
-    example: commandExample('release-archive', input, {}),
   });
 }
 
-function contextualRelationOperations(add, input, structure, value) {
+function contextualRelationOperations(add, structure, value, configuration) {
   const fields = structure?.fields ?? [];
   const names = fields.map(({ name }) => name);
+  const populated = fields.filter(({ rowsWithValue }) => rowsWithValue > 0);
   const fieldsByType = (type) => fields
-    .filter(({ types }) => types.includes(type))
-    .map(({ name }) => name);
+    .filter(({ rowsWithValue, types }) => rowsWithValue > 0 && types.includes(type));
   const stringFields = fieldsByType('string');
   const numberFields = fieldsByType('number');
   const arrayFields = fieldsByType('array');
-  const first = names[0];
 
-  const fieldOperation = (name, usableFields, details = {}) => add(name, {
-    usableFields,
-    ...(usableFields.length === 0 ? {
-      remainingChoices: ['No current field satisfies this operation’s useful field shape.'],
-    } : {}),
-    ...details,
-  });
+  const fieldOperation = (name, populatedFields, details = {}) => {
+    const { remainingChoices, ...rest } = details;
+    add(name, {
+      availableFields: names,
+      populatedFields,
+      ...rest,
+      remainingChoices: populatedFields.length === 0
+        ? ['No current field satisfies this operation’s useful field shape.']
+        : remainingChoices,
+    });
+  };
 
-  fieldOperation('filter', names, {
+  fieldOperation('filter', populated, {
     reason: 'Filter applies predicates to current row values.',
     operators: {
       allFields: ['equals', 'in'],
-      stringFields: ['contains'],
-      numberFields: ['gte', 'lte'],
+      stringFields: stringFields.map(({ name }) => name),
+      numberFields: numberFields.map(({ name }) => name),
     },
-    ...(first ? {
-      example: commandExample('filter', input, {
-        where: { field: first, equals: null },
-        limit: 20,
-      }),
-    } : {}),
+    remainingChoices: ['Choose a field, predicate, and comparison value.'],
   });
-  fieldOperation('project', names, {
+  fieldOperation('project', populated, {
     reason: 'Project chooses and renames fields present in this relation.',
-    ...(first ? {
-      example: commandExample('project', input, {
-        fields: [{ field: first, name: 'value' }],
-        limit: 20,
-      }),
-    } : {}),
+    remainingChoices: ['Choose fields and output names.'],
   });
-  fieldOperation('distinct', names, {
+  fieldOperation('distinct', populated, {
     reason: 'Distinct keeps one row for each selected field tuple.',
-    ...(first ? {
-      example: commandExample('distinct', input, { by: [first], limit: 20 }),
-    } : {}),
+    remainingChoices: ['Choose one or more fields.'],
   });
-  fieldOperation('sort', names, {
+  fieldOperation('sort', populated, {
     reason: 'Sort orders rows by fields present in this relation.',
     choices: { direction: ['ascending', 'descending'] },
-    ...(first ? {
-      example: commandExample('sort', input, {
-        by: [{ field: first, direction: 'ascending' }],
-      }),
-    } : {}),
+    remainingChoices: ['Choose fields and directions.'],
   });
   add('join', {
     reason: 'Join combines this relation with another named relation.',
-    usableFields: { left: names },
+    availableFields: { left: names },
+    populatedFields: { left: populated },
     remainingChoices: [
       'Name a right-hand relation handle.',
       'Choose a right-hand field and selected right-hand output fields.',
     ],
   });
-  fieldOperation('aggregate', names, {
+  fieldOperation('aggregate', populated, {
     reason: 'Aggregate groups rows and computes bounded derived values.',
     choices: {
       operations: ['count', 'countDistinct', 'collect', 'sample', 'min', 'max', 'sum'],
-      numericFields: numberFields,
+      numericFields: numberFields.map(({ name }) => name),
     },
-    ...(first ? {
-      example: commandExample('aggregate', input, {
-        by: [{ field: first, name: 'group' }],
-        aggregations: [{ name: 'count', operation: 'count' }],
-        limit: 20,
-      }),
-    } : {}),
+    remainingChoices: ['Choose grouping fields and aggregations.'],
   });
-  fieldOperation('derive', names, {
+  fieldOperation('derive', populated, {
     reason: 'Derive adds fields computed from current row values.',
     remainingChoices: ['Choose output names and declarative expressions.'],
   });
   add('slice', {
     reason: 'Slice selects an explicit relation window.',
-    example: commandExample('slice', input, { offset: 0, limit: 20 }),
+    remainingChoices: ['Choose an offset and limit.'],
   });
   fieldOperation('explode', arrayFields, {
     reason: 'Explode emits one row for each element of an array-valued field.',
-    ...(arrayFields[0] ? {
-      example: commandExample('explode', input, {
-        field: arrayFields[0], as: 'value', limit: 20,
-      }),
-    } : {}),
+    remainingChoices: ['Choose an array-valued field and output name.'],
   });
   fieldOperation('scan', stringFields, {
     reason: 'Scan mechanically matches caller-supplied terms in selected text fields.',
-    remainingChoices: ['Supply one or more search terms.'],
+    remainingChoices: ['Choose populated text fields and supply one or more search terms.'],
   });
-  fieldOperation('balance', names, {
+  fieldOperation('balance', populated, {
     reason: 'Balance caps rows retained for each selected field tuple.',
-    ...(first ? {
-      example: commandExample('balance', input, {
-        by: [first], limitPer: 2, limit: 20,
-      }),
-    } : {}),
+    remainingChoices: ['Choose grouping fields and per-group bounds.'],
   });
 
   const transitions = relationSubjectTransitions(value, structure);
@@ -649,26 +608,32 @@ function contextualRelationOperations(add, input, structure, value) {
     recognizedTransitions: transitions,
     remainingChoices: transitions.length
       ? [] : ['Choose a field and assert whether it contains account or event IDs.'],
-    ...(transitions[0] ? {
-      example: commandExample('extract', input, {
-        ...transitions[0], limit: 20,
-      }),
-    } : {}),
   });
+  const defaults = externalDefaults(configuration);
+  const hasRelays = defaults?.relays.length > 0;
   add('fetch', {
     reason: 'Fetch binds current relation values into one explicit relay request.',
     availableFields: {
       all: names,
-      strings: stringFields,
-      arrays: arrayFields,
+      strings: stringFields.map(({ name }) => name),
+      arrays: arrayFields.map(({ name }) => name),
     },
+    populatedFields: [...stringFields, ...arrayFields],
     choices: { bindings: ['ids', 'authors', '#e', '#p', '#t'] },
-    remainingChoices: ['Choose relays, a relay filter, and relation-field bindings.'],
+    ...(defaults ? { effectiveDefaults: defaults } : {}),
+    remainingChoices: [
+      ...(!hasRelays ? ['Configure or supply one or more relay URLs.'] : []),
+      'Supply a relay filter and relation-field bindings.',
+    ],
   });
 }
 
-function commandExample(command, input, parameters) {
-  return { command, input, parameters };
+function externalDefaults(configuration) {
+  if (!configuration) return null;
+  return {
+    relays: [...configuration.relays],
+    ...configuration.acquisition,
+  };
 }
 
 function relationSubjectTransitions(value, structure = undefined) {

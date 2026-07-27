@@ -202,14 +202,18 @@ export class DeclarativeResearchSession {
       ));
     }
     if (command.command === 'schema') {
-      if (Object.keys(parameters).length) {
-        throw protocolError('INVALID_COMMAND', 'schema parameters must be an empty object.');
-      }
       if (command.input !== undefined) {
+        const operation = contextualSchemaOperation(parameters);
         const entry = this.#requireHandle(command.input);
         return readOnly(() => contextualHandleSchema(
-          this.#memory, command.input, entry,
+          this.#memory, command.input, entry, operation, this.#configuration,
         ));
+      }
+      if (Object.keys(parameters).length) {
+        throw protocolError(
+          'INVALID_COMMAND',
+          'Global schema parameters must be an empty object.',
+        );
       }
       return readOnly(() => ({
         ...this.#memory.describeCollectionPipeline(),
@@ -724,47 +728,80 @@ function handleMetadata(id, descriptor, value, revision) {
   };
 }
 
-function contextualHandleSchema(memory, id, entry) {
+function contextualHandleSchema(memory, id, entry, selectedOperation, configuration) {
   const handle = handleMetadata(id, entry.descriptor, entry.value, entry.revision);
   const value = entry.value?.collection ?? entry.value;
-  if (isResearchRelation(value)) {
-    const structure = describeResearchRelation(memory, value);
+  const structure = isResearchRelation(value)
+    ? describeResearchRelation(memory, value)
+    : collectionStructure(memory.asCollection(value));
     const operations = contextualResearchOperationSchema({
       descriptor: entry.descriptor,
-      input: id,
       structure,
       value,
-    });
+      configuration,
+  });
+  const compatibleOperations = Object.keys(operations);
+  if (selectedOperation !== undefined) {
+    const contextual = operations[selectedOperation];
+    if (!contextual) {
+      throw protocolError(
+        'INVALID_OPERATION',
+        `${selectedOperation} is not compatible with ${entry.descriptor.kind}.`,
+        { operation: selectedOperation, compatibleOperations },
+      );
+    }
     return {
-      type: 'handle-schema',
+      type: 'handle-operation-schema',
       handle,
-      structure,
-      compatibleOperations: Object.keys(operations),
-      operations,
+      structure: { kind: structure.kind, count: structure.count },
+      operation: {
+        name: selectedOperation,
+        parameters: operationSchema().parameterContracts[selectedOperation] ?? {},
+        ...contextual,
+      },
     };
   }
-  const collection = memory.asCollection(value);
-  const subjectTypes = [...collection.items.reduce((counts, { subject }) => {
-    counts.set(subject.type, (counts.get(subject.type) ?? 0) + 1);
-    return counts;
-  }, new Map())].map(([type, count]) => ({ type, count }));
-  const structure = {
-    kind: collection.kind,
-    count: collection.items.length,
-    subjectTypes,
-  };
-  const operations = contextualResearchOperationSchema({
-    descriptor: entry.descriptor,
-    input: id,
-    structure,
-    value,
-  });
   return {
     type: 'handle-schema',
     handle,
     structure,
-    compatibleOperations: Object.keys(operations),
-    operations,
+    compatibleOperations,
+  };
+}
+
+function contextualSchemaOperation(parameters) {
+  const unknown = Object.keys(parameters).find((name) => name !== 'operation');
+  if (unknown) {
+    throw protocolError('INVALID_COMMAND', `Unknown contextual schema parameter: ${unknown}.`);
+  }
+  if (parameters.operation === undefined) return undefined;
+  if (typeof parameters.operation !== 'string'
+      || parameters.operation.trim().length === 0
+      || parameters.operation !== parameters.operation.trim()) {
+    throw protocolError(
+      'INVALID_COMMAND',
+      'Contextual schema operation must be a non-empty trimmed string.',
+    );
+  }
+  if (!operationSchema().operations.includes(parameters.operation)) {
+    throw protocolError(
+      'INVALID_OPERATION',
+      `Unknown research operation: ${parameters.operation}.`,
+      { operation: parameters.operation },
+    );
+  }
+  return parameters.operation;
+}
+
+function collectionStructure(collection) {
+  const subjectTypes = [...collection.items.reduce((counts, { subject }) => {
+    counts.set(subject.type, (counts.get(subject.type) ?? 0) + 1);
+    return counts;
+  }, new Map())].map(([type, count]) => ({ type, count }));
+  return {
+    kind: collection.kind,
+    count: collection.items.length,
+    subjectTypes,
   };
 }
 
@@ -1023,7 +1060,9 @@ function sessionSchema(configuration) {
         status: { parameters: { limit: previewRange, sizeLimit: sizeRange } },
         schema: {
           input: 'optional named result handle; omitted returns the global schema',
-          parameters: {},
+          parameters: {
+            operation: 'optional research operation name; accepted only with an input handle',
+          },
         },
       },
       configuration: {

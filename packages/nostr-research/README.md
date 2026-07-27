@@ -403,8 +403,26 @@ advance them.
 Research commands include source operations, subject-collection transforms,
 relation operations, explicit archive and notebook operations, and `plan`.
 `schema` without an input reports the authoritative global vocabulary and
-configuration. `schema` with a named input reports the complete operation
-space for that exact handle. Individual operations accept plain JSON `parameters`, either an
+configuration. `schema` with a named input and empty parameters reports that
+handle's structure and complete compatible-operation inventory without
+duplicating every operation contract:
+
+```json
+{"commandId":"authors-schema","command":"schema","input":"authors","parameters":{}}
+```
+
+Select one operation to receive its detailed contract, populated field
+candidates, effective session defaults, and caller choices still required:
+
+```json
+{"commandId":"authors-scan","command":"schema","input":"authorsRows","parameters":{"operation":"scan"}}
+```
+
+Contextual schema reports facts rather than inventing a research direction. It
+does not arbitrarily choose fields, predicates, search terms, relationships,
+or subjects. Known empty fields remain visible in the handle structure, while
+focused operation details identify populated candidates separately. Individual
+operations accept plain JSON `parameters`, either an
 optional `input` or named `inputs`, and optional `resultId`; `replace: true`
 explicitly replaces an existing named result. Named inputs are primarily used
 by `join`, with `{ "left": "...", "right": "..." }`. Plans accept the documented
@@ -418,12 +436,10 @@ reconstructing operation rules. `operationSchema()` and the session `schema`
 command are derived from the same definitions; each definition reports its
 accepted input shape, output and result kinds, locality (`local`, `external`,
 or `by-source`), memory mutation owner, and completeness contract.
-Contextual schema adds actual usable fields and choices, caller choices still
-required, and a valid current-handle example whenever one can be generated
-without inventing an external relay or another handle. The presence of an
-example means it can be submitted as shown; `remainingChoices` means the caller
-must provide those choices. `compatibleOperations` is the exhaustive list of
-those contextual operation entries.
+Contextual schema adds actual available and populated fields, effective
+external-operation defaults, and caller choices still required.
+`compatibleOperations` is the exhaustive operation inventory for the handle;
+focused schema supplies the selected operation's details.
 
 Configuration has explicit levels. Engine constraints are immutable supported
 ranges. Memory, archive, and notebook capacities are construction-time

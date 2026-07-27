@@ -21,7 +21,9 @@ function observation(index) {
 
 test('relation handles resolve references across evidence lifetime and keep bounded views composable', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 2, archiveCapacity: 2 });
-  const session = createDeclarativeResearchSession(memory);
+  const session = createDeclarativeResearchSession(memory, {
+    relays: ['wss://relay.example'],
+  });
   const oversizedTag = ['t', `nested-${'v'.repeat(4000)}`];
   const archived = note(1, `archive marker ${'a'.repeat(4000)}`, [oversizedTag]);
   const transient = note(
@@ -140,20 +142,48 @@ test('relation handles resolve references across evidence lifetime and keep boun
       'fetch', 'filter', 'join', 'project', 'scan', 'slice', 'sort',
     ].sort(),
   );
+  assert.equal('operations' in rowSchema.result, false);
+
+  const scanSchema = await session.execute({
+    commandId: 'schema-scan', command: 'schema', input: 'rows',
+    parameters: { operation: 'scan' },
+  });
+  assert.equal(scanSchema.result.type, 'handle-operation-schema');
+  assert.equal(scanSchema.result.operation.name, 'scan');
   assert.equal(
-    rowSchema.result.operations.sort.usableFields.includes('event.createdAt'),
+    scanSchema.result.operation.populatedFields.some(({ name }) => name === 'event.text'),
     true,
   );
   assert.equal(
-    rowSchema.result.operations.explode.usableFields.includes('event.tags'),
-    true,
+    scanSchema.result.operation.populatedFields.some(
+      ({ name }) => name === 'account.description',
+    ),
+    false,
   );
-  assert.deepEqual(rowSchema.result.operations.extract.recognizedTransitions, [
+  assert.equal('operations' in scanSchema.result, false);
+  assert.equal('compatibleOperations' in scanSchema.result, false);
+
+  const extractSchema = await session.execute({
+    commandId: 'schema-extract', command: 'schema', input: 'rows',
+    parameters: { operation: 'extract' },
+  });
+  assert.deepEqual(extractSchema.result.operation.recognizedTransitions, [
     { field: 'subject.id', subjectType: 'event' },
     { field: 'event.author', subjectType: 'account' },
   ]);
-  assert.equal(rowSchema.result.operations.fetch.locality, 'external');
-  assert.equal(rowSchema.result.operations.fetch.remainingChoices.length > 0, true);
+
+  const fetchSchema = await session.execute({
+    commandId: 'schema-fetch', command: 'schema', input: 'rows',
+    parameters: { operation: 'fetch' },
+  });
+  assert.equal(fetchSchema.result.operation.locality, 'external');
+  assert.deepEqual(fetchSchema.result.operation.effectiveDefaults.relays, [
+    'wss://relay.example/',
+  ]);
+  assert.equal(
+    fetchSchema.result.operation.remainingChoices.some((choice) => /relay URL/.test(choice)),
+    false,
+  );
   const absentField = await session.execute({
     commandId: 'absent-field', command: 'scan', input: 'rows',
     parameters: { fields: ['event.content'], terms: ['marker'] },
