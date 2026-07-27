@@ -119,6 +119,45 @@ Explicit summary aggregations are `count`, `distinct`, `sample`, `collect`,
 resident authored events, and current kind-3 follows. These transforms never
 acquire, hydrate, retain, or evict evidence.
 
+## Composable research relations
+
+Subject collections enter the general relation algebra with `relate`.
+Relations retain row values together with the stable subjects, reasons, and
+provenance that produced them. They support `filter`, `project`, `distinct`,
+`sort`, `limit`, `join`, `aggregate`, `derive`, and `slice`. Unlike the older
+group and summary shapes, every relation remains usable by later relation
+operations.
+
+Plans may give a stage one `input` or a named `inputs` object. `join` uses
+`inputs: { left, right }`, so combining evidence is no longer restricted to
+same-kind set membership. Derived expressions are bounded JSON data rather
+than executable JavaScript.
+
+```js
+const report = await executeResearchPlan(memory, [
+  { id: 'notes', operation: 'select', parameters: { scope: 'corpus', kinds: [1] } },
+  { id: 'rows', operation: 'relate', input: 'notes', parameters: {} },
+  {
+    id: 'authors',
+    operation: 'aggregate',
+    input: 'rows',
+    parameters: {
+      by: [{ field: 'event.author', name: 'account' }],
+      aggregations: [
+        { name: 'noteCount', operation: 'count' },
+        { name: 'examples', operation: 'sample', field: 'event.text', limit: 2 },
+      ],
+    },
+  },
+  {
+    id: 'window',
+    operation: 'slice',
+    input: 'authors',
+    parameters: { offset: 20, limit: 20 },
+  },
+]);
+```
+
 Sorting is stable. Sampling ranks stable subject identities with an explicit
 seed (or the documented default), so the same input and seed produce the same
 bounded result. Set operations accept another compatible subject collection in

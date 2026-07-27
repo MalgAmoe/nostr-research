@@ -671,6 +671,7 @@ function projectionOptions(parameters, allowMode = false) {
 
 function resultCount(value) {
   if (Array.isArray(value?.items)) return value.items.length;
+  if (Array.isArray(value?.rows)) return value.rows.length;
   if (Array.isArray(value?.collection?.items)) return value.collection.items.length;
   if (Array.isArray(value?.acquiredEventIds)) return value.acquiredEventIds.length;
   if (Number.isSafeInteger(value?.memberCount)) return value.memberCount;
@@ -678,6 +679,7 @@ function resultCount(value) {
 }
 
 function ownHandleValue(value) {
+  if (value?.type === 'research-relation') return cloneJson(value);
   if (value?.type === 'result-collection') return stableSubjectCollection(value);
   if (value?.collection?.type === 'result-collection') {
     return { ...value, collection: stableSubjectCollection(value.collection) };

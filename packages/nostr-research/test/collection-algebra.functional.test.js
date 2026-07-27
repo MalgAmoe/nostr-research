@@ -18,7 +18,7 @@ function signed(secret, event) {
   return finalizeEvent(event, secret);
 }
 
-test('typed local stages refine, balance, summarize, and move trial-shaped evidence', () => {
+test('typed local stages and composable relations refine trial-shaped evidence', async () => {
   const aliceProfile = signed(ALICE_SECRET, {
     kind: 0, created_at: 1, tags: [],
     content: JSON.stringify({
@@ -154,6 +154,60 @@ test('typed local stages refine, balance, summarize, and move trial-shaped evide
       { subject: { type: 'account', id: alice }, reasons: [{ type: 'candidate' }] },
     ]), { operation: 'move', to: 'followedAccounts', limit: 10 });
     assert.deepEqual(follows.items.map(({ subject }) => subject.id), [bob]);
+
+    const relational = await executeResearchPlan(memory, [
+      { id: 'notes', operation: 'select', parameters: { scope: 'corpus', kinds: [1] } },
+      { id: 'note-rows', operation: 'relate', input: 'notes', parameters: {} },
+      {
+        id: 'evidence', operation: 'aggregate', input: 'note-rows',
+        parameters: {
+          by: [{ field: 'event.author', name: 'account' }],
+          aggregations: [
+            { name: 'noteCount', operation: 'count' },
+            { name: 'examples', operation: 'sample', field: 'event.text', limit: 2 },
+          ],
+        },
+      },
+      {
+        id: 'accounts', operation: 'move', input: 'notes',
+        parameters: { to: 'authors', limit: 10 },
+      },
+      { id: 'account-rows', operation: 'relate', input: 'accounts', parameters: {} },
+      {
+        id: 'candidates', operation: 'join',
+        inputs: { left: 'evidence', right: 'account-rows' },
+        parameters: {
+          kind: 'left',
+          on: { left: 'account', right: 'subject.id' },
+          select: [{ field: 'account.name', name: 'name' }],
+        },
+      },
+      {
+        id: 'scored', operation: 'derive', input: 'candidates',
+        parameters: {
+          fields: [{
+            name: 'score',
+            expression: {
+              operation: 'multiply',
+              args: [{ field: 'noteCount' }, { constant: 2 }],
+            },
+          }],
+        },
+      },
+      {
+        id: 'ordered', operation: 'sort', input: 'scored',
+        parameters: { by: [{ field: 'score', direction: 'descending' }] },
+      },
+      {
+        id: 'window', operation: 'slice', input: 'ordered',
+        parameters: { offset: 0, limit: 10 },
+      },
+    ]);
+    const candidateRows = relational.stages.at(-1).result.rows;
+    assert.deepEqual(candidateRows.map(({ values }) => values.noteCount), [3, 1]);
+    assert.equal(candidateRows[0].values.name, 'alice');
+    assert.equal(candidateRows[0].values.score, 6);
+    assert.ok(candidateRows.every(({ provenance }) => provenance.length));
   } finally {
     memory.close();
   }

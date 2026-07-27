@@ -2337,6 +2337,14 @@ export function collectionPipelineSchema() {
       },
     },
     operations: {
+      relation: {
+        kind: 'relation',
+        operations: [
+          'relate', 'filter', 'project', 'distinct', 'sort', 'limit',
+          'join', 'aggregate', 'derive', 'slice',
+        ],
+        statement: 'Relations preserve values, stable subjects, reasons, and provenance across composable stages.',
+      },
       pick: {
         inputKinds: [...TRANSFORM_KINDS],
         positions: `non-empty distinct 1-based integer[] up to ${MAX_QUERY_LIMIT}`,
@@ -2630,6 +2638,13 @@ export {
 } from './acquire.js';
 export { continueResearch } from './continuation.js';
 export { executeResearchPlan } from './plan.js';
+export {
+  executeRelationOperation,
+  isResearchRelation,
+  relationFrom,
+  relationOperationNames,
+  validateRelationOperation,
+} from './relation.js';
 export {
   createDeclarativeResearchSession,
   DeclarativeResearchSession,

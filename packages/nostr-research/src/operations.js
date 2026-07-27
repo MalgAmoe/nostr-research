@@ -41,6 +41,7 @@ const TRANSFORMS = [
   'union', 'intersection', 'difference', 'compare',
 ];
 const SET_OPERATIONS = ['union', 'intersection', 'difference', 'compare'];
+const RELATION_OPERATIONS = ['relate', 'join', 'aggregate', 'derive', 'slice'];
 
 export const RESEARCH_OPERATIONS = Object.freeze({
   acquire: { input: 'forbidden', outputKind: 'events', resultKind: 'acquisition-report', external: true },
@@ -51,6 +52,11 @@ export const RESEARCH_OPERATIONS = Object.freeze({
   hydrate: { input: 'accounts', outputKind: 'events', resultKind: 'hydration-report', external: true },
   continue: { input: 'subjects', resultKind: 'continuation-report', external: 'by-source' },
   retain: { input: 'subjects', resultKind: 'retained-selection', external: false },
+  relate: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
+  join: { input: 'named', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
+  aggregate: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
+  derive: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
+  slice: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
 });
 
 export function researchOperationNames() {
@@ -67,6 +73,10 @@ export function isTransformOperation(name) {
 
 export function isSetOperation(name) {
   return RESEARCH_OPERATIONS[name]?.set === true;
+}
+
+export function isRelationOperation(name) {
+  return RESEARCH_OPERATIONS[name]?.relation === true;
 }
 
 export function isExternalOperation(name, parameters = {}) {

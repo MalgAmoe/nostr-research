@@ -18,6 +18,7 @@ export function showResearchValue(memory, value, options = {}) {
     shown = showCollection(memory, value.collection, settings);
   }
   else if (value?.type === 'typed-collection') shown = showTypedCollection(memory, value, settings);
+  else if (value?.type === 'research-relation') shown = showRelation(value, settings);
   else if (value?.type === 'facets') shown = showFacets(value, settings);
   else if (value?.type === 'result-comparison') shown = showComparison(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
@@ -28,6 +29,25 @@ export function showResearchValue(memory, value, options = {}) {
   else throw new TypeError('show does not recognize this value.');
 
   return enforceSize(shown, settings.sizeLimit);
+}
+
+function showRelation(value, settings) {
+  const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
+  const preview = value.rows.slice(0, limit).map((row) => ({
+    values: structuredClone(row.values),
+    subjects: structuredClone(row.subjects.slice(0, settings.previewLimit)),
+    omittedSubjects: Math.max(0, row.subjects.length - settings.previewLimit),
+    reasonCount: row.reasons.length,
+    provenance: structuredClone(row.provenance.slice(0, settings.previewLimit)),
+    omittedProvenance: Math.max(0, row.provenance.length - settings.previewLimit),
+  }));
+  return {
+    type: 'research-relation',
+    count: value.rows.length,
+    preview,
+    omitted: Math.max(0, value.rows.length - preview.length),
+    context: compactContext(value.context),
+  };
 }
 
 export function explainResearchMembership(memory, collectionValue, subjectValue, options = {}) {

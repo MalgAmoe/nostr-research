@@ -10,10 +10,16 @@ import {
   SUBJECT_COLLECTION_KINDS,
   continuationSemantics,
   isExternalOperation,
+  isRelationOperation,
   isSetOperation,
   isTransformOperation,
   operationSemantics,
 } from './operations.js';
+import {
+  executeRelationOperation,
+  isResearchRelation,
+  validateRelationOperation,
+} from './relation.js';
 
 /**
  * Executes a linear, JSON-serializable list of named research stages.
@@ -32,7 +38,8 @@ export async function executeResearchPlan(memory, plan, execution = {}) {
   const stages = [];
 
   for (const stage of normalized) {
-    const input = stage.input === undefined ? undefined : outputs.get(stage.input);
+    const namedInputs = resolveStageInputs(stage, outputs);
+    const input = namedInputs.input;
     const executable = isSetOperation(stage.operation)
       ? {
           ...stage,
@@ -46,12 +53,13 @@ export async function executeResearchPlan(memory, plan, execution = {}) {
       )
         ? { ...executable.parameters, signal: execution.signal }
         : executable.parameters,
-    }, input);
+    }, input, namedInputs);
     outputs.set(stage.id, result);
     stages.push({
       id: stage.id,
       operation: stage.operation,
       ...(stage.input === undefined ? {} : { input: stage.input }),
+      ...(stage.inputs === undefined ? {} : { inputs: stage.inputs }),
       resultKind: planResultKind(stage.operation, result),
       result,
     });
@@ -67,13 +75,14 @@ export async function executeResearchPlan(memory, plan, execution = {}) {
 export function preflightResearchPlan(memory, plan) {
   const outputs = new Map();
   for (const stage of plan) {
-    const input = stage.input === undefined ? undefined : outputs.get(stage.input);
+    const inputs = resolveStageInputs(stage, outputs);
+    const input = inputs.input;
     if (stage.operation === 'select' && input && input.resultKind !== 'acquisition-report') {
       throw new ResearchMemoryError(
         `Research plan select stage ${stage.id} input must name an acquisition stage.`,
       );
     }
-    const output = preflightResearchOperation(memory, stage, input, outputs);
+    const output = preflightResearchOperation(memory, stage, input, outputs, inputs);
     outputs.set(stage.id, output);
   }
   return outputs;
@@ -89,7 +98,7 @@ export function normalizeResearchPlan(plan) {
     if (!isPlainObject(stage)) {
       throw new ResearchMemoryError(`Research plan stage ${index + 1} must be an object.`);
     }
-    rejectUnknownKeys(stage, new Set(['id', 'operation', 'input', 'parameters']), index);
+    rejectUnknownKeys(stage, new Set(['id', 'operation', 'input', 'inputs', 'parameters']), index);
     if (typeof stage.id !== 'string' || stage.id.trim().length === 0) {
       throw new ResearchMemoryError(`Research plan stage ${index + 1} ID must be a non-empty string.`);
     }
@@ -104,6 +113,10 @@ export function normalizeResearchPlan(plan) {
       throw new ResearchMemoryError(`Research plan stage ${id} parameters must be an object.`);
     }
     const hasInput = stage.input !== undefined;
+    const hasInputs = stage.inputs !== undefined;
+    if (hasInput && hasInputs) {
+      throw new ResearchMemoryError(`Research plan stage ${id} cannot contain both input and inputs.`);
+    }
     const semantics = operationSemantics(stage.operation);
     if (semantics.input === 'forbidden' && hasInput) {
       throw new ResearchMemoryError(`Research plan acquire stage ${id} must not have an input.`);
@@ -113,7 +126,20 @@ export function normalizeResearchPlan(plan) {
         `Research plan stage ${id} input must name an earlier stage.`,
       );
     }
-    if (!hasInput && !['forbidden', 'optional-acquisition'].includes(semantics.input)) {
+    if (hasInputs) {
+      if (!isPlainObject(stage.inputs) || Object.keys(stage.inputs).length === 0) {
+        throw new ResearchMemoryError(`Research plan stage ${id} inputs must be a non-empty object.`);
+      }
+      for (const [name, reference] of Object.entries(stage.inputs)) {
+        if (typeof name !== 'string' || name.trim().length === 0
+            || typeof reference !== 'string' || !ids.has(reference)) {
+          throw new ResearchMemoryError(
+            `Research plan stage ${id} input ${name} must name an earlier stage.`,
+          );
+        }
+      }
+    }
+    if (!hasInput && !hasInputs && !['forbidden', 'optional-acquisition'].includes(semantics.input)) {
         throw new ResearchMemoryError(
           `Research plan stage ${id} input must name an earlier stage.`,
         );
@@ -154,6 +180,7 @@ export function normalizeResearchPlan(plan) {
       id,
       operation: stage.operation,
       ...(hasInput ? { input: stage.input } : {}),
+      ...(hasInputs ? { inputs: cloneJson(stage.inputs) } : {}),
       parameters: cloneJson(stage.parameters),
     };
   });
@@ -163,7 +190,13 @@ export function normalizeResearchPlan(plan) {
  * Validates one normalized operation against an input descriptor without
  * performing local mutation or contacting a relay.
  */
-export function preflightResearchOperation(memory, operation, input = undefined, references = undefined) {
+export function preflightResearchOperation(
+  memory,
+  operation,
+  input = undefined,
+  references = undefined,
+  namedInputs = undefined,
+) {
   const { operation: name, parameters } = operation;
   const semantics = operationSemantics(name);
   if (!semantics || !isPlainObject(parameters)) {
@@ -193,6 +226,12 @@ export function preflightResearchOperation(memory, operation, input = undefined,
       resultKind: semantics.resultKind,
       scope: input ? 'acquisition' : 'corpus',
     };
+  }
+  if (isRelationOperation(name)
+      || (input?.kind === 'relation'
+        && ['filter', 'project', 'distinct', 'sort', 'limit'].includes(name))) {
+    const inputs = namedInputs ?? { input };
+    return validateRelationOperation(name, parameters, inputs);
   }
   if (!input) throw new ResearchMemoryError(`Research ${name} operation requires an input.`);
   if (isTransformOperation(name)) {
@@ -256,8 +295,11 @@ function descriptorCollection(descriptor) {
 }
 
 /** Executes one preflighted operation through the same path used by plans. */
-export async function executeResearchOperation(memory, operation, input = undefined) {
+export async function executeResearchOperation(memory, operation, input = undefined, namedInputs = undefined) {
   const { operation: name, parameters } = operation;
+  if (isRelationOperation(name) || isResearchRelation(input)) {
+    return executeRelationOperation(memory, name, parameters, namedInputs ?? { input });
+  }
   if (name === 'acquire') return acquireRelayEvents(memory, parameters);
   if (name === 'select') {
     const query = normalizeSelectionScope(parameters, input !== undefined);
@@ -330,6 +372,15 @@ export async function executeResearchOperation(memory, operation, input = undefi
   if (name === 'continue') return continueResearch(memory, input, parameters);
   const { name: retainedName, options = {} } = parameters;
   return memory.retain(input, retainedName, options);
+}
+
+function resolveStageInputs(stage, outputs) {
+  if (stage.inputs) {
+    return Object.fromEntries(
+      Object.entries(stage.inputs).map(([name, id]) => [name, outputs.get(id)]),
+    );
+  }
+  return stage.input === undefined ? {} : { input: outputs.get(stage.input) };
 }
 
 function emptyHydrationReport(memory, options) {
