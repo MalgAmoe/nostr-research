@@ -1,3 +1,58 @@
+# Worker role
+
+You are the implementation worker in a repository-backed workflow.
+
+Read `workflow/WORKFLOW.md` and the selected task completely. Treat the task
+definition, its scope, and its acceptance criteria as authoritative within the
+durable principles in `CONTEXT.md`. Historical completed tasks are evidence of
+past work, not current policy.
+
+Work directly in the repository. Produce every required deliverable. Inspect
+real source and tests rather than relying on assumptions. Do not change task
+status, files under `workflow/runs/`, or the workflow runner.
+Do not stage or commit changes; the runner owns the task commit after review.
+
+If a previous review is supplied, address every applicable finding explicitly.
+Do not implement a finding blindly when it conflicts with `CONTEXT.md`, expands
+the selected task, or would add production complexity only to satisfy a test.
+Explain that conflict in the worker report so the reviewer can assess it.
+Do not merely describe work that should be done: perform the task within its
+stated permissions.
+
+## Verification discipline
+
+Permanent tests are exceptional durable product code, not an automatic
+deliverable for every feature or bug.
+
+- Follow the testing policy in `CONTEXT.md`.
+- Prefer a small public-boundary functional scenario over helper-level tests.
+- Add a permanent test only when it protects stable, important behavior that is
+  expensive or risky to verify otherwise.
+- Do not test TCP, TLS, WebSocket-library mechanics, process scheduling,
+  private state, private helpers, or exact timing unless that mechanism is
+  explicitly the product behavior selected by the task.
+- Use task validation or a run artifact for exploratory, live-network,
+  environment-specific, and one-off verification.
+- If a proposed test requires new public API, abstraction, dependency, or
+  low-level production machinery, challenge the test before changing the
+  product.
+- Existing tests are not requirements by themselves. Remove or update a test
+  when the selected product behavior intentionally changes.
+
+When permanent tests are added or materially expanded, the final report must
+name the stable public behavior each one protects and why temporary validation
+was insufficient.
+
+Finish with a concise plain-text report listing:
+
+- deliverables created or changed;
+- validation or checks performed;
+- permanent tests added or expanded, with their justification, or `none`;
+- unresolved uncertainties.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -162,19 +217,87 @@ Notebook judgments, labels, and notes can outlive eviction of the evidence they
 reference, but disappear with `reset()`, `close()`, or process exit. Their
 meaning remains provisional and attributed to the caller that recorded them.
 
-Session status reports observation-buffer, archive, and notebook counts
-separately, while handle listing reports working-view cardinality. After
-buffer turnover, notebook collections remain composable, archived canonical
-evidence still resolves, and excerpt-only or unpreserved references are
-honestly unresolved. Releasing archive evidence changes resolution but not
-notebook history; releasing handles changes neither; reset clears every owner
-and handle.
+The complete turnover trial established the final ownership boundary. Session
+status reports observation-buffer, archive, and notebook counts separately,
+while handle listing reports working-view cardinality. After every original
+buffer event is evicted, notebook collections remain composable, archived
+canonical evidence still resolves, excerpt-only and unpreserved references are
+honestly unresolved, and a relation built from notebook knowledge can bind a
+later relay `fetch` without copied identifiers. Releasing archive evidence
+changes resolution but not notebook history; reset clears all owners and
+handles.
 
-The final public flow is sustained through one declarative session and its
-JSONL executable: acquire explicitly, select locally, navigate subject
-collections, cross into relations for value analysis, preserve only deliberate
-evidence or attributed notebook knowledge, and inspect every bound and
-omission. Operation discovery and named inputs cover ordinary sequential
-research without executable JavaScript. Profile claims, protocol metadata,
-mechanical matches, and graph proximity remain evidence for researcher
-judgment rather than implicit credibility or trust scores.
+
+# Selected task
+
+---
+id: 056-sustained-research-trial-and-cleanup
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/056-sustained-research-trial-and-cleanup.validate.sh
+depends_on: 055-predictable-inspection-and-session-use
+protected_paths: workflow/run.py workflow/prompts
+reviewer_sandbox: workspace-write
+---
+
+# Validate sustained research and remove superseded code
+
+## Objective
+
+Use the simplified system long enough to judge whether it supports real,
+sequential research. Remove accidental complexity exposed by the trials and
+leave the package, tests, and active documentation coherent.
+
+## Work
+
+- Run two sustained sessions through the real persistent executable:
+  1. a goal-directed search for credible profiles in a chosen field;
+  2. open-ended exploration from a bounded recent-event sample.
+- In both sessions repeatedly acquire, inspect, filter, navigate, relate,
+  preserve, discard, and redirect the investigation.
+- Record:
+  - what evidence was available;
+  - what each result contained;
+  - provenance and membership explanations;
+  - local versus external operations;
+  - bounds, partiality, unresolved evidence, and omissions;
+  - how next operations were discovered;
+  - transitions among events, accounts, conversations, neighborhoods,
+    collections, and relations;
+  - preservation and buffer-turnover behavior;
+  - any remaining need for arbitrary JavaScript and the exact missing
+    primitive or composition.
+- Write the evidence and verdict to:
+
+  `workflow/artifacts/simplified-system-field-trial.md`
+
+- After the trial, remove superseded code, exports, commands, tests, task-era
+  terminology, and active documentation.
+- Update `CONTEXT.md`, the package README, and `workflow/ROADMAP.md` to describe
+  only the final system.
+- Do not add speculative operations solely in response to one research topic.
+
+## Acceptance criteria
+
+- Both sessions demonstrate sustained, sequential research rather than a
+  scripted happy path.
+- The artifact distinguishes system capability from researcher judgment and
+  Nostr data quality.
+- Ordinary navigation and analysis do not require arbitrary JavaScript.
+- Any genuinely missing capability is stated narrowly with field evidence.
+- The final implementation has no known duplicate operation or session model.
+- Permanent tests protect only stable public behavior and protocol rules.
+- Active documentation agrees on terminology, ownership, and operation flow.
+- Full validation passes.
+
+## Verification
+
+- Permanent tests expected: no new tests unless a stable public regression is
+  discovered and not already covered.
+- Stable public behavior protected: the integrated memory, operation,
+  inspection, session, and JSONL research flow.
+- Temporary task validation or field evidence: two sustained sessions recorded
+  in the required artifact; bounded live relays may be used when available.
+- Explicitly excluded test levels or mechanisms: permanent live-relay tests,
+  WebSocket/TCP tests, UI, screenshots, persistence, tests per command, and
+  implementation snapshots.

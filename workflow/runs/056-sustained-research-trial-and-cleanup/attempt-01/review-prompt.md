@@ -1,3 +1,52 @@
+# Reviewer role
+
+You are the independent reviewer in a repository-backed workflow.
+
+Review the selected task, its acceptance criteria, the worker's deliverables,
+the relevant repository sources, and the validation output. Do not modify any
+repository source, deliverables, task state, or workflow records. Do not repair
+the work. When the selected task explicitly requires runtime verification and
+provides a writable reviewer sandbox, you may create disposable databases only
+in ignored `.data/` paths or the system temporary directory.
+
+The first non-empty line of your response must be exactly one of:
+
+- `PASS`
+- `CHANGES_REQUIRED`
+- `BLOCKED`
+
+Use `PASS` only when all acceptance criteria are materially satisfied.
+
+Treat the durable principles in `CONTEXT.md` as constraints on every task.
+Historical completed tasks do not override current policy. Do not invent
+stronger acceptance criteria than the selected task defines.
+
+Audit test changes as carefully as production changes:
+
+- Permanent tests are exceptional and must protect stable public behavior.
+- Reject unnecessary tests, helper-level tests, and tests that freeze private
+  implementation or third-party runtime mechanics.
+- Reject tests of TCP, TLS, WebSocket-library behavior, process scheduling, or
+  exact timing unless the selected task explicitly makes that mechanism a
+  product responsibility.
+- Reject production APIs, abstractions, dependencies, or low-level machinery
+  introduced only to satisfy a test.
+- Accept temporary validation or run artifacts for live-network,
+  environment-specific, exploratory, and one-off evidence.
+- Passing validation is not evidence that every test is worth keeping.
+
+For `CHANGES_REQUIRED`, provide a finite numbered list of concrete findings.
+Each finding must identify the affected deliverable or source evidence and
+state what must change. Do not request optional polish or expand the task.
+
+Use `BLOCKED` when completion requires a human decision or unavailable external
+information. Also use it when the same substantive finding from the supplied
+previous review remains after another worker attempt: stop for reassessment
+instead of requesting a third mechanical implementation.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -178,3 +227,151 @@ omission. Operation discovery and named inputs cover ordinary sequential
 research without executable JavaScript. Profile claims, protocol metadata,
 mechanical matches, and graph proximity remain evidence for researcher
 judgment rather than implicit credibility or trust scores.
+
+
+# Selected task
+
+---
+id: 056-sustained-research-trial-and-cleanup
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/056-sustained-research-trial-and-cleanup.validate.sh
+depends_on: 055-predictable-inspection-and-session-use
+protected_paths: workflow/run.py workflow/prompts
+reviewer_sandbox: workspace-write
+---
+
+# Validate sustained research and remove superseded code
+
+## Objective
+
+Use the simplified system long enough to judge whether it supports real,
+sequential research. Remove accidental complexity exposed by the trials and
+leave the package, tests, and active documentation coherent.
+
+## Work
+
+- Run two sustained sessions through the real persistent executable:
+  1. a goal-directed search for credible profiles in a chosen field;
+  2. open-ended exploration from a bounded recent-event sample.
+- In both sessions repeatedly acquire, inspect, filter, navigate, relate,
+  preserve, discard, and redirect the investigation.
+- Record:
+  - what evidence was available;
+  - what each result contained;
+  - provenance and membership explanations;
+  - local versus external operations;
+  - bounds, partiality, unresolved evidence, and omissions;
+  - how next operations were discovered;
+  - transitions among events, accounts, conversations, neighborhoods,
+    collections, and relations;
+  - preservation and buffer-turnover behavior;
+  - any remaining need for arbitrary JavaScript and the exact missing
+    primitive or composition.
+- Write the evidence and verdict to:
+
+  `workflow/artifacts/simplified-system-field-trial.md`
+
+- After the trial, remove superseded code, exports, commands, tests, task-era
+  terminology, and active documentation.
+- Update `CONTEXT.md`, the package README, and `workflow/ROADMAP.md` to describe
+  only the final system.
+- Do not add speculative operations solely in response to one research topic.
+
+## Acceptance criteria
+
+- Both sessions demonstrate sustained, sequential research rather than a
+  scripted happy path.
+- The artifact distinguishes system capability from researcher judgment and
+  Nostr data quality.
+- Ordinary navigation and analysis do not require arbitrary JavaScript.
+- Any genuinely missing capability is stated narrowly with field evidence.
+- The final implementation has no known duplicate operation or session model.
+- Permanent tests protect only stable public behavior and protocol rules.
+- Active documentation agrees on terminology, ownership, and operation flow.
+- Full validation passes.
+
+## Verification
+
+- Permanent tests expected: no new tests unless a stable public regression is
+  discovered and not already covered.
+- Stable public behavior protected: the integrated memory, operation,
+  inspection, session, and JSONL research flow.
+- Temporary task validation or field evidence: two sustained sessions recorded
+  in the required artifact; bounded live relays may be used when available.
+- Explicitly excluded test levels or mechanisms: permanent live-relay tests,
+  WebSocket/TCP tests, UI, screenshots, persistence, tests per command, and
+  implementation snapshots.
+
+
+# Worker report
+
+Deliverables created or changed:
+- Added `workflow/artifacts/simplified-system-field-trial.md` documenting both sustained sessions and verdict.
+- Fixed acquisition reports missing their authoritative result type.
+- Fixed general `subjects` collections rejecting homogeneous subsets.
+- Corrected archive query schema fields.
+- Aligned `CONTEXT.md`, both READMEs, and `workflow/ROADMAP.md`.
+- Removed disposable trial transport files; no superseded production modules or duplicate session model remained.
+
+Validation:
+- Full task validation passed.
+- All 16 functional tests passed.
+- Syntax checks, focused schema/collection checks, `git diff --check`, artifact checks, and protected-path checks passed.
+
+Permanent tests added or expanded: none. The defects arose through environment-specific acquisition trials; permanent WebSocket-level testing is explicitly excluded.
+
+Unresolved uncertainties:
+- Public relays could not be evaluated because sandbox DNS failed.
+- Hydration reports cannot be scoped directly with `select`; relating the original account handle works, so no duplicate operation was added.
+- Pre-existing runner-owned task/run changes were preserved untouched.
+
+# Validation output
+
+Exit code: 0
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/collection.js && node --check src/acquire.js && node --check src/operations.js && node --check src/relation.js && node --check src/pipeline-source.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/presentation.js && node --check src/jsonl-session.js && node --check bin/nostr-research-session.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+✔ acquisition rejects unusable public inputs before networking (0.915209ms)
+✔ direct, plan, and session execution share operation kinds and failure boundaries (28.663875ms)
+✔ collections navigate identities while relations own value analysis (20.179875ms)
+✔ named account and note handles continue with bounded relationship provenance (2206.576083ms)
+✔ declarative observation and lifecycle form one bounded public workflow (40.605375ms)
+✔ declarative named results compose compatible sets and expose their schema (8.7765ms)
+✔ declarative notebook knowledge survives turnover and remains independent from evidence (17.4905ms)
+✔ explicit archive preservation survives complete buffer turnover and releases atomically (75.570625ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (26.773042ms)
+✔ collections re-resolve stable subjects across observations, replacement metadata, and eviction (25.320917ms)
+✔ JSONL executable provides one persistent bounded process workflow (108.083917ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (29.668ms)
+✔ replaceable selection and follow interpretation remain stable in one process (58.322125ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (23.698875ms)
+✔ relation handles resolve references across evidence lifetime and keep bounded views composable (46.486959ms)
+✔ large notebook membership is atomic, bounded, process-local, and directly navigable (2243.805042ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2464.33
+
+
+# Review instruction
+
+Inspect the actual deliverables and relevant repository sources now. Do not rely only on the worker report.

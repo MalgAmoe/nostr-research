@@ -210,6 +210,7 @@ export async function acquireRelayEvents(memory, options) {
     if (relayResult.outcome === 'pending') relayResult.outcome = completionReason;
   }
   const result = {
+    type: 'acquisition-report',
     requested: { filter: normalized.filter, relays: normalized.relays },
     budget: {
       timeoutMs: normalized.timeoutMs,

@@ -28,3 +28,10 @@ package README for the command protocol and examples.
 `status` reports the observation buffer, evidence archive, and research
 notebook separately. `list` reports named working-view cardinalities, making
 complete buffer turnover and accidental evidence duplication observable.
+
+The final operation flow is explicit: acquire from relays, select from local
+memory, navigate stable subject collections, cross into research relations for
+value analysis, and preserve evidence or attributed notebook knowledge only
+when requested. Schema discovery and bounded next-operation suggestions make
+this flow usable sequentially without an implicit selection or executable
+JavaScript.

@@ -270,6 +270,12 @@ the read-only `schema` command. Account profile fields are literal:
 `account.name` reads only `name`, while `account.display_name` reads only
 `display_name`.
 
+Archive discovery uses `archived` with optional singular `level`, exact
+`subject`, and `limit` parameters. It returns the general `subjects` collection
+kind even when the bounded result currently contains only events or only
+accounts, so the result remains composable with ordinary identity filters and
+archive release.
+
 ## Named research plans
 
 `executeResearchPlan(memory, plan)` runs a non-empty JSON-serializable array of
@@ -520,3 +526,9 @@ reports scope, bounds, corpus pressure and eviction effects, a bounded preview,
 bounded facets, and warnings. Detailed relay and observation coverage is
 available explicitly with `show` and `mode: "coverage"`; each list is bounded
 by `previewLimit` and reports omitted counts.
+
+Sustained field use has exercised this single executable flow across
+goal-directed account research and open-ended event exploration, including
+complete buffer turnover. Ordinary analysis required no executable JavaScript:
+schema discovery, named handles, subject navigation, relations, and explicit
+local or relay-backed operations supplied the needed composition.

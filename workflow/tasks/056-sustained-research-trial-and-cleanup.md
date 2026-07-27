@@ -1,6 +1,6 @@
 ---
 id: 056-sustained-research-trial-and-cleanup
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/056-sustained-research-trial-and-cleanup.validate.sh
 depends_on: 055-predictable-inspection-and-session-use

@@ -24,20 +24,18 @@ caller. Acquisition writes only to the observation buffer. It does not infer
 trust or quality, preserve evidence, write notebook knowledge, or claim an
 exhaustive relay index.
 
-The complete turnover trial confirms that notebook knowledge and named
-membership remain navigable after every original buffer event is evicted;
-canonical archive evidence continues to resolve; unarchived and excerpt-only
-references report unresolved; a relation derived from notebook knowledge can
-bind a later `fetch` without copied IDs; releasing archive evidence changes
-resolution without erasing notebook history; and reset clears all layers and
-handles. The durable evidence is
-`workflow/artifacts/research-memory-turnover-field-trial.md`.
+Two sustained executable sessions confirm that the system supports
+goal-directed profile research and open-ended sample exploration. They
+composed acquisition, bounded inspection, navigation, relations, preservation,
+notebook knowledge, turnover, release, and redirection without arbitrary
+JavaScript or another session model. The durable evidence and its data-quality
+limits are in `workflow/artifacts/simplified-system-field-trial.md`.
 
 There is deliberately no persistence format, database, UI, implicit active
 selection, JavaScript research console, legacy retention store, annotation
 store, ingest-time preservation mode, or copied-event relation archive.
 
-Future work must come from field evidence. Open areas include relay reliability
+Future work must continue to come from field evidence. Open areas include relay reliability
 and retry contracts, validation and trust boundaries, provenance and notebook
 semantics, relay metadata and planning, pagination and portability, and any
 future adapter. Removing the remaining Node dependencies is a separate

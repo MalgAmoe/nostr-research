@@ -1593,7 +1593,8 @@ function assertResultCollection(value) {
   }
   value.items.forEach((item) => normalizeSubject(item.subject));
   const inferred = inferSubjectCollectionKind(value.items);
-  if (value.items.length > 0 && value.kind !== undefined && value.kind !== inferred) {
+  if (value.items.length > 0 && value.kind !== undefined
+      && value.kind !== 'subjects' && value.kind !== inferred) {
     throw new ResearchMemoryError(
       `Result collection kind ${value.kind} does not match its ${inferred} items.`,
     );

@@ -288,8 +288,8 @@ export function operationSchema() {
         excerptLimit: 'optional integer from 1 to 2000',
       },
       archived: {
-        levels: 'optional preservation-level array',
-        subjectTypes: 'optional subject-type array',
+        level: 'optional preservation level',
+        subject: 'optional exact event or account subject',
         limit: 'optional bound',
       },
       'release-archive': {},
