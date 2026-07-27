@@ -484,15 +484,10 @@ reports the selected page's membership reasons and provenance. `inspect`
 remains the direct exact-subject evidence view and `explain` the direct
 exact-subject membership view.
 
-Every `show` response also contains a short `nextOperations` list derived from
-the authoritative operation registry. It contains only applicable operation
-names and their purpose; it does not invent parameters or choose fields for
-the researcher. It is deliberately a small orientation list, not the
-exhaustive operation space; use contextual `schema` for exact parameters. In
-particular, `relate` explicitly crosses a
-subject collection into a relation; `extract` crosses a selected relation field
-back into stable subjects; `move` crosses event and account collections; and
-`pick` selects positions from a preview without copying stable IDs.
+`show` reports only the requested evidence view. It does not recommend a next
+operation or imply a research workflow. Contextual `schema` reports the
+structure and compatible operations for a named handle; the researcher decides
+which action, if any, to take.
 
 ### Sequential session walkthrough
 

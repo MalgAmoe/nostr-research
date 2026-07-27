@@ -25,7 +25,6 @@ import {
 } from './presentation.js';
 import {
   contextualResearchOperationSchema,
-  discoverResearchOperations,
   isExternalOperation,
   isSetOperation,
   operationMutation,
@@ -174,12 +173,10 @@ export class DeclarativeResearchSession {
       const options = projectionOptions(
         presentationParametersWithSessionDefaults(parameters, this.#configuration), true,
       );
-      return readOnly(() => boundResearchPresentation({
-        ...showResearchValue(this.#memory, entry.value, options),
-        nextOperations: discoverResearchOperations(
-          entry.descriptor, entry.value,
-        ),
-      }, options.sizeLimit));
+      return readOnly(() => boundResearchPresentation(
+        showResearchValue(this.#memory, entry.value, options),
+        options.sizeLimit,
+      ));
     }
     if (command.command === 'inspect') {
       const { subject, ...rawOptions } = parameters;

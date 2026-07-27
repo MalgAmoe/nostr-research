@@ -36,8 +36,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   assert.equal(shown.result.type, 'result-collection');
   assert.equal(shown.result.count, 1);
   assert.equal(shown.result.observation, 'preview');
-  assert.ok(shown.result.nextOperations.some(({ operation }) => operation === 'relate'));
-  assert.ok(shown.result.nextOperations.some(({ operation }) => operation === 'pick'));
+  assert.equal('nextOperations' in shown.result, false);
   assert.equal(shown.sessionRevision, 1);
 
   const invalidProjection = await session.execute({
@@ -60,7 +59,6 @@ test('declarative observation and lifecycle form one bounded public workflow', a
     });
     assert.equal(observed.ok, true);
     assert.equal(observed.result.observation, mode);
-    assert.ok(observed.result.nextOperations.length > 0);
     assert.ok(Buffer.byteLength(JSON.stringify(observed.result)) <= 1000);
     if (mode === 'summary') assert.equal(observed.result.summary.subjects, 1);
     if (mode === 'coverage') assert.equal(observed.result.coverage.evidenceResolution.buffer, 1);
@@ -294,7 +292,6 @@ test('declarative named results compose compatible sets and expose their schema'
     },
   });
   assert.equal(relationDetails.result.observation, 'details');
-  assert.ok(relationDetails.result.nextOperations.length > 0);
   assert.equal(
     relationDetails.result.preview[0].subjects[0].evidence.event.id,
     event.id,

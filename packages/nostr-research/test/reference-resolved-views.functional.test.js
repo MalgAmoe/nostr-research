@@ -103,17 +103,6 @@ test('relation handles resolve references across evidence lifetime and keep boun
     ['buffer', 'buffer'],
   );
   assert.ok(resident.result.preview.every(({ values }) => values.joinedText.length <= 80));
-  const aggregateView = await session.execute({
-    commandId: 'show-aggregate', command: 'show', input: 'aggregate',
-    parameters: { previewLimit: 2 },
-  });
-  assert.ok(aggregateView.result.nextOperations.length > 0);
-  assert.ok(aggregateView.result.nextOperations.every((suggestion) => (
-    typeof suggestion.operation === 'string'
-      && typeof suggestion.purpose === 'string'
-      && !('example' in suggestion)
-      && !('accepts' in suggestion)
-  )));
   const rows = await session.execute({
     commandId: 'show-rows', command: 'show', input: 'rows',
     parameters: { previewLimit: 2 },

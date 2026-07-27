@@ -796,7 +796,6 @@ function enforceSize(value, maximum) {
       ...(copy.observation ? { observation: copy.observation } : {}),
       preview: [compactPreviewForSize(copy.preview[0], copy.observation)],
       ...compactObservationForSize(copy),
-      ...compactDiscoveryForSize(copy.nextOperations),
       ...(copy.offset !== undefined ? { offset: copy.offset } : {}),
       ...(copy.limit !== undefined ? { limit: copy.limit } : {}),
       nextOffset: (copy.offset ?? 0) + 1,
@@ -817,7 +816,6 @@ function enforceSize(value, maximum) {
       ...(copy.count !== undefined ? { count: copy.count } : {}),
       ...(copy.observation ? { observation: copy.observation } : {}),
       preview: [compactPreviewForSize(copy.preview[0], copy.observation)],
-      ...compactEssentialDiscoveryForSize(copy.nextOperations),
       ...(copy.offset !== undefined ? { offset: copy.offset } : {}),
       ...(copy.limit !== undefined ? { limit: copy.limit } : {}),
       nextOffset: (copy.offset ?? 0) + 1,
@@ -835,7 +833,6 @@ function enforceSize(value, maximum) {
     ...(copy.observation ? { observation: copy.observation } : {}),
     preview: [],
     ...compactObservationForSize(copy),
-    ...compactDiscoveryForSize(copy.nextOperations, 1),
     ...(copy.offset !== undefined ? { offset: copy.offset } : {}),
     ...(copy.limit !== undefined ? { limit: copy.limit } : {}),
     nextOffset: copy.offset ?? 0,
@@ -885,26 +882,6 @@ function compactCoverageForSize(coverage) {
     ...(partial !== undefined ? { partial } : {}),
     ...(exhaustive !== undefined ? { exhaustive } : {}),
     ...(uncertainty ? { uncertainty: excerpt(uncertainty, 120) } : {}),
-  };
-}
-
-function compactDiscoveryForSize(nextOperations, limit = 1) {
-  if (!Array.isArray(nextOperations)) return {};
-  return {
-    nextOperations: nextOperations.slice(0, limit).map((item) => ({
-      operation: item.operation,
-      accepts: Object.keys(item.accepts ?? {}),
-      example: structuredClone(item.example),
-    })),
-    omittedNextOperations: Math.max(0, nextOperations.length - limit),
-  };
-}
-
-function compactEssentialDiscoveryForSize(nextOperations) {
-  if (!Array.isArray(nextOperations) || nextOperations.length === 0) return {};
-  return {
-    nextOperations: [{ operation: nextOperations[0].operation }],
-    omittedNextOperations: Math.max(0, nextOperations.length - 1),
   };
 }
 
