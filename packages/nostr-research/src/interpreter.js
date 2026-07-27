@@ -732,7 +732,11 @@ function contextualHandleSchema(memory, id, entry) {
       type: 'handle-schema',
       handle,
       structure: describeResearchRelation(memory, value),
-      compatibleOperations: relationOperationNames().filter((operation) => operation !== 'relate'),
+      compatibleOperations: [
+        ...relationOperationNames().filter((operation) => operation !== 'relate'),
+        'extract',
+        'fetch',
+      ],
     };
   }
   const collection = memory.asCollection(value);

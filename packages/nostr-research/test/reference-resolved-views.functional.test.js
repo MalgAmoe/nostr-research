@@ -123,6 +123,8 @@ test('relation handles resolve references across evidence lifetime and keep boun
     { name: 'account.description', rowsWithValue: 0, nullRows: 2, types: [] },
   );
   assert.equal(rowSchema.result.compatibleOperations.includes('scan'), true);
+  assert.equal(rowSchema.result.compatibleOperations.includes('extract'), true);
+  assert.equal(rowSchema.result.compatibleOperations.includes('fetch'), true);
   const absentField = await session.execute({
     commandId: 'absent-field', command: 'scan', input: 'rows',
     parameters: { fields: ['event.content'], terms: ['marker'] },

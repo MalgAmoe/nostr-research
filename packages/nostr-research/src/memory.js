@@ -792,7 +792,7 @@ export class InMemoryResearchMemory {
   traverse(starting, options = {}) {
     this.#assertOpen();
     const normalized = normalizeTraversal(options);
-    const starts = expandStartingSubjects(this, starting).map((item) => this.#resolveTyped(item));
+    const starts = normalizeStartingSubjects(starting).map((item) => this.#resolveTyped(item));
     const queue = starts.map((item) => ({ subject: item, depth: 0 }));
     const visited = new Map(starts.map((item) => [memberKey(item), {
       subject: item, role: 'seed', reasons: [{ type: 'traversal-start' }], provenance: [],
@@ -1644,16 +1644,16 @@ function normalizeSubject(value) {
   return subject(value.type, value.id);
 }
 
-function expandStartingSubjects(memory, starting) {
+function normalizeStartingSubjects(starting) {
   const value = starting?.type === 'result-collection'
     ? starting.items.map(({ subject: item }) => item)
     : Array.isArray(starting) ? starting : [starting];
-  const expanded = [];
+  const subjects = [];
   for (const raw of value) {
     const item = normalizeSubject(raw);
-    expanded.push(item);
+    subjects.push(item);
   }
-  return uniqueSubjects(expanded);
+  return uniqueSubjects(subjects);
 }
 
 function compareTraversalEdges(left, right) {
