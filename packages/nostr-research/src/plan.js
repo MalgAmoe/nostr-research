@@ -14,7 +14,6 @@ import {
   normalizeContinuation,
 } from './continuation.js';
 import {
-  SUBJECT_COLLECTION_KINDS,
   continuationSemantics,
   isExternalOperation,
   isRelationOperation,
@@ -22,6 +21,7 @@ import {
   isTransformOperation,
   operationResultKind,
   operationSemantics,
+  supportsCollectionOperations,
 } from './operations.js';
 import {
   executeRelationOperation,
@@ -321,8 +321,13 @@ export function preflightResearchOperation(
     return { ...input, resultKind: operationResultKind(name, input.kind) };
   }
   if (name === 'remember') {
-    if (!input) throw new ResearchMemoryError('Research remember operation requires an input.');
     normalizeRememberParameters(parameters);
+    return { ...input, resultKind: input.kind };
+  }
+  if (name === 'forget') {
+    if (Object.keys(parameters).length) {
+      throw new ResearchMemoryError('Research forget parameters must be empty.');
+    }
     return { ...input, resultKind: input.kind };
   }
   const { name: membershipName, ...options } = parameters;
@@ -344,8 +349,7 @@ function inputForSetOperation(outputs, id, operation) {
 }
 
 function descriptorCollection(descriptor) {
-  if (!SUBJECT_COLLECTION_KINDS.includes(descriptor.kind)
-      || ['acquisition-report', 'hydration-report'].includes(descriptor.resultKind)) {
+  if (!supportsCollectionOperations(descriptor)) {
     throw new ResearchMemoryError(
       'Set composition requires a compatible subject collection result.',
     );
@@ -488,6 +492,11 @@ export async function executeResearchOperation(memory, operation, input = undefi
       );
     }
     for (const item of collection.items) memory.remember(item.subject, parameters);
+    return collection;
+  }
+  if (name === 'forget') {
+    const collection = memory.asCollection(input);
+    for (const item of collection.items) memory.forget(item.subject);
     return collection;
   }
   const { name: membershipName, ...options } = parameters;

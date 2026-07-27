@@ -1,0 +1,5 @@
+CHANGES_REQUIRED
+
+1. `discoverResearchOperations()` recommends invalid operations for acquisition handles. An `{ kind: "events", resultKind: "acquisition-report" }` handle receives `pick`, `relate`, `remember-membership`, and `move`, although preflight rejects acquisition reports for those collection operations. The valid `select` transition is unreachable because the generic subject-kind branch runs first. Contextual discovery must recommend executable operations, especially `select`.
+
+2. `showTypedCollection()` does not implement the five observation meanings. Requests such as `mode: "coverage"`, `"details"`, or `"explain"` for comparison/summary handles return the ordinary typed preview without an `observation` marker or the requested coverage/details/explanation content. Apply the observation contract consistently to these public result shapes.

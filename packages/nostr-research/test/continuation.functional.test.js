@@ -118,6 +118,13 @@ test('named account and note handles continue with bounded relationship provenan
   });
   assert.equal(hydratedReferencedAccounts.ok, true);
   assert.equal(hydratedReferencedAccounts.result.handle.kind, 'events');
+  const shownHydration = await session.execute({
+    commandId: 'show-hydrated-referenced-accounts',
+    command: 'show',
+    input: 'hydrated-referenced-accounts',
+    parameters: { mode: 'preview', previewLimit: 1 },
+  });
+  assert.deepEqual(shownHydration.result.nextOperations, []);
 
   const followed = await session.execute({
     commandId: 'followed-accounts',

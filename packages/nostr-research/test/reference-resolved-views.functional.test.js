@@ -175,9 +175,9 @@ test('relation handles resolve references across evidence lifetime and keep boun
   assert.equal(changed.result.preview[1].values.joinedText, null);
   const notesAfterTurnover = await session.execute({
     commandId: 'notes-after-turnover', command: 'show', input: 'notes',
-    parameters: { previewLimit: 2 },
+    parameters: { mode: 'coverage', previewLimit: 2 },
   });
-  assert.deepEqual(notesAfterTurnover.result.orientation.population.evidenceResolution, {
+  assert.deepEqual(notesAfterTurnover.result.coverage.evidenceResolution, {
     buffer: 0, archive: 1, unresolved: 1,
   });
 

@@ -35,7 +35,31 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   });
   assert.equal(shown.result.type, 'result-collection');
   assert.equal(shown.result.count, 1);
+  assert.equal(shown.result.observation, 'preview');
+  assert.ok(shown.result.nextOperations.some(({ operation }) => operation === 'relate'));
+  assert.ok(shown.result.nextOperations.some(({ operation }) => operation === 'pick'));
   assert.equal(shown.sessionRevision, 1);
+
+  for (const mode of ['summary', 'coverage', 'details', 'explain']) {
+    const observed = await session.execute({
+      commandId: `show-${mode}`,
+      command: 'show',
+      input: 'finding',
+      parameters: { mode, previewLimit: 1, excerptLimit: 40, sizeLimit: 1000 },
+    });
+    assert.equal(observed.ok, true);
+    assert.equal(observed.result.observation, mode);
+    assert.ok(observed.result.nextOperations.length > 0);
+    assert.ok(Buffer.byteLength(JSON.stringify(observed.result)) <= 1000);
+    if (mode === 'summary') assert.equal(observed.result.summary.subjects, 1);
+    if (mode === 'coverage') assert.equal(observed.result.coverage.evidenceResolution.buffer, 1);
+    if (mode === 'details') {
+      assert.ok(observed.result.preview[0], JSON.stringify(observed.result));
+      assert.equal(observed.result.preview[0].evidence.event.id, event.id);
+    }
+    if (mode === 'explain') assert.equal(observed.result.preview[0].reasons.length, 1);
+    assert.equal(observed.sessionRevision, 1);
+  }
 
   const picked = await session.execute({
     commandId: 'pick',
@@ -200,10 +224,38 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.equal(shown.result.corpus.residentEvents, 1);
   assert.equal(shown.result.corpus.evictions, 0);
   assert.equal(shown.result.corpus.subjectEffects.available, false);
+  for (const mode of ['summary', 'coverage', 'details', 'explain']) {
+    const observed = await session.execute({
+      commandId: `show-comparison-${mode}`,
+      command: 'show',
+      input: 'comparison',
+      parameters: { mode, previewLimit: 1, sizeLimit: 2000 },
+    });
+    assert.equal(observed.result.observation, mode);
+    if (mode === 'summary') assert.equal(observed.result.summary.items, 1);
+    if (mode === 'coverage') {
+      assert.equal(observed.result.coverage.bounds.outputCount, 1);
+      assert.equal(observed.result.coverage.partial, false);
+    }
+    if (mode === 'details') assert.equal(observed.result.preview[0].evidence.available, false);
+    if (mode === 'explain') assert.equal(observed.result.preview[0].reasons.length > 0, true);
+  }
   await session.execute({
     commandId: 'left-rows', command: 'relate', input: 'left',
     parameters: {}, resultId: 'left-rows',
   });
+  const relationDetails = await session.execute({
+    commandId: 'left-row-details', command: 'show', input: 'left-rows',
+    parameters: {
+      mode: 'details', previewLimit: 1, excerptLimit: 40, sizeLimit: 1000,
+    },
+  });
+  assert.equal(relationDetails.result.observation, 'details');
+  assert.ok(relationDetails.result.nextOperations.length > 0);
+  assert.equal(
+    relationDetails.result.preview[0].subjects[0].evidence.event.id,
+    event.id,
+  );
   await session.execute({
     commandId: 'right-rows', command: 'relate', input: 'right',
     parameters: {}, resultId: 'right-rows',

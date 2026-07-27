@@ -1,6 +1,6 @@
 ---
 id: 055-predictable-inspection-and-session-use
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/055-predictable-inspection-and-session-use.validate.sh
 depends_on: 054-memory-and-result-ownership
@@ -66,3 +66,24 @@ without arbitrary JavaScript.
 - Explicitly excluded test levels or mechanisms: tests per command or
   projection field, PTY/network-stack tests, live-relay tests, UI, screenshots,
   and private presenter tests.
+
+## Reopen diagnosis after attempt 2
+
+The repeated size-compaction finding was reassessed. The first compact response
+correctly preserved the requested mode, evidence, and discovery, but the
+generic final fallback erased the preview whenever that intermediate form
+still exceeded a tight valid bound. This is a presentation-policy defect with
+a finite correction: before returning an empty preview, retain an essential
+form containing one compact observation item and one next-operation identifier
+while dropping secondary pagination and explanatory metadata.
+
+## Reopen diagnosis after attempt 4
+
+The invalid contextual-discovery finding was reassessed. Discovery correctly
+special-cased acquisition reports but then inferred collection capability from
+the event-shaped `kind` of every other result. Hydration reports are also
+attempt reports rather than subject collections, and preflight intentionally
+rejects them as collection inputs. Discovery must therefore gate collection
+recommendations by result capability: acquisition reports expose `select`;
+hydration reports expose no collection operation; actual subject collections
+retain their contextual operations.

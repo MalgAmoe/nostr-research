@@ -9,12 +9,14 @@ import {
 } from './plan.js';
 import {
   acquisitionCorpusAccounting,
+  boundResearchPresentation,
   explainResearchMembership,
   presentHandleList,
   presentSessionStatus,
   showResearchValue,
 } from './presentation.js';
 import {
+  discoverResearchOperations,
   isExternalOperation,
   isSetOperation,
   operationMutation,
@@ -24,7 +26,6 @@ import {
 
 const COMMANDS = new Set([
   ...researchOperationNames(), 'plan',
-  'forget',
   'show', 'inspect', 'explain', 'list', 'memberships', 'membership', 'status', 'schema',
   'release', 'release-all', 'delete-membership', 'reset', 'close',
 ]);
@@ -155,7 +156,10 @@ export class DeclarativeResearchSession {
     if (command.command === 'show') {
       const entry = this.#requireHandle(command.input);
       const options = projectionOptions(parameters, true);
-      return readOnly(() => showResearchValue(this.#memory, entry.value, options));
+      return readOnly(() => boundResearchPresentation({
+        ...showResearchValue(this.#memory, entry.value, options),
+        nextOperations: discoverResearchOperations(entry.descriptor, command.input),
+      }, options.sizeLimit));
     }
     if (command.command === 'inspect') {
       const { subject, ...rawOptions } = parameters;
@@ -313,9 +317,6 @@ export class DeclarativeResearchSession {
     if (!isPlainObject(command.parameters)) {
       throw protocolError('INVALID_OPERATION', 'Command parameters must be a plain object.');
     }
-    if (command.command === 'forget') {
-      return this.#prepareForgetOperation(command);
-    }
     if (command.input !== undefined && command.inputs !== undefined) {
       throw protocolError('INVALID_COMMAND', 'A command cannot contain both input and inputs.');
     }
@@ -393,32 +394,6 @@ export class DeclarativeResearchSession {
       resolved.set(name, entry);
     }
     return resolved;
-  }
-
-  #prepareForgetOperation(command) {
-    const inputEntry = command.input === undefined ? undefined : this.#requireHandle(command.input);
-    if (!inputEntry) throw protocolError('INVALID_COMMAND', 'forget requires an input handle.');
-    const result = collectionValue(inputEntry.value);
-    const descriptor = { kind: result.kind };
-    validateResultTarget(command.resultId, command.replace, this.#handles);
-    return {
-      run: () => {
-        if (Object.keys(command.parameters).length) throw protocolError('INVALID_OPERATION', 'forget parameters must be empty.');
-        for (const item of result.items) this.#memory.forget(item.subject);
-        return result;
-      },
-      mutates: () => true,
-      install: command.resultId === undefined ? null : (value) => {
-        this.#handles.set(command.resultId, {
-          value: ownHandleValue(value), descriptor, revision: this.#revision + 1,
-        });
-        return [command.resultId];
-      },
-      present: (value) => presentResult(
-        value, command.resultId, descriptor, this.#revision,
-        command.command, this.#memory,
-      ),
-    };
   }
 
   #preparePlan(command) {
@@ -775,7 +750,7 @@ function externalWarnings(result, operation) {
       externalWarnings(stageResult, stageOperation).map((warning) => `Stage ${id}: ${warning}`)
     ));
   }
-  if (!result?.coverage) return [];
+  if (!Array.isArray(result?.coverage?.relays)) return [];
   const warnings = result.completionReason === 'completed'
     ? [] : [`External operation completed with ${result.completionReason}.`];
   const unsuccessful = result.coverage.relays
@@ -829,7 +804,7 @@ function sessionSchema() {
         show: {
           input: 'named result handle',
           parameters: {
-            mode: ['summary', 'preview', 'coverage'],
+            mode: ['preview', 'summary', 'coverage', 'details', 'explain'],
             offset: 'non-negative integer',
             previewLimit: 'integer from 1 to 20',
             excerptLimit: 'integer from 1 to 1000',

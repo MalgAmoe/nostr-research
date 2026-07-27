@@ -58,6 +58,7 @@ export const RESEARCH_OPERATIONS = Object.freeze({
   continue: definition('subjects', undefined, 'continuation-report', 'by-source', 'by-source', 'bounded-attempt-or-view', 'continue'),
   'remember-membership': definition('subjects', undefined, 'notebook-membership', 'local', 'notebook', 'complete-input', 'remember-membership'),
   remember: definition('subjects', undefined, 'input', 'local', 'notebook', 'complete-input', 'remember'),
+  forget: definition('subjects', undefined, 'input', 'local', 'notebook', 'complete-input', 'forget'),
   notebook: definition('forbidden', 'subjects', 'subjects', 'local', 'none', 'bounded-view', 'notebook'),
   preserve: definition('subjects', undefined, 'input', 'local', 'archive', 'complete-input', 'preserve'),
   archived: definition('forbidden', 'subjects', 'subjects', 'local', 'none', 'bounded-view', 'archived'),
@@ -110,6 +111,11 @@ export function operationSemantics(name) {
 export function operationResultKind(name, inputKind = undefined) {
   const resultKind = operationSemantics(name)?.resultKind;
   return resultKind === 'input' ? inputKind : resultKind;
+}
+
+export function supportsCollectionOperations(descriptor) {
+  return SUBJECT_COLLECTION_KINDS.includes(descriptor?.kind)
+    && !['acquisition-report', 'hydration-report'].includes(descriptor?.resultKind);
 }
 
 export function operationMutation(name, result, parameters = {}) {
@@ -209,6 +215,35 @@ export function operationSchema() {
       }],
     )),
     parameterContracts: {
+      filter: {
+        collection: 'identity predicates on subject.type or subject.id',
+        relation: 'row-value predicate',
+        limit: 'non-negative output bound',
+      },
+      pick: {
+        positions: 'non-empty one-based positions from the current stable collection order',
+      },
+      move: {
+        to: 'route accepted for the input collection kind',
+        limit: 'non-negative output bound',
+      },
+      relate: {
+        transition: 'subject collection to research relation',
+      },
+      project: {
+        fields: 'bounded relation field selections',
+      },
+      aggregate: {
+        by: 'bounded relation grouping fields',
+        aggregations: 'bounded count, sample, collect, minimum, or maximum values',
+      },
+      expand: {
+        field: 'relation field containing stable subject IDs',
+        subjectType: ['account', 'event'],
+        relationship: 'documented continuation relationship',
+        source: ['local', 'relays'],
+        eventLimit: 'global result bound',
+      },
       acquire: {
         relays: 'non-empty relay URL array',
         filter: 'normalized NIP-01 filter',
@@ -269,4 +304,71 @@ export function operationSchema() {
       },
     },
   };
+}
+
+/**
+ * Returns bounded, contextual navigation help derived from the authoritative
+ * operation registry. Examples are session envelopes minus caller correlation
+ * and result IDs, so callers can supply their own names without rewriting
+ * subjects from a preview.
+ */
+export function discoverResearchOperations(descriptor, input) {
+  const kind = descriptor?.kind;
+  const collectionCapable = supportsCollectionOperations(descriptor);
+  const candidates = [];
+  const add = (operation, parameters, purpose, extra = {}) => {
+    const semantics = operationSemantics(operation);
+    if (!semantics) return;
+    candidates.push({
+      operation,
+      purpose,
+      accepts: extra.accepts ?? operationSchema().parameterContracts[operation] ?? {},
+      example: {
+        command: operation,
+        ...(semantics.input === 'named' ? extra : { input }),
+        parameters,
+      },
+    });
+  };
+
+  if (descriptor?.resultKind === 'acquisition-report') {
+    add('select', { kinds: [1], limit: 20 },
+      'Select stable subjects from this bounded acquisition attempt.', {
+        accepts: {
+          scope: ['acquisition', 'omitted'],
+          filter: 'local selection fields applied only to events from this acquisition attempt',
+        },
+      });
+  } else if (collectionCapable) {
+    if (kind === 'subjects') {
+      add('filter', { where: { field: 'subject.type', equals: 'event' }, limit: 20 },
+        'Refine a mixed subject collection by stable identity.');
+    }
+    add('pick', { positions: [1] },
+      'Select members from the current preview page without copying stable IDs.');
+    add('relate', {}, 'Cross explicitly from subjects into value analysis.');
+    add('remember-membership', {
+      name: 'candidate-set', reason: { type: 'explicit-selection' },
+    }, 'Preserve named subject membership and its caller-authored reason.');
+  } else if (kind === 'relation') {
+    add('project', { fields: [{ field: 'subject.id', name: 'subjectId' }] },
+      'Choose a bounded relation shape for further analysis.');
+    add('expand', {
+      field: 'subject.id', subjectType: 'event', relationship: 'expansion',
+      source: 'local', eventLimit: 20,
+    }, 'Cross explicitly from a relation field back to stable subjects.');
+    add('aggregate', {
+      by: [{ field: 'event.author', name: 'account' }],
+      aggregations: [{ name: 'count', operation: 'count' }],
+    }, 'Summarize relation rows while retaining composable evidence.');
+  }
+
+  if (collectionCapable && kind === 'events') {
+    add('move', { to: 'authors', limit: 20 },
+      'Cross explicitly from event subjects to author subjects.');
+  } else if (collectionCapable && kind === 'accounts') {
+    add('move', { to: 'authoredEvents', limit: 20 },
+      'Cross explicitly from account subjects to resident event subjects.');
+  }
+  return candidates.slice(0, 4);
 }

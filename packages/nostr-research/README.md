@@ -420,10 +420,43 @@ direct profile-event form; `continue` is the relationship form and additionally
 supports local resolution. Neither performs an implicit second relay request.
 
 Research commands return compact operational results by default: the named
-handle, bounded external-completeness and corpus effects where relevant, and
-warnings. They do not embed evidence previews or facets. Use `show` for a
-bounded summary or preview, `inspect` for current subject evidence, and
-`explain` for result membership reasons.
+handle, structured external completeness and corpus effects where relevant,
+and warnings. They do not embed evidence previews or facets. `show` gives
+observation five explicit meanings: `preview` is a bounded member/row page,
+`summary` is compact counts and characteristics, `coverage` reports sources,
+bounds, omissions, unresolved evidence, and partiality, `details` resolves
+currently known canonical evidence for the selected page, and `explain`
+reports the selected page's membership reasons and provenance. `inspect`
+remains the direct exact-subject evidence view and `explain` the direct
+exact-subject membership view.
+
+Every `show` response also contains a short `nextOperations` list derived from
+the authoritative operation registry. Its examples name the current handle
+and state accepted constraints. In particular, `relate` explicitly crosses a
+subject collection into a relation; relation `expand` crosses a selected field
+back into stable subjects; `move` crosses event and account collections; and
+`pick` selects positions from a preview without copying stable IDs.
+
+### Sequential session walkthrough
+
+Start one process and send these lines in order (each response is one bounded
+JSON line):
+
+```jsonl
+{"commandId":"acquire","command":"acquire","parameters":{"relays":["wss://relay.example"],"filter":{"kinds":[1],"limit":20},"timeoutMs":5000,"observationLimit":30,"distinctEventLimit":20,"concurrency":2},"resultId":"attempt"}
+{"commandId":"select","command":"select","input":"attempt","parameters":{"kinds":[1],"limit":20},"resultId":"notes"}
+{"commandId":"preview","command":"show","input":"notes","parameters":{"mode":"preview","previewLimit":5}}
+{"commandId":"choose","command":"pick","input":"notes","parameters":{"positions":[1,3]},"resultId":"chosen"}
+{"commandId":"rows","command":"relate","input":"chosen","parameters":{},"resultId":"evidence"}
+{"commandId":"authors","command":"aggregate","input":"evidence","parameters":{"by":[{"field":"event.author","name":"account"}],"aggregations":[{"name":"noteCount","operation":"count"}]},"resultId":"authors"}
+{"commandId":"accounts","command":"expand","input":"authors","parameters":{"field":"account","subjectType":"account","relationship":"expansion","source":"local","eventLimit":20},"resultId":"accounts"}
+{"commandId":"why","command":"show","input":"accounts","parameters":{"mode":"explain","previewLimit":5}}
+```
+
+The acquisition may succeed with `external.status: "partial"`; its
+`external.completeness` says which bounds or relay outcomes made it partial.
+Observation does not change `sessionRevision`. Each command names every input
+and output, so there is no active selection or background pipeline.
 
 The research notebook owns provisional judgments, notes, bounded summaries,
 and named subject membership. `remember` applies an attributed entry with a

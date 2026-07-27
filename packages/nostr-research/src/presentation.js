@@ -35,6 +35,12 @@ export function showResearchValue(memory, value, options = {}) {
   return enforceSize(shown, settings.sizeLimit);
 }
 
+export function boundResearchPresentation(value, sizeLimit) {
+  return enforceSize(value, boundedInteger(
+    sizeLimit, DEFAULT_SIZE_LIMIT, MAX_SIZE_LIMIT, 'sizeLimit', 1000,
+  ));
+}
+
 function showRelation(memory, value, settings) {
   const resolved = resolveRelationForPresentation(memory, value);
   const distinctSubjects = new Set(resolved.rows.flatMap(
@@ -54,15 +60,25 @@ function showRelation(memory, value, settings) {
     subjectCount: row.subjects.length,
     reasonCount: row.reasons.length,
     provenanceCount: row.provenance.length,
-    ...(settings.includeEvidence ? {
-      subjects: structuredClone(row.subjects.slice(0, settings.previewLimit)),
+    ...(['details', 'explain'].includes(settings.mode) || settings.includeEvidence ? {
+      subjects: settings.mode === 'details' || settings.includeEvidence
+        ? row.subjects.slice(0, settings.previewLimit).map((subject) => ({
+          subject: structuredClone(subject),
+          ...showSubject(memory, subject, { ...settings, includeEvidence: true }),
+        }))
+        : structuredClone(row.subjects.slice(0, settings.previewLimit)),
       omittedSubjects: Math.max(0, row.subjects.length - settings.previewLimit),
       provenance: structuredClone(row.provenance.slice(0, settings.previewLimit)),
       omittedProvenance: Math.max(0, row.provenance.length - settings.previewLimit),
+      ...(settings.mode === 'explain' ? {
+        reasons: structuredClone(row.reasons.slice(0, settings.previewLimit)),
+        omittedReasons: Math.max(0, row.reasons.length - settings.previewLimit),
+      } : {}),
     } : {}),
   }));
-  return {
+  const result = {
     type: 'research-relation',
+    observation: settings.mode,
     count: resolved.rows.length,
     distinctSubjectCount: distinctSubjects.size,
     distinctAuthorCount: distinctAuthors.size,
@@ -76,6 +92,18 @@ function showRelation(memory, value, settings) {
     sizeBounded: false,
     context: compactContext(value.context),
   };
+  if (settings.mode === 'coverage') {
+    result.preview = [];
+    result.coverage = {
+      evidenceResolution: resolutionCounts(memory, resolved.rows.flatMap(({ subjects }) => (
+        subjects.map((subject) => ({ subject }))
+      ))),
+      rowsWithProvenance: resolved.rows.filter(({ provenance }) => provenance.length > 0).length,
+      presentationOmissions: { rowDetails: resolved.rows.length },
+      partial: value.context?.completeness?.status === 'partial',
+    };
+  }
+  return result;
 }
 
 function compactRelationValue(value, excerptLimit) {
@@ -243,8 +271,9 @@ function showCollection(memory, collection, settings) {
     excerptLimit: settings.excerptLimit,
     previewLimit: settings.previewLimit,
   });
-  return {
+  const result = {
     type: 'result-collection',
+    observation: settings.mode,
     count: collection.items.length,
     preview: projected.results.map((item, index) => ({
       ...compactResult(item),
@@ -259,8 +288,54 @@ function showCollection(memory, collection, settings) {
     omitted: Math.max(0, collection.items.length - preview.items.length),
     sizeBounded: false,
     context: compactContext(collection.context, collection.items.length),
-    provenance: provenanceSummary(resolved.items),
-    orientation: collectionOrientation(memory, collection, settings),
+  };
+  if (settings.mode === 'summary') {
+    result.preview = [];
+    result.summary = {
+      subjects: collection.items.length,
+      byType: countedSubjectTypes(collection.items),
+      evidenceResolution: resolutionCounts(memory, collection.items),
+    };
+  } else if (settings.mode === 'coverage') {
+    result.preview = [];
+    const provenance = provenanceSummary(collection.items);
+    result.coverage = {
+      sources: provenance,
+      evidenceResolution: resolutionCounts(memory, collection.items),
+      presentationOmissions: { subjectDetails: collection.items.length },
+      partial: collection.context?.completeness?.status === 'partial',
+      bounds: compactBounds(collection),
+      unresolvedEvidence: resolutionCounts(memory, collection.items).unresolved,
+    };
+  } else if (settings.mode === 'details') {
+    result.preview = resolved.items.map((item) => ({
+      subject: structuredClone(item.subject),
+      ...showSubject(memory, item.subject, { ...settings, includeEvidence: true }),
+    }));
+  } else if (settings.mode === 'explain') {
+    result.preview = resolved.items.map((item) => ({
+      subject: structuredClone(item.subject),
+      reasons: structuredClone((item.reasons ?? []).slice(0, settings.previewLimit)),
+      omittedReasons: Math.max(0, (item.reasons?.length ?? 0) - settings.previewLimit),
+      provenance: structuredClone((item.provenance ?? []).slice(0, settings.previewLimit)),
+      omittedProvenance: Math.max(0, (item.provenance?.length ?? 0) - settings.previewLimit),
+    }));
+  }
+  return result;
+}
+
+function countedSubjectTypes(items) {
+  const counts = {};
+  for (const { subject } of items) counts[subject.type] = (counts[subject.type] ?? 0) + 1;
+  return counts;
+}
+
+function compactBounds(collection) {
+  const cardinality = collection.context?.cardinality;
+  return cardinality ? structuredClone(cardinality) : {
+    outputCount: collection.items.length,
+    omittedCount: 0,
+    truncated: false,
   };
 }
 
@@ -269,14 +344,16 @@ function showTypedCollection(memory, collection, settings) {
   const resolved = memory.asCollection(collection);
   const bounds = collection.bounds ?? resolved.bounds;
   const effectiveOffset = Math.min(settings.offset, resolved.items.length);
-  const preview = resolved.items.slice(effectiveOffset, effectiveOffset + limit).map((item) => (
-    resolved.kind === 'groups'
-      ? showGroup(memory, item, resolved.itemKind, { ...settings, offset: 0 })
-      : showSummary(item, settings)
+  const selected = resolved.items.slice(effectiveOffset, effectiveOffset + limit);
+  const preview = selected.map((item) => showTypedItem(
+    memory, item, resolved.kind, resolved.itemKind, settings,
   ));
   const omitted = Math.max(0, resolved.items.length - preview.length);
-  return {
+  const subjects = typedCollectionSubjects(resolved);
+  const evidenceResolution = resolutionCounts(memory, subjects);
+  const result = {
     type: 'typed-collection',
+    observation: settings.mode,
     kind: resolved.kind,
     itemKind: resolved.itemKind,
     count: resolved.items.length,
@@ -304,6 +381,63 @@ function showTypedCollection(memory, collection, settings) {
       },
     },
   };
+  if (settings.mode === 'summary') {
+    result.preview = [];
+    result.summary = {
+      items: resolved.items.length,
+      kind: resolved.kind,
+      itemKind: resolved.itemKind,
+      representedSubjects: subjects.length,
+      bounds: bounds ? structuredClone(bounds) : undefined,
+    };
+  } else if (settings.mode === 'coverage') {
+    result.preview = [];
+    result.coverage = {
+      sources: provenanceSummary(resolved.items),
+      evidenceResolution,
+      unresolvedEvidence: evidenceResolution.unresolved,
+      bounds: bounds ? structuredClone(bounds) : {
+        outputCount: resolved.items.length, omittedCount: 0, truncated: false,
+      },
+      presentationOmissions: { items: resolved.items.length },
+      partial: Boolean(bounds?.truncated),
+    };
+  }
+  return result;
+}
+
+function showTypedItem(memory, item, kind, itemKind, settings) {
+  if (kind === 'groups') return showGroup(memory, item, itemKind, { ...settings, offset: 0 });
+  const summary = showSummary(item, settings);
+  if (settings.mode === 'details') {
+    return {
+      ...summary,
+      subjects: [],
+      evidence: {
+        available: false,
+        statement: 'This derived summary contains no stable subject references to resolve.',
+      },
+    };
+  }
+  if (settings.mode === 'explain') {
+    return {
+      ...summary,
+      reasons: structuredClone((item.reasons ?? []).slice(0, settings.previewLimit)),
+      omittedReasons: Math.max(0, (item.reasons?.length ?? 0) - settings.previewLimit),
+      evidenceProvenance: structuredClone(
+        (item.provenance ?? []).slice(0, settings.previewLimit),
+      ),
+      omittedProvenance: Math.max(
+        0, (item.provenance?.length ?? 0) - settings.previewLimit,
+      ),
+    };
+  }
+  return summary;
+}
+
+function typedCollectionSubjects(collection) {
+  if (collection.kind !== 'groups') return [];
+  return collection.items.flatMap((group) => group.items ?? []);
 }
 
 function showFacets(value, settings) {
@@ -467,6 +601,7 @@ function showAcquisition(memory, value, settings) {
     const eventOffset = Math.min(settings.offset, observedEvents.length);
     return {
       type: 'acquisition-coverage',
+      observation: 'coverage',
       count: distinctEvents,
       requested: structuredClone(value.coverage?.requested ?? value.requested),
       budget: structuredClone(value.coverage?.budget ?? value.budget),
@@ -490,6 +625,7 @@ function showAcquisition(memory, value, settings) {
   const shownCollection = showCollection(memory, collection, settings);
   return {
     type: 'acquisition',
+    observation: settings.mode,
     count: distinctEvents,
     scope: { type: 'acquisition', subjects: collection.items.length },
     preview: shownCollection.preview,
@@ -514,10 +650,6 @@ function showAcquisition(memory, value, settings) {
       uncertainty: value.coverage?.uncertainty
         ?? 'A bounded attempt was made; exhaustive relay indexing is not implied.',
     },
-    facets: facetResearchCollection(memory, collection, {
-      limit: Math.min(settings.previewLimit, DEFAULT_FACET_LIMIT),
-    }),
-    provenance: [],
   };
 }
 
@@ -873,8 +1005,9 @@ function inspectionOptions(options) {
   assertOptions(options, [
     'mode', 'offset', 'previewLimit', 'excerptLimit', 'includeEvidence', 'sizeLimit',
   ]);
-  if (options.mode !== undefined && !['summary', 'preview', 'coverage'].includes(options.mode)) {
-    throw new TypeError('mode must be summary, preview, or coverage.');
+  if (options.mode !== undefined
+      && !['preview', 'summary', 'coverage', 'details', 'explain'].includes(options.mode)) {
+    throw new TypeError('mode must be preview, summary, coverage, details, or explain.');
   }
   return {
     mode: options.mode ?? 'preview',
@@ -948,7 +1081,10 @@ function enforceSize(value, maximum) {
       type: copy.type,
       ...(copy.id ? { id: copy.id } : {}),
       ...(copy.count !== undefined ? { count: copy.count } : {}),
-      preview: [compactPreviewForSize(copy.preview[0])],
+      ...(copy.observation ? { observation: copy.observation } : {}),
+      preview: [compactPreviewForSize(copy.preview[0], copy.observation)],
+      ...compactObservationForSize(copy),
+      ...compactDiscoveryForSize(copy.nextOperations),
       ...(copy.offset !== undefined ? { offset: copy.offset } : {}),
       ...(copy.limit !== undefined ? { limit: copy.limit } : {}),
       nextOffset: (copy.offset ?? 0) + 1,
@@ -963,12 +1099,26 @@ function enforceSize(value, maximum) {
       provenance: [],
     };
     if (Buffer.byteLength(JSON.stringify(minimal)) <= maximum) return minimal;
+
+    const essential = {
+      type: copy.type,
+      ...(copy.count !== undefined ? { count: copy.count } : {}),
+      ...(copy.observation ? { observation: copy.observation } : {}),
+      preview: [compactPreviewForSize(copy.preview[0], copy.observation)],
+      ...compactEssentialDiscoveryForSize(copy.nextOperations),
+      omitted: Math.max(0, (copy.count ?? 1) - 1),
+      sizeBounded: true,
+    };
+    if (Buffer.byteLength(JSON.stringify(essential)) <= maximum) return essential;
   }
   return {
     type: copy.type,
     ...(copy.id ? { id: copy.id } : {}),
     ...(copy.count !== undefined ? { count: copy.count } : {}),
+    ...(copy.observation ? { observation: copy.observation } : {}),
     preview: [],
+    ...compactObservationForSize(copy),
+    ...compactDiscoveryForSize(copy.nextOperations, 1),
     ...(copy.offset !== undefined ? { offset: copy.offset } : {}),
     ...(copy.limit !== undefined ? { limit: copy.limit } : {}),
     nextOffset: copy.offset ?? 0,
@@ -981,12 +1131,115 @@ function enforceSize(value, maximum) {
   };
 }
 
-function compactPreviewForSize(value) {
+function compactObservationForSize(value) {
+  if (value.observation === 'summary' && value.summary) {
+    return { summary: structuredClone(value.summary) };
+  }
+  if (value.observation === 'coverage' && value.coverage) {
+    return { coverage: compactCoverageForSize(value.coverage) };
+  }
+  return {};
+}
+
+function compactCoverageForSize(coverage) {
+  const {
+    evidenceResolution, partial, exhaustive, uncertainty, unresolvedEvidence,
+    completionReason, bounds, sources,
+  } = coverage;
+  return {
+    ...(sources ? { sources } : {}),
+    ...(evidenceResolution ? { evidenceResolution } : {}),
+    ...(unresolvedEvidence !== undefined ? { unresolvedEvidence } : {}),
+    ...(bounds ? { bounds } : {}),
+    ...(completionReason ? { completionReason } : {}),
+    ...(partial !== undefined ? { partial } : {}),
+    ...(exhaustive !== undefined ? { exhaustive } : {}),
+    ...(uncertainty ? { uncertainty: excerpt(uncertainty, 120) } : {}),
+  };
+}
+
+function compactDiscoveryForSize(nextOperations, limit = 1) {
+  if (!Array.isArray(nextOperations)) return {};
+  return {
+    nextOperations: nextOperations.slice(0, limit).map((item) => ({
+      operation: item.operation,
+      accepts: Object.keys(item.accepts ?? {}),
+      example: structuredClone(item.example),
+    })),
+    omittedNextOperations: Math.max(0, nextOperations.length - limit),
+  };
+}
+
+function compactEssentialDiscoveryForSize(nextOperations) {
+  if (!Array.isArray(nextOperations) || nextOperations.length === 0) return {};
+  return {
+    nextOperations: [{ operation: nextOperations[0].operation }],
+    omittedNextOperations: Math.max(0, nextOperations.length - 1),
+  };
+}
+
+function compactPreviewForSize(value, observation) {
   const copy = structuredClone(value);
+  if (observation === 'details') {
+    if (copy.evidence) {
+      return {
+        subject: copy.subject ?? (
+          copy.type && copy.id ? { type: copy.type, id: copy.id } : undefined
+        ),
+        resolved: copy.resolved,
+        resolutionSource: copy.resolutionSource,
+        evidence: compactEvidenceForSize(copy.evidence),
+      };
+    }
+    if (Array.isArray(copy.subjects)) {
+      return {
+        subjects: copy.subjects.slice(0, 1).map((item) => ({
+          subject: item.subject,
+          resolved: item.resolved,
+          resolutionSource: item.resolutionSource,
+          ...(item.evidence ? { evidence: compactEvidenceForSize(item.evidence) } : {}),
+        })),
+        omittedSubjects: copy.omittedSubjects,
+      };
+    }
+  }
+  if (observation === 'explain') {
+    return {
+      ...(copy.subject ? { subject: copy.subject } : {}),
+      reasons: structuredClone((copy.reasons ?? []).slice(0, 1)),
+      omittedReasons: copy.omittedReasons ?? 0,
+      provenance: structuredClone((copy.provenance ?? []).slice(0, 1)),
+      omittedProvenance: copy.omittedProvenance ?? 0,
+    };
+  }
   delete copy.notebookEntry;
   delete copy.reasonSummary;
-  delete copy.evidence;
   delete copy.relays;
+  if (observation === 'details') {
+    delete copy.preview;
+    delete copy.context;
+    delete copy.provenance;
+    delete copy.freshness;
+    delete copy.corpus;
+    delete copy.omittedProvenance;
+  }
+  if (observation !== 'details') delete copy.evidence;
+  if (observation !== 'explain') {
+    delete copy.reasons;
+    delete copy.provenance;
+  }
+  if (observation === 'details' && copy.evidence) {
+    copy.evidence = compactEvidenceForSize(copy.evidence);
+  }
+  if (observation === 'details' && Array.isArray(copy.subjects)) {
+    copy.subjects = copy.subjects.slice(0, 1).map((subject) => {
+      const compact = structuredClone(subject);
+      if (compact.evidence) compact.evidence = compactEvidenceForSize(compact.evidence);
+      delete compact.freshness;
+      delete compact.corpus;
+      return compact;
+    });
+  }
   if (copy.author) {
     delete copy.author.descriptionExcerpt;
     delete copy.author.relays;
@@ -996,7 +1249,7 @@ function compactPreviewForSize(value) {
     copy.descriptionExcerpt = excerpt(copy.descriptionExcerpt, 80);
   }
   if (copy.values && typeof copy.values === 'object') {
-    const compactValues = compactRelationValue(copy.values, 80);
+    const compactValues = compactRelationValue(copy.values, 40);
     const preferred = Object.entries(compactValues).filter(([name]) => (
       name.startsWith('match.')
       || name === 'subject.id'
@@ -1004,9 +1257,25 @@ function compactPreviewForSize(value) {
       || name === 'evidence.resolutionSource'
     ));
     copy.values = Object.fromEntries((preferred.length ? preferred : Object.entries(compactValues))
-      .slice(0, 10));
+      .slice(0, 6));
   }
   return copy;
+}
+
+function compactEvidenceForSize(evidence) {
+  const canonical = evidence.event ?? evidence.metadataEvent;
+  return {
+    ...(canonical ? {
+      [evidence.event ? 'event' : 'metadataEvent']: {
+        id: canonical.id,
+        pubkey: canonical.pubkey,
+        created_at: canonical.created_at,
+        kind: canonical.kind,
+        content: excerpt(canonical.content, 80),
+      },
+    } : {}),
+    observationCount: evidence.observationCount ?? evidence.provenance?.length ?? 0,
+  };
 }
 
 function increment(map, key) {
