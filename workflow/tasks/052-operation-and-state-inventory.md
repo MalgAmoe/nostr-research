@@ -1,6 +1,6 @@
 ---
 id: 052-operation-and-state-inventory
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/052-operation-and-state-inventory.validate.sh
 depends_on: 051-research-memory-turnover-trial
