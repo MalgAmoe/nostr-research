@@ -36,8 +36,8 @@ await session.close(); // clears all resident state
 `ingest` stores immutable canonical evidence and records each observation in
 the observation buffer. Buffer capacity uses deterministic FIFO eviction.
 `describe()` reports buffer and archive capacity and counts. Eviction removes
-buffer evidence and its derived indexes, while retained selections keep stable
-subject references. `inspect(subject)` reports `resolutionSource` as
+buffer evidence and its derived indexes, while notebook entries and named
+membership keep stable subject references. `inspect(subject)` reports `resolutionSource` as
 `"archive"`, `"buffer"`, or `"unresolved"`.
 
 Evidence survives buffer turnover only through an explicit preservation
@@ -62,7 +62,7 @@ preservation request; acquisition never evicts archive entries.
 Local operations never contact relays. `select` is the canonical local event
 selection operation. `lookup(subject)` is the direct exact-subject selection
 path for a full event or account identity. Collection transforms,
-continuations, inspection, facets, and retained selections all use the same
+continuations, inspection, facets, and notebook inputs all use the same
 resident corpus.
 
 Relay acquisition is explicit:
@@ -137,7 +137,7 @@ subjects, author, kind, structured tag, linked domain, and observed relay.
 Explicit summary aggregations are `count`, `distinct`, `sample`, `collect`,
 `min`, and `max`. Move routes cover event authors and protocol references,
 resident authored events, and current kind-3 follows. These transforms never
-acquire, hydrate, retain, or evict evidence.
+acquire, hydrate, remember, or evict evidence.
 
 ## Composable research relations
 
@@ -285,7 +285,8 @@ only that acquisition's subjects, or omit `input` and set
 corpus.
 The supported local pipeline operations are the same ones accepted by
 `memory.transform`; plans additionally support `acquire`, `select`, `hydrate`,
-and `retain`. A set operation names its left input with `input` and an earlier
+and the notebook operations `remember`, `notebook`, and `remember-membership`.
+A set operation names its left input with `input` and an earlier
 compatible right-hand stage with `parameters.with`.
 
 ```js
@@ -336,7 +337,7 @@ const report = await executeResearchPlan(memory, [
   },
   {
     id: 'saved',
-    operation: 'retain',
+    operation: 'remember-membership',
     input: 'authors',
     parameters: {
       name: suppliedName,
@@ -351,12 +352,12 @@ each stage result plus a concise `resultKind`. Acquisition and hydration return
 their existing bounded completion reports and never replace an input
 collection, so a later stage can explicitly reuse the pre-hydration account
 stage. The runner infers no topics, exclusions, examples, names, or reasons,
-and does not update declarative session handles or persist plans. A retained plan reason,
+and does not update declarative session handles or persist plans. A membership reason,
 when supplied, is an object with a non-empty `type`; invalid plan data is
 rejected before any external stage runs.
 
 There is deliberately no database format, persistence interface, or reopen
-behavior. Retained selections live only while this memory is open. Calling
+behavior. Notebook knowledge lives only while this memory is open. Calling
 `reset()` or `close()`, or ending the Node process, loses all resident state.
 A fresh process always starts empty.
 
@@ -386,8 +387,8 @@ either:
 
 Malformed JSON cannot provide trustworthy correlation, so its response uses
 `commandId: null` and `INVALID_COMMAND`. Optional `ifRevision` rejects stale
-commands with `REVISION_CONFLICT`. Revisions advance when corpus, retained-set,
-or named-handle state changes; observation commands and failed commands do not
+commands with `REVISION_CONFLICT`. Revisions advance when the corpus, notebook,
+archive, or named-handle state changes; observation commands and failed commands do not
 advance them.
 
 Research commands include source operations, subject-collection transforms,
@@ -405,12 +406,12 @@ warnings. They do not embed evidence previews or facets. Use `show` for a
 bounded summary or preview, `inspect` for current subject evidence, and
 `explain` for result membership reasons.
 
-Judgment commands are `annotate`, `annotations`, and `remove-annotations`.
-`annotate` and `remove-annotations` apply to every stable subject in their named
-input handle. `annotations` selects explicit judgments or caller labels into an
-ordinary named collection. For example, an interested collection can be
-combined with an uninterested collection through `difference`; both annotations
-remain inspectable evidence. No automatic classification occurs.
+The research notebook owns provisional judgments, notes, bounded summaries,
+and named subject membership. `remember` applies an attributed entry with a
+reason and stable source references to each subject in its input; `notebook`
+queries judgments or labels into an ordinary collection; `forget` removes
+entries. `remember-membership` records an explainable named candidate group.
+Nothing is recorded automatically and notebook actions never archive evidence.
 
 `select` always makes its scope explicit. With an acquisition result as
 `input`, it selects only among that attempt's stable event subjects (and may
@@ -429,7 +430,7 @@ and concurrency bounds. Both forms report completeness and per-input
 omissions, while `explain` exposes the continuation relationship responsible
 for membership. Relay completeness describes only the bounded attempt.
 
-Observation commands are `show`, `inspect`, `explain`, `list`, `sets`, `set`,
+Observation commands are `show`, `inspect`, `explain`, `list`, `memberships`, `membership`,
 `status`, and `schema`.
 `show` and `explain` consume a named input. `inspect` receives its stable
 `subject` in `parameters`. Projection parameters are `previewLimit`,
@@ -440,14 +441,12 @@ selects another preview window without creating a new result. Responses report
 counts plus `omitted` or truncation metadata rather than emitting unbounded
 values.
 
-Handle lifecycle commands are `release` and `release-all`; neither deletes a
-retained selection. Retained selections are listed with `sets`, inspected with
-`set`, and changed only by `rename-set`, `replace-set`, or `delete-set`.
-`replace-set` requires both an existing set ID and an input handle, so it cannot
-silently create or overwrite a working handle. Ordinary `resultId` replacement
-still requires `replace: true`. Retaining an empty collection first returns
-`EMPTY_RESULT`; repeating it with `parameters.allowEmpty: true` makes the
-intent explicit and returns a warning.
+Handle lifecycle commands are `release` and `release-all`; neither deletes
+notebook knowledge. Named membership is listed with `memberships`, inspected
+with `membership`, and changed only by `replace-membership` or
+`delete-membership`. Releasing archived evidence and deleting notebook
+knowledge are likewise independent. Ordinary `resultId` replacement still
+requires `replace: true`.
 
 `reset` clears handles and all process-local memory. `close` also ends the
 session. Empty and partial

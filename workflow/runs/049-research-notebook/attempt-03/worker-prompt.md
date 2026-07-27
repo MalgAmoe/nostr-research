@@ -1,10 +1,65 @@
+# Worker role
+
+You are the implementation worker in a repository-backed workflow.
+
+Read `workflow/WORKFLOW.md` and the selected task completely. Treat the task
+definition, its scope, and its acceptance criteria as authoritative within the
+durable principles in `CONTEXT.md`. Historical completed tasks are evidence of
+past work, not current policy.
+
+Work directly in the repository. Produce every required deliverable. Inspect
+real source and tests rather than relying on assumptions. Do not change task
+status, files under `workflow/runs/`, or the workflow runner.
+Do not stage or commit changes; the runner owns the task commit after review.
+
+If a previous review is supplied, address every applicable finding explicitly.
+Do not implement a finding blindly when it conflicts with `CONTEXT.md`, expands
+the selected task, or would add production complexity only to satisfy a test.
+Explain that conflict in the worker report so the reviewer can assess it.
+Do not merely describe work that should be done: perform the task within its
+stated permissions.
+
+## Verification discipline
+
+Permanent tests are exceptional durable product code, not an automatic
+deliverable for every feature or bug.
+
+- Follow the testing policy in `CONTEXT.md`.
+- Prefer a small public-boundary functional scenario over helper-level tests.
+- Add a permanent test only when it protects stable, important behavior that is
+  expensive or risky to verify otherwise.
+- Do not test TCP, TLS, WebSocket-library mechanics, process scheduling,
+  private state, private helpers, or exact timing unless that mechanism is
+  explicitly the product behavior selected by the task.
+- Use task validation or a run artifact for exploratory, live-network,
+  environment-specific, and one-off verification.
+- If a proposed test requires new public API, abstraction, dependency, or
+  low-level production machinery, challenge the test before changing the
+  product.
+- Existing tests are not requirements by themselves. Remove or update a test
+  when the selected product behavior intentionally changes.
+
+When permanent tests are added or materially expanded, the final report must
+name the stable public behavior each one protects and why temporary validation
+was insufficient.
+
+Finish with a concise plain-text report listing:
+
+- deliverables created or changed;
+- validation or checks performed;
+- permanent tests added or expanded, with their justification, or `none`;
+- unresolved uncertainties.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
 
 This project is a tool for research, navigation, and exploration of Nostr. It
 is not being shaped as a conventional feed client. Its job is to help a person
-acquire evidence, inspect it, navigate relationships, preserve useful collections,
+acquire evidence, inspect it, navigate relationships, preserve useful sets,
 and understand why a result is present.
 
 The product foundation is a UI-independent library. The CLI, functional
@@ -29,7 +84,7 @@ no presentation layer defines the domain boundary.
   either or both.
 - Provenance is research output, not hidden transport bookkeeping. The system
   must make observable where evidence came from and the reason a result was
-  included in a query, relationship traversal, or named notebook membership.
+  included in a query, relationship traversal, or saved set.
 - Persistence and a database format are deliberately absent. Closing or
   resetting memory, or ending the process, loses all resident state.
 
@@ -42,7 +97,7 @@ no presentation layer defines the domain boundary.
 | **memory** | The process-local owner of the observation buffer, evidence archive, research notebook, and their derived indexes. |
 | **observation buffer** | The renewable, capacity-bounded store of canonical events recently acquired from relays, their observations, and temporary indexes. Buffer evidence may be evicted. |
 | **evidence archive** | Deliberately preserved evidence copied from the observation buffer at an explicit preservation level. Archive evidence is not silently evicted to make room for relay acquisition. |
-| **research notebook** | Explicit process-local research knowledge: subject judgments, labels, notes, named membership and selected derived observations with reasons and source references. It is interpretation, not Nostr source evidence. |
+| **research notebook** | Explicit process-local research knowledge: subject judgments, labels, notes, retained membership and selected derived observations with reasons and source references. It is interpretation, not Nostr source evidence. |
 | **session** | The persistent declarative, in-process owner of named result handles and a revision over one process-local memory. |
 | **result handle** | A session-owned name for an engine view. Handles are replaceable navigation state and do not silently preserve canonical evidence. |
 | **subject collection** | A bounded set of stable Nostr subjects with membership reasons and provenance. |
@@ -50,6 +105,8 @@ no presentation layer defines the domain boundary.
 | **acquisition** | The operation of contacting or otherwise reading sources to obtain events and record observations. |
 | **acquisition coverage** | Information returned by one bounded relay attempt: exact filter and budgets, contacted relays and outcomes, and observations. It does not claim exhaustive indexing or create a global history record. |
 | **query** | An operation over local memory that selects and explains results; it does not itself require relay access. |
+| **retained selection** | Named notebook membership preserving stable subjects and reasons. Preserving the source evidence itself is a separate, explicit choice. |
+| **annotation** | A process-local interpretation attached to a stable subject: caller-defined labels and a free-text note. It is navigation state, not source evidence or a universal claim. |
 | **provenance** | Observable source and acquisition history for evidence, including the context needed to assess it. |
 | **derived relationship** | A reproducible interpretation connecting evidence (for example reply, mention, tag, author, or citation); it is not raw evidence and can be replaced. |
 
@@ -75,7 +132,7 @@ must still decide, through evidence and experimentation where appropriate:
   multi-relay acquisition;
 - event-validation and trust boundaries, including signatures and external
   identity claims;
-- provenance detail and notebook-membership semantics;
+- provenance detail and retained-selection semantics;
 - relay metadata, planning, configuration, moderation, and persistence policy;
 - which current protocol interpretations are normative and which analysis or
   account-search heuristics are optional or excluded;
@@ -154,9 +211,109 @@ reports canonical non-matches separately. A continuation that performs nested
 relay requests shares one distinct-event bound across those requests, so a
 repeated ID consumes distinct capacity only on its first appearance.
 
-Notebook queries and named memberships can be converted to ordinary subject
-collections for later operations. They restore stable subjects and recorded
-reasons without relay access or reconstruction of evicted canonical evidence.
-Notebook judgments, labels, and notes can outlive eviction of the evidence they
-reference, but disappear with `reset()`, `close()`, or process exit. Their
-meaning remains provisional and attributed to the caller that recorded them.
+Explicit session activation accepts both retained summaries and full retained
+selections through the same retained-to-collection conversion. It restores
+subjects and retained reasons without relay access or reconstruction of
+evicted canonical evidence.
+
+Annotations belong to memory's replaceable derived material. They can outlive
+eviction of the canonical event or profile they reference, but disappear with
+`reset()`, `close()`, or process exit. Annotation labels have only the meaning
+assigned by their caller.
+
+
+# Selected task
+
+---
+id: 049-research-notebook
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/049-research-notebook.validate.sh
+depends_on: 048-deliberate-evidence-preservation
+protected_paths: workflow/run.py workflow/prompts
+reviewer_sandbox: workspace-write
+---
+
+# Consolidate explicit research knowledge in one notebook
+
+## Objective
+
+Give provisional interpretation and navigation knowledge one coherent owner.
+The notebook must retain what the researcher learned without pretending that
+subject membership or judgment preserves the underlying Nostr evidence.
+
+## Work
+
+- Replace the separate annotation map and retained-set implementation with one
+  memory-owned research notebook following
+  `workflow/artifacts/research-memory-milestone.md`.
+- Support the useful existing actions through the coherent model:
+  - interested, uninterested, uncertain, and anchor judgments;
+  - optional strength, labels, and researcher-authored notes;
+  - named subject membership with reasons and source references;
+  - explicitly recorded bounded derived observations or summaries when a
+    caller chooses to remember them.
+- Keep notebook statements attributed and provisional. Do not infer, train,
+  score, or automatically record every result.
+- Make notebook queries usable as ordinary inputs to filtering, joining,
+  explanation, and later relay-directed acquisition.
+- Keep evidence preservation orthogonal:
+  - notebook membership must not archive an event;
+  - archiving evidence must not silently create a judgment;
+  - deleting either must not silently delete the other.
+- Provide a concise declarative/session lifecycle for listing, inspecting,
+  replacing, and deleting notebook entries or named membership.
+- Remove superseded annotation/set shapes, lifecycle branches, presentation,
+  exports, documentation, and tests. There is no compatibility requirement.
+
+## Acceptance criteria
+
+- Notebook knowledge survives complete observation-buffer turnover.
+- Positive and negative judgments and named candidate membership can direct a
+  subsequent local or relay-backed operation without manual ID copying.
+- Every notebook entry exposes its subject, kind, reason, attribution, and
+  source references without claiming that referenced evidence is resolved.
+- Notebook and archive lifecycles are independent and unambiguous.
+- Existing research actions remain expressible with a smaller conceptual
+  surface than annotations plus retained sets.
+- No universal quality model, automatic classifier, persistence layer, or
+  event duplication is added.
+
+## Verification
+
+- Permanent tests expected: yes, extend one public declarative-session
+  workflow to protect notebook judgment, named membership, evidence
+  independence, and use as a later operation input.
+- Stable public behavior protected: provisional judgments, explainable
+  membership, named result/session lifecycle.
+- Temporary task validation or field evidence: deterministic acquire,
+  remember, turn over, and reacquire scenario.
+- Explicitly excluded test levels or mechanisms: tests per notebook command,
+  internal map shape, scoring/classification tests, live relay transport, UI,
+  persistence, and compatibility tests for removed annotation/set APIs.
+
+## Reassessment after attempt 2
+
+The repeated review finding is now diagnosed precisely and is narrower than
+the original cleanup wording:
+
+- remove the obsolete public retained-selection subject/value shape
+  `type: "set"`, `isResearchSet()`, and `showSet()` presentation path;
+- replace `sets`/`set` wording that remains in validation errors for the new
+  `memberships` and `membership` commands;
+- remove stale retained-selection language from the canonical context;
+- preserve legitimate mathematical set operations, JavaScript `Set` usage,
+  aggregation terms such as retained sample count, and ordinary English uses
+  of “set” which are not the removed research-set model.
+
+This changed diagnosis justifies one further worker/reviewer attempt. It does
+not reopen the notebook model or ask for another compatibility layer.
+
+
+# Latest independent review
+
+BLOCKED
+
+The previous review’s substantive finding 4 remains after the second worker attempt, requiring reassessment rather than a third mechanical implementation.
+
+1. Superseded retained-set behavior and terminology remain in public source paths. `interpreter.js` still emits “sets” and “set” validation errors for the new `memberships` and `membership` commands. `presentation.js` still recognizes `type: "set"`, uses `isResearchSet()`, and routes those values through `showSet()`. These obsolete compatibility shapes must be removed or intentionally reconsidered before the task can pass.

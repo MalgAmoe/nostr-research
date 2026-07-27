@@ -22,7 +22,6 @@ export function showResearchValue(memory, value, options = {}) {
   else if (value?.type === 'facets') shown = showFacets(value, settings);
   else if (value?.type === 'result-comparison') shown = showComparison(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
-  else if (isResearchSet(value)) shown = showSet(memory, value, settings);
   else if (isSubject(value?.subject)) shown = showSubject(memory, value.subject, settings);
   else if (isSubject(value)) shown = showSubject(memory, value, settings);
   else if (value === memory) shown = showCorpus(memory.describe());
@@ -124,7 +123,7 @@ export function presentSessionStatus(memory, status, options = {}) {
       pressure: corpus.capacity === 0 ? 0 : corpus.eventCount / corpus.capacity,
       evictions: corpus.evictions,
     },
-    retainedSetCount: memory.listSets().length,
+    notebookMembershipCount: memory.listMemberships().length,
     activeOperationCount: status.activeOperationCount,
     handleCount: status.handleCount,
   }, settings.sizeLimit);
@@ -264,7 +263,7 @@ function showTypedCollection(memory, collection, settings) {
       ...corpusState(memory),
       subjectEffects: {
         available: false,
-        statement: 'This derived summary does not retain a parallel subject collection; inspect or show its source result for subject residency and retention effects.',
+        statement: 'This derived summary does not create parallel notebook membership; inspect or show its source result for current evidence resolution.',
       },
     },
   };
@@ -402,30 +401,6 @@ function showSubject(memory, item, settings) {
     omittedProvenance: settings.includeEvidence
       ? Math.max(0, provenance.length - settings.previewLimit) : provenance.length,
     ...(settings.includeEvidence && record ? { evidence: evidenceDetail({ record }, settings.excerptLimit).evidence } : {}),
-  };
-}
-
-function showSet(memory, value, settings) {
-  const id = value.id;
-  const members = value.members ?? memory.getSet(id).members;
-  const projected = memory.project({ type: 'set', id }, {
-    mode: 'compact', excerptLimit: settings.excerptLimit, previewLimit: settings.previewLimit,
-  }).results[0];
-  return {
-    type: 'set', id, count: value.memberCount ?? value.members?.length ?? projected.memberCount,
-    preview: settings.mode === 'summary' ? [] : projected.preview,
-    omitted: Math.max(0, (value.memberCount ?? value.members?.length ?? 0)
-      - (settings.mode === 'summary' ? 0 : projected.preview?.length ?? 0)),
-    context: { name: value.name, createdAt: value.createdAt },
-    freshness: evidenceFreshness(memory, members.map((member) => ({ subject: member }))),
-    corpus: corpusEffects(memory, members.map((member) => ({ subject: member }))),
-    provenance: settings.includeEvidence && value.members
-      ? value.members.slice(0, settings.previewLimit).map((member) => ({
-          subject: { type: member.type, id: member.id }, reasons: member.reasons,
-        })) : [],
-    omittedProvenance: settings.includeEvidence && value.members
-      ? Math.max(0, value.members.length - settings.previewLimit)
-      : value.members?.length ?? value.memberCount ?? 0,
   };
 }
 
@@ -776,8 +751,8 @@ function corpusEffects(memory, items) {
     if (memory.inspect(item).resident) resident += 1;
   }
   let retained = 0;
-  for (const summary of memory.listSets()) {
-    const set = memory.getSet(summary.id);
+  for (const summary of memory.listMemberships()) {
+    const set = memory.getMembership(summary.name);
     retained += set.members.filter((member) => keys.has(`${member.type}:${member.id}`)).length;
   }
   return {
@@ -938,18 +913,13 @@ function excerpt(value, maximum) {
 }
 
 function isSubject(value) {
-  return value && ['event', 'account', 'set', 'tag'].includes(value.type)
+  return value && ['event', 'account', 'tag'].includes(value.type)
     && typeof value.id === 'string';
 }
 
 function isAcquisition(value) {
   return value && value.requested && value.budget && Array.isArray(value.acquiredObservations)
     && value.counts && Array.isArray(value.relays);
-}
-
-function isResearchSet(value) {
-  return value && typeof value.id === 'string' && typeof value.name === 'string'
-    && (Array.isArray(value.members) || Number.isInteger(value.memberCount));
 }
 
 function isCorpusSummary(value) {

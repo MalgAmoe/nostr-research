@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { finalizeEvent } from 'nostr-tools';
 import {
   createDeclarativeResearchSession,
   createInMemoryResearchMemory,
 } from '@nostr-research/memory';
 import { loadFixtureEvents } from '../test-support/fixtures.js';
 
+const NOTEBOOK_TEST_KEY = Uint8Array.from(Buffer.from('6'.repeat(64), 'hex'));
+
 test('declarative observation and lifecycle form one bounded public workflow', async () => {
-  const memory = createInMemoryResearchMemory({ capacity: 3 });
+  const memory = createInMemoryResearchMemory({ capacity: 1 });
   const session = createDeclarativeResearchSession(memory);
   const [event] = loadFixtureEvents();
   memory.ingest(event, {
@@ -88,14 +91,14 @@ test('declarative observation and lifecycle form one bounded public workflow', a
 
   const retained = await session.execute({
     commandId: 'retain',
-    command: 'retain',
+    command: 'remember-membership',
     input: 'finding',
     parameters: { name: 'kept independently' },
     resultId: 'retained',
   });
   assert.equal(retained.sessionRevision, 3);
   const retainedId = retained.result.handle.id;
-  const setId = memory.listSets()[0].id;
+  const setId = memory.listMemberships()[0].id;
   assert.equal(retainedId, 'retained');
 
   const listed = await session.execute({
@@ -115,7 +118,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   });
   assert.equal(released.sessionRevision, 4);
   assert.equal(memory.getEvent(event.id).event.id, event.id);
-  assert.equal(memory.getSet(setId).id, setId);
+  assert.equal(memory.getMembership(setId).id, setId);
 
   const status = await session.execute({
     commandId: 'status',
@@ -124,7 +127,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   });
   assert.equal(status.result.revision, 4);
   assert.equal(status.result.handleCount, 2);
-  assert.equal(status.result.retainedSetCount, 1);
+  assert.equal(status.result.notebookMembershipCount, 1);
   assert.equal(status.sessionRevision, 4);
 
   const reset = await session.execute({
@@ -135,7 +138,7 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   });
   assert.equal(reset.sessionRevision, 5);
   assert.equal(memory.describe().eventCount, 0);
-  assert.deepEqual(memory.listSets(), []);
+  assert.deepEqual(memory.listMemberships(), []);
 
   const closed = await session.execute({
     commandId: 'close',
@@ -292,46 +295,50 @@ test('declarative named results compose compatible sets and expose their schema'
   await session.close();
 });
 
-test('declarative judgments and retained selections survive explicit workspace lifecycle', async () => {
-  const memory = createInMemoryResearchMemory({ capacity: 3 });
+test('declarative notebook knowledge survives turnover and remains independent from evidence', async () => {
+  const memory = createInMemoryResearchMemory({ capacity: 2 });
   const session = createDeclarativeResearchSession(memory);
   const [interestedEvent, uninterestedEvent] = loadFixtureEvents();
-  for (const event of [interestedEvent, uninterestedEvent]) {
-    memory.ingest(event, {
-      relay: 'wss://fixture.example/',
-      observedAt: '2026-07-27T10:00:00.000Z',
-    });
-  }
+  memory.ingest(interestedEvent, {
+    relay: 'wss://fixture.example/', observedAt: '2026-07-27T10:00:00.000Z',
+  });
 
   await session.execute({
     commandId: 'positive-source', command: 'select',
     parameters: { scope: 'corpus', ids: [interestedEvent.id] }, resultId: 'positive-source',
   });
+  const positiveJudgment = await session.execute({
+    commandId: 'judge-positive', command: 'remember', input: 'positive-source',
+    parameters: {
+      kind: 'judgment', judgment: 'interested', strength: 0.8,
+      reason: 'Relevant first-hand example', attribution: 'researcher',
+      sourceReferences: [{ type: 'event', id: interestedEvent.id }],
+    },
+  });
+  assert.equal(positiveJudgment.ok, true);
+  memory.ingest(uninterestedEvent, {
+    relay: 'wss://fixture.example/', observedAt: '2026-07-27T10:01:00.000Z',
+  });
   await session.execute({
     commandId: 'negative-source', command: 'select',
     parameters: { scope: 'corpus', ids: [uninterestedEvent.id] }, resultId: 'negative-source',
   });
-  const positiveJudgment = await session.execute({
-    commandId: 'judge-positive', command: 'annotate', input: 'positive-source',
-    parameters: {
-      judgment: 'interested', strength: 0.8, reason: 'Relevant first-hand example',
-    },
-  });
-  assert.equal(positiveJudgment.ok, true);
   const negativeJudgment = await session.execute({
-    commandId: 'judge-negative', command: 'annotate', input: 'negative-source',
+    commandId: 'judge-negative', command: 'remember', input: 'negative-source',
     parameters: {
-      judgment: 'uninterested', reason: 'Useful counterexample, outside this inquiry',
+      kind: 'judgment', judgment: 'uninterested',
+      reason: 'Useful counterexample, outside this inquiry', attribution: 'researcher',
+      sourceReferences: [{ type: 'event', id: uninterestedEvent.id }],
     },
   });
   assert.equal(negativeJudgment.ok, true);
 
   await session.execute({
-    commandId: 'positives', command: 'annotations',
+    commandId: 'positives', command: 'notebook',
     parameters: { judgments: ['interested'] }, resultId: 'positives',
   });
   await session.execute({
-    commandId: 'negatives', command: 'annotations',
+    commandId: 'negatives', command: 'notebook',
     parameters: { judgments: ['uninterested'] }, resultId: 'negatives',
   });
   const constrained = await session.execute({
@@ -340,80 +347,117 @@ test('declarative judgments and retained selections survive explicit workspace l
   });
   assert.equal(constrained.result.handle.count, 1);
   assert.equal(
-    memory.getAnnotation({ type: 'event', id: interestedEvent.id }).reason,
+    memory.getNotebookEntry({ type: 'event', id: interestedEvent.id }).reason,
     'Relevant first-hand example',
   );
 
   const retained = await session.execute({
-    commandId: 'retain', command: 'retain', input: 'constrained',
+    commandId: 'retain', command: 'remember-membership', input: 'constrained',
     parameters: { name: 'provisional examples' }, resultId: 'retained-handle',
   });
   assert.deepEqual(retained.warnings, []);
-  const setId = memory.listSets()[0].id;
-  await session.execute({
-    commandId: 'rename', command: 'rename-set',
-    parameters: { id: setId, name: 'reviewed provisional examples' },
+  const membershipName = 'provisional examples';
+  const membershipInput = await session.execute({
+    commandId: 'membership-input', command: 'filter', input: 'retained-handle',
+    parameters: { where: { field: 'subject.type', equals: 'event' }, limit: 10 },
+    resultId: 'membership-input',
   });
+  assert.equal(membershipInput.result.handle.count, 1);
+
+  const turnoverEvents = [0, 1].map((index) => finalizeEvent({
+    kind: 1,
+    created_at: 200 + index,
+    tags: [],
+    content: `turnover ${index}`,
+  }, NOTEBOOK_TEST_KEY));
+  for (const event of turnoverEvents) {
+    memory.ingest(event, {
+      relay: 'wss://turnover.example/', observedAt: '2026-07-27T10:02:00.000Z',
+    });
+  }
+  assert.equal(memory.inspect({ type: 'event', id: interestedEvent.id }).resolutionSource, 'unresolved');
+  assert.equal(memory.inspect({ type: 'event', id: uninterestedEvent.id }).resolutionSource, 'unresolved');
+  assert.equal(memory.describe().evictions, 2);
+
+  const notebookAfterTurnover = await session.execute({
+    commandId: 'notebook-after-turnover', command: 'filter', input: 'positives',
+    parameters: { where: { field: 'subject.type', equals: 'event' }, limit: 10 },
+    resultId: 'notebook-after-turnover',
+  });
+  assert.equal(notebookAfterTurnover.result.handle.count, 1);
+  const membershipAfterTurnover = await session.execute({
+    commandId: 'membership-after-turnover', command: 'filter', input: 'retained-handle',
+    parameters: { where: { field: 'subject.type', equals: 'event' }, limit: 10 },
+    resultId: 'membership-after-turnover',
+  });
+  assert.equal(membershipAfterTurnover.result.handle.count, 1);
+
+  const turnoverSelection = await session.execute({
+    commandId: 'turnover-source', command: 'select',
+    parameters: { scope: 'corpus', ids: [turnoverEvents[0].id] }, resultId: 'turnover-source',
+  });
+  const revisionBeforeSummaryPlan = turnoverSelection.sessionRevision;
+  const validSummaryPlan = await session.execute({
+    commandId: 'remember-summary-plan-valid',
+    command: 'plan',
+    plan: [{
+      id: 'source',
+      operation: 'select',
+      parameters: { scope: 'corpus', ids: [turnoverEvents[0].id] },
+    }, {
+      id: 'summary',
+      operation: 'remember',
+      input: 'source',
+      parameters: {
+        kind: 'derived-observation',
+        summary: { observation: 'explicit bounded example', count: 1 },
+        reason: 'Remembered for later comparison',
+        attribution: 'researcher',
+        sourceReferences: [{ type: 'event', id: turnoverEvents[0].id }],
+      },
+    }],
+  });
+  assert.equal(validSummaryPlan.ok, true);
+  assert.equal(validSummaryPlan.sessionRevision, revisionBeforeSummaryPlan + 1);
+  assert.deepEqual(
+    memory.getNotebookEntry({ type: 'event', id: turnoverEvents[0].id }).summary,
+    { observation: 'explicit bounded example', count: 1 },
+  );
+
   const replaced = await session.execute({
-    commandId: 'replace', command: 'replace-set', input: 'negatives',
+    commandId: 'replace', command: 'replace-membership', input: 'negatives',
     parameters: {
-      id: setId,
+      name: membershipName,
       reason: { type: 'explicit-negative-example', provisional: true },
     },
   });
   assert.equal(replaced.result.memberCount, 1);
-  assert.equal(memory.getSet(setId).members[0].id, uninterestedEvent.id);
+  assert.equal(memory.getMembership(membershipName).members[0].id, uninterestedEvent.id);
 
   const released = await session.execute({
     commandId: 'release', command: 'release', input: 'retained-handle', parameters: {},
   });
   assert.equal(released.result.type, 'released-result-handle');
   const inspectedSet = await session.execute({
-    commandId: 'inspect-set', command: 'set', parameters: { id: setId },
+    commandId: 'inspect-membership', command: 'membership', parameters: { name: membershipName },
   });
-  assert.equal(inspectedSet.result.name, 'reviewed provisional examples');
+  assert.equal(inspectedSet.result.name, membershipName);
 
-  const authors = await session.execute({
-    commandId: 'authors', command: 'move', input: 'positives',
-    parameters: { to: 'authors', limit: 2 }, resultId: 'authors',
+  const filteredNotebook = await session.execute({
+    commandId: 'filter-notebook', command: 'filter', input: 'positives',
+    parameters: { where: { field: 'subject.type', equals: 'event' }, limit: 2 },
+    resultId: 'filtered-notebook',
   });
-  assert.equal(authors.result.handle.kind, 'accounts');
+  assert.equal(filteredNotebook.result.handle.count, 1);
+
+  assert.equal(memory.getNotebookEntry({ type: 'event', id: interestedEvent.id }).attribution, 'researcher');
+  assert.equal(memory.archived().count, 0);
+  assert.equal(memory.getMembership(membershipName).members.length, 1);
 
   await session.execute({
-    commandId: 'empty', command: 'difference', input: 'positives',
-    parameters: { with: 'positives', limit: 10 }, resultId: 'empty',
+    commandId: 'delete', command: 'delete-membership', parameters: { name: membershipName },
   });
-  const invalidEmptyRetention = await session.execute({
-    commandId: 'retain-empty-invalid', command: 'retain', input: 'empty',
-    parameters: { name: 'invalid empty selection', callback: '() => process.exit()' },
-  });
-  assert.equal(invalidEmptyRetention.error.code, 'INVALID_OPERATION');
-  const refusedEmptyRetention = await session.execute({
-    commandId: 'retain-empty', command: 'retain', input: 'empty',
-    parameters: { name: 'deliberately empty selection' },
-  });
-  assert.equal(refusedEmptyRetention.error.code, 'EMPTY_RESULT');
-  const emptyRetention = await session.execute({
-    commandId: 'retain-empty-explicitly', command: 'retain', input: 'empty',
-    parameters: { name: 'deliberately empty selection', allowEmpty: true },
-  });
-  assert.match(emptyRetention.warnings[0], /retained selection is empty/i);
-
-  const bulkReleased = await session.execute({
-    commandId: 'release-all', command: 'release-all', parameters: {},
-  });
-  assert.ok(bulkReleased.result.count > 0);
-  assert.equal(memory.listSets().length, 2);
-  await session.execute({
-    commandId: 'delete', command: 'delete-set', parameters: { id: setId },
-  });
-  assert.equal(memory.listSets().length, 1);
-
-  const schema = await session.execute({
-    commandId: 'schema', command: 'schema', parameters: {},
-  });
-  assert.equal(schema.result.session.accountFields['account.name'], 'literal Nostr kind-0 profile field "name"');
-  assert.match(schema.result.session.retainedSets.distinction, /release-all.*delete-set/);
+  assert.equal(memory.getNotebookEntry({ type: 'event', id: interestedEvent.id }).judgment, 'interested');
 
   await session.close();
 });

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { validateEvent, verifyEvent } from 'nostr-tools';
 import {
   MOVE_ROUTES,
@@ -13,8 +12,8 @@ const SIGNATURE = /^[a-f0-9]{128}$/;
 const DEFAULT_QUERY_LIMIT = 50;
 const MAX_QUERY_LIMIT = 1000;
 const DEFAULT_TRANSFORM_LIMIT = 100;
-const SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set']);
-const RETAINABLE_SUBJECT_TYPES = new Set(['event', 'account', 'tag', 'set']);
+const SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
+const RETAINABLE_SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
 const NAVIGATION_RELATIONSHIP_TYPES = new Set([
   'author',
   'reply-root',
@@ -175,14 +174,15 @@ class IndexedObservationBuffer {
 export class InMemoryResearchMemory {
   #capacity;
   #archiveCapacity;
+  #notebookCapacity = MAX_QUERY_LIMIT;
   #closed = false;
   #buffer = new IndexedObservationBuffer();
   #archive = new Map();
   #archivedCanonical = new IndexedObservationBuffer();
   #nextObservationId = 1;
   #evictions = 0;
-  #sets = new Map();
-  #annotations = new Map();
+  #notebookMemberships = new Map();
+  #notebookEntries = new Map();
 
   constructor(capacity, archiveCapacity = capacity) {
     if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > MAX_QUERY_LIMIT) {
@@ -341,11 +341,11 @@ export class InMemoryResearchMemory {
     return { kind, itemKind: memberKind };
   }
 
-  validateRetention(name, options = {}, collectionKind = undefined) {
+  validateNotebookMembership(name, options = {}, collectionKind = undefined) {
     this.#assertOpen();
-    normalizeSetName(name);
-    assertPlainObject(options, 'Retention options');
-    rejectUnknownKeys(options, new Set(['reason']), 'retention option');
+    normalizeMembershipName(name);
+    assertPlainObject(options, 'Notebook membership options');
+    rejectUnknownKeys(options, new Set(['reason', 'attribution']), 'notebook membership option');
     if (options.reason !== undefined) normalizeReason(options.reason);
     if (collectionKind !== undefined) validateRetainableCollectionKind(collectionKind);
   }
@@ -373,13 +373,13 @@ export class InMemoryResearchMemory {
 
   asCollection(value) {
     this.#assertOpen();
-    if (value?.type === 'set' || isPublicResearchSet(value)) {
-      const retained = this.getSet(value.id);
+    if (value?.type === 'notebook-membership') {
+      const retained = this.getMembership(value.name);
       return resultCollection(retained.members.map((item) => ({
         subject: subject(item.type, item.id),
         reasons: item.reasons,
         provenance: [],
-      })), { operation: 'retained-selection', setId: retained.id });
+      })), { operation: 'notebook-membership', name: retained.name });
     }
     if (value?.type === 'result-collection') {
       assertResultCollection(value);
@@ -636,7 +636,6 @@ export class InMemoryResearchMemory {
         ? subject('account', item.id)
         : this.#resolveAccountSubject(item.id);
     }
-    if (item.type === 'set') return subject('set', this.getSet(item.id).id);
     return subject(item.type, item.id);
   }
 
@@ -902,68 +901,75 @@ export class InMemoryResearchMemory {
     return { subject: item, resident: collection.context.relationships.length > 0, collection };
   }
 
-  annotate(reference, value) {
+  remember(reference, value) {
     this.#assertOpen();
     const item = normalizeSubject(reference);
-    const annotation = normalizeAnnotation(value);
+    const entry = normalizeNotebookEntry(value);
     const key = memberKey(item);
-    const existing = this.#annotations.get(key);
+    const existing = this.#notebookEntries.get(key);
+    if (!existing && this.#notebookEntries.size >= this.#notebookCapacity) {
+      throw new ResearchMemoryError(`Research notebook entry capacity ${this.#notebookCapacity} has been reached.`);
+    }
     const now = new Date().toISOString();
     const stored = {
       subject: item,
-      labels: annotation.labels,
-      note: annotation.note,
-      ...(annotation.judgment === undefined ? {} : { judgment: annotation.judgment }),
-      ...(annotation.strength === undefined ? {} : { strength: annotation.strength }),
-      ...(annotation.reason === undefined ? {} : { reason: annotation.reason }),
+      kind: entry.kind,
+      reason: entry.reason,
+      attribution: entry.attribution,
+      sourceReferences: entry.sourceReferences,
+      labels: entry.labels,
+      note: entry.note,
+      ...(entry.judgment === undefined ? {} : { judgment: entry.judgment }),
+      ...(entry.strength === undefined ? {} : { strength: entry.strength }),
+      ...(entry.summary === undefined ? {} : { summary: entry.summary }),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    this.#annotations.set(key, stored);
+    this.#notebookEntries.set(key, stored);
     return cloneJson(stored);
   }
 
-  getAnnotation(reference) {
+  getNotebookEntry(reference) {
     this.#assertOpen();
     const item = normalizeSubject(reference);
-    return cloneJson(this.#annotations.get(memberKey(item)) ?? null);
+    return cloneJson(this.#notebookEntries.get(memberKey(item)) ?? null);
   }
 
-  annotated(query = {}) {
+  notebook(query = {}) {
     this.#assertOpen();
-    const normalized = normalizeAnnotationQuery(query);
-    const items = [...this.#annotations.values()]
-      .filter((annotation) => normalized.labels.every(
-        (label) => annotation.labels.includes(label),
+    const normalized = normalizeNotebookQuery(query);
+    const items = [...this.#notebookEntries.values()]
+      .filter((entry) => normalized.labels.every(
+        (label) => entry.labels.includes(label),
       ))
-      .filter((annotation) => normalized.judgments.length === 0
-        || normalized.judgments.includes(annotation.judgment))
+      .filter((entry) => normalized.judgments.length === 0
+        || normalized.judgments.includes(entry.judgment))
       .sort((left, right) => (
         right.updatedAt.localeCompare(left.updatedAt)
         || memberKey(left.subject).localeCompare(memberKey(right.subject))
       ))
       .slice(0, normalized.limit)
-      .map((annotation) => ({
-        subject: annotation.subject,
+      .map((entry) => ({
+        subject: entry.subject,
         role: 'discovery',
-        reasons: [{ type: 'annotation', annotation }],
-        provenance: [],
+        reasons: [{ type: 'notebook-entry', entry }],
+        provenance: entry.sourceReferences,
       }));
     return resultCollection(items, {
-      operation: 'annotation-query',
+      operation: 'notebook-query',
       labels: normalized.labels,
       judgments: normalized.judgments,
       limit: normalized.limit,
     });
   }
 
-  removeAnnotation(reference) {
+  forget(reference) {
     this.#assertOpen();
     const item = normalizeSubject(reference);
-    return { subject: item, removed: this.#annotations.delete(memberKey(item)) };
+    return { subject: item, removed: this.#notebookEntries.delete(memberKey(item)) };
   }
 
-  #createPopulatedSet(name, entries, options = {}) {
+  #createMembership(name, entries, options = {}) {
     this.#assertOpen();
     const members = new Map();
     for (const entry of entries) {
@@ -981,20 +987,26 @@ export class InMemoryResearchMemory {
       }
       members.set(key, found);
     }
+    const normalizedName = normalizeMembershipName(name);
+    if (!this.#notebookMemberships.has(normalizedName)
+        && this.#notebookMemberships.size >= this.#notebookCapacity) {
+      throw new ResearchMemoryError(`Research notebook membership capacity ${this.#notebookCapacity} has been reached.`);
+    }
     const record = {
-      id: randomUUID(), name: normalizeSetName(name), createdAt: new Date().toISOString(),
+      id: normalizedName, name: normalizedName, createdAt: new Date().toISOString(),
       members: [...members.values()].sort((a, b) => memberKey(a).localeCompare(memberKey(b))),
     };
-    this.#sets.set(record.id, cloneJson(record));
-    const summary = this.#setSummary(record, 10);
+    this.#notebookMemberships.set(record.name, cloneJson(record));
+    const summary = this.#membershipSummary(record, 10);
     return {
+      type: 'notebook-membership',
       id: summary.id, name: summary.name, createdAt: summary.createdAt,
       memberCount: summary.memberCount, reasonCount: summary.reasonCount,
       preview: summary.preview,
     };
   }
 
-  #setSummary(set, previewLimit = 5) {
+  #membershipSummary(set, previewLimit = 5) {
     const counts = Object.fromEntries([...RETAINABLE_SUBJECT_TYPES].map((type) => [type, 0]));
     for (const member of set.members) counts[member.type] += 1;
     return {
@@ -1005,42 +1017,40 @@ export class InMemoryResearchMemory {
     };
   }
 
-  getSet(id) {
+  getMembership(name) {
     this.#assertOpen();
-    const set = this.#sets.get(id);
-    if (!set) throw new ResearchMemoryError(`No research set found for ID ${id}.`);
+    const set = this.#notebookMemberships.get(name);
+    if (!set) throw new ResearchMemoryError(`No notebook membership found for name ${name}.`);
     return cloneJson(set);
   }
 
-  listSets() {
+  listMemberships() {
     this.#assertOpen();
-    return [...this.#sets.values()]
+    return [...this.#notebookMemberships.values()]
       .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
-      .map((set) => this.#setSummary(set));
+      .map((set) => this.#membershipSummary(set));
   }
 
-  renameSet(id, name) {
-    const set = this.getSet(id);
-    set.name = normalizeSetName(name);
-    this.#sets.set(id, set);
-    return cloneJson(set);
-  }
-
-  replaceSet(id, collection, options = {}) {
-    const previous = this.getSet(id);
+  replaceMembership(name, collection, options = {}) {
+    const previous = this.getMembership(name);
     collection = this.asCollection(collection);
     validateRetainableCollectionKind(collection.kind);
-    assertPlainObject(options, 'Retained selection replacement options');
-    rejectUnknownKeys(options, new Set(['name', 'reason']), 'retained selection replacement options');
+    assertPlainObject(options, 'Notebook membership replacement options');
+    rejectUnknownKeys(options, new Set(['name', 'reason', 'attribution']), 'notebook membership replacement options');
     const retentionContext = options.reason ? normalizeReason(options.reason) : undefined;
+    const attribution = options.attribution ?? 'caller';
+    if (typeof attribution !== 'string' || attribution.trim().length === 0) {
+      throw new ResearchMemoryError('Notebook membership attribution must be a non-empty string.');
+    }
     const entries = collection.items
       .filter((item) => RETAINABLE_SUBJECT_TYPES.has(item.subject.type))
       .map((item) => ({
         member: item.subject,
-        reasons: (item.reasons.length ? item.reasons : [{ type: 'retained-result' }])
+        reasons: (item.reasons.length ? item.reasons : [{ type: 'remembered-result' }])
           .map((reason) => ({
             ...reason, ...(retentionContext ? { retentionContext } : {}),
-            operation: collection.context.operation, provenance: retainedProvenance(item),
+            operation: collection.context.operation, attribution,
+            sourceReferences: retainedProvenance(item),
           })),
       }));
     const members = new Map();
@@ -1056,35 +1066,41 @@ export class InMemoryResearchMemory {
       members.set(key, found);
     }
     const replacement = {
-      id,
-      name: options.name === undefined ? previous.name : normalizeSetName(options.name),
+      id: previous.id,
+      name,
       createdAt: previous.createdAt,
       updatedAt: new Date().toISOString(),
       members: [...members.values()].sort((a, b) => memberKey(a).localeCompare(memberKey(b))),
     };
-    this.#sets.set(id, cloneJson(replacement));
-    return this.#setSummary(replacement, 10);
+    this.#notebookMemberships.set(name, cloneJson(replacement));
+    return this.#membershipSummary(replacement, 10);
   }
 
-  deleteSet(id) {
-    this.getSet(id);
-    this.#sets.delete(id);
-    return { id, deleted: true };
+  deleteMembership(name) {
+    this.getMembership(name);
+    this.#notebookMemberships.delete(name);
+    return { name, deleted: true };
   }
 
-  retain(collection, name, options = {}) {
+  rememberMembership(collection, name, options = {}) {
     collection = this.asCollection(collection);
     validateRetainableCollectionKind(collection.kind);
-    assertPlainObject(options, 'Retention options');
+    assertPlainObject(options, 'Notebook membership options');
+    rejectUnknownKeys(options, new Set(['reason', 'attribution', 'signal']), 'notebook membership options');
     const retentionContext = options.reason ? normalizeReason(options.reason) : undefined;
-    return this.#createPopulatedSet(name, collection.items
+    const attribution = options.attribution ?? 'caller';
+    if (typeof attribution !== 'string' || attribution.trim().length === 0) {
+      throw new ResearchMemoryError('Notebook membership attribution must be a non-empty string.');
+    }
+    return this.#createMembership(name, collection.items
       .filter((item) => RETAINABLE_SUBJECT_TYPES.has(item.subject.type))
       .map((item) => ({
         member: item.subject,
-        reasons: (item.reasons.length ? item.reasons : [{ type: 'retained-result' }])
+        reasons: (item.reasons.length ? item.reasons : [{ type: 'remembered-result' }])
           .map((reason) => ({
             ...reason, ...(retentionContext ? { retentionContext } : {}),
-            operation: collection.context.operation, provenance: retainedProvenance(item),
+            operation: collection.context.operation, attribution: attribution.trim(),
+            sourceReferences: retainedProvenance(item),
           })),
       })), { signal: options.signal });
   }
@@ -1126,15 +1142,11 @@ export class InMemoryResearchMemory {
             metadataEvent: metadata.event, observations: metadata.observations,
           } : {}),
         };
-      } else if (reference.type === 'set') {
-        projection = mode === 'full'
-          ? { type: 'set', ...this.getSet(reference.id) }
-          : { type: 'set', ...this.#setSummary(this.getSet(reference.id)) };
       } else projection = reference;
       return {
         ...projection,
-        ...(this.#annotations.has(memberKey(reference))
-          ? { annotation: cloneJson(this.#annotations.get(memberKey(reference))) } : {}),
+        ...(this.#notebookEntries.has(memberKey(reference))
+          ? { notebookEntry: cloneJson(this.#notebookEntries.get(memberKey(reference))) } : {}),
         role: item.role ?? 'discovery',
         reasons: cloneJson(item.reasons), provenance: cloneJson(item.provenance),
       };
@@ -1177,6 +1189,11 @@ export class InMemoryResearchMemory {
         remainingCapacity: this.#archiveCapacity - this.#archive.size,
         levels: countedArchiveLevels(this.#archive.values()),
       },
+      notebook: {
+        entryCount: this.#notebookEntries.size,
+        membershipCount: this.#notebookMemberships.size,
+        capacity: this.#notebookCapacity,
+      },
     };
   }
 
@@ -1185,8 +1202,8 @@ export class InMemoryResearchMemory {
     this.#buffer.clear();
     this.#archive.clear();
     this.#archivedCanonical.clear();
-    this.#sets.clear();
-    this.#annotations.clear();
+    this.#notebookMemberships.clear();
+    this.#notebookEntries.clear();
     this.#nextObservationId = 1; this.#evictions = 0;
   }
 
@@ -1679,11 +1696,7 @@ function expandStartingSubjects(memory, starting) {
   const expanded = [];
   for (const raw of value) {
     const item = normalizeSubject(raw);
-    if (item.type === 'set') {
-      expanded.push(...memory.getSet(item.id).members.map(({ type, id }) => subject(type, id)));
-    } else {
-      expanded.push(item);
-    }
+    expanded.push(item);
   }
   return uniqueSubjects(expanded);
 }
@@ -1809,7 +1822,7 @@ const PIPELINE_FIELDS = Object.freeze({
 function validateRetainableCollectionKind(kind) {
   if (!TRANSFORM_KINDS.has(kind)) {
     throw new ResearchMemoryError(
-      `Retention requires a subject collection; ${kind} collections contain no retainable subjects.`,
+      `Notebook membership requires a subject collection; ${kind} collections contain no stable subjects.`,
     );
   }
 }
@@ -2745,24 +2758,24 @@ function rejectUnknownKeys(value, allowed, label) {
   }
 }
 
-function normalizeSetName(name) {
+function normalizeMembershipName(name) {
   if (typeof name !== 'string' || name.trim().length === 0) {
-    throw new ResearchMemoryError('Research set name must be a non-empty string.');
+    throw new ResearchMemoryError('Notebook membership name must be a non-empty string.');
   }
   return name.trim();
 }
 
 function normalizeMember(member) {
   if (!member || typeof member !== 'object' || Array.isArray(member)) {
-    throw new ResearchMemoryError('Research set member must be an object.');
+    throw new ResearchMemoryError('Notebook membership member must be an object.');
   }
   if (!RETAINABLE_SUBJECT_TYPES.has(member.type)) {
-    throw new ResearchMemoryError('Research set member has an unsupported subject type.');
+    throw new ResearchMemoryError('Notebook membership member has an unsupported subject type.');
   }
   if (typeof member.id !== 'string' || member.id.length === 0
       || (['event', 'account'].includes(member.type) && !EVENT_ID.test(member.id))) {
     throw new ResearchMemoryError(
-      'Research set member ID must be stable; event and account IDs must be full 64-character lowercase hexadecimal values.',
+      'Notebook membership member ID must be stable; event and account IDs must be full 64-character lowercase hexadecimal values.',
     );
   }
   return { type: member.type, id: member.id };
@@ -2776,52 +2789,77 @@ function normalizeReason(reason) {
   return cloneJson(reason);
 }
 
-function normalizeAnnotation(value) {
-  assertPlainObject(value, 'Annotation');
+function normalizeNotebookEntry(value) {
+  assertPlainObject(value, 'Notebook entry');
   rejectUnknownKeys(
     value,
-    new Set(['labels', 'note', 'judgment', 'strength', 'reason']),
-    'annotation',
+    new Set(['kind', 'labels', 'note', 'judgment', 'strength', 'reason', 'attribution',
+      'sourceReferences', 'summary']),
+    'notebook entry',
   );
+  const kind = value.kind ?? (value.judgment === undefined ? 'note' : 'judgment');
+  if (!['judgment', 'note', 'derived-observation', 'summary'].includes(kind)) {
+    throw new ResearchMemoryError('Notebook entry kind is invalid.');
+  }
+  if (typeof value.reason !== 'string' || value.reason.trim().length === 0) {
+    throw new ResearchMemoryError('Notebook entry reason must be a non-empty string.');
+  }
+  if (typeof value.attribution !== 'string' || value.attribution.trim().length === 0) {
+    throw new ResearchMemoryError('Notebook entry attribution must be a non-empty string.');
+  }
+  const sourceReferences = value.sourceReferences ?? [];
+  if (!Array.isArray(sourceReferences)) {
+    throw new ResearchMemoryError('Notebook sourceReferences must be an array.');
+  }
+  if (sourceReferences.length > 50) {
+    throw new ResearchMemoryError('Notebook sourceReferences are limited to 50 stable subjects.');
+  }
+  const normalizedReferences = sourceReferences.map(normalizeSubject);
+  if (value.summary !== undefined && stableJson(value.summary).length > 2000) {
+    throw new ResearchMemoryError('Notebook summaries are limited to 2000 serialized characters.');
+  }
   const labels = value.labels === undefined ? [] : normalizeStringList(value.labels, 'labels', false);
   const uniqueLabels = [...new Set((labels ?? []).map((label) => label.trim()))].sort();
   if (uniqueLabels.some((label) => label.length === 0)) {
-    throw new ResearchMemoryError('Annotation labels must be non-empty strings.');
+    throw new ResearchMemoryError('Notebook labels must be non-empty strings.');
   }
   const note = value.note ?? '';
-  if (typeof note !== 'string') throw new ResearchMemoryError('Annotation note must be a string.');
+  if (typeof note !== 'string') throw new ResearchMemoryError('Notebook note must be a string.');
   const judgment = value.judgment;
   if (judgment !== undefined
       && !['interested', 'uninterested', 'uncertain', 'anchor'].includes(judgment)) {
     throw new ResearchMemoryError(
-      'Annotation judgment must be interested, uninterested, uncertain, or anchor.',
+      'Notebook judgment must be interested, uninterested, uncertain, or anchor.',
     );
   }
   const strength = value.strength;
   if (strength !== undefined
       && (typeof strength !== 'number' || !Number.isFinite(strength)
         || strength < 0 || strength > 1)) {
-    throw new ResearchMemoryError('Annotation strength must be a number from 0 to 1.');
+    throw new ResearchMemoryError('Notebook strength must be a number from 0 to 1.');
   }
-  const reason = value.reason ?? '';
-  if (typeof reason !== 'string') throw new ResearchMemoryError('Annotation reason must be a string.');
-  if (uniqueLabels.length === 0 && note.trim().length === 0 && judgment === undefined) {
+  if (uniqueLabels.length === 0 && note.trim().length === 0 && judgment === undefined
+      && value.summary === undefined) {
     throw new ResearchMemoryError(
-      'An annotation requires at least one label, a note, or an explicit judgment.',
+      'A notebook entry requires a label, note, judgment, or bounded summary.',
     );
   }
   return {
+    kind,
+    reason: value.reason.trim(),
+    attribution: value.attribution.trim(),
+    sourceReferences: normalizedReferences,
     labels: uniqueLabels,
     note,
     ...(judgment === undefined ? {} : { judgment }),
     ...(strength === undefined ? {} : { strength }),
-    ...(reason.trim().length === 0 ? {} : { reason }),
+    ...(value.summary === undefined ? {} : { summary: cloneJson(value.summary) }),
   };
 }
 
-function normalizeAnnotationQuery(query) {
-  assertPlainObject(query, 'Annotation query');
-  rejectUnknownKeys(query, new Set(['labels', 'judgments', 'limit']), 'annotation query');
+function normalizeNotebookQuery(query) {
+  assertPlainObject(query, 'Notebook query');
+  rejectUnknownKeys(query, new Set(['labels', 'judgments', 'limit']), 'notebook query');
   const labels = query.labels === undefined ? [] : normalizeStringList(
     query.labels, 'labels', false,
   );
@@ -2832,7 +2870,7 @@ function normalizeAnnotationQuery(query) {
     (judgment) => !['interested', 'uninterested', 'uncertain', 'anchor'].includes(judgment),
   )) {
     throw new ResearchMemoryError(
-      'Annotation judgments must be interested, uninterested, uncertain, or anchor.',
+      'Notebook judgments must be interested, uninterested, uncertain, or anchor.',
     );
   }
   return {

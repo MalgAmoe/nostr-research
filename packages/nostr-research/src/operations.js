@@ -53,7 +53,9 @@ export const RESEARCH_OPERATIONS = Object.freeze({
   }])),
   hydrate: { input: 'accounts', outputKind: 'events', resultKind: 'hydration-report', external: true },
   continue: { input: 'subjects', resultKind: 'continuation-report', external: 'by-source' },
-  retain: { input: 'subjects', resultKind: 'retained-selection', external: false },
+  'remember-membership': { input: 'subjects', resultKind: 'notebook-membership', external: false },
+  remember: { input: 'subjects', resultKind: 'subjects', external: false },
+  notebook: { input: 'forbidden', outputKind: 'subjects', resultKind: 'subjects', external: false },
   preserve: { input: 'subjects', resultKind: 'input', external: false },
   archived: { input: 'forbidden', outputKind: 'subjects', resultKind: 'subjects', external: false },
   'release-archive': {

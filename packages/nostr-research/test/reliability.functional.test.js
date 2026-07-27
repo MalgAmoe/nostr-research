@@ -27,23 +27,23 @@ test('large retention is atomic, bounded, process-local, and directly navigable'
     for (const item of selected.items) {
       item.reasons.push({ type: 'corpus-membership', corpus: 'reliability' });
     }
-    const retained = memory.retain(selected, 'one thousand findings');
+    const retained = memory.rememberMembership(selected, 'one thousand findings');
     assert.equal(retained.memberCount, 1_000);
     assert.equal(retained.reasonCount, 2_000);
     assert.ok(retained.preview.length <= 10);
     assert.equal('members' in retained, false);
 
-    const setCount = memory.listSets().length;
+    const setCount = memory.listMemberships().length;
     const interruptedCollection = memory.collection([selected.items[0]]);
     const cancellation = new AbortController();
     cancellation.abort();
     assert.throws(
-      () => memory.retain(
+      () => memory.rememberMembership(
         interruptedCollection, 'must roll back', { signal: cancellation.signal },
       ),
       /interrupted/,
     );
-    assert.equal(memory.listSets().length, setCount);
+    assert.equal(memory.listMemberships().length, setCount);
 
     const traversed = memory.traverse([selected.items[0].subject], {
       relationshipTypes: ['reply-parent'],
@@ -59,7 +59,7 @@ test('large retention is atomic, bounded, process-local, and directly navigable'
     )));
     assert.ok(compact.results.length <= traversed.items.length);
 
-    assert.equal(memory.getSet(retained.id).members.length, 1_000);
+    assert.equal(memory.getMembership(retained.id).members.length, 1_000);
   } finally {
     memory?.close();
   }

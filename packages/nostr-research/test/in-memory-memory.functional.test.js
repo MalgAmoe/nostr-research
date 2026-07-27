@@ -26,7 +26,7 @@ test('mixed ingestion and FIFO eviction leave coherent public indexes and source
     memory.ingest(callerOwned, observation);
     callerOwned.content = 'mutated after ingestion';
     memory.ingest(retainedSource, observation);
-    const retained = memory.retain(memory.select({ ids: [target.id] }), 'eviction-safe reference');
+    const retained = memory.rememberMembership(memory.select({ ids: [target.id] }), 'eviction-safe reference');
     memory.ingest(retainedSource, { ...observation, relay: 'wss://duplicate.example' });
     memory.ingest(newest, observation);
 
@@ -44,9 +44,11 @@ test('mixed ingestion and FIFO eviction leave coherent public indexes and source
       provenance: [],
       relationships: [],
     });
-    const continued = memory.traverse([subject('set', retained.id)], {
+    const continued = memory.traverse(
+      memory.getMembership(retained.name).members.map(({ type, id }) => subject(type, id)), {
       relationshipTypes: ['quoted-event'], direction: 'outbound', depth: 1,
-    });
+      },
+    );
     assert.ok(continued.items.some(({ subject: item }) => item.id === target.id));
 
     const inboundFromMissingTarget = memory.traverse([subject('event', retainedSource.id)], {

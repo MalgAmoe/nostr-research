@@ -19,8 +19,8 @@ npm run research-session -- --capacity 1000
 
 It reads one JSON command per line and writes one correlated JSON response per
 line. Named result handles make acquisition, local selection, continuation,
-inspection, transformation, annotation, and retention composable without an
+inspection, transformation, and explicit notebook knowledge composable without an
 implicit current selection. Persistence and a database format are deliberately
 absent: closing or resetting the session, or exiting the process, loses all
-resident evidence, annotations, handles, and retained selections. See the
+resident evidence, notebook entries, named membership, and handles. See the
 package README for the command protocol and examples.

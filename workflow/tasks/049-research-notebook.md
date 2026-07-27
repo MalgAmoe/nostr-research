@@ -1,6 +1,6 @@
 ---
 id: 049-research-notebook
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/049-research-notebook.validate.sh
 depends_on: 048-deliberate-evidence-preservation
@@ -65,3 +65,20 @@ subject membership or judgment preserves the underlying Nostr evidence.
 - Explicitly excluded test levels or mechanisms: tests per notebook command,
   internal map shape, scoring/classification tests, live relay transport, UI,
   persistence, and compatibility tests for removed annotation/set APIs.
+
+## Reassessment after attempt 2
+
+The repeated review finding is now diagnosed precisely and is narrower than
+the original cleanup wording:
+
+- remove the obsolete public retained-selection subject/value shape
+  `type: "set"`, `isResearchSet()`, and `showSet()` presentation path;
+- replace `sets`/`set` wording that remains in validation errors for the new
+  `memberships` and `membership` commands;
+- remove stale retained-selection language from the canonical context;
+- preserve legitimate mathematical set operations, JavaScript `Set` usage,
+  aggregation terms such as retained sample count, and ordinary English uses
+  of “set” which are not the removed research-set model.
+
+This changed diagnosis justifies one further worker/reviewer attempt. It does
+not reopen the notebook model or ask for another compatibility layer.

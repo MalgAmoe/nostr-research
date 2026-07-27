@@ -157,18 +157,18 @@ export function normalizeResearchPlan(plan) {
         `Research plan ${stage.operation} stage ${id} parameter with must name an earlier stage.`,
       );
     }
-    if (stage.operation === 'retain') {
+    if (stage.operation === 'remember-membership') {
       rejectUnknownParameterKeys(stage, new Set(['name', 'options']));
       if (typeof stage.parameters.name !== 'string' || stage.parameters.name.trim().length === 0) {
-        throw new ResearchMemoryError(`Research plan retain stage ${id} requires a name.`);
+        throw new ResearchMemoryError(`Research plan remember-membership stage ${id} requires a name.`);
       }
       if (stage.parameters.options !== undefined && !isPlainObject(stage.parameters.options)) {
-        throw new ResearchMemoryError(`Research plan retain stage ${id} options must be an object.`);
+        throw new ResearchMemoryError(`Research plan remember-membership stage ${id} options must be an object.`);
       }
       if (stage.parameters.options !== undefined) {
         rejectUnknownParameterKeys(
-          { ...stage, operation: 'retain options', parameters: stage.parameters.options },
-          new Set(['reason']),
+          { ...stage, operation: 'remember-membership options', parameters: stage.parameters.options },
+          new Set(['reason', 'attribution']),
         );
         if (stage.parameters.options.reason !== undefined) {
           const reason = stage.parameters.options.reason;
@@ -176,7 +176,7 @@ export function normalizeResearchPlan(plan) {
               || typeof reason.type !== 'string'
               || reason.type.trim().length === 0) {
             throw new ResearchMemoryError(
-              `Research plan retain stage ${id} reason requires a non-empty type.`,
+              `Research plan remember-membership stage ${id} reason requires a non-empty type.`,
             );
           }
         }
@@ -243,6 +243,11 @@ export function preflightResearchOperation(
       kind: 'subjects', itemKind: 'subjects', resultKind: 'subjects', scope: 'archive',
     };
   }
+  if (name === 'notebook') {
+    if (input !== undefined) throw new ResearchMemoryError('Research notebook operation must not have an input.');
+    memory.notebook(parameters);
+    return { kind: 'subjects', itemKind: 'subjects', resultKind: 'subjects', scope: 'notebook' };
+  }
   if (name === 'fetch') return validatePipelineFetch(parameters, input);
   if (name === 'expand') return validatePipelineExpand(memory, parameters, input);
   if (isRelationOperation(name)
@@ -294,12 +299,17 @@ export function preflightResearchOperation(
     }
     return { ...input, resultKind: operationResultKind(name, input.kind) };
   }
+  if (name === 'remember') {
+    if (!input) throw new ResearchMemoryError('Research remember operation requires an input.');
+    normalizeRememberParameters(parameters);
+    return { ...input, resultKind: input.kind };
+  }
   const { name: retainedName, options = {} } = parameters;
   rejectUnknownParameterKeys(
-    { id: 'operation', operation: 'retain', parameters },
+    { id: 'operation', operation: 'remember-membership', parameters },
     new Set(['name', 'options']),
   );
-  memory.validateRetention(retainedName, options, input.kind);
+  memory.validateNotebookMembership(retainedName, options, input.kind);
   return { ...input, resultKind: semantics.resultKind };
 }
 
@@ -402,6 +412,7 @@ export async function executeResearchOperation(memory, operation, input = undefi
       omitted: archive.omitted,
     }, 'subjects');
   }
+  if (name === 'notebook') return memory.notebook(parameters);
   if (isTransformOperation(name)) {
     return memory.transform(input, { operation: name, ...parameters });
   }
@@ -430,8 +441,21 @@ export async function executeResearchOperation(memory, operation, input = undefi
       provenance: [],
     })), { operation: 'release-archive', archiveMutation: mutation }, collection.kind);
   }
+  if (name === 'remember') {
+    const collection = memory.asCollection(input);
+    for (const item of collection.items) memory.remember(item.subject, parameters);
+    return collection;
+  }
   const { name: retainedName, options = {} } = parameters;
-  return memory.retain(input, retainedName, options);
+  return memory.rememberMembership(input, retainedName, options);
+}
+
+function normalizeRememberParameters(parameters) {
+  if (!isPlainObject(parameters)) throw new ResearchMemoryError('Remember parameters must be an object.');
+  const allowed = new Set(['kind', 'labels', 'note', 'judgment', 'strength', 'reason',
+    'attribution', 'sourceReferences', 'summary']);
+  const unknown = Object.keys(parameters).find((key) => !allowed.has(key));
+  if (unknown) throw new ResearchMemoryError(`Unknown remember parameter: ${unknown}.`);
 }
 
 function resolveStageInputs(stage, outputs) {
