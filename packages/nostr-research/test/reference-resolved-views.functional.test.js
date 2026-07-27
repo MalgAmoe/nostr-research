@@ -101,6 +101,14 @@ test('relation handles resolve references across evidence lifetime and keep boun
     ['buffer', 'buffer'],
   );
   assert.ok(resident.result.preview.every(({ values }) => values.joinedText.length <= 80));
+  const aggregateView = await session.execute({
+    commandId: 'show-aggregate', command: 'show', input: 'aggregate',
+    parameters: { previewLimit: 2 },
+  });
+  const aggregateSuggestions = JSON.stringify(aggregateView.result.nextOperations);
+  assert.equal(aggregateSuggestions.includes('subject.id'), false);
+  assert.equal(aggregateSuggestions.includes('event.author'), false);
+  assert.equal(aggregateSuggestions.includes('groupText'), true);
   const rows = await session.execute({
     commandId: 'show-rows', command: 'show', input: 'rows',
     parameters: { previewLimit: 2 },
@@ -161,6 +169,9 @@ test('relation handles resolve references across evidence lifetime and keep boun
   assert.equal(boundedNote.result.preview.length, 1);
   assert.equal(boundedNote.result.preview[0].id, archived.id);
   assert.equal(boundedNote.result.sizeBounded, true);
+  assert.equal(boundedNote.result.requestedItems, 2);
+  assert.equal(boundedNote.result.returnedItems, 1);
+  assert.equal(boundedNote.result.boundReason, 'response-size');
   const substringMatches = await session.execute({
     commandId: 'show-substring-scan', command: 'show', input: 'substring-matches',
     parameters: { previewLimit: 10 },

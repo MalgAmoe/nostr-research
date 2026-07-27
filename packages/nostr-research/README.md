@@ -514,7 +514,10 @@ for membership. The response includes a bounded `outcomes` window with each
 input subject's status and contribution count. When a bound or partial relay
 attempt affects particular inputs, `sequentialRetry` identifies those subjects
 and the original input handle so the caller can retry them one at a time.
-Relay completeness describes only the bounded attempt.
+`attemptStatus` reports whether that particular local or relay projection
+completed, `dataScope` identifies `resident-corpus` or
+`bounded-relay-attempt`, and `exhaustive` remains separate. Relay completeness
+therefore never implies that the relay's total data is exhaustive.
 
 Observation commands are `show`, `inspect`, `explain`, `list`, `memberships`, `membership`,
 `status`, and `schema`.
@@ -526,8 +529,9 @@ Observation commands are `show`, `inspect`, `explain`, `list`, `memberships`, `m
 `offset` selects another preview window without creating a new result.
 Collection, relation, acquisition, typed-collection, and plan previews return
 their effective `offset`, `limit`, `nextOffset`,
-`omittedBefore`, and `omittedAfter`; `sizeBounded` and `sizeOmitted` identify
-rows omitted to satisfy the byte bound. Responses report counts plus `omitted`
+`omittedBefore`, and `omittedAfter`. When response size reduces the requested
+window, `sizeBounded`, `requestedItems`, `returnedItems`, and `boundReason`
+make that reduction explicit. Responses report counts plus `omitted`
 or truncation metadata rather than emitting unbounded values. When a byte
 bound is reached, secondary provenance is removed before requested preview
 evidence.

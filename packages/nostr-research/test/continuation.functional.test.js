@@ -65,8 +65,8 @@ test('named account and note handles continue with bounded relationship provenan
   assert.equal(authored.ok, true);
   assert.equal(authored.result.handle.kind, 'events');
   assert.equal(authored.result.handle.count, 2);
-  assert.equal(authored.result.completeness.status, 'complete');
-  assert.equal(authored.result.completeness.scope, 'resident-corpus');
+  assert.equal(authored.result.completeness.attemptStatus, 'complete');
+  assert.equal(authored.result.completeness.dataScope, 'resident-corpus');
 
   const shownAuthored = await session.execute({
     commandId: 'show-authored',
@@ -173,7 +173,7 @@ test('named account and note handles continue with bounded relationship provenan
     resultId: 'multi-notes',
   });
   assert.equal(multiAuthored.ok, true);
-  assert.equal(multiAuthored.result.completeness.status, 'complete');
+  assert.equal(multiAuthored.result.completeness.attemptStatus, 'complete');
   assert.deepEqual(
     multiAuthored.result.completeness.inputs,
     {
@@ -212,7 +212,7 @@ test('named account and note handles continue with bounded relationship provenan
   });
   assert.equal(emptyFollows.ok, true);
   assert.equal(emptyFollows.result.handle.kind, 'accounts');
-  assert.equal(emptyFollows.result.completeness.status, 'empty');
+  assert.equal(emptyFollows.result.completeness.attemptStatus, 'empty');
   assert.deepEqual(emptyFollows.result.completeness.inputs, {
     count: 1,
     resultCount: 0,
@@ -263,7 +263,7 @@ test('named account and note handles continue with bounded relationship provenan
   });
   assert.equal(boundedMulti.ok, true);
   assert.equal(boundedMulti.result.handle.count, 2);
-  assert.equal(boundedMulti.result.completeness.status, 'partial');
+  assert.equal(boundedMulti.result.completeness.attemptStatus, 'partial');
   assert.deepEqual(boundedMulti.result.completeness.inputs, {
     count: 2,
     resultCount: 2,
@@ -292,6 +292,21 @@ test('named account and note handles continue with bounded relationship provenan
     new Set(boundedPreview.result.preview.map(({ author }) => author.publicKey)),
     new Set([alice, getPublicKey(DAVE_SECRET)]),
   );
+
+  const noReplies = await session.execute({
+    commandId: 'no-replies',
+    command: 'continue',
+    input: 'dave-note',
+    parameters: { relationship: 'replies', source: 'local', eventLimit: 10 },
+    resultId: 'no-replies',
+  });
+  assert.equal(noReplies.result.handle.count, 0);
+  assert.equal(noReplies.result.completeness.attemptStatus, 'empty');
+  assert.deepEqual(noReplies.result.completeness.outcomes, [{
+    subject: { type: 'event', id: daveNote.id },
+    status: 'empty-valid-result',
+    resultCount: 0,
+  }]);
 
   const whyRoot = await session.execute({
     commandId: 'why-root',
@@ -500,7 +515,7 @@ test('named account and note handles continue with bounded relationship provenan
   });
   assert.equal(atProjectionCeiling.ok, true);
   assert.equal(atProjectionCeiling.result.handle.count, 1000);
-  assert.equal(atProjectionCeiling.result.completeness.status, 'partial');
+  assert.equal(atProjectionCeiling.result.completeness.attemptStatus, 'partial');
   assert.equal(atProjectionCeiling.result.completeness.exhaustive, false);
   assert.deepEqual(
     atProjectionCeiling.result.completeness.boundsReached,

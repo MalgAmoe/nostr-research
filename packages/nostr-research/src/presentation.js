@@ -783,7 +783,7 @@ function enforceSize(value, maximum) {
     copy.preview.pop();
     copy.omitted = (copy.omitted ?? 0) + 1;
     if (Number.isSafeInteger(copy.omittedAfter)) copy.omittedAfter += 1;
-    if ('sizeBounded' in copy) copy.sizeBounded = true;
+    if ('sizeBounded' in copy) markSizeBound(copy);
     if (Number.isSafeInteger(copy.nextOffset)) copy.nextOffset -= 1;
   }
   if (Buffer.byteLength(JSON.stringify(copy)) <= maximum) return copy;
@@ -803,6 +803,9 @@ function enforceSize(value, maximum) {
       omittedAfter: Math.max(0, (copy.count ?? 1) - (copy.offset ?? 0) - 1),
       omitted: Math.max(0, (copy.count ?? 1) - 1),
       sizeBounded: true,
+      requestedItems: copy.limit ?? copy.preview.length,
+      returnedItems: 1,
+      boundReason: 'response-size',
       context: {
         bounded: true,
         note: `Secondary presentation details were omitted to preserve the requested preview within the ${maximum}-byte approximate bound.`,
@@ -817,8 +820,16 @@ function enforceSize(value, maximum) {
       ...(copy.observation ? { observation: copy.observation } : {}),
       preview: [compactPreviewForSize(copy.preview[0], copy.observation)],
       ...compactEssentialDiscoveryForSize(copy.nextOperations),
+      ...(copy.offset !== undefined ? { offset: copy.offset } : {}),
+      ...(copy.limit !== undefined ? { limit: copy.limit } : {}),
+      nextOffset: (copy.offset ?? 0) + 1,
+      omittedBefore: copy.offset ?? 0,
+      omittedAfter: Math.max(0, (copy.count ?? 1) - (copy.offset ?? 0) - 1),
       omitted: Math.max(0, (copy.count ?? 1) - 1),
       sizeBounded: true,
+      requestedItems: copy.limit ?? copy.preview.length,
+      returnedItems: 1,
+      boundReason: 'response-size',
     };
     if (Buffer.byteLength(JSON.stringify(essential)) <= maximum) return essential;
   }
@@ -837,9 +848,19 @@ function enforceSize(value, maximum) {
     omittedAfter: Math.max(0, (copy.count ?? 0) - (copy.offset ?? 0)),
     omitted: copy.count ?? copy.omitted ?? 0,
     sizeBounded: true,
+    requestedItems: copy.limit ?? copy.preview?.length ?? 0,
+    returnedItems: 0,
+    boundReason: 'response-size',
     context: { bounded: true, note: `Inspection exceeded the ${maximum}-byte approximate bound.` },
     provenance: [],
   };
+}
+
+function markSizeBound(value) {
+  value.sizeBounded = true;
+  value.requestedItems = value.limit ?? value.preview.length;
+  value.returnedItems = value.preview.length;
+  value.boundReason = 'response-size';
 }
 
 function compactObservationForSize(value) {

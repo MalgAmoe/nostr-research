@@ -681,8 +681,8 @@ function compactContinuationCompleteness(value = {}, options = {}) {
     !['resolved', 'empty-valid-result'].includes(status)
   ));
   return {
-    status: value.status,
-    scope: value.scope,
+    attemptStatus: value.status,
+    dataScope: value.scope,
     exhaustive: value.exhaustive,
     emptyValidResult: value.emptyValidResult,
     inputs: {

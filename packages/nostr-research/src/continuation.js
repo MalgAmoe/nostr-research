@@ -254,11 +254,19 @@ function localContinuation(memory, starts, options) {
   if (options.relationship === 'shared-tags') return sharedTags(memory, events, query);
   if (options.relationship === 'linked-domains') return linkedDomainEvents(memory, events, query);
   const traversal = traversalFor(options.relationship);
-  return memory.traverse(events, {
+  const traversed = memory.traverse(events, {
     relationshipTypes: traversal.types,
     direction: traversal.direction,
     depth: options.relationship === 'conversation' ? options.depth : 1,
     limit: projectionLimit(options.eventLimit),
+  });
+  if (options.relationship === 'conversation') return traversed;
+  const startKeys = new Set(events.map(({ type, id }) => `${type}:${id}`));
+  return memory.collection(traversed.items.filter(({ subject: item }) => (
+    !startKeys.has(`${item.type}:${item.id}`)
+  )), {
+    operation: 'continuation-projection',
+    relationship: options.relationship,
   });
 }
 

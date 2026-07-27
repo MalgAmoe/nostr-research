@@ -438,18 +438,38 @@ export function discoverResearchOperations(descriptor, input, value = undefined)
       name: 'candidate-set', reason: { type: 'explicit-selection' },
     }, 'Preserve named subject membership and its caller-authored reason.');
   } else if (kind === 'relation') {
-    add('project', { fields: [{ field: 'subject.id', name: 'subjectId' }] },
-      'Choose a bounded relation shape for further analysis.');
-    const subjectType = relationSubjectSuggestion(value);
-    if (subjectType) {
+    const fields = relationFields(value);
+    const projected = fields.slice(0, 3);
+    if (projected.length) {
+      add('project', {
+        fields: projected.map((field, index) => ({
+          field,
+          name: `field${index + 1}`,
+        })),
+      }, 'Choose a bounded relation shape from fields present in this result.');
+    }
+    const numericField = fields.find((field) => relationFieldHasType(value, field, 'number'));
+    if (numericField) {
+      add('sort', {
+        by: [{ field: numericField, direction: 'descending' }],
+      }, 'Order this relation by a numeric field present in the result.');
+    }
+    const subjectField = relationSubjectSuggestion(value);
+    if (subjectField) {
       add('extract', {
-        field: 'subject.id', subjectType, limit: 20,
+        field: subjectField.field, subjectType: subjectField.subjectType, limit: 20,
       }, 'Extract a known stable-subject field into a pure subject collection.');
     }
-    add('aggregate', {
-      by: [{ field: 'event.author', name: 'account' }],
-      aggregations: [{ name: 'count', operation: 'count' }],
-    }, 'Summarize relation rows while retaining composable evidence.');
+    const groupingField = fields.find((field) => relationFieldHasScalar(value, field));
+    if (groupingField) {
+      add('aggregate', {
+        by: [{ field: groupingField, name: 'group' }],
+        aggregations: [{ name: 'count', operation: 'count' }],
+      }, 'Summarize this relation using a field present in the result.');
+    }
+    if (candidates.length === 0) {
+      add('slice', { offset: 0, limit: 20 }, 'Take an explicit bounded relation window.');
+    }
   }
 
   if (collectionCapable && kind === 'events') {
@@ -472,5 +492,30 @@ function relationSubjectSuggestion(value) {
         || typeof row?.values?.['subject.id'] !== 'string') return null;
     types.add(type);
   }
-  return types.size === 1 ? [...types][0] : null;
+  if (types.size === 1) {
+    return { field: 'subject.id', subjectType: [...types][0] };
+  }
+  if (value.rows.every(({ values }) => typeof values['event.author'] === 'string')) {
+    return { field: 'event.author', subjectType: 'account' };
+  }
+  return null;
+}
+
+function relationFields(value) {
+  if (value?.type !== 'research-relation' || !Array.isArray(value.rows)) return [];
+  return [...new Set(value.rows.flatMap(({ values }) => Object.keys(values ?? {})))].sort();
+}
+
+function relationFieldHasType(value, field, type) {
+  return value.rows.some(({ values }) => (
+    values?.[field] !== null && values?.[field] !== undefined
+    && typeof values[field] === type
+  ));
+}
+
+function relationFieldHasScalar(value, field) {
+  return value.rows.some(({ values }) => {
+    const fieldValue = values?.[field];
+    return ['string', 'number', 'boolean'].includes(typeof fieldValue);
+  });
 }
