@@ -253,21 +253,11 @@ function localContinuation(memory, starts, options) {
   }
   if (options.relationship === 'shared-tags') return sharedTags(memory, events, query);
   if (options.relationship === 'linked-domains') return linkedDomainEvents(memory, events, query);
-  if (options.relationship === 'expansion' && accounts.length) {
-    return memory.traverse(accounts, {
-      relationshipTypes: traversalFor('expansion').types,
-      direction: 'both',
-      depth: options.depth,
-      limit: projectionLimit(options.eventLimit),
-    });
-  }
-
   const traversal = traversalFor(options.relationship);
   return memory.traverse(events, {
     relationshipTypes: traversal.types,
     direction: traversal.direction,
-    depth: options.relationship === 'conversation' || options.relationship === 'expansion'
-      ? options.depth : 1,
+    depth: options.relationship === 'conversation' ? options.depth : 1,
     limit: projectionLimit(options.eventLimit),
   });
 }
@@ -287,13 +277,6 @@ function traversalFor(relationship) {
       direction: 'outbound',
     },
     conversation: { types: ['reply-root', 'reply-parent'], direction: 'both' },
-    expansion: {
-      types: [
-        'author', 'reply-root', 'reply-parent', 'mentioned-event', 'quoted-event',
-        'mentioned-account', 'follow', 'topic', 'other-tag',
-      ],
-      direction: 'both',
-    },
   };
   return map[relationship] ?? { types: [], direction: 'outbound' };
 }
@@ -326,10 +309,7 @@ function continuationFilter(memory, starts, options) {
   if (options.relationship === 'followers') {
     return accounts.length ? { ...base, '#p': accounts, kinds: [3] } : null;
   }
-  if (options.relationship === 'expansion' && accounts.length && !events.length) {
-    return { ...base, authors: accounts };
-  }
-  if (['replies', 'conversation', 'mentions', 'quotes', 'expansion'].includes(
+  if (['replies', 'conversation', 'mentions', 'quotes'].includes(
     options.relationship,
   )) return events.length ? { ...base, '#e': events } : null;
   const referenced = memory.traverse(events, {

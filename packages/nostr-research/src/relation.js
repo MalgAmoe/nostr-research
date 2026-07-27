@@ -125,7 +125,7 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
   return output;
 }
 
-function relationFieldCatalog(relation) {
+export function relationFieldCatalog(relation) {
   const names = new Set(relation.rows.flatMap(({ values }) => Object.keys(values)));
   return [...names].sort().map((name) => {
     const values = relation.rows.map(({ values: rowValues }) => rowValues[name]);
@@ -142,14 +142,14 @@ function relationFieldCatalog(relation) {
 function validateAvailableFields(name, operation, input, right) {
   if (name === 'slice') return;
   if (name === 'join') {
-    requireAvailableFields(input, [operation.on.left], 'join left');
-    requireAvailableFields(right, [
+    requireAvailableRelationFields(input, [operation.on.left], 'join left');
+    requireAvailableRelationFields(right, [
       operation.on.right,
       ...operation.select.map(({ field: selected }) => selected),
     ], 'join right');
     return;
   }
-  requireAvailableFields(input, operationFields(name, operation), name);
+  requireAvailableRelationFields(input, operationFields(name, operation), name);
 }
 
 function operationFields(name, operation) {
@@ -181,7 +181,7 @@ function expressionFields(expression) {
   return expression.args.flatMap(expressionFields);
 }
 
-function requireAvailableFields(relation, requested, label) {
+export function requireAvailableRelationFields(relation, requested, label) {
   if (relation.rows.length === 0) return;
   const available = relationFieldCatalog(relation).map(({ name }) => name);
   const missing = [...new Set(requested)].filter((name) => !available.includes(name));

@@ -2,19 +2,19 @@ import {
   acquireRelayEvents,
   normalizeAcquisitionOptions,
 } from './acquire.js';
-import { continueResearch, normalizeContinuation } from './continuation.js';
-import { ResearchMemoryError } from './protocol.js';
-import { isResearchRelation, resolveRelationForPresentation } from './relation.js';
+import { RESEARCH_CONSTRAINTS } from './configuration.js';
+import { ResearchMemoryError, subject } from './protocol.js';
+import {
+  isResearchRelation,
+  requireAvailableRelationFields,
+  resolveRelationForPresentation,
+} from './relation.js';
 
 const FETCH_KEYS = new Set([
   'relays', 'filter', 'bindings', 'timeoutMs', 'observationLimit',
   'distinctEventLimit', 'concurrency', 'signal',
 ]);
-const EXPAND_KEYS = new Set([
-  'relationship', 'field', 'subjectType', 'source', 'relays', 'since', 'until',
-  'offset', 'eventLimit', 'depth', 'timeoutMs', 'observationLimit',
-  'distinctEventLimit', 'concurrency', 'signal',
-]);
+const EXTRACT_KEYS = new Set(['field', 'subjectType', 'limit']);
 const BINDABLE_FILTERS = new Set(['ids', 'authors', '#e', '#p', '#t']);
 
 export function validatePipelineFetch(parameters, input) {
@@ -79,50 +79,73 @@ export async function executePipelineFetch(memory, parameters, input) {
   return result;
 }
 
-export function validatePipelineExpand(memory, parameters, input) {
-  relationInput(input, 'expand');
-  plainObject(parameters, 'expand parameters');
-  rejectUnknown(parameters, EXPAND_KEYS, 'expand');
-  field(parameters.field, 'expand field');
+export function validatePipelineExtract(parameters, input) {
+  relationInput(input, 'extract');
+  plainObject(parameters, 'extract parameters');
+  rejectUnknown(parameters, EXTRACT_KEYS, 'extract');
+  field(parameters.field, 'extract field');
   if (!['account', 'event'].includes(parameters.subjectType)) {
-    throw new ResearchMemoryError('expand subjectType must be account or event.');
+    throw new ResearchMemoryError('extract subjectType must be account or event.');
   }
-  normalizeContinuation(memory, memory.collection([], {}, parameters.subjectType === 'account'
-    ? 'accounts' : 'events'), without(parameters, ['field', 'subjectType']));
+  resultLimit(parameters.limit);
   return {
-    kind: continuationKind(parameters.relationship),
-    itemKind: continuationKind(parameters.relationship),
-    resultKind: 'continuation-report',
+    kind: parameters.subjectType === 'account' ? 'accounts' : 'events',
+    itemKind: parameters.subjectType === 'account' ? 'accounts' : 'events',
+    resultKind: parameters.subjectType === 'account' ? 'accounts' : 'events',
   };
 }
 
-export async function executePipelineExpand(memory, parameters, input) {
-  if (!isResearchRelation(input)) throw new ResearchMemoryError('expand requires a research relation.');
+export function executePipelineExtract(memory, parameters, input) {
+  validatePipelineExtract(parameters, { kind: 'relation' });
+  if (!isResearchRelation(input)) throw new ResearchMemoryError('extract requires a research relation.');
   const resolvedInput = resolveRelationForPresentation(memory, input);
-  const ids = unique(resolvedInput.rows.flatMap((row) => {
-    const value = row.values[parameters.field];
-    return Array.isArray(value) ? value : value == null ? [] : [value];
-  }));
-  const starts = memory.collection(ids.map((id) => ({
-    subject: { type: parameters.subjectType, id },
-    reasons: [{ type: 'relation-expansion-input', field: parameters.field }],
-    provenance: [],
-  })), { operation: 'relation-expansion-input' },
-  parameters.subjectType === 'account' ? 'accounts' : 'events');
-  const result = await continueResearch(memory, starts, without(
-    parameters, ['field', 'subjectType'],
-  ));
-  result.inputResolution = {
-    rowCount: resolvedInput.rows.length,
-    distinctSubjects: ids.length,
+  requireAvailableRelationFields(resolvedInput, [parameters.field], 'extract');
+  const limit = resultLimit(parameters.limit);
+  const extracted = new Map();
+  let absentRows = 0;
+  let invalidValues = 0;
+  let duplicateValues = 0;
+  for (const row of resolvedInput.rows) {
+    const raw = row.values[parameters.field];
+    const values = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+    if (values.length === 0) absentRows += 1;
+    for (const value of values) {
+      let extractedSubject;
+      try {
+        extractedSubject = subject(parameters.subjectType, value);
+      } catch {
+        invalidValues += 1;
+        continue;
+      }
+      const key = `${extractedSubject.type}:${extractedSubject.id}`;
+      const reason = { type: 'relation-extraction', field: parameters.field };
+      const existing = extracted.get(key);
+      if (existing) {
+        duplicateValues += 1;
+        existing.reasons.push(...row.reasons, reason);
+        existing.provenance.push(...row.provenance);
+      } else {
+        extracted.set(key, {
+          subject: extractedSubject,
+          reasons: [...row.reasons, reason],
+          provenance: [...row.provenance],
+        });
+      }
+    }
+  }
+  const items = [...extracted.values()];
+  return memory.collection(items.slice(0, limit), {
+    operation: 'extract',
     field: parameters.field,
-  };
-  return result;
-}
-
-function continuationKind(relationship) {
-  return ['followed-accounts', 'followers'].includes(relationship) ? 'accounts'
-    : relationship === 'expansion' ? 'subjects' : 'events';
+    subjectType: parameters.subjectType,
+    rowCount: resolvedInput.rows.length,
+    absentRows,
+    invalidValues,
+    duplicateValues,
+    distinctSubjects: items.length,
+    retainedSubjects: Math.min(items.length, limit),
+    omittedByLimit: Math.max(0, items.length - limit),
+  }, parameters.subjectType === 'account' ? 'accounts' : 'events');
 }
 
 function relationInput(input, operation) {
@@ -153,6 +176,14 @@ function field(value, label) {
   }
 }
 
-function unique(values) {
-  return [...new Set(values)];
+function resultLimit(value) {
+  const limit = value ?? RESEARCH_CONSTRAINTS.results.defaultLimit;
+  if (!Number.isSafeInteger(limit) || limit < 1
+      || limit > RESEARCH_CONSTRAINTS.results.maximumLimit) {
+    throw new ResearchMemoryError(
+      `extract limit must be an integer from 1 to `
+      + `${RESEARCH_CONSTRAINTS.results.maximumLimit}.`,
+    );
+  }
+  return limit;
 }

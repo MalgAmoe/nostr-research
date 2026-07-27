@@ -175,9 +175,10 @@ forms. A direct interactive join can therefore name two existing handles:
 `fetch` builds a bounded relay filter from relation fields. For example,
 `bindings: { authors: "account" }` acquires events authored by the distinct
 account values in its input rows and reports the number of values bound.
-`expand` turns a relation field into account or event subjects and follows a
-named protocol relationship locally or through bounded relay acquisition.
-Both reuse the ordinary acquisition and continuation implementations.
+`extract` turns one relation field into a deduplicated account or event
+collection without doing any traversal or relay work. A later `continue` or
+`hydrate` command makes that next action explicit. `fetch` reuses ordinary
+acquisition; `extract` is a pure local projection.
 
 Local and relay-backed continuation accepts `offset` and `eventLimit`.
 Multi-input projection visits each explicit input in turn before taking
@@ -462,7 +463,7 @@ exact-subject membership view.
 Every `show` response also contains a short `nextOperations` list derived from
 the authoritative operation registry. Its examples name the current handle
 and state accepted constraints. In particular, `relate` explicitly crosses a
-subject collection into a relation; relation `expand` crosses a selected field
+subject collection into a relation; `extract` crosses a selected relation field
 back into stable subjects; `move` crosses event and account collections; and
 `pick` selects positions from a preview without copying stable IDs.
 
@@ -478,7 +479,7 @@ JSON line):
 {"commandId":"choose","command":"pick","input":"notes","parameters":{"positions":[1,3]},"resultId":"chosen"}
 {"commandId":"rows","command":"relate","input":"chosen","parameters":{},"resultId":"evidence"}
 {"commandId":"authors","command":"aggregate","input":"evidence","parameters":{"by":[{"field":"event.author","name":"account"}],"aggregations":[{"name":"noteCount","operation":"count"}]},"resultId":"authors"}
-{"commandId":"accounts","command":"expand","input":"authors","parameters":{"field":"account","subjectType":"account","relationship":"expansion","source":"local","eventLimit":20},"resultId":"accounts"}
+{"commandId":"accounts","command":"extract","input":"authors","parameters":{"field":"account","subjectType":"account","limit":20},"resultId":"accounts"}
 {"commandId":"why","command":"show","input":"accounts","parameters":{"mode":"explain","previewLimit":5}}
 ```
 
@@ -505,7 +506,7 @@ without deleting or rewriting corpus evidence.
 Its `relationship` is one of `authored-notes`, `profiles`, `follow-lists`,
 `followed-accounts`, `followers`, `replies`, `ancestors`, `mentions`, `quotes`,
 `referenced-events`, `conversation`, `shared-tags`, `linked-domains`, or
-`expansion`. `source` is `local` (the default) or `relays`; relay continuations
+`source` is `local` (the default) or `relays`; relay continuations
 also require explicit `relays` and accept time, observation, distinct-event,
 and concurrency bounds. Both forms report completeness and per-input
 omissions, while `explain` exposes the continuation relationship responsible

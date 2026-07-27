@@ -92,7 +92,7 @@ export function operationParametersWithSessionDefaults(operation, parameters, co
   }
   const next = structuredClone(parameters);
   const external = ['acquire', 'hydrate', 'fetch'].includes(operation)
-    || (['continue', 'expand'].includes(operation) && next.source === 'relays');
+    || (operation === 'continue' && next.source === 'relays');
   if (!external) return next;
   if (next.relays === undefined && configuration.relays.length) {
     next.relays = structuredClone(configuration.relays);

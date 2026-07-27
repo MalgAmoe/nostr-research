@@ -29,9 +29,9 @@ import {
   validateRelationOperation,
 } from './relation.js';
 import {
-  executePipelineExpand,
+  executePipelineExtract,
   executePipelineFetch,
-  validatePipelineExpand,
+  validatePipelineExtract,
   validatePipelineFetch,
 } from './pipeline-source.js';
 
@@ -269,7 +269,7 @@ export function preflightResearchOperation(
     return { kind: 'subjects', itemKind: 'subjects', resultKind: 'subjects', scope: 'notebook' };
   }
   if (name === 'fetch') return validatePipelineFetch(parameters, input);
-  if (name === 'expand') return validatePipelineExpand(memory, parameters, input);
+  if (name === 'extract') return validatePipelineExtract(parameters, input);
   if ((isRelationOperation(name) && operationSemantics(name).executor !== 'collection-or-relation')
       || (input?.kind === 'relation' && isRelationOperation(name))) {
     const inputs = namedInputs ?? { input };
@@ -371,7 +371,7 @@ export async function executeResearchOperation(memory, operation, input = undefi
   );
   const { operation: name, parameters } = normalized;
   if (name === 'fetch') return executePipelineFetch(memory, parameters, input);
-  if (name === 'expand') return executePipelineExpand(memory, parameters, input);
+  if (name === 'extract') return executePipelineExtract(memory, parameters, input);
   if ((isRelationOperation(name) && operationSemantics(name).executor !== 'collection-or-relation')
       || isResearchRelation(input)) {
     return executeRelationOperation(memory, name, parameters, namedInputs ?? { input });

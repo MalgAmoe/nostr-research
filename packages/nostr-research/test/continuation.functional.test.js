@@ -287,18 +287,48 @@ test('named account and note handles continue with bounded relationship provenan
     { type: 'account', id: alice },
   ]);
 
-  const expanded = await session.execute({
-    commandId: 'expand-account',
-    command: 'continue',
-    input: 'alice',
-    parameters: { relationship: 'expansion', source: 'local', depth: 1, eventLimit: 1 },
-    resultId: 'alice-expansion',
+  await session.execute({
+    commandId: 'relate-authored',
+    command: 'relate',
+    input: 'alice-notes',
+    parameters: {},
+    resultId: 'authored-rows',
   });
-  assert.equal(expanded.ok, true);
-  assert.equal(expanded.result.handle.count, 1);
-  assert.equal(expanded.result.completeness.status, 'partial');
-  assert.equal(expanded.result.completeness.exhaustive, false);
-  assert.deepEqual(expanded.result.completeness.boundsReached, ['event-limit']);
+  const extracted = await session.execute({
+    commandId: 'extract-author',
+    command: 'extract',
+    input: 'authored-rows',
+    parameters: { field: 'event.author', subjectType: 'account', limit: 10 },
+    resultId: 'extracted-author',
+  });
+  assert.equal(extracted.ok, true);
+  assert.equal(extracted.result.handle.kind, 'accounts');
+  assert.equal(extracted.result.handle.count, 1);
+  const extractedSummary = await session.execute({
+    commandId: 'show-extracted-author',
+    command: 'show',
+    input: 'extracted-author',
+    parameters: { mode: 'summary' },
+  });
+  assert.equal(extractedSummary.result.context.operation, 'extract');
+  assert.equal(extractedSummary.result.context.duplicateValues, 1);
+  const whyExtracted = await session.execute({
+    commandId: 'why-extracted-author',
+    command: 'explain',
+    input: 'extracted-author',
+    parameters: { subject: { type: 'account', id: alice } },
+  });
+  assert.ok(whyExtracted.result.reasons.some(({ type, field }) => (
+    type === 'relation-extraction' && field === 'event.author'
+  )));
+  const hydrateExtracted = await session.execute({
+    commandId: 'hydrate-extracted-author',
+    command: 'hydrate',
+    input: 'extracted-author',
+    parameters: { relays: ['wss://fixture.invalid/'], timeoutMs: 50 },
+    resultId: 'hydrated-extracted-author',
+  });
+  assert.equal(hydrateExtracted.ok, true);
 
   const conversation = await session.execute({
     commandId: 'conversation',
@@ -347,24 +377,23 @@ test('named account and note handles continue with bounded relationship provenan
   );
   assert.equal(planned.stages.at(-1).result.type, 'hydration-report');
 
-  const genericRefinementPlan = [
+  const extractionPlan = [
     {
       id: 'notes', operation: 'select',
       parameters: { scope: 'corpus', authors: [alice], kinds: [1] },
     },
     {
-      id: 'generic', operation: 'continue', input: 'notes',
-      parameters: { relationship: 'expansion', source: 'local', depth: 1 },
+      id: 'rows', operation: 'relate', input: 'notes', parameters: {},
     },
     {
-      id: 'events', operation: 'filter', input: 'generic',
-      parameters: { where: { field: 'subject.type', equals: 'event' } },
+      id: 'accounts', operation: 'extract', input: 'rows',
+      parameters: { field: 'event.author', subjectType: 'account' },
     },
   ];
-  const refinedPlan = await executeResearchPlan(memory, genericRefinementPlan);
+  const extractedPlan = await executeResearchPlan(memory, extractionPlan);
   assert.deepEqual(
-    refinedPlan.stages.map(({ result }) => result.collection?.kind ?? result.kind),
-    ['events', 'subjects', 'events'],
+    extractedPlan.stages.map(({ result }) => result.collection?.kind ?? result.kind),
+    ['events', 'relation', 'accounts'],
   );
   const followedNavigationPlan = [
     {

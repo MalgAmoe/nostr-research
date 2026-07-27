@@ -129,9 +129,10 @@ Named plans and individual session commands share the same operation
 representation. A command may name one `input` or a map of named `inputs`;
 multi-input analysis is therefore available during an iterative session and
 does not require a static plan or executable JavaScript. Relay-backed `fetch`
-and relationship `expand` consume relation fields, so acquisition can be
-directed by the current analysis rather than hidden inside task-specific
-workflows.
+consumes relation fields, so acquisition can be directed by the current
+analysis rather than hidden inside task-specific workflows. Pure `extract`
+crosses relation values into stable subjects; protocol continuation starts
+only from an explicit subject collection.
 
 Local selection asks what the current resident memory contains and has no network
 side effects. Relay acquisition is separately invoked by a caller, may add

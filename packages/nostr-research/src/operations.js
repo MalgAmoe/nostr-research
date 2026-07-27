@@ -41,7 +41,6 @@ export const CONTINUATION_RELATIONSHIPS = Object.freeze({
   conversation: { inputKinds: ['events'], outputKind: 'events', external: true },
   'shared-tags': { inputKinds: ['events'], outputKind: 'events', external: true },
   'linked-domains': { inputKinds: ['events'], outputKind: 'events', external: false },
-  expansion: { inputKinds: ['subjects', 'events', 'accounts'], outputKind: 'subjects', external: true },
 });
 
 const COLLECTION_OPERATIONS = [
@@ -91,7 +90,7 @@ export const RESEARCH_OPERATIONS = Object.freeze({
   scan: relationDefinition('required', 'relation'),
   balance: relationDefinition('required', 'relation'),
   fetch: definition('relation', 'events', 'acquisition-report', 'external', 'buffer', 'bounded-attempt', 'fetch'),
-  expand: definition('relation', undefined, 'continuation-report', 'by-source', 'by-source', 'bounded-attempt-or-view', 'expand'),
+  extract: definition('relation', undefined, undefined, 'local', 'none', 'bounded-view', 'extract'),
 });
 
 function definition(input, outputKind, resultKind, locality, mutation, completeness, executor) {
@@ -296,12 +295,10 @@ export function operationSchema() {
         indexAs: 'optional output index field name',
         limit: RESULT_LIMIT_CONTRACT,
       },
-      expand: {
+      extract: {
         field: 'relation field containing stable subject IDs',
         subjectType: ['account', 'event'],
-        relationship: 'documented continuation relationship',
-        source: ['local', 'relays'],
-        eventLimit: 'global result bound',
+        limit: RESULT_LIMIT_CONTRACT,
       },
       acquire: {
         relays: 'non-empty relay URL array',
@@ -443,12 +440,11 @@ export function discoverResearchOperations(descriptor, input, value = undefined)
   } else if (kind === 'relation') {
     add('project', { fields: [{ field: 'subject.id', name: 'subjectId' }] },
       'Choose a bounded relation shape for further analysis.');
-    const expansion = relationExpansionSuggestion(value);
-    if (expansion) {
-      add('expand', {
-        field: 'subject.id', subjectType: expansion, relationship: 'expansion',
-        source: 'local', eventLimit: 20,
-      }, 'Cross explicitly from a known stable-subject field back to subjects.');
+    const subjectType = relationSubjectSuggestion(value);
+    if (subjectType) {
+      add('extract', {
+        field: 'subject.id', subjectType, limit: 20,
+      }, 'Extract a known stable-subject field into a pure subject collection.');
     }
     add('aggregate', {
       by: [{ field: 'event.author', name: 'account' }],
@@ -466,7 +462,7 @@ export function discoverResearchOperations(descriptor, input, value = undefined)
   return candidates.slice(0, 4);
 }
 
-function relationExpansionSuggestion(value) {
+function relationSubjectSuggestion(value) {
   if (value?.type !== 'research-relation' || !Array.isArray(value.rows)
       || value.rows.length === 0) return null;
   const types = new Set();

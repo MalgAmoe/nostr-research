@@ -517,7 +517,7 @@ export class DeclarativeResearchSession {
                 outputs.get(id), descriptors.get(id), result, this.#revision,
               ),
             } : {}),
-            ...(['continue', 'expand'].includes(operation) ? {
+            ...(operation === 'continue' ? {
                   completeness: compactContinuationCompleteness(result.completeness),
                   ...(isExternalOperation(operation, parameters) && result.coverage
                     ? externalPresentation(result, operation, this.#memory) : {}),
@@ -626,7 +626,7 @@ function presentResult(result, id, descriptor, revision, operation, parameters, 
   const metadata = id === undefined
     ? { kind: descriptor.kind, count: resultCount(result) }
     : handleMetadata(id, descriptor, result, revision);
-  if (['continue', 'expand'].includes(operation)) {
+  if (operation === 'continue') {
     return {
       handle: metadata,
       completeness: compactContinuationCompleteness(result.completeness),
