@@ -189,6 +189,19 @@ test('named account and note handles continue with bounded relationship provenan
     count: 1,
     reasons: [{ value: 'empty-valid-result', count: 1 }],
   });
+  assert.deepEqual(multiAuthored.result.completeness.outcomes, [
+    {
+      subject: { type: 'account', id: alice },
+      status: 'resolved',
+      resultCount: 2,
+    },
+    {
+      subject: { type: 'account', id: carol },
+      status: 'empty-valid-result',
+      resultCount: 0,
+    },
+  ]);
+  assert.equal(multiAuthored.result.completeness.omittedOutcomeCount, 0);
 
   const emptyFollows = await session.execute({
     commandId: 'empty-follows',
@@ -262,6 +275,12 @@ test('named account and note handles continue with bounded relationship provenan
   assert.deepEqual(boundedMulti.result.completeness.omissions, {
     count: 1,
     reasons: [{ value: 'event-limit', count: 1 }],
+  });
+  assert.deepEqual(boundedMulti.result.completeness.sequentialRetry, {
+    input: 'bounded-accounts',
+    count: 1,
+    subjects: [{ type: 'account', id: alice }],
+    omittedSubjectCount: 0,
   });
   const boundedPreview = await session.execute({
     commandId: 'show-bounded-multi',

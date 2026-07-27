@@ -445,6 +445,8 @@ export class DeclarativeResearchSession {
           command.command,
           operationParameters,
           this.#memory,
+          command.input,
+          this.#configuration.presentation.previewLimit,
         ),
       }),
     };
@@ -509,7 +511,8 @@ export class DeclarativeResearchSession {
       present: (report) => ({
         type: report.type,
         stages: report.stages.map(({ id, operation, resultKind, result }) => {
-          const parameters = report.plan.find((stage) => stage.id === id)?.parameters ?? {};
+          const stage = report.plan.find((candidate) => candidate.id === id);
+          const parameters = stage?.parameters ?? {};
           return {
             id, operation, resultKind,
             ...(outputs.has(id) ? {
@@ -518,7 +521,10 @@ export class DeclarativeResearchSession {
               ),
             } : {}),
             ...(operation === 'continue' ? {
-                  completeness: compactContinuationCompleteness(result.completeness),
+                  completeness: compactContinuationCompleteness(result.completeness, {
+                    input: stage?.input,
+                    limit: this.#configuration.presentation.previewLimit,
+                  }),
                   ...(isExternalOperation(operation, parameters) && result.coverage
                     ? externalPresentation(result, operation, this.#memory) : {}),
                 } : isExternalOperation(operation, parameters)
@@ -622,14 +628,27 @@ function validateId(id, label) {
   }
 }
 
-function presentResult(result, id, descriptor, revision, operation, parameters, memory) {
+function presentResult(
+  result,
+  id,
+  descriptor,
+  revision,
+  operation,
+  parameters,
+  memory,
+  input,
+  outcomeLimit,
+) {
   const metadata = id === undefined
     ? { kind: descriptor.kind, count: resultCount(result) }
     : handleMetadata(id, descriptor, result, revision);
   if (operation === 'continue') {
     return {
       handle: metadata,
-      completeness: compactContinuationCompleteness(result.completeness),
+      completeness: compactContinuationCompleteness(result.completeness, {
+        input,
+        limit: outcomeLimit,
+      }),
       ...(isExternalOperation(operation, parameters) && result.coverage
         ? externalPresentation(result, operation, memory) : {}),
     };
@@ -648,9 +667,19 @@ function externalPresentation(result, operation, memory) {
   };
 }
 
-function compactContinuationCompleteness(value = {}) {
+function compactContinuationCompleteness(value = {}, options = {}) {
   const inputs = value.inputs ?? [];
   const omissions = value.omissions ?? [];
+  const limit = options.limit ?? RESEARCH_CONSTRAINTS.presentation.previewLimit.default;
+  const outcomes = inputs.slice(0, limit).map((input) => ({
+    subject: input.subject,
+    status: input.status,
+    resultCount: input.resultCount ?? 0,
+    ...(input.omittedCount === undefined ? {} : { omittedCount: input.omittedCount }),
+  }));
+  const retryable = inputs.filter(({ status }) => (
+    !['resolved', 'empty-valid-result'].includes(status)
+  ));
   return {
     status: value.status,
     scope: value.scope,
@@ -665,6 +694,16 @@ function compactContinuationCompleteness(value = {}) {
       count: omissions.length,
       reasons: countedValues(omissions.map(({ reason }) => reason)),
     },
+    outcomes,
+    omittedOutcomeCount: Math.max(0, inputs.length - outcomes.length),
+    ...(retryable.length === 0 ? {} : {
+      sequentialRetry: {
+        ...(typeof options.input === 'string' ? { input: options.input } : {}),
+        count: retryable.length,
+        subjects: retryable.slice(0, limit).map(({ subject }) => subject),
+        omittedSubjectCount: Math.max(0, retryable.length - limit),
+      },
+    }),
     boundsReached: value.boundsReached ?? [],
   };
 }

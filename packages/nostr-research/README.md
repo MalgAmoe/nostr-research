@@ -510,7 +510,11 @@ Its `relationship` is one of `authored-notes`, `profiles`, `follow-lists`,
 also require explicit `relays` and accept time, observation, distinct-event,
 and concurrency bounds. Both forms report completeness and per-input
 omissions, while `explain` exposes the continuation relationship responsible
-for membership. Relay completeness describes only the bounded attempt.
+for membership. The response includes a bounded `outcomes` window with each
+input subject's status and contribution count. When a bound or partial relay
+attempt affects particular inputs, `sequentialRetry` identifies those subjects
+and the original input handle so the caller can retry them one at a time.
+Relay completeness describes only the bounded attempt.
 
 Observation commands are `show`, `inspect`, `explain`, `list`, `memberships`, `membership`,
 `status`, and `schema`.
