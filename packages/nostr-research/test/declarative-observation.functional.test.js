@@ -252,12 +252,36 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.equal(shown.result.corpus.residentEvents, 1);
   assert.equal(shown.result.corpus.evictions, 0);
   assert.equal(shown.result.corpus.subjectEffects.available, false);
+  await session.execute({
+    commandId: 'left-rows', command: 'relate', input: 'left',
+    parameters: {}, resultId: 'left-rows',
+  });
+  await session.execute({
+    commandId: 'right-rows', command: 'relate', input: 'right',
+    parameters: {}, resultId: 'right-rows',
+  });
+  const joined = await session.execute({
+    commandId: 'join', command: 'join',
+    inputs: { left: 'left-rows', right: 'right-rows' },
+    parameters: {
+      on: { left: 'subject.id', right: 'subject.id' },
+      select: [{ field: 'event.author', name: 'matchedAuthor' }],
+    },
+    resultId: 'joined',
+  });
+  assert.equal(joined.ok, true);
+  assert.equal(joined.result.handle.kind, 'relation');
+  assert.equal(joined.result.handle.count, 1);
+  const joinedShown = await session.execute({
+    commandId: 'show-joined', command: 'show', input: 'joined', parameters: {},
+  });
+  assert.equal(joinedShown.result.preview[0].values.matchedAuthor, event.pubkey);
   const schema = await session.execute({
     commandId: 'schema', command: 'schema', parameters: {},
   });
   assert.equal(schema.ok, true);
   assert.ok(schema.result.operations.set.operations.includes('difference'));
-  assert.equal(schema.sessionRevision, 3);
+  assert.equal(schema.sessionRevision, 6);
   await session.close();
 });
 

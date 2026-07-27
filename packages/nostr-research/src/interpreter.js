@@ -35,7 +35,7 @@ const LIFECYCLE = new Set([
 ]);
 const UNSUCCESSFUL_RELAY_OUTCOMES = new Set(['connection-failure', 'closed']);
 const COMMAND_KEYS = new Set([
-  'commandId', 'ifRevision', 'command', 'input', 'parameters', 'resultId', 'replace',
+  'commandId', 'ifRevision', 'command', 'input', 'inputs', 'parameters', 'resultId', 'replace',
 ]);
 const PLAN_KEYS = new Set([
   'commandId', 'ifRevision', 'command', 'plan', 'outputs', 'replace',
@@ -331,6 +331,9 @@ export class DeclarativeResearchSession {
     if (['annotate', 'annotations', 'remove-annotations'].includes(command.command)) {
       return this.#prepareAnnotationOperation(command);
     }
+    if (command.input !== undefined && command.inputs !== undefined) {
+      throw protocolError('INVALID_COMMAND', 'A command cannot contain both input and inputs.');
+    }
     const inputEntry = command.input === undefined ? undefined : this.#handles.get(command.input);
     if (command.input !== undefined
         && (typeof command.input !== 'string' || command.input.trim().length === 0)) {
@@ -340,6 +343,11 @@ export class DeclarativeResearchSession {
       throw protocolError('UNKNOWN_RESULT', `No named result exists for ${command.input}.`,
         { id: command.input });
     }
+    const namedEntries = this.#resolveInputs(command.inputs);
+    const namedValues = namedEntries === undefined ? undefined
+      : Object.fromEntries([...namedEntries].map(([name, entry]) => [name, entry.value]));
+    const namedDescriptors = namedEntries === undefined ? undefined
+      : Object.fromEntries([...namedEntries].map(([name, entry]) => [name, entry.descriptor]));
     let operationParameters = cloneJson(command.parameters);
     let allowEmptyRetention = false;
     if (command.command === 'retain') {
@@ -365,7 +373,7 @@ export class DeclarativeResearchSession {
     const references = referenced === undefined ? undefined
       : new Map([[command.parameters.with, referenced.descriptor]]);
     const descriptor = preflightResearchOperation(
-      this.#memory, descriptorOperation, inputEntry?.descriptor, references,
+      this.#memory, descriptorOperation, inputEntry?.descriptor, references, namedDescriptors,
     );
     if (command.command === 'retain'
         && resultCount(inputEntry?.value) === 0
@@ -378,11 +386,11 @@ export class DeclarativeResearchSession {
     }
     validateResultTarget(command.resultId, command.replace, this.#handles);
     const execute = () => executeResearchOperation(
-      this.#memory, operation, inputEntry?.value,
+      this.#memory, operation, inputEntry?.value, namedValues,
     );
     return {
       run: () => externallyBacked
-        ? this.#runExternal(operation, inputEntry?.value) : execute(),
+        ? this.#runExternal(operation, inputEntry?.value, namedValues) : execute(),
       mutates: (result) => command.command === 'retain'
         || (externallyBacked && (result.counts?.acceptedObservations ?? 0) > 0),
       install: command.resultId === undefined ? null : (result) => {
@@ -400,6 +408,26 @@ export class DeclarativeResearchSession {
         ...(template ? { expansion: template.expansion } : {}),
       }),
     };
+  }
+
+  #resolveInputs(inputs) {
+    if (inputs === undefined) return undefined;
+    if (!isPlainObject(inputs) || Object.keys(inputs).length === 0) {
+      throw protocolError('INVALID_COMMAND', 'inputs must map names to result IDs.');
+    }
+    const resolved = new Map();
+    for (const [name, id] of Object.entries(inputs)) {
+      if (name.trim().length === 0 || name !== name.trim()) {
+        throw protocolError('INVALID_COMMAND', 'Input names must be non-empty trimmed strings.');
+      }
+      validateId(id, `Input result ID for ${name}`);
+      const entry = this.#handles.get(id);
+      if (!entry) {
+        throw protocolError('UNKNOWN_RESULT', `No named result exists for ${id}.`, { id });
+      }
+      resolved.set(name, entry);
+    }
+    return resolved;
   }
 
   #prepareAnnotationOperation(command) {
@@ -493,13 +521,13 @@ export class DeclarativeResearchSession {
     };
   }
 
-  async #runExternal(operation, input) {
+  async #runExternal(operation, input, namedInputs) {
     const controller = new AbortController();
     const active = { controller, done: null };
     this.#active.add(controller);
     const parameters = { ...operation.parameters, signal: controller.signal };
     const done = executeResearchOperation(
-      this.#memory, { ...operation, parameters }, input,
+      this.#memory, { ...operation, parameters }, input, namedInputs,
     );
     controller.done = done;
     try {

@@ -38,7 +38,9 @@ no presentation layer defines the domain boundary.
 | **observation** | A record that evidence was encountered through a particular acquisition context, such as a relay and its outcome. |
 | **memory** | The bounded process-local research corpus of evidence, observations, and replaceable derived material. |
 | **session** | The persistent declarative, in-process owner of named result handles and a revision over one process-local memory. |
-| **selection** | The session's replaceable result collection: the subjects currently being explored, with reasons and provenance where available. |
+| **result handle** | A session-owned name for an engine result. Handles are replaceable navigation state and do not copy or own corpus evidence. |
+| **subject collection** | A bounded set of stable Nostr subjects with membership reasons and provenance. |
+| **research relation** | Bounded rows of values that retain the stable subjects, reasons, and provenance from which they were derived. Relations are the composable analysis boundary for filtering, projection, joins, aggregation, derivation, sorting, and windows. |
 | **acquisition** | The operation of contacting or otherwise reading sources to obtain events and record observations. |
 | **acquisition coverage** | Information returned by one bounded relay attempt: exact filter and budgets, contacted relays and outcomes, and observations. It does not claim exhaustive indexing or create a global history record. |
 | **query** | An operation over local memory that selects and explains results; it does not itself require relay access. |
@@ -85,12 +87,21 @@ there is no active or current selection. A result collection is the shared
 operation result passed between the library and session layers. Retained
 selections disappear with the corpus; sessions are not serialized.
 
-The coherent product path is memory, normalized operations, the declarative
-session, and its JSONL adapter. Operation names and collection kinds have one
+The coherent product path is memory, subject collections and research
+relations, normalized operations, the declarative session, and its JSONL
+adapter. Operation names and result kinds have one
 authoritative definition shared by validation, execution, session handles,
 schema output, and presentation. `show`, `inspect`, and `explain` remain one
 deep bounded-observation module over those real result shapes; presentation
 does not define alternate domain results or compatibility shapes.
+
+Named plans and individual session commands share the same operation
+representation. A command may name one `input` or a map of named `inputs`;
+multi-input analysis is therefore available during an iterative session and
+does not require a static plan or executable JavaScript. Relay-backed `fetch`
+and relationship `expand` consume relation fields, so acquisition can be
+directed by the current analysis rather than hidden inside task-specific
+workflows.
 
 Local selection asks what the current resident memory contains and has no network
 side effects. Relay acquisition is separately invoked by a caller, may add

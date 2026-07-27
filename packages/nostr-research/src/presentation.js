@@ -34,12 +34,16 @@ export function showResearchValue(memory, value, options = {}) {
 function showRelation(value, settings) {
   const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
   const preview = value.rows.slice(0, limit).map((row) => ({
-    values: structuredClone(row.values),
-    subjects: structuredClone(row.subjects.slice(0, settings.previewLimit)),
-    omittedSubjects: Math.max(0, row.subjects.length - settings.previewLimit),
+    values: compactRelationValue(row.values, settings.excerptLimit),
+    subjectCount: row.subjects.length,
     reasonCount: row.reasons.length,
-    provenance: structuredClone(row.provenance.slice(0, settings.previewLimit)),
-    omittedProvenance: Math.max(0, row.provenance.length - settings.previewLimit),
+    provenanceCount: row.provenance.length,
+    ...(settings.includeEvidence ? {
+      subjects: structuredClone(row.subjects.slice(0, settings.previewLimit)),
+      omittedSubjects: Math.max(0, row.subjects.length - settings.previewLimit),
+      provenance: structuredClone(row.provenance.slice(0, settings.previewLimit)),
+      omittedProvenance: Math.max(0, row.provenance.length - settings.previewLimit),
+    } : {}),
   }));
   return {
     type: 'research-relation',
@@ -48,6 +52,19 @@ function showRelation(value, settings) {
     omitted: Math.max(0, value.rows.length - preview.length),
     context: compactContext(value.context),
   };
+}
+
+function compactRelationValue(value, excerptLimit) {
+  if (typeof value === 'string') return excerpt(value, excerptLimit);
+  if (Array.isArray(value)) {
+    return value.slice(0, 10).map((item) => compactRelationValue(item, excerptLimit));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => (
+      [key, compactRelationValue(item, excerptLimit)]
+    )));
+  }
+  return value;
 }
 
 export function explainResearchMembership(memory, collectionValue, subjectValue, options = {}) {

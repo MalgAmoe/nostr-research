@@ -133,6 +133,13 @@ Plans may give a stage one `input` or a named `inputs` object. `join` uses
 same-kind set membership. Derived expressions are bounded JSON data rather
 than executable JavaScript.
 
+Individual declarative-session commands accept the same `input` or `inputs`
+forms. A direct interactive join can therefore name two existing handles:
+
+```json
+{"commandId":"join-1","command":"join","inputs":{"left":"evidence","right":"profiles"},"parameters":{"on":{"left":"account","right":"event.author"},"kind":"left","select":[{"field":"account.name","name":"name"}]},"resultId":"candidates"}
+```
+
 `fetch` builds a bounded relay filter from relation fields. For example,
 `bindings: { authors: "account" }` acquires events authored by the distinct
 account values in its input rows and reports the number of values bound.
@@ -300,10 +307,12 @@ commands with `REVISION_CONFLICT`. Revisions advance when corpus, retained-set,
 or named-handle state changes; observation commands and failed commands do not
 advance them.
 
-Research commands are `acquire`, `select`, `filter`, `pick`, `group`, `summarize`,
-`move`, `hydrate`, `continue`, `retain`, and `plan`. Single operations accept plain JSON
-`parameters`, optional `input`, and optional `resultId`; `replace: true`
-explicitly replaces an existing named result. Plans accept the documented
+Research commands include source operations, subject-collection transforms,
+relation operations, retention, and `plan`; `schema` reports the authoritative
+current list. Individual operations accept plain JSON `parameters`, either an
+optional `input` or named `inputs`, and optional `resultId`; `replace: true`
+explicitly replaces an existing named result. Named inputs are primarily used
+by `join`, with `{ "left": "...", "right": "..." }`. Plans accept the documented
 research-plan array and an optional `outputs` map from stage IDs to result IDs.
 They use the same operation interpreter as in-process callers.
 
@@ -347,8 +356,10 @@ Observation commands are `show`, `inspect`, `explain`, `list`, `sets`, `set`,
 `show` and `explain` consume a named input. `inspect` receives its stable
 `subject` in `parameters`. Projection parameters are `previewLimit`,
 `excerptLimit`, `includeEvidence`, and `sizeLimit`; `show` additionally accepts
-`mode`. Responses report counts plus `omitted` or truncation metadata rather
-than emitting unbounded values.
+`mode`. Relation previews show bounded values and evidence counts by default;
+`includeEvidence: true` adds bounded subject and provenance details. Responses
+report counts plus `omitted` or truncation metadata rather than emitting
+unbounded values.
 
 Handle lifecycle commands are `release` and `release-all`; neither deletes a
 retained selection. Retained selections are listed with `sets`, inspected with

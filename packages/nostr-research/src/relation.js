@@ -403,7 +403,7 @@ function normalizePredicate(value) {
 
 function relationValues(memory, item) {
   const event = item.record?.event;
-  const profile = item.record?.profile;
+  const profile = item.record?.profile ?? (event?.kind === 0 ? parseProfile(event.content) : null);
   return {
     subject: clone(item.subject),
     'subject.type': item.subject.type,
@@ -424,6 +424,15 @@ function relationValues(memory, item) {
       'account.nip05': profile.nip05 ?? null,
     } : {}),
   };
+}
+
+function parseProfile(content) {
+  try {
+    const profile = JSON.parse(content);
+    return profile && typeof profile === 'object' && !Array.isArray(profile) ? profile : null;
+  } catch {
+    return null;
+  }
 }
 
 function researchRelation(rows, context) {

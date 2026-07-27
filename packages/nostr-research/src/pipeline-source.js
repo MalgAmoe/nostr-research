@@ -87,7 +87,7 @@ export function validatePipelineExpand(memory, parameters, input) {
     throw new ResearchMemoryError('expand subjectType must be account or event.');
   }
   normalizeContinuation(memory, memory.collection([], {}, parameters.subjectType === 'account'
-    ? 'accounts' : 'events'), without(parameters, ['field', 'subjectType', 'offset']));
+    ? 'accounts' : 'events'), without(parameters, ['field', 'subjectType']));
   return {
     kind: continuationKind(parameters.relationship),
     itemKind: continuationKind(parameters.relationship),
