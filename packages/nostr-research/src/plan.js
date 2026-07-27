@@ -3,7 +3,7 @@ import {
   normalizeAcquisitionOptions,
   normalizeHydrationOptions,
 } from './acquire.js';
-import { ResearchMemoryError } from './index.js';
+import { ResearchMemoryError } from './protocol.js';
 import {
   executeCollectionOperation,
   validateCollectionOperation,
@@ -492,12 +492,29 @@ export async function executeResearchOperation(memory, operation, input = undefi
       );
     }
     for (const item of collection.items) memory.remember(item.subject, parameters);
-    return collection;
+    return {
+      ...collection,
+      context: {
+        operation: 'remember',
+        input: collection.context,
+        notebookMutation: { count: collection.items.length },
+      },
+    };
   }
   if (name === 'forget') {
     const collection = memory.asCollection(input);
-    for (const item of collection.items) memory.forget(item.subject);
-    return collection;
+    let count = 0;
+    for (const item of collection.items) {
+      if (memory.forget(item.subject).removed) count += 1;
+    }
+    return {
+      ...collection,
+      context: {
+        operation: 'forget',
+        input: collection.context,
+        notebookMutation: { count },
+      },
+    };
   }
   const { name: membershipName, ...options } = parameters;
   const collection = memory.asCollection(input);

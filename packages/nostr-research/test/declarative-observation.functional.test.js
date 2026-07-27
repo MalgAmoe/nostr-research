@@ -40,6 +40,17 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   assert.ok(shown.result.nextOperations.some(({ operation }) => operation === 'pick'));
   assert.equal(shown.sessionRevision, 1);
 
+  const invalidProjection = await session.execute({
+    commandId: 'show-too-many',
+    command: 'show',
+    input: 'finding',
+    parameters: { previewLimit: 21 },
+  });
+  assert.equal(invalidProjection.ok, false);
+  assert.equal(invalidProjection.error.code, 'INVALID_COMMAND');
+  assert.match(invalidProjection.error.message, /previewLimit must be an integer from 1 to 20/);
+  assert.equal(invalidProjection.sessionRevision, 1);
+
   for (const mode of ['summary', 'coverage', 'details', 'explain']) {
     const observed = await session.execute({
       commandId: `show-${mode}`,
@@ -296,7 +307,39 @@ test('declarative named results compose compatible sets and expose their schema'
     schema.result.session.commands.observation.show.parameters.offset,
     'non-negative integer',
   );
+  assert.equal(schema.result.constraints.presentation.previewLimit.maximum, 20);
+  assert.equal(schema.result.session.configuration.effective.presentation.previewLimit, 5);
   assert.equal(schema.sessionRevision, 6);
+
+  const configured = await session.execute({
+    commandId: 'configure',
+    command: 'configure',
+    parameters: {
+      relays: ['wss://fixture.example'],
+      acquisition: { timeoutMs: 2500, concurrency: 2 },
+      presentation: { previewLimit: 2, excerptLimit: 80 },
+    },
+  });
+  assert.equal(configured.ok, true);
+  assert.equal(configured.sessionRevision, 7);
+  assert.equal(configured.result.configuration.presentation.sizeLimit, 12000);
+  assert.deepEqual(configured.result.configuration.relays, ['wss://fixture.example/']);
+
+  const configuredAgain = await session.execute({
+    commandId: 'configure-again',
+    command: 'configure',
+    parameters: {
+      relays: ['wss://fixture.example/'],
+      acquisition: { timeoutMs: 2500, concurrency: 2 },
+      presentation: { previewLimit: 2, excerptLimit: 80 },
+    },
+  });
+  assert.equal(configuredAgain.sessionRevision, 7);
+  const configuredStatus = await session.execute({
+    commandId: 'configured-status', command: 'status', parameters: {},
+  });
+  assert.equal(configuredStatus.result.configuration.acquisition.timeoutMs, 2500);
+  assert.equal(configuredStatus.result.configuration.presentation.previewLimit, 2);
   await session.close();
 });
 

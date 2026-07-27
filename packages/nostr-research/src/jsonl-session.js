@@ -2,10 +2,17 @@ import { createInterface } from 'node:readline';
 import {
   createDeclarativeResearchSession,
   createInMemoryResearchMemory,
+  RESEARCH_CONSTRAINTS,
   ResearchMemoryError,
 } from './index.js';
 
-const HELP = `Usage: nostr-research-session --capacity <1-1000>
+const CAPACITY_RANGE = `${RESEARCH_CONSTRAINTS.memory.capacity.minimum}-`
+  + `${RESEARCH_CONSTRAINTS.memory.capacity.maximum}`;
+const HELP = `Usage: nostr-research-session --capacity <${CAPACITY_RANGE}> [options]
+
+Options:
+  --archive-capacity <${CAPACITY_RANGE}>
+  --notebook-capacity <${RESEARCH_CONSTRAINTS.notebook.capacity.minimum}-${RESEARCH_CONSTRAINTS.notebook.capacity.maximum}>
 
 Reads one JSON command per non-empty UTF-8 input line and writes one JSON
 response line. The process owns one bounded, process-local research session.
@@ -20,7 +27,13 @@ export async function startJsonlResearchSession(args, streams = {}) {
   }
 
   const input = streams.input ?? process.stdin;
-  const memory = createInMemoryResearchMemory({ capacity: options.capacity });
+  const memory = createInMemoryResearchMemory({
+    capacity: options.capacity,
+    ...(options.archiveCapacity === undefined
+      ? {} : { archiveCapacity: options.archiveCapacity }),
+    ...(options.notebookCapacity === undefined
+      ? {} : { notebookCapacity: options.notebookCapacity }),
+  });
   const session = createDeclarativeResearchSession(memory);
   const lines = createInterface({ input, crlfDelay: Infinity, terminal: false });
   let closing;
@@ -64,25 +77,40 @@ export async function startJsonlResearchSession(args, streams = {}) {
 }
 
 function parseArguments(args) {
-  let capacity;
+  const options = {};
+  const names = {
+    '--capacity': 'capacity',
+    '--archive-capacity': 'archiveCapacity',
+    '--notebook-capacity': 'notebookCapacity',
+  };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === '--help' || argument === '-h') return { help: true };
-    if (argument !== '--capacity') {
+    if (!names[argument]) {
       throw new ResearchMemoryError(`Unknown startup option: ${argument}`);
     }
     const value = args[index + 1];
     if (!value || value.startsWith('--')) {
       throw new ResearchMemoryError(`Missing value for ${argument}.`);
     }
-    capacity = Number(value);
+    options[names[argument]] = Number(value);
     index += 1;
   }
-  if (capacity === undefined) {
-    throw new ResearchMemoryError('The --capacity <1-1000> option is required.');
+  if (options.capacity === undefined) {
+    throw new ResearchMemoryError(
+      `The --capacity <${CAPACITY_RANGE}> option is required.`,
+    );
   }
-  if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > 1000) {
-    throw new ResearchMemoryError('--capacity must be an integer from 1 to 1000.');
+  for (const [name, value] of Object.entries(options)) {
+    const constraint = name === 'notebookCapacity'
+      ? RESEARCH_CONSTRAINTS.notebook.capacity
+      : RESEARCH_CONSTRAINTS.memory.capacity;
+    if (!Number.isSafeInteger(value)
+        || value < constraint.minimum || value > constraint.maximum) {
+      throw new ResearchMemoryError(
+        `${name} must be an integer from ${constraint.minimum} to ${constraint.maximum}.`,
+      );
+    }
   }
-  return { capacity };
+  return options;
 }

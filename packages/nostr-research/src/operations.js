@@ -1,3 +1,11 @@
+import { RESEARCH_CONSTRAINTS, researchConstraints } from './configuration.js';
+
+const RESULT_LIMIT_CONTRACT =
+  `integer from 1 to ${RESEARCH_CONSTRAINTS.results.maximumLimit}`;
+const ARCHIVE_EXCERPT_CONTRACT =
+  `optional integer from ${RESEARCH_CONSTRAINTS.memory.archiveExcerptLimit.minimum} `
+  + `to ${RESEARCH_CONSTRAINTS.memory.archiveExcerptLimit.maximum}`;
+
 /*
  * Authoritative, dependency-free semantics for public research operations.
  *
@@ -120,7 +128,12 @@ export function supportsCollectionOperations(descriptor) {
 
 export function operationMutation(name, result, parameters = {}) {
   const mutation = operationSemantics(name)?.mutation;
-  if (mutation === 'notebook') return true;
+  if (mutation === 'notebook') {
+    if (name === 'remember' || name === 'forget') {
+      return (result?.context?.notebookMutation?.count ?? 0) > 0;
+    }
+    return true;
+  }
   if (mutation === 'archive') {
     if (name === 'preserve') return (result?.context?.archiveMutation?.count ?? 0) > 0;
     return resultCount(result) > 0;
@@ -192,6 +205,7 @@ function refinedSubjectKind(predicate) {
 
 export function operationSchema() {
   return {
+    constraints: researchConstraints(),
     operations: researchOperationNames(),
     definitions: Object.fromEntries(Object.entries(RESEARCH_OPERATIONS).map(([name, value]) => [
       name,
@@ -223,9 +237,30 @@ export function operationSchema() {
       pick: {
         positions: 'non-empty one-based positions from the current stable collection order',
       },
+      limit: { limit: RESULT_LIMIT_CONTRACT },
+      sample: {
+        limit: RESULT_LIMIT_CONTRACT,
+        seed: 'optional non-empty deterministic string',
+      },
       move: {
         to: 'route accepted for the input collection kind',
         limit: 'non-negative output bound',
+      },
+      union: {
+        with: 'named compatible subject collection',
+        limit: RESULT_LIMIT_CONTRACT,
+      },
+      intersection: {
+        with: 'named compatible subject collection',
+        limit: RESULT_LIMIT_CONTRACT,
+      },
+      difference: {
+        with: 'named compatible subject collection',
+        limit: RESULT_LIMIT_CONTRACT,
+      },
+      compare: {
+        with: 'named compatible subject collection',
+        limit: RESULT_LIMIT_CONTRACT,
       },
       relate: {
         transition: 'subject collection to research relation',
@@ -233,9 +268,33 @@ export function operationSchema() {
       project: {
         fields: 'bounded relation field selections',
       },
+      distinct: {
+        by: 'non-empty relation-field array',
+        limit: RESULT_LIMIT_CONTRACT,
+      },
+      sort: {
+        by: 'non-empty array of field and ascending or descending direction',
+      },
+      join: {
+        on: 'left and right relation fields',
+        kind: ['inner', 'left'],
+        select: 'right-side field mappings',
+        limit: RESULT_LIMIT_CONTRACT,
+      },
       aggregate: {
         by: 'bounded relation grouping fields',
         aggregations: 'bounded count, sample, collect, minimum, or maximum values',
+      },
+      derive: { fields: 'non-empty named expression array' },
+      slice: {
+        offset: 'non-negative integer',
+        limit: RESULT_LIMIT_CONTRACT,
+      },
+      explode: {
+        field: 'array-valued relation field',
+        as: 'optional output value field name',
+        indexAs: 'optional output index field name',
+        limit: RESULT_LIMIT_CONTRACT,
       },
       expand: {
         field: 'relation field containing stable subject IDs',
@@ -282,10 +341,27 @@ export function operationSchema() {
         reason: 'optional object with a non-empty type',
         attribution: 'optional non-empty caller attribution',
       },
+      remember: {
+        kind: 'optional notebook classification',
+        labels: 'optional string labels',
+        note: 'optional caller note',
+        judgment: 'optional caller judgment',
+        strength: 'optional judgment strength',
+        reason: 'caller-supplied reason',
+        attribution: 'caller attribution',
+        sourceReferences: 'optional evidence references',
+        summary: 'optional caller summary',
+      },
+      forget: {},
+      notebook: {
+        labels: 'optional label filter',
+        judgments: 'optional judgment filter',
+        limit: 'optional result bound',
+      },
       preserve: {
         level: ['reference', 'excerpt', 'canonical'],
         reason: 'required object with a non-empty type',
-        excerptLimit: 'optional integer from 1 to 2000',
+        excerptLimit: ARCHIVE_EXCERPT_CONTRACT,
       },
       archived: {
         level: 'optional preservation level',
@@ -302,6 +378,20 @@ export function operationSchema() {
         limit: 'global emitted-match-row bound',
         resultShape: 'one relation row per matching field and term',
       },
+      balance: {
+        by: 'non-empty relation-field array',
+        limitPer: `${RESULT_LIMIT_CONTRACT} per distinct key`,
+        limit: RESULT_LIMIT_CONTRACT,
+      },
+      fetch: {
+        relays: 'non-empty relay URL array',
+        filter: 'normalized NIP-01 filter with relation-field bindings',
+        bindings: 'relation fields mapped into relay filter fields',
+        timeoutMs: 'positive integer',
+        observationLimit: 'positive operation-wide accepted-observation bound',
+        distinctEventLimit: 'positive operation-wide distinct-event bound',
+        concurrency: 'positive relay concurrency',
+      },
     },
   };
 }
@@ -312,7 +402,7 @@ export function operationSchema() {
  * and result IDs, so callers can supply their own names without rewriting
  * subjects from a preview.
  */
-export function discoverResearchOperations(descriptor, input) {
+export function discoverResearchOperations(descriptor, input, value = undefined) {
   const kind = descriptor?.kind;
   const collectionCapable = supportsCollectionOperations(descriptor);
   const candidates = [];
@@ -353,10 +443,13 @@ export function discoverResearchOperations(descriptor, input) {
   } else if (kind === 'relation') {
     add('project', { fields: [{ field: 'subject.id', name: 'subjectId' }] },
       'Choose a bounded relation shape for further analysis.');
-    add('expand', {
-      field: 'subject.id', subjectType: 'event', relationship: 'expansion',
-      source: 'local', eventLimit: 20,
-    }, 'Cross explicitly from a relation field back to stable subjects.');
+    const expansion = relationExpansionSuggestion(value);
+    if (expansion) {
+      add('expand', {
+        field: 'subject.id', subjectType: expansion, relationship: 'expansion',
+        source: 'local', eventLimit: 20,
+      }, 'Cross explicitly from a known stable-subject field back to subjects.');
+    }
     add('aggregate', {
       by: [{ field: 'event.author', name: 'account' }],
       aggregations: [{ name: 'count', operation: 'count' }],
@@ -371,4 +464,17 @@ export function discoverResearchOperations(descriptor, input) {
       'Cross explicitly from account subjects to resident event subjects.');
   }
   return candidates.slice(0, 4);
+}
+
+function relationExpansionSuggestion(value) {
+  if (value?.type !== 'research-relation' || !Array.isArray(value.rows)
+      || value.rows.length === 0) return null;
+  const types = new Set();
+  for (const row of value.rows) {
+    const type = row?.values?.['subject.type'];
+    if (!['event', 'account'].includes(type)
+        || typeof row?.values?.['subject.id'] !== 'string') return null;
+    types.add(type);
+  }
+  return types.size === 1 ? [...types][0] : null;
 }

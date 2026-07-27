@@ -1,4 +1,5 @@
-import { ResearchMemoryError } from './index.js';
+import { ResearchMemoryError } from './protocol.js';
+import { RESEARCH_CONSTRAINTS } from './configuration.js';
 import {
   MOVE_ROUTES,
   SUBJECT_COLLECTION_KINDS,
@@ -6,8 +7,8 @@ import {
   transformOutputKind,
 } from './operations.js';
 
-const MAX_LIMIT = 1000;
-const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = RESEARCH_CONSTRAINTS.results.maximumLimit;
+const DEFAULT_LIMIT = RESEARCH_CONSTRAINTS.results.defaultLimit;
 const KINDS = new Set(SUBJECT_COLLECTION_KINDS);
 const SET_OPERATIONS = new Set(['union', 'intersection', 'difference', 'compare']);
 

@@ -1,4 +1,5 @@
-import { isCanonicalNostrEvent, ResearchMemoryError } from './index.js';
+import { isCanonicalNostrEvent, ResearchMemoryError } from './protocol.js';
+import { RESEARCH_CONSTRAINTS } from './configuration.js';
 import { matchFilter } from 'nostr-tools';
 import WebSocket from 'ws';
 
@@ -11,10 +12,14 @@ const HYDRATION_OPTION_KEYS = new Set([
   'concurrency', 'signal',
 ]);
 
-export const DEFAULT_ACQUISITION_TIMEOUT_MS = 10_000;
-export const DEFAULT_ACQUISITION_OBSERVATION_LIMIT = 100;
-export const DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT = 100;
-export const DEFAULT_RELAY_CONCURRENCY = 4;
+export const DEFAULT_ACQUISITION_TIMEOUT_MS =
+  RESEARCH_CONSTRAINTS.acquisition.timeoutMs.default;
+export const DEFAULT_ACQUISITION_OBSERVATION_LIMIT =
+  RESEARCH_CONSTRAINTS.acquisition.observationLimit.default;
+export const DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT =
+  RESEARCH_CONSTRAINTS.acquisition.distinctEventLimit.default;
+export const DEFAULT_RELAY_CONCURRENCY =
+  RESEARCH_CONSTRAINTS.acquisition.concurrency.default;
 
 /**
  * Acquires canonical events from explicit NIP-01 relays into an open

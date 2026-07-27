@@ -44,6 +44,7 @@ no presentation layer defines the domain boundary.
 | **evidence archive** | Deliberately preserved evidence copied from the observation buffer at an explicit preservation level. Archive evidence is not silently evicted to make room for relay acquisition. |
 | **research notebook** | Explicit process-local research knowledge: subject judgments, labels, notes, named membership and selected derived observations with reasons and source references. It is interpretation, not Nostr source evidence. |
 | **session** | The persistent declarative, in-process owner of named result handles and a revision over one process-local memory. |
+| **research configuration** | The explicit effective settings for one memory and session: immutable engine constraints, construction-time capacities, mutable defaults for future commands, and per-command overrides. |
 | **result handle** | A session-owned name for an engine view. Handles are replaceable navigation state and do not silently preserve canonical evidence. |
 | **subject collection** | A bounded set of stable Nostr subjects with membership reasons and provenance. |
 | **research relation** | A bounded composable view of stable subjects, derived values, reasons, and provenance. Source-backed fields resolve from the archive or buffer; a relation must not accidentally become an undocumented evidence archive. |
@@ -107,6 +108,14 @@ result collection is the shared operation result passed between the library
 and session layers. Handles remain views and do not silently copy complete
 events. All state disappears on reset, close, or process exit; sessions are
 not serialized.
+
+Research configuration has explicit precedence and ownership. Engine
+constraints describe immutable supported ranges. Memory, archive, and notebook
+capacities are chosen when memory is constructed because changing them can
+evict or reject state. Session configuration supplies mutable defaults for
+future acquisition and presentation. Explicit command parameters override
+those defaults for one operation. Generic session configuration never resizes
+memory or silently changes existing evidence.
 
 The coherent product path is memory, subject collections and research
 relations, normalized operations, the declarative session, and its JSONL

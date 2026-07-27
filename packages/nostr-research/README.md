@@ -22,8 +22,13 @@ import {
 const memory = createInMemoryResearchMemory({
   capacity: 500,
   archiveCapacity: 100,
+  notebookCapacity: 250,
 });
-const session = createDeclarativeResearchSession(memory);
+const session = createDeclarativeResearchSession(memory, {
+  relays: ['wss://relay.example'],
+  acquisition: { timeoutMs: 8000, concurrency: 2 },
+  presentation: { previewLimit: 10 },
+});
 
 memory.ingest(event, {
   relay: 'wss://relay.example',
@@ -65,7 +70,7 @@ preservation request; acquisition never evicts archive entries.
 Local operations never contact relays. `select` is the canonical local event
 selection operation. `lookup(subject)` is the direct exact-subject selection
 path for a full event or account identity. Collection operations,
-continuations, inspection, facets, and notebook inputs all read the same
+continuations, inspection, and notebook inputs all read the same
 memory. A collection contains stable subjects, reasons, and provenance
 references, not a hidden copy of canonical evidence.
 
@@ -411,6 +416,24 @@ command are derived from the same definitions; each definition reports its
 accepted input shape, output and result kinds, locality (`local`, `external`,
 or `by-source`), memory mutation owner, and completeness contract.
 
+Configuration has explicit levels. Engine constraints are immutable supported
+ranges. Memory, archive, and notebook capacities are construction-time
+configuration because changing them can evict or reject stored state. Session
+configuration supplies defaults for future relay acquisition and bounded
+presentation. Per-command parameters override those defaults for one command.
+The `schema` command reports constraints and effective configuration; `status`
+reports the effective runtime configuration.
+
+Session defaults can be updated without rewriting memory:
+
+```json
+{"commandId":"configure","command":"configure","parameters":{"relays":["wss://relay.example"],"acquisition":{"timeoutMs":8000,"observationLimit":200,"distinctEventLimit":150,"concurrency":2},"presentation":{"previewLimit":10,"excerptLimit":240,"sizeLimit":20000}}}
+```
+
+The precedence is per-command parameters, session configuration, engine
+defaults, then immutable hard constraints. Generic configuration deliberately
+cannot resize memory or silently evict evidence.
+
 Subject collections remain the identity and navigation representation.
 `pick`, `sample`, `move`, and set composition are collection-specific.
 Relations remain the value-analysis representation. `project`, `distinct`,
@@ -427,7 +450,7 @@ supports local resolution. Neither performs an implicit second relay request.
 
 Research commands return compact operational results by default: the named
 handle, structured external completeness and corpus effects where relevant,
-and warnings. They do not embed evidence previews or facets. `show` gives
+and warnings. They do not embed evidence previews. `show` gives
 observation five explicit meanings: `preview` is a bounded member/row page,
 `summary` is compact counts and characteristics, `coverage` reports sources,
 bounds, omissions, unresolved evidence, and partiality, `details` resolves
@@ -501,8 +524,8 @@ their effective `offset`, `limit`, `nextOffset`,
 `omittedBefore`, and `omittedAfter`; `sizeBounded` and `sizeOmitted` identify
 rows omitted to satisfy the byte bound. Responses report counts plus `omitted`
 or truncation metadata rather than emitting unbounded values. When a byte
-bound is reached, optional facets, orientation details, and provenance are
-removed before the requested preview evidence.
+bound is reached, secondary provenance is removed before requested preview
+evidence.
 
 `status` exposes observation-buffer pressure and evictions, archive entries by
 preservation level, notebook entry and membership counts, and the total handle
@@ -522,8 +545,8 @@ requires `replace: true`.
 `reset` clears handles and all process-local memory. `close` also ends the
 session. Empty and partial
 external results remain successful responses. Their concise default envelope
-reports scope, bounds, corpus pressure and eviction effects, a bounded preview,
-bounded facets, and warnings. Detailed relay and observation coverage is
+reports scope, bounds, corpus pressure and eviction effects, and warnings.
+Detailed relay and observation coverage is
 available explicitly with `show` and `mode: "coverage"`; each list is bounded
 by `previewLimit` and reports omitted counts.
 

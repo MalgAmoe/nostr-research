@@ -1,13 +1,12 @@
 import { resolveRelationForPresentation } from './relation.js';
+import { RESEARCH_CONSTRAINTS } from './configuration.js';
 
-const DEFAULT_PREVIEW_LIMIT = 5;
-const MAX_PREVIEW_LIMIT = 20;
-const DEFAULT_EXCERPT_LIMIT = 160;
-const MAX_EXCERPT_LIMIT = 1000;
-const DEFAULT_SIZE_LIMIT = 12_000;
-const MAX_SIZE_LIMIT = 50_000;
-const DEFAULT_FACET_LIMIT = 10;
-const MAX_FACET_LIMIT = 50;
+const DEFAULT_PREVIEW_LIMIT = RESEARCH_CONSTRAINTS.presentation.previewLimit.default;
+const MAX_PREVIEW_LIMIT = RESEARCH_CONSTRAINTS.presentation.previewLimit.maximum;
+const DEFAULT_EXCERPT_LIMIT = RESEARCH_CONSTRAINTS.presentation.excerptLimit.default;
+const MAX_EXCERPT_LIMIT = RESEARCH_CONSTRAINTS.presentation.excerptLimit.maximum;
+const DEFAULT_SIZE_LIMIT = RESEARCH_CONSTRAINTS.presentation.sizeLimit.default;
+const MAX_SIZE_LIMIT = RESEARCH_CONSTRAINTS.presentation.sizeLimit.maximum;
 
 export function showResearchValue(memory, value, options = {}) {
   const settings = inspectionOptions(options);
@@ -24,8 +23,6 @@ export function showResearchValue(memory, value, options = {}) {
   else if (value?.type === 'notebook-membership') {
     shown = showCollection(memory, memory.asCollection(value), settings);
   }
-  else if (value?.type === 'facets') shown = showFacets(value, settings);
-  else if (value?.type === 'result-comparison') shown = showComparison(memory, value, settings);
   else if (isCorpusSummary(value)) shown = showCorpus(value);
   else if (isSubject(value?.subject)) shown = showSubject(memory, value.subject, settings);
   else if (isSubject(value)) shown = showSubject(memory, value, settings);
@@ -39,6 +36,10 @@ export function boundResearchPresentation(value, sizeLimit) {
   return enforceSize(value, boundedInteger(
     sizeLimit, DEFAULT_SIZE_LIMIT, MAX_SIZE_LIMIT, 'sizeLimit', 1000,
   ));
+}
+
+export function validateResearchPresentationOptions(options = {}) {
+  inspectionOptions(options);
 }
 
 function showRelation(memory, value, settings) {
@@ -173,6 +174,7 @@ export function presentSessionStatus(memory, status, options = {}) {
     },
     archive: structuredClone(state.archive),
     notebook: structuredClone(state.notebook),
+    configuration: structuredClone(status.configuration),
     activeOperationCount: status.activeOperationCount,
     handleCount: status.handleCount,
   }, settings.sizeLimit);
@@ -187,74 +189,6 @@ export function acquisitionCorpusAccounting(additions = {}) {
     added: addedSubjects.size,
     refreshed: refreshedSubjects.size,
     evicted: additions.evicted?.length ?? 0,
-  };
-}
-
-export function facetResearchCollection(memory, value, options = {}) {
-  const settings = facetOptions(options);
-  const collection = memory.asCollection(value);
-  const records = new Map();
-  for (const item of collection.items) {
-    if (item.subject.type !== 'event' || records.has(item.subject.id)) continue;
-    const record = memory.getEvent(item.subject.id);
-    if (record) records.set(item.subject.id, record);
-  }
-
-  const authors = new Map();
-  const tags = new Map();
-  const kinds = new Map();
-  const relays = new Map();
-  const domains = new Map();
-  const presence = new Map([['links', 0], ['images', 0], ['videos', 0]]);
-  for (const { event, observations } of records.values()) {
-    increment(authors, event.pubkey);
-    increment(kinds, String(event.kind));
-    for (const encoded of new Set(event.tags
-      .filter((tag) => tag.length >= 2 && typeof tag[0] === 'string' && typeof tag[1] === 'string')
-      .map((tag) => JSON.stringify([tag[0], tag[1]])))) increment(tags, encoded);
-    for (const relay of new Set(observations.map((item) => item.relay))) increment(relays, relay);
-
-    const urls = urlsIn(event.content);
-    for (const domain of new Set(urls.map((url) => url.hostname.toLocaleLowerCase()))) {
-      increment(domains, domain);
-    }
-    if (urls.length) presence.set('links', presence.get('links') + 1);
-    if (urls.some((url) => /\.(?:avif|gif|jpe?g|png|svg|webp)(?:$|[?#])/iu.test(url.href))) {
-      presence.set('images', presence.get('images') + 1);
-    }
-    if (urls.some((url) => /\.(?:m4v|mkv|mov|mp4|webm)(?:$|[?#])/iu.test(url.href))) {
-      presence.set('videos', presence.get('videos') + 1);
-    }
-  }
-
-  const items = [...records].map(([id]) => ({ subject: { type: 'event', id } }));
-  return {
-    type: 'facets',
-    count: records.size,
-    context: {
-      operation: 'facets',
-      sourceOperation: collection.context.operation,
-      statement: 'Counts describe distinct events in the supplied collection; they are not global trends or scores.',
-    },
-    authors: facetCategory(authors, settings.limit, (id, count) => ({
-      id, subject: { type: 'account', id }, count,
-    })),
-    tags: facetCategory(tags, settings.limit, (id, count) => {
-      const [name, value] = JSON.parse(id);
-      return { id, name, value, query: { tags: { [name]: [value] } }, count };
-    }),
-    kinds: facetCategory(kinds, settings.limit, (id, count) => ({
-      id: Number(id), query: { kinds: [Number(id)] }, count,
-    })),
-    observedRelays: facetCategory(relays, settings.limit, (id, count) => ({
-      id, relay: id, count,
-    })),
-    linkedSourceDomains: facetCategory(domains, settings.limit, (id, count) => ({
-      id, domain: id, count,
-    })),
-    presence: facetCategory(presence, settings.limit, (id, count) => ({ id, count })),
-    freshness: evidenceFreshness(memory, items),
-    corpus: corpusEffects(memory, items),
   };
 }
 
@@ -345,11 +279,9 @@ function showTypedCollection(memory, collection, settings) {
   const bounds = collection.bounds ?? resolved.bounds;
   const effectiveOffset = Math.min(settings.offset, resolved.items.length);
   const selected = resolved.items.slice(effectiveOffset, effectiveOffset + limit);
-  const preview = selected.map((item) => showTypedItem(
-    memory, item, resolved.kind, resolved.itemKind, settings,
-  ));
+  const preview = selected.map((item) => showTypedItem(item, settings));
   const omitted = Math.max(0, resolved.items.length - preview.length);
-  const subjects = typedCollectionSubjects(resolved);
+  const subjects = [];
   const evidenceResolution = resolutionCounts(memory, subjects);
   const result = {
     type: 'typed-collection',
@@ -406,8 +338,7 @@ function showTypedCollection(memory, collection, settings) {
   return result;
 }
 
-function showTypedItem(memory, item, kind, itemKind, settings) {
-  if (kind === 'groups') return showGroup(memory, item, itemKind, { ...settings, offset: 0 });
+function showTypedItem(item, settings) {
   const summary = showSummary(item, settings);
   if (settings.mode === 'details') {
     return {
@@ -433,104 +364,6 @@ function showTypedItem(memory, item, kind, itemKind, settings) {
     };
   }
   return summary;
-}
-
-function typedCollectionSubjects(collection) {
-  if (collection.kind !== 'groups') return [];
-  return collection.items.flatMap((group) => group.items ?? []);
-}
-
-function showFacets(value, settings) {
-  const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
-  const shown = {
-    type: 'facets',
-    count: value.count,
-    context: structuredClone(value.context),
-    freshness: structuredClone(value.freshness),
-    corpus: structuredClone(value.corpus),
-  };
-  for (const name of [
-    'authors',
-    'tags',
-    'kinds',
-    'observedRelays',
-    'linkedSourceDomains',
-    'presence',
-  ]) {
-    const category = value[name] ?? { values: [], omitted: 0 };
-    const values = category.values ?? [];
-    const preview = values.slice(0, limit);
-    shown[name] = {
-      count: values.length + (category.omitted ?? 0),
-      values: structuredClone(preview),
-      omitted: (category.omitted ?? 0) + values.length - preview.length,
-      tail: structuredClone((category.tail ?? []).slice(0, limit)),
-      omittedTail: Math.max(0, (category.tail?.length ?? 0) - limit),
-      ordering: category.ordering ?? 'count-descending, then identifier',
-    };
-  }
-  return shown;
-}
-
-function showComparison(memory, value, settings) {
-  const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
-  const sections = {};
-  for (const name of ['shared', 'onlyLeft', 'onlyRight']) {
-    const collection = {
-      type: 'result-collection',
-      kind: value.kind,
-      items: value[name] ?? [],
-      context: { operation: `comparison-${name}` },
-    };
-    const shown = showCollection(memory, collection, { ...settings, previewLimit: limit });
-    sections[name] = {
-      count: collection.items.length,
-      preview: shown.preview,
-      omitted: shown.omitted,
-      freshness: shown.orientation.freshness,
-    };
-  }
-  return {
-    type: 'result-comparison',
-    kind: value.kind,
-    count: value.leftCount + value.rightCount,
-    population: {
-      left: value.leftCount,
-      right: value.rightCount,
-      shared: sections.shared.count,
-      onlyLeft: sections.onlyLeft.count,
-      onlyRight: sections.onlyRight.count,
-    },
-    method: 'Stable subject identity membership; section previews preserve source result order.',
-    sections,
-    truncation: {
-      truncated: Object.values(sections).some(({ omitted }) => omitted > 0),
-      omitted: Object.fromEntries(
-        Object.entries(sections).map(([name, section]) => [name, section.omitted]),
-      ),
-    },
-    corpus: corpusEffects(memory, [...value.shared, ...value.onlyLeft, ...value.onlyRight]),
-  };
-}
-
-function showGroup(memory, group, itemKind, settings) {
-  const collection = {
-    type: 'result-collection',
-    kind: itemKind,
-    items: group.items,
-    context: { operation: 'group-preview' },
-  };
-  const shown = showCollection(memory, collection, settings);
-  return {
-    key: structuredClone(group.key),
-    count: group.memberCount ?? group.items.length,
-    preview: shown.preview,
-    omitted: Math.max(0, (group.memberCount ?? group.items.length) - shown.preview.length),
-    retainedCount: group.retainedMemberCount ?? group.items.length,
-    sourceOmitted: group.omittedMemberCount ?? 0,
-    reasonCount: group.reasons?.length ?? 0,
-    provenance: provenanceSummary([group]),
-  };
 }
 
 function showSummary(summary, settings) {
@@ -814,91 +647,6 @@ function compactStage(stage) {
   }).filter(([, value]) => value !== undefined));
 }
 
-function collectionOrientation(memory, collection, settings) {
-  const typeCounts = {};
-  for (const { subject: item } of collection.items) {
-    typeCounts[item.type] = (typeCounts[item.type] ?? 0) + 1;
-  }
-  const corpus = corpusEffects(memory, collection.items);
-  const membership = membershipEvidence(collection.items, settings.previewLimit);
-  const facets = facetResearchCollection(memory, collection, {
-    limit: Math.min(settings.previewLimit, DEFAULT_FACET_LIMIT),
-  });
-  const contextRelationships = collection.context?.relationships ?? [];
-  const relationships = contextRelationships.length
-    ? contextRelationships
-    : collection.items.flatMap(({ reasons = [] }) => reasons
-      .filter(({ type }) => type === 'relationship')
-      .map((reason) => ({
-        ...reason,
-        type: reason.relationshipType ?? 'unknown',
-      })));
-  const relationshipTypes = new Map();
-  let unresolvedRelationships = 0;
-  for (const relationship of relationships) {
-    increment(relationshipTypes, relationship.type ?? 'unknown');
-    if (relationship.resolved === false || relationship.known === false) {
-      unresolvedRelationships += 1;
-    }
-  }
-  return {
-    population: {
-      subjects: collection.items.length,
-      byType: typeCounts,
-      evidenceResolution: corpus.evidenceResolution,
-      subjectsWithMembershipEvidence: membership.subjectsWithEvidence,
-    },
-    sampling: {
-      method: collection.context?.query?.order
-        ? `collection order (${collection.context.query.order})`
-        : 'source collection order',
-      limit: settings.mode === 'summary' ? 0 : settings.previewLimit,
-    },
-    truncation: {
-      truncated: collection.items.length > (settings.mode === 'summary' ? 0 : settings.previewLimit),
-      omittedSubjects: Math.max(
-        0, collection.items.length - (settings.mode === 'summary' ? 0 : settings.previewLimit),
-      ),
-    },
-    freshness: evidenceFreshness(memory, collection.items),
-    corpus,
-    membershipEvidence: membership,
-    facets,
-    conversation: {
-      relationshipCount: relationships.length,
-      types: facetCategory(relationshipTypes, settings.previewLimit, (id, count) => ({ id, count })),
-      unresolvedRelationships,
-    },
-  };
-}
-
-function membershipEvidence(items, limit) {
-  const reasonTypes = new Map();
-  let reasonCount = 0;
-  let provenanceCount = 0;
-  let subjectsWithEvidence = 0;
-  for (const item of items) {
-    const reasons = item.reasons ?? [];
-    const provenance = item.provenance ?? [];
-    reasonCount += reasons.length;
-    provenanceCount += provenance.length;
-    if (reasons.length || provenance.length) subjectsWithEvidence += 1;
-    for (const reason of reasons) increment(reasonTypes, reason.type ?? 'unknown');
-  }
-  const types = facetCategory(reasonTypes, limit, (id, count) => ({ id, count }));
-  return {
-    basis: 'collection membership reasons and provenance',
-    subjectsWithEvidence,
-    reasonCount,
-    provenanceCount,
-    reasonTypes: types,
-    truncation: {
-      truncated: types.omitted > 0,
-      omittedReasonTypes: types.omitted,
-    },
-  };
-}
-
 function evidenceFreshness(memory, items) {
   const observations = [];
   const evidenceResolution = resolutionCounts(memory, items);
@@ -979,28 +727,6 @@ function corpusSnapshot(corpus) {
   };
 }
 
-function facetCategory(map, limit, present) {
-  const all = [...map.entries()]
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
-  const shown = all.slice(0, limit);
-  const shownIds = new Set(shown.map(([id]) => id));
-  const tail = all.slice().reverse()
-    .filter(([id]) => !shownIds.has(id))
-    .slice(0, Math.min(3, limit));
-  return {
-    values: shown.map(([id, count]) => present(id, count)),
-    omitted: Math.max(0, all.length - limit),
-    tail: tail.map(([id, count]) => present(id, count)),
-    ordering: 'count-descending, then identifier; tail is lowest-count then reverse identifier',
-  };
-}
-
-function urlsIn(text) {
-  return [...String(text).matchAll(/https?:\/\/[^\s<>"')\]]+/giu)].flatMap(([raw]) => {
-    try { return [new URL(raw)]; } catch { return []; }
-  });
-}
-
 function inspectionOptions(options) {
   assertOptions(options, [
     'mode', 'offset', 'previewLimit', 'excerptLimit', 'includeEvidence', 'sizeLimit',
@@ -1027,11 +753,6 @@ function listOptions(options) {
   };
 }
 
-function facetOptions(options) {
-  assertOptions(options, ['limit']);
-  return { limit: boundedInteger(options.limit, DEFAULT_FACET_LIMIT, MAX_FACET_LIMIT, 'limit') };
-}
-
 function assertOptions(options, allowed) {
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
     throw new TypeError('Options must be an object.');
@@ -1053,16 +774,6 @@ function boundedInteger(value, fallback, maximum, label, minimum = 1) {
 
 function enforceSize(value, maximum) {
   const copy = structuredClone(value);
-  if (Buffer.byteLength(JSON.stringify(copy)) > maximum && copy.orientation) {
-    delete copy.orientation.facets;
-    delete copy.orientation.conversation;
-    delete copy.orientation.membershipEvidence;
-    copy.orientation.detailsOmittedForSize = true;
-  }
-  if (Buffer.byteLength(JSON.stringify(copy)) > maximum && copy.facets) {
-    delete copy.facets;
-    copy.facetsOmittedForSize = true;
-  }
   if (Buffer.byteLength(JSON.stringify(copy)) > maximum && Array.isArray(copy.provenance)) {
     copy.provenance = [];
     copy.provenanceOmittedForSize = true;
@@ -1276,10 +987,6 @@ function compactEvidenceForSize(evidence) {
     } : {}),
     observationCount: evidence.observationCount ?? evidence.provenance?.length ?? 0,
   };
-}
-
-function increment(map, key) {
-  map.set(key, (map.get(key) ?? 0) + 1);
 }
 
 function excerpt(value, maximum) {

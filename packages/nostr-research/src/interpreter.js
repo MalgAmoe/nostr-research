@@ -1,4 +1,11 @@
-import { ResearchMemoryError } from './index.js';
+import { ResearchMemoryError } from './protocol.js';
+import {
+  RESEARCH_CONSTRAINTS,
+  normalizeSessionConfiguration,
+  operationParametersWithSessionDefaults,
+  presentationParametersWithSessionDefaults,
+  researchConstraints,
+} from './configuration.js';
 import {
   executeResearchOperation,
   executeResearchPlan,
@@ -14,6 +21,7 @@ import {
   presentHandleList,
   presentSessionStatus,
   showResearchValue,
+  validateResearchPresentationOptions,
 } from './presentation.js';
 import {
   discoverResearchOperations,
@@ -27,7 +35,7 @@ import {
 const COMMANDS = new Set([
   ...researchOperationNames(), 'plan',
   'show', 'inspect', 'explain', 'list', 'memberships', 'membership', 'status', 'schema',
-  'release', 'release-all', 'delete-membership', 'reset', 'close',
+  'configure', 'release', 'release-all', 'delete-membership', 'reset', 'close',
 ]);
 const OBSERVATIONS = new Set([
   'show', 'inspect', 'explain', 'list', 'memberships', 'membership', 'status', 'schema',
@@ -43,8 +51,8 @@ const PLAN_KEYS = new Set([
   'commandId', 'ifRevision', 'command', 'plan', 'outputs', 'replace',
 ]);
 
-export function createDeclarativeResearchSession(memory) {
-  return new DeclarativeResearchSession(memory);
+export function createDeclarativeResearchSession(memory, configuration = {}) {
+  return new DeclarativeResearchSession(memory, configuration);
 }
 
 export class DeclarativeResearchSession {
@@ -55,14 +63,16 @@ export class DeclarativeResearchSession {
   #closing;
   #active = new Set();
   #tail = Promise.resolve();
+  #configuration;
 
-  constructor(memory) {
+  constructor(memory, configuration = {}) {
     if (!memory || typeof memory.asCollection !== 'function'
         || typeof memory.describe !== 'function') {
       throw new ResearchMemoryError('An open bounded research memory is required.');
     }
     memory.describe();
     this.#memory = memory;
+    this.#configuration = normalizeSessionConfiguration(configuration);
   }
 
   get revision() {
@@ -106,7 +116,8 @@ export class DeclarativeResearchSession {
           `Expected session revision ${command.ifRevision}, but current revision is ${this.#revision}.`,
           { expected: command.ifRevision, actual: this.#revision });
       }
-      const prepared = command.command === 'plan' ? this.#preparePlan(command)
+      const prepared = command.command === 'configure' ? this.#prepareConfiguration(command)
+        : command.command === 'plan' ? this.#preparePlan(command)
         : OBSERVATIONS.has(command.command) ? this.#prepareObservation(command)
           : LIFECYCLE.has(command.command) ? this.#prepareLifecycle(command)
             : this.#prepareOperation(command);
@@ -155,10 +166,14 @@ export class DeclarativeResearchSession {
     }
     if (command.command === 'show') {
       const entry = this.#requireHandle(command.input);
-      const options = projectionOptions(parameters, true);
+      const options = projectionOptions(
+        presentationParametersWithSessionDefaults(parameters, this.#configuration), true,
+      );
       return readOnly(() => boundResearchPresentation({
         ...showResearchValue(this.#memory, entry.value, options),
-        nextOperations: discoverResearchOperations(entry.descriptor, command.input),
+        nextOperations: discoverResearchOperations(
+          entry.descriptor, command.input, entry.value,
+        ),
       }, options.sizeLimit));
     }
     if (command.command === 'inspect') {
@@ -166,13 +181,17 @@ export class DeclarativeResearchSession {
       if (command.input !== undefined) {
         throw protocolError('INVALID_COMMAND', 'inspect does not accept an input handle.');
       }
-      const options = projectionOptions(rawOptions);
+      const options = projectionOptions(
+        presentationParametersWithSessionDefaults(rawOptions, this.#configuration),
+      );
       return readOnly(() => showResearchValue(this.#memory, this.#memory.inspect(subject), options));
     }
     if (command.command === 'explain') {
       const entry = this.#requireHandle(command.input);
       const { subject, ...rawOptions } = parameters;
-      const options = projectionOptions(rawOptions);
+      const options = projectionOptions(
+        presentationParametersWithSessionDefaults(rawOptions, this.#configuration),
+      );
       return readOnly(() => explainResearchMembership(
         this.#memory, collectionValue(entry.value), subject, options,
       ));
@@ -186,7 +205,8 @@ export class DeclarativeResearchSession {
       }
       return readOnly(() => ({
         ...this.#memory.describeCollectionPipeline(),
-        session: sessionSchema(),
+        session: sessionSchema(this.#configuration),
+        constraints: researchConstraints(),
       }));
     }
     if (command.command === 'list') {
@@ -194,7 +214,11 @@ export class DeclarativeResearchSession {
         [...this.#handles].map(([id, entry]) => handleMetadata(
           id, entry.descriptor, entry.value, entry.revision,
         )),
-        parameters,
+        {
+          limit: this.#configuration.presentation.previewLimit,
+          sizeLimit: this.#configuration.presentation.sizeLimit,
+          ...parameters,
+        },
       ));
     }
     if (command.command === 'memberships') {
@@ -205,7 +229,7 @@ export class DeclarativeResearchSession {
       if (unknown) {
         throw protocolError('INVALID_COMMAND', `Unknown memberships parameter: ${unknown}.`);
       }
-      const limit = parameters.limit ?? 50;
+      const limit = parameters.limit ?? RESEARCH_CONSTRAINTS.results.defaultQueryLimit;
       if (!Number.isSafeInteger(limit) || limit < 0) {
         throw protocolError(
           'INVALID_COMMAND', 'memberships limit must be a non-negative integer.',
@@ -232,7 +256,38 @@ export class DeclarativeResearchSession {
       revision: this.#revision,
       activeOperationCount: this.#active.size,
       handleCount: this.#handles.size,
-    }, parameters));
+      configuration: structuredClone(this.#configuration),
+    }, {
+      limit: this.#configuration.presentation.previewLimit,
+      sizeLimit: this.#configuration.presentation.sizeLimit,
+      ...parameters,
+    }));
+  }
+
+  #prepareConfiguration(command) {
+    rejectKeys(command, new Set(['commandId', 'ifRevision', 'command', 'parameters']));
+    if (!isPlainObject(command.parameters)) {
+      throw protocolError('INVALID_COMMAND', 'configure parameters must be a plain object.');
+    }
+    let next;
+    try {
+      next = normalizeSessionConfiguration(command.parameters, this.#configuration);
+    } catch (error) {
+      if (error instanceof ResearchMemoryError) {
+        throw protocolError('INVALID_COMMAND', error.message);
+      }
+      throw error;
+    }
+    const changed = JSON.stringify(next) !== JSON.stringify(this.#configuration);
+    return {
+      run: () => ({ type: 'session-configuration', configuration: next }),
+      mutates: () => changed,
+      install: null,
+      present: (result) => {
+        this.#configuration = result.configuration;
+        return structuredClone(result);
+      },
+    };
   }
 
   #prepareLifecycle(command) {
@@ -334,7 +389,9 @@ export class DeclarativeResearchSession {
       : Object.fromEntries([...namedEntries].map(([name, entry]) => [name, entry.value]));
     const namedDescriptors = namedEntries === undefined ? undefined
       : Object.fromEntries([...namedEntries].map(([name, entry]) => [name, entry.descriptor]));
-    const operationParameters = cloneJson(command.parameters);
+    const operationParameters = operationParametersWithSessionDefaults(
+      command.command, command.parameters, this.#configuration,
+    );
     const referenced = isSetOperation(command.command)
       ? this.#requireHandle(command.parameters.with) : undefined;
     const operation = normalizeResearchOperation({
@@ -343,9 +400,9 @@ export class DeclarativeResearchSession {
         ? { ...operationParameters, with: referenced.value }
         : operationParameters,
     });
-    const externallyBacked = isExternalOperation(command.command, command.parameters);
+    const externallyBacked = isExternalOperation(command.command, operationParameters);
     const descriptorOperation = isSetOperation(command.command)
-      ? { operation: command.command, parameters: cloneJson(command.parameters) }
+      ? { operation: command.command, parameters: cloneJson(operationParameters) }
       : operation;
     const references = referenced === undefined ? undefined
       : new Map([[command.parameters.with, referenced.descriptor]]);
@@ -359,7 +416,7 @@ export class DeclarativeResearchSession {
     return {
       run: () => externallyBacked
         ? this.#runExternal(operation, inputEntry?.value, namedValues) : execute(),
-      mutates: (result) => operationMutation(command.command, result, command.parameters),
+      mutates: (result) => operationMutation(command.command, result, operationParameters),
       install: command.resultId === undefined ? null : (result) => {
         this.#handles.set(command.resultId, {
           value: ownHandleValue(result),
@@ -370,7 +427,13 @@ export class DeclarativeResearchSession {
       },
       present: (result) => ({
         ...presentResult(
-          result, command.resultId, descriptor, this.#revision, command.command, this.#memory,
+          result,
+          command.resultId,
+          descriptor,
+          this.#revision,
+          command.command,
+          operationParameters,
+          this.#memory,
         ),
       }),
     };
@@ -398,7 +461,17 @@ export class DeclarativeResearchSession {
 
   #preparePlan(command) {
     rejectKeys(command, PLAN_KEYS);
-    const plan = normalizeResearchPlan(command.plan);
+    const configuredPlan = Array.isArray(command.plan)
+      ? command.plan.map((stage) => (
+          isPlainObject(stage) ? {
+            ...stage,
+            parameters: operationParametersWithSessionDefaults(
+              stage.operation, stage.parameters, this.#configuration,
+            ),
+          } : stage
+        ))
+      : command.plan;
+    const plan = normalizeResearchPlan(configuredPlan);
     const descriptors = preflightResearchPlan(this.#memory, plan);
     const outputs = normalizeOutputs(command.outputs, plan);
     const targetIds = [...outputs.values()];
@@ -424,22 +497,24 @@ export class DeclarativeResearchSession {
       },
       present: (report) => ({
         type: report.type,
-        stages: report.stages.map(({ id, operation, resultKind, result }) => ({
-          id, operation, resultKind,
-          ...(outputs.has(id) ? {
-            handle: handleMetadata(
-              outputs.get(id), descriptors.get(id), result, this.#revision,
-            ),
-          } : {}),
-          ...(isExternalOperation(operation)
-            ? externalPresentation(result, operation, this.#memory)
-            : operation === 'continue' ? {
-                completeness: compactContinuationCompleteness(result.completeness),
-                ...(result.coverage
-                  ? externalPresentation(result, operation, this.#memory) : {}),
-              }
-            : {}),
-        })),
+        stages: report.stages.map(({ id, operation, resultKind, result }) => {
+          const parameters = report.plan.find((stage) => stage.id === id)?.parameters ?? {};
+          return {
+            id, operation, resultKind,
+            ...(outputs.has(id) ? {
+              handle: handleMetadata(
+                outputs.get(id), descriptors.get(id), result, this.#revision,
+              ),
+            } : {}),
+            ...(['continue', 'expand'].includes(operation) ? {
+                  completeness: compactContinuationCompleteness(result.completeness),
+                  ...(isExternalOperation(operation, parameters) && result.coverage
+                    ? externalPresentation(result, operation, this.#memory) : {}),
+                } : isExternalOperation(operation, parameters)
+              ? externalPresentation(result, operation, this.#memory)
+              : {}),
+          };
+        }),
       }),
     };
   }
@@ -536,18 +611,19 @@ function validateId(id, label) {
   }
 }
 
-function presentResult(result, id, descriptor, revision, operation, memory) {
+function presentResult(result, id, descriptor, revision, operation, parameters, memory) {
   const metadata = id === undefined
     ? { kind: descriptor.kind, count: resultCount(result) }
     : handleMetadata(id, descriptor, result, revision);
-  if (operation === 'continue') {
+  if (['continue', 'expand'].includes(operation)) {
     return {
       handle: metadata,
       completeness: compactContinuationCompleteness(result.completeness),
-      ...(result.coverage ? externalPresentation(result, operation, memory) : {}),
+      ...(isExternalOperation(operation, parameters) && result.coverage
+        ? externalPresentation(result, operation, memory) : {}),
     };
   }
-  return isExternalOperation(operation)
+  return isExternalOperation(operation, parameters)
     ? {
         handle: metadata,
         ...externalPresentation(result, operation, memory),
@@ -617,6 +693,14 @@ function projectionOptions(parameters, allowMode = false) {
   ]);
   const unknown = Object.keys(parameters).find((key) => !allowed.has(key));
   if (unknown) throw protocolError('INVALID_COMMAND', `Unknown projection parameter: ${unknown}.`);
+  try {
+    validateResearchPresentationOptions(parameters);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw protocolError('INVALID_COMMAND', error.message);
+    }
+    throw error;
+  }
   return cloneJson(parameters);
 }
 
@@ -761,7 +845,14 @@ function externalWarnings(result, operation) {
   return warnings;
 }
 
-function sessionSchema() {
+function sessionSchema(configuration) {
+  const constraints = researchConstraints();
+  const previewRange = `integer from ${constraints.presentation.previewLimit.minimum} `
+    + `to ${constraints.presentation.previewLimit.maximum}`;
+  const excerptRange = `integer from ${constraints.presentation.excerptLimit.minimum} `
+    + `to ${constraints.presentation.excerptLimit.maximum}`;
+  const sizeRange = `integer from ${constraints.presentation.sizeLimit.minimum} `
+    + `to ${constraints.presentation.sizeLimit.maximum} bytes approximately`;
   return {
     envelope: {
       required: { commandId: 'non-empty string', command: 'documented command' },
@@ -806,41 +897,72 @@ function sessionSchema() {
           parameters: {
             mode: ['preview', 'summary', 'coverage', 'details', 'explain'],
             offset: 'non-negative integer',
-            previewLimit: 'integer from 1 to 20',
-            excerptLimit: 'integer from 1 to 1000',
+            previewLimit: previewRange,
+            excerptLimit: excerptRange,
             includeEvidence: 'boolean',
-            sizeLimit: 'integer from 1000 to 50000 bytes approximately',
+            sizeLimit: sizeRange,
           },
         },
         inspect: {
           input: 'forbidden',
           parameters: {
             subject: 'event or account subject',
-            previewLimit: 'integer from 1 to 20',
-            excerptLimit: 'integer from 1 to 1000',
+            previewLimit: previewRange,
+            excerptLimit: excerptRange,
             includeEvidence: 'boolean',
-            sizeLimit: 'integer from 1000 to 50000 bytes approximately',
+            sizeLimit: sizeRange,
           },
         },
         explain: {
           input: 'named result handle',
           parameters: {
             subject: 'event or account subject',
-            previewLimit: 'integer from 1 to 20',
-            excerptLimit: 'integer from 1 to 1000',
+            previewLimit: previewRange,
+            excerptLimit: excerptRange,
             includeEvidence: 'boolean',
-            sizeLimit: 'integer from 1000 to 50000 bytes approximately',
+            sizeLimit: sizeRange,
           },
         },
-        list: { parameters: { limit: 'integer from 1 to 20', sizeLimit: 'byte bound' } },
+        list: { parameters: { limit: previewRange, sizeLimit: sizeRange } },
         memberships: { parameters: { limit: 'non-negative integer' } },
         membership: { parameters: { name: 'membership name' } },
-        status: { parameters: { limit: 'integer from 1 to 20', sizeLimit: 'byte bound' } },
+        status: { parameters: { limit: previewRange, sizeLimit: sizeRange } },
         schema: { parameters: {} },
+      },
+      configuration: {
+        configure: {
+          input: 'forbidden',
+          parameters: 'partial session configuration',
+          effect: 'changes defaults for future commands without rewriting memory',
+        },
       },
       lifecycle: [
         'release', 'release-all', 'delete-membership', 'reset', 'close',
       ],
+    },
+    configuration: {
+      effective: structuredClone(configuration),
+      mutable: {
+        relays: 'default wss:// relay URL array for future external operations',
+        acquisition: {
+          timeoutMs: 'positive integer',
+          observationLimit: 'positive integer',
+          distinctEventLimit: 'positive integer',
+          concurrency: 'positive integer',
+        },
+        presentation: {
+          previewLimit: 'bounded integer',
+          excerptLimit: 'bounded integer',
+          sizeLimit: 'bounded integer',
+        },
+      },
+      precedence: [
+        'per-command parameters',
+        'session configuration',
+        'engine defaults',
+        'engine hard constraints',
+      ],
+      capacityChanges: 'Memory, archive, and notebook capacity are construction-time settings; generic session configuration never evicts evidence.',
     },
     notebookMemberships: {
       list: { command: 'memberships', parameters: { limit: 'optional non-negative integer' } },

@@ -1,8 +1,9 @@
-import { ResearchMemoryError } from './index.js';
+import { ResearchMemoryError } from './protocol.js';
+import { RESEARCH_CONSTRAINTS } from './configuration.js';
 
-const MAX_LIMIT = 1000;
-const MAX_DERIVED_STRING = 280;
-const MAX_DERIVED_ARRAY = 20;
+const MAX_LIMIT = RESEARCH_CONSTRAINTS.results.maximumLimit;
+const MAX_DERIVED_STRING = RESEARCH_CONSTRAINTS.derivedValues.stringLength.maximum;
+const MAX_DERIVED_ARRAY = RESEARCH_CONSTRAINTS.derivedValues.arrayLength.maximum;
 const SOURCE_FIELDS = Object.freeze([
   'evidence.resolutionSource',
   'observedRelays',
@@ -164,11 +165,14 @@ function normalizeRelationParameters(name, value) {
     onlyKeys(value, ['fields', 'terms', 'match', 'matchMode', 'caseSensitive', 'limit'], name);
     const selectedFields = fields(value.fields, 'scan fields');
     if (!Array.isArray(value.terms) || value.terms.length === 0
-        || value.terms.length > 50
+        || value.terms.length > RESEARCH_CONSTRAINTS.scan.terms.maximum
         || value.terms.some((term) => typeof term !== 'string'
-          || term.length === 0 || term.length > 200)) {
+          || term.length < RESEARCH_CONSTRAINTS.scan.termLength.minimum
+          || term.length > RESEARCH_CONSTRAINTS.scan.termLength.maximum)) {
       throw new ResearchMemoryError(
-        'scan terms must contain 1 to 50 strings of at most 200 characters.',
+        `scan terms must contain ${RESEARCH_CONSTRAINTS.scan.terms.minimum} to `
+        + `${RESEARCH_CONSTRAINTS.scan.terms.maximum} strings of at most `
+        + `${RESEARCH_CONSTRAINTS.scan.termLength.maximum} characters.`,
       );
     }
     if (value.match !== undefined && !['any', 'all'].includes(value.match)) {
@@ -846,7 +850,7 @@ function uniqueNames(values) {
 }
 
 function limit(value) {
-  if (value === undefined) return 100;
+  if (value === undefined) return RESEARCH_CONSTRAINTS.results.defaultLimit;
   if (!Number.isSafeInteger(value) || value < 1 || value > MAX_LIMIT) {
     throw new ResearchMemoryError(`limit must be an integer from 1 to ${MAX_LIMIT}.`);
   }

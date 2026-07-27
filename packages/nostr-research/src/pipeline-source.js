@@ -3,7 +3,7 @@ import {
   normalizeAcquisitionOptions,
 } from './acquire.js';
 import { continueResearch, normalizeContinuation } from './continuation.js';
-import { ResearchMemoryError } from './index.js';
+import { ResearchMemoryError } from './protocol.js';
 import { isResearchRelation, resolveRelationForPresentation } from './relation.js';
 
 const FETCH_KEYS = new Set([
