@@ -2,7 +2,7 @@
 
 Date: 2026-07-27
 
-Status: proposed execution plan.
+Status: completed by workflow tasks 052–056. Retained as implementation history.
 
 Direction: `system-simplification-direction.md`.
 

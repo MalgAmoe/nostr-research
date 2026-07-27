@@ -8,10 +8,8 @@ implementation for Node and browser environments.
 The browser worker remained responsive for a small corpus, but ingestion
 stalled at larger test sizes and did not provide a dependable basis for the
 research client. The experiment did not justify replacing Node's built-in
-SQLite support.
-
-At the time, the experiment did not justify replacing Node's built-in SQLite
-support. The executable spike was removed after recording that conclusion.
+SQLite support, so the executable spike was removed after recording that
+conclusion.
 
 The project subsequently removed SQLite entirely. The current runtime uses one
 bounded, process-local in-memory corpus and deliberately has no persistence or

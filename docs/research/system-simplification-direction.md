@@ -2,7 +2,7 @@
 
 Date: 2026-07-27
 
-Status: current direction for the next architectural work.
+Status: completed milestone rationale. Current policy lives in `CONTEXT.md`.
 
 ## Purpose
 

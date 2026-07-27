@@ -29,10 +29,6 @@ export function isResearchRelation(value) {
   return value?.type === 'research-relation' && Array.isArray(value.rows);
 }
 
-export function relationOperationNames() {
-  return [...RELATION_OPERATIONS];
-}
-
 export function describeResearchRelation(memory, relation) {
   const resolved = resolveRelationForPresentation(memory, relation);
   return {
@@ -42,7 +38,7 @@ export function describeResearchRelation(memory, relation) {
   };
 }
 
-export function relationFrom(memory, value) {
+function relationFrom(memory, value) {
   if (isResearchRelation(value)) return cloneRelation(value);
   const collection = memory.asCollection(value);
   if (!['subjects', 'events', 'accounts', 'relationships'].includes(collection.kind)) {
