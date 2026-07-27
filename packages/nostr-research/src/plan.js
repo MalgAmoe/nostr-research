@@ -20,6 +20,12 @@ import {
   isResearchRelation,
   validateRelationOperation,
 } from './relation.js';
+import {
+  executePipelineExpand,
+  executePipelineFetch,
+  validatePipelineExpand,
+  validatePipelineFetch,
+} from './pipeline-source.js';
 
 /**
  * Executes a linear, JSON-serializable list of named research stages.
@@ -227,6 +233,8 @@ export function preflightResearchOperation(
       scope: input ? 'acquisition' : 'corpus',
     };
   }
+  if (name === 'fetch') return validatePipelineFetch(parameters, input);
+  if (name === 'expand') return validatePipelineExpand(memory, parameters, input);
   if (isRelationOperation(name)
       || (input?.kind === 'relation'
         && ['filter', 'project', 'distinct', 'sort', 'limit'].includes(name))) {
@@ -297,6 +305,8 @@ function descriptorCollection(descriptor) {
 /** Executes one preflighted operation through the same path used by plans. */
 export async function executeResearchOperation(memory, operation, input = undefined, namedInputs = undefined) {
   const { operation: name, parameters } = operation;
+  if (name === 'fetch') return executePipelineFetch(memory, parameters, input);
+  if (name === 'expand') return executePipelineExpand(memory, parameters, input);
   if (isRelationOperation(name) || isResearchRelation(input)) {
     return executeRelationOperation(memory, name, parameters, namedInputs ?? { input });
   }

@@ -741,6 +741,7 @@ function externalStatus(result, operation, memory) {
         observationLimit: result.budget.observationLimit,
         distinctEventLimit: result.budget.distinctEventLimit,
       },
+      ...(result.inputResolution ? { inputResolution: cloneJson(result.inputResolution) } : {}),
       observed: result.counts.acceptedObservations,
       duplicateObservations: result.counts.duplicateObservations,
       distinctEvents: result.counts.distinctEventsAcquired,

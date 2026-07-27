@@ -5,7 +5,7 @@ import {
   continuationSemantics,
 } from './operations.js';
 const KEYS = new Set([
-  'relationship', 'source', 'relays', 'since', 'until', 'eventLimit', 'depth',
+  'relationship', 'source', 'relays', 'since', 'until', 'offset', 'eventLimit', 'depth',
   'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency', 'signal',
 ]);
 const EXTERNAL_KEYS = new Set([
@@ -46,6 +46,7 @@ export async function continueResearch(memory, input, options) {
     relationship: normalized.relationship,
     source: normalized.source,
     starts: starts.items.map(({ subject: itemSubject }) => itemSubject),
+    offset: normalized.offset,
     limit: normalized.eventLimit,
   }, continuationOutputKind(normalized.relationship));
   const projectionBoundReached = projection.boundReached;
@@ -112,8 +113,9 @@ export function normalizeContinuation(memory, input, options) {
     throw new ResearchMemoryError('Continuation source must be "local" or "relays".');
   }
   const eventLimit = boundedInteger(options.eventLimit ?? 50, 'eventLimit', 1, 1000);
+  const offset = boundedInteger(options.offset ?? 0, 'offset', 0, 1_000_000);
   const depth = boundedInteger(options.depth ?? 3, 'depth', 1, 100);
-  const result = { relationship: options.relationship, source, eventLimit, depth };
+  const result = { relationship: options.relationship, source, offset, eventLimit, depth };
   for (const name of ['since', 'until']) {
     if (options[name] !== undefined) result[name] = boundedInteger(options[name], name, 0);
   }
@@ -345,7 +347,7 @@ function projectByInput(memory, starts, options, acquisition) {
   }
 
   const candidates = [...merged.entries()];
-  const retained = candidates.slice(0, options.eventLimit);
+  const retained = candidates.slice(options.offset, options.offset + options.eventLimit);
   const retainedKeys = new Set(retained.map(([key]) => key));
   const inputs = outcomes.map(({ outcome, candidateKeys }) => {
     if (candidateKeys.size === 0) return outcome;
@@ -364,7 +366,8 @@ function projectByInput(memory, starts, options, acquisition) {
       omittedCount,
     };
   });
-  const boundReached = candidates.length > options.eventLimit
+  const boundReached = options.offset > 0
+    || candidates.length > options.offset + options.eventLimit
     || (options.eventLimit === MAX_PROJECTION_LIMIT
       && candidates.length === MAX_PROJECTION_LIMIT);
   return { items: retained.map(([, item]) => item), inputs, omissions, boundReached };

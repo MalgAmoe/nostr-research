@@ -174,6 +174,16 @@ test('typed local stages and composable relations refine trial-shaped evidence',
       },
       { id: 'account-rows', operation: 'relate', input: 'accounts', parameters: {} },
       {
+        id: 'followed', operation: 'expand', input: 'account-rows',
+        parameters: {
+          relationship: 'followed-accounts',
+          field: 'subject.id',
+          subjectType: 'account',
+          source: 'local',
+          eventLimit: 10,
+        },
+      },
+      {
         id: 'candidates', operation: 'join',
         inputs: { left: 'evidence', right: 'account-rows' },
         parameters: {
@@ -204,6 +214,11 @@ test('typed local stages and composable relations refine trial-shaped evidence',
       },
     ]);
     const candidateRows = relational.stages.at(-1).result.rows;
+    assert.deepEqual(
+      relational.stages.find(({ id }) => id === 'followed').result.collection.items
+        .map(({ subject }) => subject.id),
+      [bob],
+    );
     assert.deepEqual(candidateRows.map(({ values }) => values.noteCount), [3, 1]);
     assert.equal(candidateRows[0].values.name, 'alice');
     assert.equal(candidateRows[0].values.score, 6);

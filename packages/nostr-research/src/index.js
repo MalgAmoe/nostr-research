@@ -2646,6 +2646,12 @@ export {
   validateRelationOperation,
 } from './relation.js';
 export {
+  executePipelineExpand,
+  executePipelineFetch,
+  validatePipelineExpand,
+  validatePipelineFetch,
+} from './pipeline-source.js';
+export {
   createDeclarativeResearchSession,
   DeclarativeResearchSession,
 } from './interpreter.js';

@@ -57,6 +57,8 @@ export const RESEARCH_OPERATIONS = Object.freeze({
   aggregate: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
   derive: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
   slice: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
+  fetch: { input: 'relation', outputKind: 'events', resultKind: 'acquisition-report', external: true },
+  expand: { input: 'relation', resultKind: 'continuation-report', external: 'by-source' },
 });
 
 export function researchOperationNames() {

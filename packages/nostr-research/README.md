@@ -133,6 +133,17 @@ Plans may give a stage one `input` or a named `inputs` object. `join` uses
 same-kind set membership. Derived expressions are bounded JSON data rather
 than executable JavaScript.
 
+`fetch` builds a bounded relay filter from relation fields. For example,
+`bindings: { authors: "account" }` acquires events authored by the distinct
+account values in its input rows and reports the number of values bound.
+`expand` turns a relation field into account or event subjects and follows a
+named protocol relationship locally or through bounded relay acquisition.
+Both reuse the ordinary acquisition and continuation implementations.
+
+Local and relay-backed continuation accepts `offset` and `eventLimit`.
+Together with relation `slice`, this makes truncation navigable instead of
+silently fixing every relationship projection to its first window.
+
 ```js
 const report = await executeResearchPlan(memory, [
   { id: 'notes', operation: 'select', parameters: { scope: 'corpus', kinds: [1] } },
