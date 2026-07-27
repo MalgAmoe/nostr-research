@@ -401,8 +401,10 @@ archive, or named-handle state changes; observation commands and failed commands
 advance them.
 
 Research commands include source operations, subject-collection transforms,
-relation operations, explicit archive and notebook operations, and `plan`; `schema` reports the authoritative
-current list. Individual operations accept plain JSON `parameters`, either an
+relation operations, explicit archive and notebook operations, and `plan`.
+`schema` without an input reports the authoritative global vocabulary and
+configuration. `schema` with a named input reports the complete operation
+space for that exact handle. Individual operations accept plain JSON `parameters`, either an
 optional `input` or named `inputs`, and optional `resultId`; `replace: true`
 explicitly replaces an existing named result. Named inputs are primarily used
 by `join`, with `{ "left": "...", "right": "..." }`. Plans accept the documented
@@ -416,6 +418,11 @@ reconstructing operation rules. `operationSchema()` and the session `schema`
 command are derived from the same definitions; each definition reports its
 accepted input shape, output and result kinds, locality (`local`, `external`,
 or `by-source`), memory mutation owner, and completeness contract.
+Contextual schema adds actual usable fields and choices, whether an operation
+is immediately `ready`, caller choices still required, and a valid
+current-handle example whenever one can be generated without inventing an
+external relay or another handle. `compatibleOperations` is the exhaustive
+list of those contextual operation entries.
 
 Configuration has explicit levels. Engine constraints are immutable supported
 ranges. Memory, archive, and notebook capacities are construction-time
@@ -462,7 +469,9 @@ exact-subject membership view.
 
 Every `show` response also contains a short `nextOperations` list derived from
 the authoritative operation registry. Its examples name the current handle
-and state accepted constraints. In particular, `relate` explicitly crosses a
+and state accepted constraints. It is deliberately a small orientation list,
+not the exhaustive operation space; use contextual `schema` for that. In
+particular, `relate` explicitly crosses a
 subject collection into a relation; `extract` crosses a selected relation field
 back into stable subjects; `move` crosses event and account collections; and
 `pick` selects positions from a preview without copying stable IDs.

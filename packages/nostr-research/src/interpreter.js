@@ -24,6 +24,7 @@ import {
   validateResearchPresentationOptions,
 } from './presentation.js';
 import {
+  contextualResearchOperationSchema,
   discoverResearchOperations,
   isExternalOperation,
   isSetOperation,
@@ -34,7 +35,6 @@ import {
 import {
   describeResearchRelation,
   isResearchRelation,
-  relationOperationNames,
 } from './relation.js';
 
 const COMMANDS = new Set([
@@ -728,15 +728,19 @@ function contextualHandleSchema(memory, id, entry) {
   const handle = handleMetadata(id, entry.descriptor, entry.value, entry.revision);
   const value = entry.value?.collection ?? entry.value;
   if (isResearchRelation(value)) {
+    const structure = describeResearchRelation(memory, value);
+    const operations = contextualResearchOperationSchema({
+      descriptor: entry.descriptor,
+      input: id,
+      structure,
+      value,
+    });
     return {
       type: 'handle-schema',
       handle,
-      structure: describeResearchRelation(memory, value),
-      compatibleOperations: [
-        ...relationOperationNames().filter((operation) => operation !== 'relate'),
-        'extract',
-        'fetch',
-      ],
+      structure,
+      compatibleOperations: Object.keys(operations),
+      operations,
     };
   }
   const collection = memory.asCollection(value);
@@ -744,17 +748,23 @@ function contextualHandleSchema(memory, id, entry) {
     counts.set(subject.type, (counts.get(subject.type) ?? 0) + 1);
     return counts;
   }, new Map())].map(([type, count]) => ({ type, count }));
+  const structure = {
+    kind: collection.kind,
+    count: collection.items.length,
+    subjectTypes,
+  };
+  const operations = contextualResearchOperationSchema({
+    descriptor: entry.descriptor,
+    input: id,
+    structure,
+    value,
+  });
   return {
     type: 'handle-schema',
     handle,
-    structure: {
-      kind: collection.kind,
-      count: collection.items.length,
-      subjectTypes,
-    },
-    suggestedOperations: discoverResearchOperations(
-      entry.descriptor, id, entry.value,
-    ).map(({ operation }) => operation),
+    structure,
+    compatibleOperations: Object.keys(operations),
+    operations,
   };
 }
 

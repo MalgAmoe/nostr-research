@@ -133,6 +133,28 @@ test('relation handles resolve references across evidence lifetime and keep boun
   assert.equal(rowSchema.result.compatibleOperations.includes('scan'), true);
   assert.equal(rowSchema.result.compatibleOperations.includes('extract'), true);
   assert.equal(rowSchema.result.compatibleOperations.includes('fetch'), true);
+  assert.deepEqual(
+    rowSchema.result.compatibleOperations,
+    [
+      'filter', 'project', 'distinct', 'sort', 'join', 'aggregate', 'derive',
+      'slice', 'explode', 'scan', 'balance', 'extract', 'fetch',
+    ],
+  );
+  assert.equal(rowSchema.result.operations.sort.ready, true);
+  assert.equal(
+    rowSchema.result.operations.sort.usableFields.includes('event.createdAt'),
+    true,
+  );
+  assert.equal(
+    rowSchema.result.operations.explode.usableFields.includes('event.tags'),
+    true,
+  );
+  assert.deepEqual(rowSchema.result.operations.extract.recognizedTransitions, [
+    { field: 'subject.id', subjectType: 'event' },
+    { field: 'event.author', subjectType: 'account' },
+  ]);
+  assert.equal(rowSchema.result.operations.fetch.locality, 'external');
+  assert.equal(rowSchema.result.operations.fetch.remainingChoices.length > 0, true);
   const absentField = await session.execute({
     commandId: 'absent-field', command: 'scan', input: 'rows',
     parameters: { fields: ['event.content'], terms: ['marker'] },

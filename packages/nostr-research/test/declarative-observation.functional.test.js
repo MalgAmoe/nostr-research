@@ -210,6 +210,26 @@ test('declarative named results compose compatible sets and expose their schema'
     commandId: 'right', command: 'select',
     parameters: { scope: 'corpus', ids: [event.id] }, resultId: 'right',
   });
+  const leftSchema = await session.execute({
+    commandId: 'left-schema', command: 'schema', input: 'left', parameters: {},
+  });
+  assert.equal(leftSchema.ok, true);
+  assert.equal(leftSchema.result.compatibleOperations.includes('move'), true);
+  assert.equal(leftSchema.result.compatibleOperations.includes('continue'), true);
+  assert.equal(leftSchema.result.compatibleOperations.includes('preserve'), true);
+  assert.deepEqual(leftSchema.result.operations.move.choices.to, [
+    { to: 'authors', outputKind: 'accounts' },
+    { to: 'referencedAccounts', outputKind: 'accounts' },
+    { to: 'referencedEvents', outputKind: 'events' },
+  ]);
+  assert.equal(leftSchema.result.operations.union.ready, false);
+  assert.equal(leftSchema.result.operations.union.remainingChoices.length, 1);
+  assert.equal(
+    leftSchema.result.operations.continue.choices.relationships.some(
+      ({ relationship }) => relationship === 'replies',
+    ),
+    true,
+  );
   const compared = await session.execute({
     commandId: 'compare', command: 'compare', input: 'left',
     parameters: { with: 'right', limit: 10 }, resultId: 'comparison',

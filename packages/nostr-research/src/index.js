@@ -33,6 +33,7 @@ export {
   preflightResearchPlan,
 } from './plan.js';
 export {
+  contextualResearchOperationSchema,
   operationSchema,
   operationSemantics,
   researchOperationNames,
