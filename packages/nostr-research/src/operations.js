@@ -41,7 +41,9 @@ const TRANSFORMS = [
   'union', 'intersection', 'difference', 'compare',
 ];
 const SET_OPERATIONS = ['union', 'intersection', 'difference', 'compare'];
-const RELATION_OPERATIONS = ['relate', 'join', 'aggregate', 'derive', 'slice'];
+const RELATION_OPERATIONS = [
+  'relate', 'join', 'aggregate', 'derive', 'slice', 'explode', 'scan', 'balance',
+];
 
 export const RESEARCH_OPERATIONS = Object.freeze({
   acquire: { input: 'forbidden', outputKind: 'events', resultKind: 'acquisition-report', external: true },
@@ -57,6 +59,9 @@ export const RESEARCH_OPERATIONS = Object.freeze({
   aggregate: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
   derive: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
   slice: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
+  explode: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
+  scan: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
+  balance: { input: 'required', outputKind: 'relation', resultKind: 'relation', relation: true, external: false },
   fetch: { input: 'relation', outputKind: 'events', resultKind: 'acquisition-report', external: true },
   expand: { input: 'relation', resultKind: 'continuation-report', external: 'by-source' },
 });

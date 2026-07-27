@@ -1799,3 +1799,27 @@ Later trial definitions may be sharpened in response to earlier evidence.
 Changes must be recorded here before the affected trial begins.
 
 None yet.
+
+## Declarative implementation follow-up
+
+The operation vocabulary was revisited after a live attempt to find working
+cryptographers. That attempt reproduced the earlier difficulty of scanning
+long-tail profile and activity evidence without handwritten JavaScript.
+
+The current relation algebra now covers the central repeated compositions from
+these trials:
+
+- `aggregate` groups records, counts them, and collects or samples fields;
+- `join` attaches profile, activity, or graph evidence by stable values;
+- `explode` turns nested arrays such as Nostr tags into selectable rows;
+- `scan` searches a caller-selected vocabulary across several fields and
+  reports the matching field, term, and value;
+- `balance` limits evidence per caller-selected key;
+- `slice` and offset-aware `show` expose bounded windows; and
+- `fetch` and `expand` direct bounded relay work from values already present in
+  a relation.
+
+Account evidence remains a composition of these neutral operations rather than
+a special task-specific method. Choosing vocabulary, anchors, exclusions,
+candidate membership, and the meaning of evidence remains user or agent
+judgment.

@@ -276,6 +276,13 @@ test('declarative named results compose compatible sets and expose their schema'
     commandId: 'show-joined', command: 'show', input: 'joined', parameters: {},
   });
   assert.equal(joinedShown.result.preview[0].values.matchedAuthor, event.pubkey);
+  const joinedPastEnd = await session.execute({
+    commandId: 'show-joined-window', command: 'show', input: 'joined',
+    parameters: { offset: 1, previewLimit: 1 },
+  });
+  assert.deepEqual(joinedPastEnd.result.preview, []);
+  assert.equal(joinedPastEnd.result.omittedBefore, 1);
+  assert.equal(joinedPastEnd.result.omittedAfter, 0);
   const schema = await session.execute({
     commandId: 'schema', command: 'schema', parameters: {},
   });

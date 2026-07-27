@@ -40,7 +40,7 @@ no presentation layer defines the domain boundary.
 | **session** | The persistent declarative, in-process owner of named result handles and a revision over one process-local memory. |
 | **result handle** | A session-owned name for an engine result. Handles are replaceable navigation state and do not copy or own corpus evidence. |
 | **subject collection** | A bounded set of stable Nostr subjects with membership reasons and provenance. |
-| **research relation** | Bounded rows of values that retain the stable subjects, reasons, and provenance from which they were derived. Relations are the composable analysis boundary for filtering, projection, joins, aggregation, derivation, sorting, and windows. |
+| **research relation** | Bounded rows of values that retain the stable subjects, reasons, and provenance from which they were derived. Relations are the composable analysis boundary for filtering, projection, joins, aggregation, derivation, exploding nested values, vocabulary scans, balancing, sorting, and windows. |
 | **acquisition** | The operation of contacting or otherwise reading sources to obtain events and record observations. |
 | **acquisition coverage** | Information returned by one bounded relay attempt: exact filter and budgets, contacted relays and outcomes, and observations. It does not claim exhaustive indexing or create a global history record. |
 | **query** | An operation over local memory that selects and explains results; it does not itself require relay access. |

@@ -33,7 +33,7 @@ export function showResearchValue(memory, value, options = {}) {
 
 function showRelation(value, settings) {
   const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
-  const preview = value.rows.slice(0, limit).map((row) => ({
+  const preview = value.rows.slice(settings.offset, settings.offset + limit).map((row) => ({
     values: compactRelationValue(row.values, settings.excerptLimit),
     subjectCount: row.subjects.length,
     reasonCount: row.reasons.length,
@@ -49,6 +49,9 @@ function showRelation(value, settings) {
     type: 'research-relation',
     count: value.rows.length,
     preview,
+    offset: settings.offset,
+    omittedBefore: Math.min(settings.offset, value.rows.length),
+    omittedAfter: Math.max(0, value.rows.length - settings.offset - preview.length),
     omitted: Math.max(0, value.rows.length - preview.length),
     context: compactContext(value.context),
   };
@@ -829,12 +832,15 @@ function urlsIn(text) {
 }
 
 function inspectionOptions(options) {
-  assertOptions(options, ['mode', 'previewLimit', 'excerptLimit', 'includeEvidence', 'sizeLimit']);
+  assertOptions(options, [
+    'mode', 'offset', 'previewLimit', 'excerptLimit', 'includeEvidence', 'sizeLimit',
+  ]);
   if (options.mode !== undefined && !['summary', 'preview', 'coverage'].includes(options.mode)) {
     throw new TypeError('mode must be summary, preview, or coverage.');
   }
   return {
     mode: options.mode ?? 'preview',
+    offset: boundedInteger(options.offset, 0, Number.MAX_SAFE_INTEGER, 'offset', 0),
     previewLimit: boundedInteger(options.previewLimit, DEFAULT_PREVIEW_LIMIT, MAX_PREVIEW_LIMIT, 'previewLimit'),
     excerptLimit: boundedInteger(options.excerptLimit, DEFAULT_EXCERPT_LIMIT, MAX_EXCERPT_LIMIT, 'excerptLimit'),
     sizeLimit: boundedInteger(options.sizeLimit, DEFAULT_SIZE_LIMIT, MAX_SIZE_LIMIT, 'sizeLimit', 1000),
@@ -880,12 +886,19 @@ function enforceSize(value, maximum) {
       && copy.preview.length > 1) {
     copy.preview.pop();
     copy.omitted = (copy.omitted ?? 0) + 1;
+    if (Number.isSafeInteger(copy.omittedAfter)) copy.omittedAfter += 1;
   }
   if (Buffer.byteLength(JSON.stringify(copy)) <= maximum) return copy;
   return {
     type: copy.type, ...(copy.id ? { id: copy.id } : {}),
     ...(copy.count !== undefined ? { count: copy.count } : {}),
     preview: [],
+    ...(copy.offset !== undefined ? { offset: copy.offset } : {}),
+    ...(copy.omittedBefore !== undefined ? { omittedBefore: copy.omittedBefore } : {}),
+    ...(copy.omittedAfter !== undefined ? {
+      omittedAfter: copy.omittedAfter
+        + (Array.isArray(copy.preview) ? copy.preview.length : 0),
+    } : {}),
     omitted: copy.truncation
       ? sum(Object.values(copy.truncation.omitted ?? {}).map((count) => ({ count })), 'count')
       : (copy.omitted ?? 0) + (Array.isArray(copy.preview) ? copy.preview.length : 0),

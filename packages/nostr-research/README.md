@@ -124,9 +124,21 @@ acquire, hydrate, retain, or evict evidence.
 Subject collections enter the general relation algebra with `relate`.
 Relations retain row values together with the stable subjects, reasons, and
 provenance that produced them. They support `filter`, `project`, `distinct`,
-`sort`, `limit`, `join`, `aggregate`, `derive`, and `slice`. Unlike the older
-group and summary shapes, every relation remains usable by later relation
-operations.
+`sort`, `limit`, `join`, `aggregate`, `derive`, `slice`, `explode`, `scan`,
+and `balance`. Unlike the older group and summary shapes, every relation
+remains usable by later relation operations.
+
+`explode` turns every element of an array-valued field into a row while
+preserving its evidence. The element is written to `as`, its source position
+to `indexAs`, and array elements are also exposed numerically. Exploding
+`event.tags` as `tag`, for example, exposes `tag.0`, `tag.1`, and so on.
+Related event fields include extracted `event.links` and `event.domains`.
+
+`scan` searches a caller-selected vocabulary across several fields and emits
+the matched field, term, and original value as `match.field`, `match.term`,
+and `match.value`. It performs mechanical matching only; it does not classify
+the result. `balance` retains at most `limitPer` rows for each selected key,
+so one prolific author cannot consume an evidence window.
 
 Plans may give a stage one `input` or a named `inputs` object. `join` uses
 `inputs: { left, right }`, so combining evidence is no longer restricted to
@@ -175,6 +187,57 @@ const report = await executeResearchPlan(memory, [
   },
 ]);
 ```
+
+An account-evidence view is deliberately a composition rather than a special
+account-research task:
+
+```js
+const accountEvidence = await executeResearchPlan(memory, [
+  { id: 'notes', operation: 'select', parameters: { scope: 'corpus', kinds: [1] } },
+  { id: 'note-rows', operation: 'relate', input: 'notes', parameters: {} },
+  {
+    id: 'evidence', operation: 'aggregate', input: 'note-rows',
+    parameters: {
+      by: [{ field: 'event.author', name: 'account' }],
+      aggregations: [
+        { name: 'noteCount', operation: 'count' },
+        { name: 'examples', operation: 'sample', field: 'event.text', limit: 3 },
+        { name: 'domains', operation: 'collect', field: 'event.domains', limit: 5 },
+      ],
+    },
+  },
+  {
+    id: 'profile-events', operation: 'fetch', input: 'evidence',
+    parameters: {
+      relays,
+      filter: { kinds: [0], limit: 200 },
+      bindings: { authors: 'account' },
+      timeoutMs: 10_000,
+      observationLimit: 300,
+      distinctEventLimit: 200,
+      concurrency: 2,
+    },
+  },
+  { id: 'profiles', operation: 'relate', input: 'profile-events', parameters: {} },
+  {
+    id: 'accounts', operation: 'join',
+    inputs: { left: 'evidence', right: 'profiles' },
+    parameters: {
+      kind: 'left',
+      on: { left: 'account', right: 'event.author' },
+      select: [
+        { field: 'account.name', name: 'name' },
+        { field: 'account.description', name: 'description' },
+        { field: 'account.nip05', name: 'nip05' },
+      ],
+    },
+  },
+]);
+```
+
+The same composition works interactively with named session handles.
+Graph-derived rows can be joined as another evidence source, preserving their
+subjects, reasons, and provenance as path evidence.
 
 Sorting is stable. Sampling ranks stable subject identities with an explicit
 seed (or the documented default), so the same input and seed produce the same
@@ -351,10 +414,11 @@ Observation commands are `show`, `inspect`, `explain`, `list`, `sets`, `set`,
 `show` and `explain` consume a named input. `inspect` receives its stable
 `subject` in `parameters`. Projection parameters are `previewLimit`,
 `excerptLimit`, `includeEvidence`, and `sizeLimit`; `show` additionally accepts
-`mode`. Relation previews show bounded values and evidence counts by default;
-`includeEvidence: true` adds bounded subject and provenance details. Responses
-report counts plus `omitted` or truncation metadata rather than emitting
-unbounded values.
+`mode` and `offset`. Relation previews show bounded values and evidence counts by default;
+`includeEvidence: true` adds bounded subject and provenance details. `offset`
+selects another preview window without creating a new result. Responses report
+counts plus `omitted` or truncation metadata rather than emitting unbounded
+values.
 
 Handle lifecycle commands are `release` and `release-all`; neither deletes a
 retained selection. Retained selections are listed with `sets`, inspected with

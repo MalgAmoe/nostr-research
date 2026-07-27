@@ -159,6 +159,33 @@ test('typed local stages and composable relations refine trial-shaped evidence',
       { id: 'notes', operation: 'select', parameters: { scope: 'corpus', kinds: [1] } },
       { id: 'note-rows', operation: 'relate', input: 'notes', parameters: {} },
       {
+        id: 'tag-rows', operation: 'explode', input: 'note-rows',
+        parameters: { field: 'event.tags', as: 'tag', limit: 20 },
+      },
+      {
+        id: 'photo-tags', operation: 'filter', input: 'tag-rows',
+        parameters: {
+          where: { all: [
+            { field: 'tag.0', equals: 't' },
+            { field: 'tag.1', equals: 'photo' },
+          ] },
+          limit: 20,
+        },
+      },
+      {
+        id: 'scanned', operation: 'scan', input: 'note-rows',
+        parameters: {
+          fields: ['event.text', 'event.domains'],
+          terms: ['images.example', 'portrait'],
+          match: 'any',
+          limit: 20,
+        },
+      },
+      {
+        id: 'balanced', operation: 'balance', input: 'note-rows',
+        parameters: { by: 'event.author', limitPer: 1, limit: 20 },
+      },
+      {
         id: 'evidence', operation: 'aggregate', input: 'note-rows',
         parameters: {
           by: [{ field: 'event.author', name: 'account' }],
@@ -218,6 +245,20 @@ test('typed local stages and composable relations refine trial-shaped evidence',
       relational.stages.find(({ id }) => id === 'followed').result.collection.items
         .map(({ subject }) => subject.id),
       [bob],
+    );
+    const photoTags = relational.stages.find(({ id }) => id === 'photo-tags').result;
+    assert.equal(photoTags.rows.length, 4);
+    assert.ok(photoTags.rows.every(({ values }) => (
+      values['tag.0'] === 't' && values['tag.1'] === 'photo'
+    )));
+    const scanned = relational.stages.find(({ id }) => id === 'scanned').result;
+    assert.deepEqual(
+      new Set(scanned.rows.map(({ values }) => values['match.field'])),
+      new Set(['event.text', 'event.domains']),
+    );
+    assert.equal(
+      relational.stages.find(({ id }) => id === 'balanced').result.rows.length,
+      2,
     );
     assert.deepEqual(candidateRows.map(({ values }) => values.noteCount), [3, 1]);
     assert.equal(candidateRows[0].values.name, 'alice');

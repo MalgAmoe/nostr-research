@@ -685,7 +685,7 @@ function collectionValue(value) {
 
 function projectionOptions(parameters, allowMode = false) {
   const allowed = new Set([
-    ...(allowMode ? ['mode'] : []),
+    ...(allowMode ? ['mode', 'offset'] : []),
     'previewLimit', 'excerptLimit', 'includeEvidence', 'sizeLimit',
   ]);
   const unknown = Object.keys(parameters).find((key) => !allowed.has(key));

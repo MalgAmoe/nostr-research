@@ -3,7 +3,7 @@ import { ResearchMemoryError } from './index.js';
 const MAX_LIMIT = 1000;
 const RELATION_OPERATIONS = new Set([
   'relate', 'filter', 'project', 'distinct', 'sort', 'limit',
-  'join', 'aggregate', 'derive', 'slice',
+  'join', 'aggregate', 'derive', 'slice', 'explode', 'scan', 'balance',
 ]);
 
 export function isResearchRelation(value) {
@@ -72,7 +72,10 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
   else if (name === 'slice') output = applySlice(input, normalized);
   else if (name === 'join') output = applyJoin(input, cloneRelation(inputs.right), normalized);
   else if (name === 'aggregate') output = applyAggregate(input, normalized);
-  else output = applyDerive(input, normalized);
+  else if (name === 'derive') output = applyDerive(input, normalized);
+  else if (name === 'explode') output = applyExplode(input, normalized);
+  else if (name === 'scan') output = applyScan(input, normalized);
+  else output = applyBalance(input, normalized);
   output.context = {
     operation: 'relation-pipeline',
     input: input.context,
@@ -128,6 +131,46 @@ function normalizeRelationParameters(name, value) {
       throw new ResearchMemoryError('slice offset must be a non-negative integer.');
     }
     return { offset, limit: limit(value.limit) };
+  }
+  if (name === 'explode') {
+    onlyKeys(value, ['field', 'as', 'indexAs', 'limit'], name);
+    field(value.field, 'explode field');
+    const as = value.as ?? 'value';
+    const indexAs = value.indexAs ?? `${as}.index`;
+    nameValue(as, 'explode output name');
+    nameValue(indexAs, 'explode index output name');
+    if (as === indexAs) throw new ResearchMemoryError('explode output names must be unique.');
+    return { field: value.field, as, indexAs, limit: limit(value.limit) };
+  }
+  if (name === 'scan') {
+    onlyKeys(value, ['fields', 'terms', 'match', 'caseSensitive', 'limit'], name);
+    const selectedFields = fields(value.fields, 'scan fields');
+    if (!Array.isArray(value.terms) || value.terms.length === 0
+        || value.terms.some((term) => typeof term !== 'string' || term.length === 0)) {
+      throw new ResearchMemoryError('scan terms must be a non-empty string array.');
+    }
+    if (value.match !== undefined && !['any', 'all'].includes(value.match)) {
+      throw new ResearchMemoryError('scan match must be any or all.');
+    }
+    if (value.caseSensitive !== undefined && typeof value.caseSensitive !== 'boolean') {
+      throw new ResearchMemoryError('scan caseSensitive must be a boolean.');
+    }
+    return {
+      fields: selectedFields,
+      terms: [...new Set(value.terms)],
+      match: value.match ?? 'any',
+      caseSensitive: value.caseSensitive === true,
+      limit: limit(value.limit),
+    };
+  }
+  if (name === 'balance') {
+    onlyKeys(value, ['by', 'limitPer', 'limit'], name);
+    const by = fields(value.by, 'balance by');
+    if (!Number.isSafeInteger(value.limitPer) || value.limitPer < 1
+        || value.limitPer > MAX_LIMIT) {
+      throw new ResearchMemoryError(`balance limitPer must be an integer from 1 to ${MAX_LIMIT}.`);
+    }
+    return { by, limitPer: value.limitPer, limit: limit(value.limit) };
   }
   if (name === 'join') {
     onlyKeys(value, ['on', 'kind', 'select', 'limit'], name);
@@ -306,6 +349,80 @@ function applyDerive(relation, operation) {
   })), {});
 }
 
+function applyExplode(relation, operation) {
+  const rows = [];
+  for (const row of relation.rows) {
+    const values = row.values[operation.field];
+    if (!Array.isArray(values)) continue;
+    for (const [index, value] of values.entries()) {
+      const expanded = {
+        ...row.values,
+        [operation.as]: clone(value),
+        [operation.indexAs]: index,
+      };
+      if (Array.isArray(value)) {
+        value.forEach((part, partIndex) => {
+          expanded[`${operation.as}.${partIndex}`] = clone(part);
+        });
+      }
+      rows.push({ ...row, values: expanded });
+      if (rows.length === operation.limit) return researchRelation(rows, {});
+    }
+  }
+  return researchRelation(rows, {});
+}
+
+function applyScan(relation, operation) {
+  const rows = [];
+  for (const row of relation.rows) {
+    const matches = [];
+    const matchedTerms = new Set();
+    for (const fieldName of operation.fields) {
+      const value = row.values[fieldName];
+      const text = scanText(value, operation.caseSensitive);
+      for (const term of operation.terms) {
+        const needle = operation.caseSensitive ? term : term.toLocaleLowerCase();
+        if (!text.includes(needle)) continue;
+        matchedTerms.add(term);
+        matches.push({ field: fieldName, term, value });
+      }
+    }
+    if (operation.match === 'all' && matchedTerms.size !== operation.terms.length) continue;
+    for (const match of matches) {
+      rows.push({
+        ...row,
+        values: {
+          ...row.values,
+          'match.field': match.field,
+          'match.term': match.term,
+          'match.value': clone(match.value),
+        },
+      });
+      if (rows.length === operation.limit) return researchRelation(rows, {});
+    }
+  }
+  return researchRelation(rows, {});
+}
+
+function applyBalance(relation, operation) {
+  const counts = new Map();
+  const rows = [];
+  for (const row of relation.rows) {
+    const key = stable(operation.by.map((fieldName) => row.values[fieldName] ?? null));
+    const count = counts.get(key) ?? 0;
+    if (count >= operation.limitPer) continue;
+    counts.set(key, count + 1);
+    rows.push(row);
+    if (rows.length === operation.limit) break;
+  }
+  return researchRelation(rows, {});
+}
+
+function scanText(value, caseSensitive) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+  return caseSensitive ? text : text.toLocaleLowerCase();
+}
+
 function aggregate(rows, operation) {
   if (operation.operation === 'count') return rows.length;
   const values = rows.map((row) => row.values[operation.field]).filter((value) => value != null);
@@ -416,6 +533,8 @@ function relationValues(memory, item) {
       'event.text': event.content,
       'event.createdAt': event.created_at,
       'event.tags': clone(event.tags),
+      'event.links': linksIn(event.content),
+      'event.domains': domainsIn(event.content),
     } : {}),
     ...(profile ? {
       'account.name': profile.name ?? null,
@@ -424,6 +543,17 @@ function relationValues(memory, item) {
       'account.nip05': profile.nip05 ?? null,
     } : {}),
   };
+}
+
+function linksIn(content) {
+  return [...String(content).matchAll(/https?:\/\/[^\s<>"')\]]+/giu)]
+    .map(([url]) => url);
+}
+
+function domainsIn(content) {
+  return uniqueJson(linksIn(content).flatMap((url) => {
+    try { return [new URL(url).hostname.toLocaleLowerCase()]; } catch { return []; }
+  }));
 }
 
 function parseProfile(content) {
