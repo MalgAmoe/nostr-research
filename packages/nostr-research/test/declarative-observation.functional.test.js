@@ -222,7 +222,6 @@ test('declarative named results compose compatible sets and expose their schema'
     { to: 'referencedAccounts', outputKind: 'accounts' },
     { to: 'referencedEvents', outputKind: 'events' },
   ]);
-  assert.equal(leftSchema.result.operations.union.ready, false);
   assert.equal(leftSchema.result.operations.union.remainingChoices.length, 1);
   assert.equal(
     leftSchema.result.operations.continue.choices.relationships.some(

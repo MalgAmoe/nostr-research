@@ -134,13 +134,12 @@ test('relation handles resolve references across evidence lifetime and keep boun
   assert.equal(rowSchema.result.compatibleOperations.includes('extract'), true);
   assert.equal(rowSchema.result.compatibleOperations.includes('fetch'), true);
   assert.deepEqual(
-    rowSchema.result.compatibleOperations,
+    [...rowSchema.result.compatibleOperations].sort(),
     [
-      'filter', 'project', 'distinct', 'sort', 'join', 'aggregate', 'derive',
-      'slice', 'explode', 'scan', 'balance', 'extract', 'fetch',
-    ],
+      'aggregate', 'balance', 'derive', 'distinct', 'explode', 'extract',
+      'fetch', 'filter', 'join', 'project', 'scan', 'slice', 'sort',
+    ].sort(),
   );
-  assert.equal(rowSchema.result.operations.sort.ready, true);
   assert.equal(
     rowSchema.result.operations.sort.usableFields.includes('event.createdAt'),
     true,

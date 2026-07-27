@@ -418,11 +418,12 @@ reconstructing operation rules. `operationSchema()` and the session `schema`
 command are derived from the same definitions; each definition reports its
 accepted input shape, output and result kinds, locality (`local`, `external`,
 or `by-source`), memory mutation owner, and completeness contract.
-Contextual schema adds actual usable fields and choices, whether an operation
-is immediately `ready`, caller choices still required, and a valid
-current-handle example whenever one can be generated without inventing an
-external relay or another handle. `compatibleOperations` is the exhaustive
-list of those contextual operation entries.
+Contextual schema adds actual usable fields and choices, caller choices still
+required, and a valid current-handle example whenever one can be generated
+without inventing an external relay or another handle. The presence of an
+example means it can be submitted as shown; `remainingChoices` means the caller
+must provide those choices. `compatibleOperations` is the exhaustive list of
+those contextual operation entries.
 
 Configuration has explicit levels. Engine constraints are immutable supported
 ranges. Memory, archive, and notebook capacities are construction-time

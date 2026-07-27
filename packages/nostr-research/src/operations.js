@@ -48,10 +48,6 @@ const COLLECTION_OPERATIONS = [
   'union', 'intersection', 'difference', 'compare',
 ];
 const SET_OPERATIONS = ['union', 'intersection', 'difference', 'compare'];
-const RELATION_OPERATIONS = [
-  'relate', 'filter', 'project', 'distinct', 'sort',
-  'join', 'aggregate', 'derive', 'slice', 'explode', 'scan', 'balance',
-];
 
 export const RESEARCH_OPERATIONS = Object.freeze({
   acquire: definition('forbidden', 'events', 'acquisition-report', 'external', 'buffer', 'bounded-attempt', 'acquire'),
@@ -423,7 +419,6 @@ export function contextualResearchOperationSchema({
   }
   if (descriptor?.resultKind === 'acquisition-report') {
     add('select', {
-      ready: true,
       reason: 'This handle names one bounded acquisition attempt.',
       example: commandExample('select', input, { kinds: [1], limit: 20 }),
     });
@@ -439,7 +434,6 @@ function contextualCollectionOperations(add, kind, input, structure) {
   const subjectTypes = structure?.subjectTypes?.map(({ type }) => type) ?? [];
   const firstType = subjectTypes[0];
   add('filter', {
-    ready: firstType !== undefined,
     reason: 'Subject collections support stable identity predicates.',
     usableFields: {
       where: ['subject.type', 'subject.id'],
@@ -454,18 +448,15 @@ function contextualCollectionOperations(add, kind, input, structure) {
     }),
   });
   add('pick', {
-    ready: count > 0,
     reason: 'Pick addresses the stable order exposed by a preview.',
     remainingChoices: count > 0 ? [] : ['The collection needs at least one member.'],
     ...(count > 0 ? { example: commandExample('pick', input, { positions: [1] }) } : {}),
   });
   add('limit', {
-    ready: true,
     reason: 'Limit takes a bounded prefix of this collection.',
     example: commandExample('limit', input, { limit: 20 }),
   });
   add('sample', {
-    ready: true,
     reason: 'Sample takes a deterministic bounded sample.',
     example: commandExample('sample', input, { limit: 20, seed: 'research' }),
   });
@@ -477,7 +468,6 @@ function contextualCollectionOperations(add, kind, input, structure) {
     }));
   if (routes.length) {
     add('move', {
-      ready: true,
       reason: 'This collection kind has explicit identity transition routes.',
       choices: { to: routes },
       example: commandExample('move', input, { to: routes[0].to, limit: 20 }),
@@ -486,13 +476,11 @@ function contextualCollectionOperations(add, kind, input, structure) {
 
   for (const name of SET_OPERATIONS) {
     add(name, {
-      ready: false,
       reason: 'Set operations require another named collection of the same kind.',
       remainingChoices: [`Name another ${kind} handle as parameters.with.`],
     });
   }
   add('relate', {
-    ready: true,
     reason: 'Relate crosses stable subjects into value-oriented analysis.',
     example: commandExample('relate', input, {}),
   });
@@ -506,7 +494,6 @@ function contextualCollectionOperations(add, kind, input, structure) {
     }));
   if (continuations.length) {
     add('continue', {
-      ready: true,
       reason: 'This subject kind supports explicit protocol relationships.',
       choices: { relationships: continuations },
       example: commandExample('continue', input, {
@@ -518,14 +505,12 @@ function contextualCollectionOperations(add, kind, input, structure) {
   }
   if (kind === 'accounts') {
     add('hydrate', {
-      ready: false,
       reason: 'Account handles can acquire profile or contact-list evidence.',
       remainingChoices: ['Choose one or more relay URLs.'],
     });
   }
 
   add('remember-membership', {
-    ready: true,
     reason: 'Named membership preserves this stable candidate set with a reason.',
     example: commandExample('remember-membership', input, {
       name: 'candidate-set',
@@ -533,22 +518,18 @@ function contextualCollectionOperations(add, kind, input, structure) {
     }),
   });
   add('remember', {
-    ready: false,
     reason: 'Notebook entries record attributed researcher judgment.',
     remainingChoices: ['Supply a reason and attribution.'],
   });
   add('forget', {
-    ready: true,
     reason: 'Forget removes notebook entries for these subjects.',
     example: commandExample('forget', input, {}),
   });
   add('preserve', {
-    ready: false,
     reason: 'Preservation explicitly copies available evidence into the archive.',
     remainingChoices: ['Choose a preservation level and reason.'],
   });
   add('release-archive', {
-    ready: true,
     reason: 'Release removes archived evidence for these stable subjects.',
     example: commandExample('release-archive', input, {}),
   });
@@ -566,7 +547,6 @@ function contextualRelationOperations(add, input, structure, value) {
   const first = names[0];
 
   const fieldOperation = (name, usableFields, details = {}) => add(name, {
-    ready: usableFields.length > 0,
     usableFields,
     ...(usableFields.length === 0 ? {
       remainingChoices: ['No current field satisfies this operation’s useful field shape.'],
@@ -613,7 +593,6 @@ function contextualRelationOperations(add, input, structure, value) {
     } : {}),
   });
   add('join', {
-    ready: false,
     reason: 'Join combines this relation with another named relation.',
     usableFields: { left: names },
     remainingChoices: [
@@ -640,7 +619,6 @@ function contextualRelationOperations(add, input, structure, value) {
     remainingChoices: ['Choose output names and declarative expressions.'],
   });
   add('slice', {
-    ready: true,
     reason: 'Slice selects an explicit relation window.',
     example: commandExample('slice', input, { offset: 0, limit: 20 }),
   });
@@ -667,7 +645,6 @@ function contextualRelationOperations(add, input, structure, value) {
 
   const transitions = relationSubjectTransitions(value, structure);
   add('extract', {
-    ready: transitions.length > 0,
     reason: 'Extract crosses stable identifier values back into subject collections.',
     recognizedTransitions: transitions,
     remainingChoices: transitions.length
@@ -679,9 +656,12 @@ function contextualRelationOperations(add, input, structure, value) {
     } : {}),
   });
   add('fetch', {
-    ready: names.length > 0,
     reason: 'Fetch binds current relation values into one explicit relay request.',
-    usableFields: names,
+    availableFields: {
+      all: names,
+      strings: stringFields,
+      arrays: arrayFields,
+    },
     choices: { bindings: ['ids', 'authors', '#e', '#p', '#t'] },
     remainingChoices: ['Choose relays, a relay filter, and relation-field bindings.'],
   });
