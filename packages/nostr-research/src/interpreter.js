@@ -23,7 +23,6 @@ import {
 const COMMANDS = new Set([
   ...researchOperationNames(), 'plan',
   'annotate', 'annotations', 'remove-annotations',
-  'template',
   'show', 'inspect', 'explain', 'list', 'sets', 'set', 'status', 'schema',
   'release', 'release-all', 'rename-set', 'replace-set', 'delete-set', 'reset', 'close',
 ]);
@@ -319,8 +318,6 @@ export class DeclarativeResearchSession {
   }
 
   #prepareOperation(command) {
-    const template = command.command === 'template' ? expandTemplate(command) : null;
-    if (template) command = template.command;
     rejectKeys(command, COMMAND_KEYS);
     if (!COMMANDS.has(command.command) || command.command === 'plan') {
       throw protocolError('INVALID_COMMAND', `Unsupported command: ${command.command}.`);
@@ -405,7 +402,6 @@ export class DeclarativeResearchSession {
         ...presentResult(
           result, command.resultId, descriptor, this.#revision, command.command, this.#memory,
         ),
-        ...(template ? { expansion: template.expansion } : {}),
       }),
     };
   }
@@ -833,6 +829,7 @@ function sessionSchema() {
       optional: {
         ifRevision: 'non-negative integer',
         input: 'named result handle ID',
+        inputs: 'map of input names to named result handle IDs',
         parameters: 'plain JSON object',
         resultId: 'new named result handle ID',
         replace: 'boolean; true is required to overwrite a handle',
@@ -840,11 +837,6 @@ function sessionSchema() {
     },
     commands: {
       research: [...researchOperationNames(), 'plan'],
-      templates: {
-        'accounts-from-notes': 'move(input, {to:"authors", limit})',
-        'authored-notes': 'continue(input, {relationship:"authored-notes", source, ...bounds})',
-        'conversation-context': 'continue(input, {relationship:"conversation", source, ...bounds})',
-      },
       judgment: {
         annotate: {
           input: 'subject result handle',
@@ -893,38 +885,7 @@ function sessionSchema() {
       'account.display_name': 'literal Nostr kind-0 profile field "display_name"',
     },
     research: operationSchema(),
-    templateContract: 'template returns its normalized ordinary operation in result.expansion.',
     locality: 'Handles, retained selections, and annotations are process-local and disappear on reset, close, or process exit.',
-  };
-}
-
-function expandTemplate(command) {
-  if (!isPlainObject(command.parameters)) {
-    throw protocolError('INVALID_OPERATION', 'Template parameters must be a plain object.');
-  }
-  const { name, ...parameters } = command.parameters;
-  if (!['accounts-from-notes', 'authored-notes', 'conversation-context'].includes(name)) {
-    throw protocolError(
-      'INVALID_OPERATION',
-      'Template name must be accounts-from-notes, authored-notes, or conversation-context.',
-    );
-  }
-  let operation;
-  let normalized;
-  if (name === 'accounts-from-notes') {
-    rejectKeys(parameters, new Set(['limit']));
-    operation = 'move';
-    normalized = { to: 'authors', ...cloneJson(parameters) };
-  } else {
-    operation = 'continue';
-    normalized = {
-      relationship: name === 'authored-notes' ? 'authored-notes' : 'conversation',
-      ...cloneJson(parameters),
-    };
-  }
-  return {
-    command: { ...command, command: operation, parameters: normalized },
-    expansion: { operation, parameters: normalized },
   };
 }
 

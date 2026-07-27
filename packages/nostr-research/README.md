@@ -329,11 +329,6 @@ ordinary named collection. For example, an interested collection can be
 combined with an uninterested collection through `difference`; both annotations
 remain inspectable evidence. No automatic classification occurs.
 
-`template` offers only three inspectable shorthands:
-`accounts-from-notes`, `authored-notes`, and `conversation-context`. Every
-response includes `result.expansion`, the normalized ordinary `move` or
-`continue` operation actually executed. `schema` lists these expansions.
-
 `select` always makes its scope explicit. With an acquisition result as
 `input`, it selects only among that attempt's stable event subjects (and may
 set `scope: "acquisition"`). Without an input it must set

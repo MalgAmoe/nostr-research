@@ -366,13 +366,11 @@ test('declarative judgments and retained selections survive explicit workspace l
   });
   assert.equal(inspectedSet.result.name, 'reviewed provisional examples');
 
-  const template = await session.execute({
-    commandId: 'template', command: 'template', input: 'positives',
-    parameters: { name: 'accounts-from-notes', limit: 2 }, resultId: 'authors',
+  const authors = await session.execute({
+    commandId: 'authors', command: 'move', input: 'positives',
+    parameters: { to: 'authors', limit: 2 }, resultId: 'authors',
   });
-  assert.deepEqual(template.result.expansion, {
-    operation: 'move', parameters: { to: 'authors', limit: 2 },
-  });
+  assert.equal(authors.result.handle.kind, 'accounts');
 
   await session.execute({
     commandId: 'empty', command: 'difference', input: 'positives',
