@@ -1,7 +1,15 @@
 import { ResearchMemoryError } from './protocol.js';
 import { RESEARCH_CONSTRAINTS } from './configuration.js';
+import {
+  AGGREGATIONS,
+  DERIVE_EXPRESSIONS,
+  RESULT_LIMIT,
+  SCAN,
+} from './contract-facts.js';
 
-const MAX_LIMIT = RESEARCH_CONSTRAINTS.results.maximumLimit;
+const MAX_LIMIT = RESULT_LIMIT.maximum;
+const AGGREGATION_OPERATIONS = AGGREGATIONS.item.operation;
+const DERIVE_OPERATIONS = DERIVE_EXPRESSIONS.variants[2].operation;
 const MAX_DERIVED_STRING = RESEARCH_CONSTRAINTS.derivedValues.stringLength.maximum;
 const MAX_DERIVED_ARRAY = RESEARCH_CONSTRAINTS.derivedValues.arrayLength.maximum;
 const SOURCE_FIELDS = Object.freeze([
@@ -247,24 +255,24 @@ function normalizeRelationParameters(name, value) {
     onlyKeys(value, ['fields', 'terms', 'match', 'matchMode', 'caseSensitive', 'limit'], name);
     const selectedFields = fields(value.fields, 'scan fields');
     if (!Array.isArray(value.terms) || value.terms.length === 0
-        || value.terms.length > RESEARCH_CONSTRAINTS.scan.terms.maximum
+        || value.terms.length > SCAN.terms.maximumItems
         || value.terms.some((term) => typeof term !== 'string'
-          || term.length < RESEARCH_CONSTRAINTS.scan.termLength.minimum
-          || term.length > RESEARCH_CONSTRAINTS.scan.termLength.maximum)) {
+          || term.length < SCAN.terms.minimumLength
+          || term.length > SCAN.terms.maximumLength)) {
       throw new ResearchMemoryError(
-        `scan terms must contain ${RESEARCH_CONSTRAINTS.scan.terms.minimum} to `
-        + `${RESEARCH_CONSTRAINTS.scan.terms.maximum} strings of at most `
-        + `${RESEARCH_CONSTRAINTS.scan.termLength.maximum} characters.`,
+        `scan terms must contain ${SCAN.terms.minimumItems} to `
+        + `${SCAN.terms.maximumItems} strings of at most `
+        + `${SCAN.terms.maximumLength} characters.`,
       );
     }
-    if (value.match !== undefined && !['any', 'all'].includes(value.match)) {
+    if (value.match !== undefined && !SCAN.match.values.includes(value.match)) {
       throw new ResearchMemoryError('scan match must be any or all.');
     }
     if (value.caseSensitive !== undefined && typeof value.caseSensitive !== 'boolean') {
       throw new ResearchMemoryError('scan caseSensitive must be a boolean.');
     }
-    const matchMode = value.matchMode ?? 'substring';
-    if (!['substring', 'word', 'phrase'].includes(matchMode)) {
+    const matchMode = value.matchMode ?? SCAN.matchMode.default;
+    if (!SCAN.matchMode.values.includes(matchMode)) {
       throw new ResearchMemoryError('scan matchMode must be substring, word, or phrase.');
     }
     if (matchMode === 'word' && value.terms.some((term) => /\s/u.test(term))) {
@@ -282,7 +290,7 @@ function normalizeRelationParameters(name, value) {
     return {
       fields: selectedFields,
       terms: deduplicatedTerms,
-      match: value.match ?? 'any',
+      match: value.match ?? SCAN.match.default,
       matchMode,
       caseSensitive,
       limit: limit(value.limit),
@@ -323,8 +331,7 @@ function normalizeRelationParameters(name, value) {
       plainObject(item, 'aggregation');
       onlyKeys(item, ['name', 'operation', 'field', 'limit'], 'aggregation');
       nameValue(item.name, 'aggregation name');
-      if (!['count', 'countDistinct', 'collect', 'sample', 'min', 'max', 'sum']
-        .includes(item.operation)) {
+      if (!AGGREGATION_OPERATIONS.includes(item.operation)) {
         throw new ResearchMemoryError(`Unsupported aggregation: ${item.operation}.`);
       }
       if (item.operation !== 'count') field(item.field, `${item.operation} field`);
@@ -620,7 +627,7 @@ function normalizeExpression(value) {
     return clone(value);
   }
   onlyKeys(value, ['operation', 'args'], 'derive expression');
-  if (!['add', 'subtract', 'multiply', 'divide', 'coalesce'].includes(value.operation)
+  if (!DERIVE_OPERATIONS.includes(value.operation)
       || !Array.isArray(value.args) || value.args.length === 0) {
     throw new ResearchMemoryError('Invalid derive expression.');
   }
@@ -932,7 +939,7 @@ function uniqueNames(values) {
 }
 
 function limit(value) {
-  if (value === undefined) return RESEARCH_CONSTRAINTS.results.defaultLimit;
+  if (value === undefined) return RESULT_LIMIT.default;
   if (!Number.isSafeInteger(value) || value < 1 || value > MAX_LIMIT) {
     throw new ResearchMemoryError(`limit must be an integer from 1 to ${MAX_LIMIT}.`);
   }

@@ -1,6 +1,26 @@
 # Public contract seam audit
 
-Status: verified against the current implementation on 2026-07-27.
+Status: implementation baseline recorded on 2026-07-27. The milestone described
+below has since been implemented; the findings remain as the rationale and
+before-state inventory.
+
+## Implementation outcome
+
+The contract-seam milestone was completed in one pass:
+
+- false parameter claims were corrected;
+- the ineffective `compare.limit` input was removed;
+- complex relation shapes and effective defaults became factual structured
+  contracts;
+- execution-independent contract facts now supply normalizers and schema
+  projections from one foundational module;
+- focused schema includes non-parameter operation facts such as scan result
+  shape;
+- plan and tag-subject session contracts were corrected;
+- the duplicate complete research contract was removed from the nested session
+  schema after a live JSONL trial exposed it;
+- one public-session functional test constructs representative commands from
+  the published contracts.
 
 ## Purpose
 

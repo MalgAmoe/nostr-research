@@ -1,5 +1,5 @@
 import { acquireBoundAccountEvents, acquireRelayEvents, normalizeAcquisitionOptions } from './acquire.js';
-import { RESEARCH_CONSTRAINTS } from './configuration.js';
+import { ACQUISITION, CONTINUATION, RESULT_LIMIT } from './contract-facts.js';
 import { ResearchMemoryError, subject } from './protocol.js';
 import {
   continuationOutputKind,
@@ -9,7 +9,7 @@ const KEYS = new Set([
   'relationship', 'source', 'relays', 'since', 'until', 'offset', 'eventLimit', 'depth',
   'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency', 'signal',
 ]);
-const MAX_PROJECTION_LIMIT = RESEARCH_CONSTRAINTS.results.maximumLimit;
+const MAX_PROJECTION_LIMIT = RESULT_LIMIT.maximum;
 
 /**
  * Continue a supplied result collection through one named Nostr relationship.
@@ -128,27 +128,27 @@ export function normalizeContinuation(memory, input, options) {
       `Continuation relationship ${options.relationship} does not accept ${collection.kind} collections.`,
     );
   }
-  const source = options.source ?? 'local';
-  if (!['local', 'relays'].includes(source)) {
+  const source = options.source ?? CONTINUATION.source.default;
+  if (!CONTINUATION.source.values.includes(source)) {
     throw new ResearchMemoryError('Continuation source must be "local" or "relays".');
   }
   const eventLimit = boundedInteger(
-    options.eventLimit ?? RESEARCH_CONSTRAINTS.continuation.eventLimit.default,
+    options.eventLimit ?? CONTINUATION.eventLimit.default,
     'eventLimit',
-    RESEARCH_CONSTRAINTS.continuation.eventLimit.minimum,
-    RESEARCH_CONSTRAINTS.continuation.eventLimit.maximum,
+    CONTINUATION.eventLimit.minimum,
+    CONTINUATION.eventLimit.maximum,
   );
   const offset = boundedInteger(
-    options.offset ?? RESEARCH_CONSTRAINTS.continuation.offset.default,
+    options.offset ?? CONTINUATION.offset.default,
     'offset',
-    RESEARCH_CONSTRAINTS.continuation.offset.minimum,
-    RESEARCH_CONSTRAINTS.continuation.offset.maximum,
+    CONTINUATION.offset.minimum,
+    CONTINUATION.offset.maximum,
   );
   const depth = boundedInteger(
-    options.depth ?? RESEARCH_CONSTRAINTS.continuation.depth.default,
+    options.depth ?? CONTINUATION.depth.default,
     'depth',
-    RESEARCH_CONSTRAINTS.continuation.depth.minimum,
-    RESEARCH_CONSTRAINTS.continuation.depth.maximum,
+    CONTINUATION.depth.minimum,
+    CONTINUATION.depth.maximum,
   );
   const result = { relationship: options.relationship, source, offset, eventLimit, depth };
   for (const name of ['since', 'until']) {
@@ -170,21 +170,21 @@ export function normalizeContinuation(memory, input, options) {
       relays: options.relays,
       filter: { limit: 1 },
       timeoutMs: positiveInteger(
-        options.timeoutMs ?? RESEARCH_CONSTRAINTS.acquisition.timeoutMs.default,
+        options.timeoutMs ?? ACQUISITION.timeoutMs.default,
         'timeoutMs',
       ),
       observationLimit: positiveInteger(
         options.observationLimit
-          ?? RESEARCH_CONSTRAINTS.acquisition.observationLimit.default,
+          ?? ACQUISITION.observationLimit.default,
         'observationLimit',
       ),
       distinctEventLimit: positiveInteger(
         options.distinctEventLimit
-          ?? RESEARCH_CONSTRAINTS.acquisition.distinctEventLimit.default,
+          ?? ACQUISITION.distinctEventLimit.default,
         'distinctEventLimit',
       ),
       concurrency: positiveInteger(
-        options.concurrency ?? RESEARCH_CONSTRAINTS.acquisition.concurrency.default,
+        options.concurrency ?? ACQUISITION.concurrency.default,
         'concurrency',
       ),
       ...(options.signal === undefined ? {} : { signal: options.signal }),

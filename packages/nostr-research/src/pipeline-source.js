@@ -2,7 +2,7 @@ import {
   acquireRelayEvents,
   normalizeAcquisitionOptions,
 } from './acquire.js';
-import { RESEARCH_CONSTRAINTS } from './configuration.js';
+import { FETCH_BINDING_KEYS, RESULT_LIMIT } from './contract-facts.js';
 import { ResearchMemoryError, subject } from './protocol.js';
 import {
   isResearchRelation,
@@ -15,7 +15,7 @@ const FETCH_KEYS = new Set([
   'distinctEventLimit', 'concurrency', 'signal',
 ]);
 const EXTRACT_KEYS = new Set(['field', 'subjectType', 'limit']);
-const BINDABLE_FILTERS = new Set(['ids', 'authors', '#e', '#p', '#t']);
+const BINDABLE_FILTERS = new Set(FETCH_BINDING_KEYS);
 
 export function validatePipelineFetch(parameters, input) {
   relationInput(input, 'fetch');
@@ -177,12 +177,12 @@ function field(value, label) {
 }
 
 function resultLimit(value) {
-  const limit = value ?? RESEARCH_CONSTRAINTS.results.defaultLimit;
+  const limit = value ?? RESULT_LIMIT.default;
   if (!Number.isSafeInteger(limit) || limit < 1
-      || limit > RESEARCH_CONSTRAINTS.results.maximumLimit) {
+      || limit > RESULT_LIMIT.maximum) {
     throw new ResearchMemoryError(
       `extract limit must be an integer from 1 to `
-      + `${RESEARCH_CONSTRAINTS.results.maximumLimit}.`,
+      + `${RESULT_LIMIT.maximum}.`,
     );
   }
   return limit;

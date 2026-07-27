@@ -1,5 +1,5 @@
 import { ResearchMemoryError } from './protocol.js';
-import { RESEARCH_CONSTRAINTS } from './configuration.js';
+import { RESULT_LIMIT } from './contract-facts.js';
 import {
   MOVE_ROUTES,
   SUBJECT_COLLECTION_KINDS,
@@ -7,8 +7,8 @@ import {
   transformOutputKind,
 } from './operations.js';
 
-const MAX_LIMIT = RESEARCH_CONSTRAINTS.results.maximumLimit;
-const DEFAULT_LIMIT = RESEARCH_CONSTRAINTS.results.defaultLimit;
+const MAX_LIMIT = RESULT_LIMIT.maximum;
+const DEFAULT_LIMIT = RESULT_LIMIT.default;
 const KINDS = new Set(SUBJECT_COLLECTION_KINDS);
 const SET_OPERATIONS = new Set(['union', 'intersection', 'difference', 'compare']);
 
@@ -63,7 +63,7 @@ export function collectionPipelineSchema() {
       set: {
         operations: [...SET_OPERATIONS],
         inputKinds: [...KINDS],
-        limit: 'bound',
+        limit: 'union, intersection, and difference only; compare emits one summary row',
       },
       relation: {
         operations: [
@@ -95,7 +95,13 @@ function normalize(value, inputKind, index) {
   }
   const common = { operation, ...(value.as === undefined ? {} : { as: value.as.trim() }) };
   if (SET_OPERATIONS.has(operation)) {
-    keys(value, ['operation', 'as', 'with', 'limit'], `${operation} stage`);
+    keys(
+      value,
+      operation === 'compare'
+        ? ['operation', 'as', 'with']
+        : ['operation', 'as', 'with', 'limit'],
+      `${operation} stage`,
+    );
     requireKind(inputKind, operation);
     if (!value.with || value.with.type !== 'result-collection' || !Array.isArray(value.with.items)) {
       throw new ResearchMemoryError('Expected a result collection.');
@@ -105,7 +111,11 @@ function normalize(value, inputKind, index) {
         `Incompatible ${operation} collections: ${inputKind} and ${value.with.kind}.`,
       );
     }
-    return { ...common, with: copy(value.with), limit: bound(value.limit) };
+    return {
+      ...common,
+      with: copy(value.with),
+      ...(operation === 'compare' ? {} : { limit: bound(value.limit) }),
+    };
   }
   if (operation === 'filter') {
     keys(value, ['operation', 'as', 'where', 'limit'], 'filter stage');

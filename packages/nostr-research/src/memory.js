@@ -1,5 +1,6 @@
 import { SUBJECT_COLLECTION_KINDS } from './operations.js';
 import { RESEARCH_CONSTRAINTS } from './configuration.js';
+import { NOTEBOOK_JUDGMENTS, QUERY_LIMIT } from './contract-facts.js';
 import {
   collectionPipelineSchema as engineCollectionPipelineSchema,
   executeCollectionOperation,
@@ -14,8 +15,8 @@ import {
 
 const EVENT_ID = /^[a-f0-9]{64}$/;
 const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
-const DEFAULT_QUERY_LIMIT = RESEARCH_CONSTRAINTS.results.defaultQueryLimit;
-const MAX_QUERY_LIMIT = RESEARCH_CONSTRAINTS.results.maximumLimit;
+const DEFAULT_QUERY_LIMIT = QUERY_LIMIT.default;
+const MAX_QUERY_LIMIT = QUERY_LIMIT.maximum;
 const MEMORY_CAPACITY = RESEARCH_CONSTRAINTS.memory.capacity;
 const NOTEBOOK_CAPACITY = RESEARCH_CONSTRAINTS.notebook.capacity;
 const SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
@@ -1884,7 +1885,7 @@ function normalizeNotebookEntry(value) {
   if (typeof note !== 'string') throw new ResearchMemoryError('Notebook note must be a string.');
   const judgment = value.judgment;
   if (judgment !== undefined
-      && !['interested', 'uninterested', 'uncertain', 'anchor'].includes(judgment)) {
+      && !NOTEBOOK_JUDGMENTS.includes(judgment)) {
     throw new ResearchMemoryError(
       'Notebook judgment must be interested, uninterested, uncertain, or anchor.',
     );
@@ -1924,7 +1925,7 @@ function normalizeNotebookQuery(query) {
     query.judgments, 'judgments', false,
   );
   if (judgments.some(
-    (judgment) => !['interested', 'uninterested', 'uncertain', 'anchor'].includes(judgment),
+    (judgment) => !NOTEBOOK_JUDGMENTS.includes(judgment),
   )) {
     throw new ResearchMemoryError(
       'Notebook judgments must be interested, uninterested, uncertain, or anchor.',

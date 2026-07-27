@@ -242,7 +242,7 @@ test('declarative named results compose compatible sets and expose their schema'
   );
   const compared = await session.execute({
     commandId: 'compare', command: 'compare', input: 'left',
-    parameters: { with: 'right', limit: 10 }, resultId: 'comparison',
+    parameters: { with: 'right' }, resultId: 'comparison',
   });
   assert.equal(compared.ok, true);
   assert.equal(compared.result.handle.kind, 'summaries');
@@ -329,7 +329,7 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.equal(schema.ok, true);
   assert.ok(schema.result.operations.set.operations.includes('difference'));
   assert.deepEqual(
-    schema.result.research.parameterContracts.scan.matchMode,
+    schema.result.research.parameterContracts.scan.matchMode.values,
     ['substring', 'word', 'phrase'],
   );
   assert.equal(

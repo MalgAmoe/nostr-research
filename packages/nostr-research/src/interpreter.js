@@ -34,6 +34,7 @@ import {
   describeResearchRelation,
   isResearchRelation,
 } from './relation.js';
+import { NOTEBOOK_JUDGMENTS, QUERY_LIMIT } from './contract-facts.js';
 
 const COMMANDS = new Set([
   ...researchOperationNames(), 'plan',
@@ -744,13 +745,15 @@ function contextualHandleSchema(memory, id, entry, selectedOperation, configurat
         { operation: selectedOperation, compatibleOperations },
       );
     }
+    const global = operationSchema();
     return {
       type: 'handle-operation-schema',
       handle,
       structure: { kind: structure.kind, count: structure.count },
       operation: {
         name: selectedOperation,
-        parameters: operationSchema().parameterContracts[selectedOperation] ?? {},
+        parameters: global.parameterContracts[selectedOperation] ?? {},
+        ...(global.operationFacts[selectedOperation] ?? {}),
         ...contextual,
       },
     };
@@ -996,7 +999,7 @@ function sessionSchema(configuration) {
         remember: {
           input: 'subject result handle',
           parameters: {
-            judgment: ['interested', 'uninterested', 'uncertain', 'anchor'],
+            judgment: NOTEBOOK_JUDGMENTS,
             strength: 'optional number from 0 to 1',
             reason: 'required caller-authored string',
             attribution: 'required caller or operation name',
@@ -1011,10 +1014,33 @@ function sessionSchema(configuration) {
           parameters: {
             judgments: 'optional judgment array (OR)',
             labels: 'optional label array (AND)',
-            limit: 'optional non-negative integer',
+            limit: { ...QUERY_LIMIT, required: false },
           },
         },
         forget: { input: 'subject result handle', parameters: {} },
+      },
+      plan: {
+        required: {
+          commandId: 'non-empty string',
+          command: '"plan"',
+          plan: 'non-empty research stage array',
+        },
+        optional: {
+          ifRevision: 'non-negative integer',
+          outputs: 'map of stage IDs to new named result handle IDs',
+          replace: 'boolean; true is required to overwrite a handle',
+        },
+        stage: {
+          required: {
+            id: 'non-empty unique string',
+            operation: 'research operation name',
+            parameters: 'plain JSON object; use an empty object when the operation has no fields',
+          },
+          optional: {
+            input: 'earlier stage ID',
+            inputs: 'map of names to earlier stage IDs',
+          },
+        },
       },
       observation: {
         show: {
@@ -1031,7 +1057,7 @@ function sessionSchema(configuration) {
         inspect: {
           input: 'forbidden',
           parameters: {
-            subject: 'event or account subject',
+            subject: 'event, account, or tag subject',
             previewLimit: previewRange,
             excerptLimit: excerptRange,
             includeEvidence: 'boolean',
@@ -1041,7 +1067,7 @@ function sessionSchema(configuration) {
         explain: {
           input: 'named result handle',
           parameters: {
-            subject: 'event or account subject',
+            subject: 'event, account, or tag subject',
             previewLimit: previewRange,
             excerptLimit: excerptRange,
             includeEvidence: 'boolean',
@@ -1112,7 +1138,6 @@ function sessionSchema(configuration) {
       'account.name': 'literal Nostr kind-0 profile field "name"',
       'account.display_name': 'literal Nostr kind-0 profile field "display_name"',
     },
-    research: operationSchema(),
     locality: 'Handles, notebook knowledge, and archived evidence are process-local and disappear on reset, close, or process exit.',
   };
 }
