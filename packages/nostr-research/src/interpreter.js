@@ -31,6 +31,11 @@ import {
   operationSchema,
   researchOperationNames,
 } from './operations.js';
+import {
+  describeResearchRelation,
+  isResearchRelation,
+  relationOperationNames,
+} from './relation.js';
 
 const COMMANDS = new Set([
   ...researchOperationNames(), 'plan',
@@ -196,18 +201,24 @@ export class DeclarativeResearchSession {
         this.#memory, collectionValue(entry.value), subject, options,
       ));
     }
-    if (command.input !== undefined) {
-      throw protocolError('INVALID_COMMAND', `${command.command} does not accept an input handle.`);
-    }
     if (command.command === 'schema') {
       if (Object.keys(parameters).length) {
         throw protocolError('INVALID_COMMAND', 'schema parameters must be an empty object.');
+      }
+      if (command.input !== undefined) {
+        const entry = this.#requireHandle(command.input);
+        return readOnly(() => contextualHandleSchema(
+          this.#memory, command.input, entry,
+        ));
       }
       return readOnly(() => ({
         ...this.#memory.describeCollectionPipeline(),
         session: sessionSchema(this.#configuration),
         constraints: researchConstraints(),
       }));
+    }
+    if (command.input !== undefined) {
+      throw protocolError('INVALID_COMMAND', `${command.command} does not accept an input handle.`);
     }
     if (command.command === 'list') {
       return readOnly(() => presentHandleList(
@@ -674,6 +685,36 @@ function handleMetadata(id, descriptor, value, revision) {
   };
 }
 
+function contextualHandleSchema(memory, id, entry) {
+  const handle = handleMetadata(id, entry.descriptor, entry.value, entry.revision);
+  const value = entry.value?.collection ?? entry.value;
+  if (isResearchRelation(value)) {
+    return {
+      type: 'handle-schema',
+      handle,
+      structure: describeResearchRelation(memory, value),
+      compatibleOperations: relationOperationNames().filter((operation) => operation !== 'relate'),
+    };
+  }
+  const collection = memory.asCollection(value);
+  const subjectTypes = [...collection.items.reduce((counts, { subject }) => {
+    counts.set(subject.type, (counts.get(subject.type) ?? 0) + 1);
+    return counts;
+  }, new Map())].map(([type, count]) => ({ type, count }));
+  return {
+    type: 'handle-schema',
+    handle,
+    structure: {
+      kind: collection.kind,
+      count: collection.items.length,
+      subjectTypes,
+    },
+    suggestedOperations: discoverResearchOperations(
+      entry.descriptor, id, entry.value,
+    ).map(({ operation }) => operation),
+  };
+}
+
 function readOnly(run) {
   return { run, mutates: () => false, install: null, present: (value) => value };
 }
@@ -927,7 +968,10 @@ function sessionSchema(configuration) {
         memberships: { parameters: { limit: 'non-negative integer' } },
         membership: { parameters: { name: 'membership name' } },
         status: { parameters: { limit: previewRange, sizeLimit: sizeRange } },
-        schema: { parameters: {} },
+        schema: {
+          input: 'optional named result handle; omitted returns the global schema',
+          parameters: {},
+        },
       },
       configuration: {
         configure: {
@@ -999,7 +1043,8 @@ function semanticError(error) {
     code = 'UNRESOLVED_EVIDENCE';
   } else if (/requires an? (accounts|subject) collection|not supported|contain no stable subjects/.test(error.message)) {
     code = 'TYPE_MISMATCH';
-  } else if (/subject|public key|Event ID/.test(error.message)) {
+  } else if (/(?:invalid|unknown) subject|subject (?:must|requires)|public key|Event ID/i
+    .test(error.message)) {
     code = 'INVALID_SUBJECT';
   }
   return { code, message: error.message, details: {} };

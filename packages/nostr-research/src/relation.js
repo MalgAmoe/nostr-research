@@ -33,6 +33,15 @@ export function relationOperationNames() {
   return [...RELATION_OPERATIONS];
 }
 
+export function describeResearchRelation(memory, relation) {
+  const resolved = resolveRelationForPresentation(memory, relation);
+  return {
+    kind: 'relation',
+    count: resolved.rows.length,
+    fields: relationFieldCatalog(resolved),
+  };
+}
+
 export function relationFrom(memory, value) {
   if (isResearchRelation(value)) return cloneRelation(value);
   const collection = memory.asCollection(value);
@@ -85,6 +94,10 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
   const normalized = normalizeRelationParameters(name, parameters);
   if (name === 'relate') return relationFrom(memory, inputs.input);
   const input = resolveRelation(memory, cloneRelation(inputs.input ?? inputs.left));
+  const right = name === 'join'
+    ? resolveRelation(memory, cloneRelation(inputs.right))
+    : undefined;
+  validateAvailableFields(name, normalized, input, right);
   let output;
   if (name === 'filter') output = applyFilter(input, normalized);
   else if (name === 'project') output = applyProject(input, normalized);
@@ -92,7 +105,7 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
   else if (name === 'sort') output = applySort(input, normalized);
   else if (name === 'slice') output = applySlice(input, normalized);
   else if (name === 'join') {
-    output = applyJoin(input, resolveRelation(memory, cloneRelation(inputs.right)), normalized);
+    output = applyJoin(input, right, normalized);
   }
   else if (name === 'aggregate') output = applyAggregate(input, normalized);
   else if (name === 'derive') output = applyDerive(input, normalized);
@@ -110,6 +123,79 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
     },
   };
   return output;
+}
+
+function relationFieldCatalog(relation) {
+  const names = new Set(relation.rows.flatMap(({ values }) => Object.keys(values)));
+  return [...names].sort().map((name) => {
+    const values = relation.rows.map(({ values: rowValues }) => rowValues[name]);
+    const withValue = values.filter((value) => value !== null && value !== undefined);
+    return {
+      name,
+      rowsWithValue: withValue.length,
+      nullRows: values.length - withValue.length,
+      types: [...new Set(withValue.map(valueType))].sort(),
+    };
+  });
+}
+
+function validateAvailableFields(name, operation, input, right) {
+  if (name === 'slice') return;
+  if (name === 'join') {
+    requireAvailableFields(input, [operation.on.left], 'join left');
+    requireAvailableFields(right, [
+      operation.on.right,
+      ...operation.select.map(({ field: selected }) => selected),
+    ], 'join right');
+    return;
+  }
+  requireAvailableFields(input, operationFields(name, operation), name);
+}
+
+function operationFields(name, operation) {
+  if (name === 'filter') return predicateFields(operation.where);
+  if (name === 'project') return operation.fields.map(({ field: selected }) => selected);
+  if (name === 'distinct' || name === 'balance') return operation.by;
+  if (name === 'sort') return operation.by.map(({ field: selected }) => selected);
+  if (name === 'explode') return [operation.field];
+  if (name === 'scan') return operation.fields;
+  if (name === 'aggregate') return [
+    ...operation.by.map(({ field: selected }) => selected),
+    ...operation.aggregations.flatMap(({ field: selected }) => (
+      selected === undefined ? [] : [selected]
+    )),
+  ];
+  return operation.fields.flatMap(({ expression }) => expressionFields(expression));
+}
+
+function predicateFields(predicate) {
+  if (predicate.all) return predicate.all.flatMap(predicateFields);
+  if (predicate.any) return predicate.any.flatMap(predicateFields);
+  if (predicate.not) return predicateFields(predicate.not);
+  return [predicate.field];
+}
+
+function expressionFields(expression) {
+  if ('field' in expression) return [expression.field];
+  if ('constant' in expression) return [];
+  return expression.args.flatMap(expressionFields);
+}
+
+function requireAvailableFields(relation, requested, label) {
+  if (relation.rows.length === 0) return;
+  const available = relationFieldCatalog(relation).map(({ name }) => name);
+  const missing = [...new Set(requested)].filter((name) => !available.includes(name));
+  if (missing.length === 0) return;
+  throw new ResearchMemoryError(
+    `${label} fields are absent from this relation: ${missing.join(', ')}. `
+    + `Available fields: ${available.join(', ')}.`,
+  );
+}
+
+function valueType(value) {
+  if (Array.isArray(value)) return 'array';
+  if (value === null) return 'null';
+  return typeof value === 'object' ? 'object' : typeof value;
 }
 
 function normalizeRelationParameters(name, value) {

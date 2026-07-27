@@ -108,6 +108,37 @@ test('relation handles resolve references across evidence lifetime and keep boun
   assert.equal(rows.result.count, 2);
   assert.equal(rows.result.distinctSubjectCount, 2);
   assert.equal(rows.result.distinctAuthorCount, 1);
+  const rowSchema = await session.execute({
+    commandId: 'schema-rows', command: 'schema', input: 'rows', parameters: {},
+  });
+  assert.equal(rowSchema.result.type, 'handle-schema');
+  assert.equal(rowSchema.result.handle.kind, 'relation');
+  assert.equal('preview' in rowSchema.result, false);
+  assert.deepEqual(
+    rowSchema.result.structure.fields.find(({ name }) => name === 'event.text'),
+    { name: 'event.text', rowsWithValue: 2, nullRows: 0, types: ['string'] },
+  );
+  assert.deepEqual(
+    rowSchema.result.structure.fields.find(({ name }) => name === 'account.description'),
+    { name: 'account.description', rowsWithValue: 0, nullRows: 2, types: [] },
+  );
+  assert.equal(rowSchema.result.compatibleOperations.includes('scan'), true);
+  const absentField = await session.execute({
+    commandId: 'absent-field', command: 'scan', input: 'rows',
+    parameters: { fields: ['event.content'], terms: ['marker'] },
+    resultId: 'absent-field-result',
+  });
+  assert.equal(absentField.ok, false);
+  assert.equal(absentField.error.code, 'INVALID_OPERATION');
+  assert.match(absentField.error.message, /event\.content/);
+  assert.match(absentField.error.message, /event\.text/);
+  const knownEmptyField = await session.execute({
+    commandId: 'known-empty-field', command: 'scan', input: 'rows',
+    parameters: { fields: ['account.description'], terms: ['artist'] },
+    resultId: 'known-empty-field-result',
+  });
+  assert.equal(knownEmptyField.ok, true);
+  assert.equal(knownEmptyField.result.handle.count, 0);
   const media = await session.execute({
     commandId: 'show-media', command: 'show', input: 'media',
     parameters: { previewLimit: 2 },
