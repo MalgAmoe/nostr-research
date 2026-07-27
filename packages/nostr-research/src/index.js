@@ -12,9 +12,9 @@ export {
 } from './configuration.js';
 export {
   InMemoryResearchMemory,
-  collectionPipelineSchema,
   createInMemoryResearchMemory,
 } from './memory.js';
+export { collectionPipelineSchema } from './collection.js';
 export {
   acquireRelayEvents,
   hydrateAccounts,

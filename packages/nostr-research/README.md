@@ -505,7 +505,7 @@ without deleting or rewriting corpus evidence.
 `continue` turns a named subject handle directly into the next bounded result.
 Its `relationship` is one of `authored-notes`, `profiles`, `follow-lists`,
 `followed-accounts`, `followers`, `replies`, `ancestors`, `mentions`, `quotes`,
-`referenced-events`, `conversation`, `shared-tags`, `linked-domains`, or
+`referenced-events`, `conversation`, `shared-tags`, or `linked-domains`.
 `source` is `local` (the default) or `relays`; relay continuations
 also require explicit `relays` and accept time, observation, distinct-event,
 and concurrency bounds. Both forms report completeness and per-input

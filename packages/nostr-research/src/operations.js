@@ -439,7 +439,8 @@ export function discoverResearchOperations(descriptor, input, value = undefined)
     }, 'Preserve named subject membership and its caller-authored reason.');
   } else if (kind === 'relation') {
     const fields = relationFields(value);
-    const projected = fields.slice(0, 3);
+    const scalarFields = fields.filter((field) => relationFieldHasScalar(value, field));
+    const projected = scalarFields.slice(0, 3);
     if (projected.length) {
       add('project', {
         fields: projected.map((field, index) => ({
@@ -460,7 +461,7 @@ export function discoverResearchOperations(descriptor, input, value = undefined)
         field: subjectField.field, subjectType: subjectField.subjectType, limit: 20,
       }, 'Extract a known stable-subject field into a pure subject collection.');
     }
-    const groupingField = fields.find((field) => relationFieldHasScalar(value, field));
+    const groupingField = scalarFields[0];
     if (groupingField) {
       add('aggregate', {
         by: [{ field: groupingField, name: 'group' }],
@@ -485,17 +486,15 @@ export function discoverResearchOperations(descriptor, input, value = undefined)
 function relationSubjectSuggestion(value) {
   if (value?.type !== 'research-relation' || !Array.isArray(value.rows)
       || value.rows.length === 0) return null;
-  const types = new Set();
-  for (const row of value.rows) {
-    const type = row?.values?.['subject.type'];
-    if (!['event', 'account'].includes(type)
-        || typeof row?.values?.['subject.id'] !== 'string') return null;
-    types.add(type);
-  }
-  if (types.size === 1) {
+  const subjectRows = value.rows.filter(({ values }) => (
+    ['event', 'account'].includes(values?.['subject.type'])
+    && typeof values?.['subject.id'] === 'string'
+  ));
+  const types = new Set(subjectRows.map(({ values }) => values['subject.type']));
+  if (subjectRows.length === value.rows.length && types.size === 1) {
     return { field: 'subject.id', subjectType: [...types][0] };
   }
-  if (value.rows.every(({ values }) => typeof values['event.author'] === 'string')) {
+  if (value.rows.every(({ values }) => typeof values?.['event.author'] === 'string')) {
     return { field: 'event.author', subjectType: 'account' };
   }
   return null;

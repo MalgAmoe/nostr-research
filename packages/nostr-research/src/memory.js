@@ -1780,10 +1780,6 @@ function typedCollection(kind, items, context, itemKind = kind) {
   };
 }
 
-export function collectionPipelineSchema() {
-  return engineCollectionPipelineSchema();
-}
-
 function uniqueJson(values) {
   const found = new Map();
   for (const value of values) found.set(stableJson(value), cloneJson(value));

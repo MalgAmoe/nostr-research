@@ -9,9 +9,6 @@ const KEYS = new Set([
   'relationship', 'source', 'relays', 'since', 'until', 'offset', 'eventLimit', 'depth',
   'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency', 'signal',
 ]);
-const EXTERNAL_KEYS = new Set([
-  'relays', 'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency', 'signal',
-]);
 const MAX_PROJECTION_LIMIT = RESEARCH_CONSTRAINTS.results.maximumLimit;
 
 /**
@@ -200,11 +197,6 @@ export function normalizeContinuation(memory, input, options) {
       concurrency: acquisition.concurrency,
       ...(acquisition.signal === undefined ? {} : { signal: acquisition.signal }),
     });
-    // Delegate URL, signal, and acquisition-budget validation to the acquisition boundary.
-    const unexpected = Object.keys(result).filter((key) => (
-      !KEYS.has(key) && !EXTERNAL_KEYS.has(key)
-    ));
-    if (unexpected.length) throw new ResearchMemoryError('Invalid continuation acquisition options.');
   } else if (options.relays !== undefined || options.timeoutMs !== undefined
       || options.observationLimit !== undefined || options.distinctEventLimit !== undefined
       || options.concurrency !== undefined || options.signal !== undefined) {
