@@ -256,6 +256,16 @@ test('named account and note handles continue with bounded relationship provenan
     count: 1,
     reasons: [{ value: 'event-limit', count: 1 }],
   });
+  const boundedPreview = await session.execute({
+    commandId: 'show-bounded-multi',
+    command: 'show',
+    input: 'bounded-notes',
+    parameters: { previewLimit: 2 },
+  });
+  assert.deepEqual(
+    new Set(boundedPreview.result.preview.map(({ author }) => author.publicKey)),
+    new Set([alice, getPublicKey(DAVE_SECRET)]),
+  );
 
   const whyRoot = await session.execute({
     commandId: 'why-root',

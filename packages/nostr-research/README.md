@@ -5,11 +5,12 @@ Nostr evidence. The active runtime is one process-local memory with a renewable
 observation buffer, a bounded deliberate evidence archive, and explicit
 research knowledge.
 
-The product path has four layers: the memory owns evidence and derived
-material; normalized operations select, transform, and acquire against that
-memory; the declarative session owns named result handles; and the JSON Lines
-executable adapts those commands for persistent process use. Operation results
-use the same collection-kind vocabulary at each layer.
+The product path has four layers: memory owns the observation buffer, evidence
+archive, research notebook, and only the indexes needed to retrieve that
+state; the authoritative executor produces collection/relation values and
+per-attempt acquisition reports from explicit inputs; the declarative session
+owns names for those engine values; and the JSON Lines executable adapts those
+commands for persistent process use. Handles are not corpus storage.
 
 ```js
 import {
@@ -63,9 +64,10 @@ preservation request; acquisition never evicts archive entries.
 
 Local operations never contact relays. `select` is the canonical local event
 selection operation. `lookup(subject)` is the direct exact-subject selection
-path for a full event or account identity. Collection transforms,
-continuations, inspection, facets, and notebook inputs all use the same
-resident corpus.
+path for a full event or account identity. Collection operations,
+continuations, inspection, facets, and notebook inputs all read the same
+memory. A collection contains stable subjects, reasons, and provenance
+references, not a hidden copy of canonical evidence.
 
 Relay acquisition is explicit:
 
@@ -94,8 +96,9 @@ Cancellation uses an `AbortSignal`.
 
 ## Local collection algebra
 
-`memory.transform(collection, stages)` is the identity and navigation
-pipeline. Supported stages are the identity-only `filter` (on `subject.type`
+Collection operations run behind the same executor used by plans and session
+commands. The direct `memory.transform(collection, stages)` entry is a
+convenience over that engine behavior. Supported stages are the identity-only `filter` (on `subject.type`
 or `subject.id`), `pick`, `limit`, `sample`, `move`, `union`, `intersection`,
 `difference`, and `compare`. Use `relate` to cross into value analysis, then
 use relation `filter`, `project`, `distinct`, `sort`, `slice`, and `aggregate`.
@@ -135,14 +138,17 @@ remains usable by later relation operations.
 preserving its evidence. The element is written to `as`, its source position
 to `indexAs`, and array elements are also exposed numerically. Exploding
 `event.tags` as `tag`, for example, exposes `tag.0`, `tag.1`, and so on.
-Related event fields include extracted `event.links` and `event.domains`.
+Related event fields include extracted `event.links`, `event.domains`, and
+`event.hasMedia`. Media presence is derived from attributed media metadata,
+media MIME tags, recognized media URL extensions, and known media hosts.
 
 `scan` searches a caller-selected vocabulary across several fields and emits
 `match.field`, `match.term`, `match.sourceSubject`, a bounded `match.excerpt`,
 and match coordinates. `matchMode` is explicitly `substring`, `word`, or
 `phrase`; `match` separately controls whether any or all supplied terms must
 occur. A match emits one row per matching field and term, and `limit` is a
-global emitted-row bound. It does not retain the unlimited original field and
+global emitted-row bound. Relation observation reports row count, distinct
+subject count, and distinct event-author count separately. It does not retain the unlimited original field and
 performs mechanical matching only; it does not classify the result.
 Relation `sample` and `collect` aggregations return retained values together
 with explicit input, retained, omitted, and truncation counts. `balance`
@@ -169,7 +175,9 @@ named protocol relationship locally or through bounded relay acquisition.
 Both reuse the ordinary acquisition and continuation implementations.
 
 Local and relay-backed continuation accepts `offset` and `eventLimit`.
-Together with relation `slice`, this makes truncation navigable instead of
+Multi-input projection visits each explicit input in turn before taking
+additional results from a prolific input; `eventLimit` remains one observable
+global result bound. Together with relation `slice`, this makes truncation navigable instead of
 silently fixing every relationship projection to its first window.
 
 ```js

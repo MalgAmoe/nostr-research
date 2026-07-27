@@ -24,7 +24,10 @@ test('relation handles resolve references across evidence lifetime and keep boun
   const session = createDeclarativeResearchSession(memory);
   const oversizedTag = ['t', `nested-${'v'.repeat(4000)}`];
   const archived = note(1, `archive marker ${'a'.repeat(4000)}`, [oversizedTag]);
-  const transient = note(2, `partial transient marker ${'b'.repeat(4000)}`);
+  const transient = note(
+    2,
+    `partial transient marker https://nostr.build/media-object ${'b'.repeat(4000)}`,
+  );
   memory.ingest(archived, observation(1));
   memory.ingest(transient, observation(2));
 
@@ -40,6 +43,11 @@ test('relation handles resolve references across evidence lifetime and keep boun
     commandId: 'scan', command: 'scan', input: 'rows',
     parameters: { fields: ['event.text'], terms: ['marker'], limit: 10 },
     resultId: 'matches',
+  });
+  await session.execute({
+    commandId: 'media', command: 'filter', input: 'rows',
+    parameters: { where: { field: 'event.hasMedia', equals: true } },
+    resultId: 'media',
   });
   await session.execute({
     commandId: 'substring-scan', command: 'scan', input: 'rows',
@@ -93,6 +101,19 @@ test('relation handles resolve references across evidence lifetime and keep boun
     ['buffer', 'buffer'],
   );
   assert.ok(resident.result.preview.every(({ values }) => values.joinedText.length <= 80));
+  const rows = await session.execute({
+    commandId: 'show-rows', command: 'show', input: 'rows',
+    parameters: { previewLimit: 2 },
+  });
+  assert.equal(rows.result.count, 2);
+  assert.equal(rows.result.distinctSubjectCount, 2);
+  assert.equal(rows.result.distinctAuthorCount, 1);
+  const media = await session.execute({
+    commandId: 'show-media', command: 'show', input: 'media',
+    parameters: { previewLimit: 2 },
+  });
+  assert.equal(media.result.count, 1);
+  assert.equal(media.result.preview[0].values['subject.id'], transient.id);
   const secondNote = await session.execute({
     commandId: 'second-note', command: 'show', input: 'notes',
     parameters: { offset: 1, previewLimit: 1, excerptLimit: 80 },

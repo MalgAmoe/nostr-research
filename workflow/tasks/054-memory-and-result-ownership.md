@@ -1,6 +1,6 @@
 ---
 id: 054-memory-and-result-ownership
-status: ready
+status: done
 max_attempts: 5
 validation: workflow/tasks/054-memory-and-result-ownership.validate.sh
 depends_on: 053-unified-operation-model-and-executor

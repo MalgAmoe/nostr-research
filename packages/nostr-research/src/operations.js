@@ -236,7 +236,7 @@ export function operationSchema() {
         since: 'optional Unix timestamp',
         until: 'optional Unix timestamp',
         offset: 'non-negative result offset',
-        eventLimit: 'global result and relay-filter bound; results are not balanced per input',
+        eventLimit: 'global result bound; multi-input projections are balanced by input',
         timeoutMs: 'relay source only',
         observationLimit: 'relay source only',
         distinctEventLimit: 'relay source only',

@@ -5,6 +5,10 @@ import {
 } from './acquire.js';
 import { ResearchMemoryError } from './index.js';
 import {
+  executeCollectionOperation,
+  validateCollectionOperation,
+} from './collection.js';
+import {
   acquireContinuationEvidence,
   continueResearch,
   normalizeContinuation,
@@ -281,7 +285,7 @@ export function preflightResearchOperation(
             : parameters.with,
         }
       : parameters;
-    const transformed = memory.validateTransform(
+    const transformed = validateCollectionOperation(
       { operation: name, ...transformParameters }, input.kind, input.itemKind,
     );
     return { ...transformed, resultKind: transformed.kind };
@@ -442,7 +446,7 @@ export async function executeResearchOperation(memory, operation, input = undefi
   }
   if (name === 'notebook') return memory.notebook(parameters);
   if (isTransformOperation(name)) {
-    return memory.transform(input, { operation: name, ...parameters });
+    return executeCollectionOperation(memory, input, { operation: name, ...parameters });
   }
   if (name === 'hydrate') {
     const normalized = normalizeHydrationOptions(parameters);

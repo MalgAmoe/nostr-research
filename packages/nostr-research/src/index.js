@@ -1,17 +1,16 @@
 import { validateEvent, verifyEvent } from 'nostr-tools';
+import { SUBJECT_COLLECTION_KINDS } from './operations.js';
 import {
-  MOVE_ROUTES,
-  SUBJECT_COLLECTION_KINDS,
-  operationSchema,
-  transformOutputKind,
-} from './operations.js';
+  collectionPipelineSchema as engineCollectionPipelineSchema,
+  executeCollectionOperation,
+  validateCollectionOperation,
+} from './collection.js';
 
 const EVENT_ID = /^[a-f0-9]{64}$/;
 const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
 const SIGNATURE = /^[a-f0-9]{128}$/;
 const DEFAULT_QUERY_LIMIT = 50;
 const MAX_QUERY_LIMIT = 1000;
-const DEFAULT_TRANSFORM_LIMIT = 100;
 const SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
 const NOTEBOOK_SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
 const NAVIGATION_RELATIONSHIP_TYPES = new Set([
@@ -321,30 +320,13 @@ export class InMemoryResearchMemory {
    */
   transform(value, stages) {
     this.#assertOpen();
-    const operations = Array.isArray(stages) ? stages : [stages];
-    if (operations.length === 0) {
-      throw new ResearchMemoryError('A transform requires at least one stage.');
-    }
-    let current = this.asCollection(value);
-    // Validate the complete type path before executing its first stage.
-    let kind = current.kind;
-    let itemKind = current.itemKind ?? current.kind;
-    const normalized = [];
-    for (let index = 0; index < operations.length; index += 1) {
-      const operation = normalizeTransformOperation(operations[index], kind, itemKind, index);
-      normalized.push(operation);
-      const output = transformOutputKind(kind, itemKind, operation);
-      kind = output.kind;
-      itemKind = output.itemKind;
-    }
-    for (const operation of normalized) current = applyTransform(this, current, operation);
-    return current;
+    return executeCollectionOperation(this, value, stages);
   }
 
   /** Returns the literal public field and operation vocabulary for local pipelines. */
   describeCollectionPipeline() {
     this.#assertOpen();
-    return collectionPipelineSchema();
+    return engineCollectionPipelineSchema();
   }
 
   validateSelection(query) {
@@ -354,17 +336,7 @@ export class InMemoryResearchMemory {
 
   validateTransform(stages, inputKind, itemKind = inputKind) {
     this.#assertOpen();
-    const operations = Array.isArray(stages) ? stages : [stages];
-    if (operations.length === 0) {
-      throw new ResearchMemoryError('A transform requires at least one stage.');
-    }
-    let kind = inputKind;
-    let memberKind = itemKind;
-    for (let index = 0; index < operations.length; index += 1) {
-      const operation = normalizeTransformOperation(operations[index], kind, memberKind, index);
-      ({ kind, itemKind: memberKind } = transformOutputKind(kind, memberKind, operation));
-    }
-    return { kind, itemKind: memberKind };
+    return validateCollectionOperation(stages, inputKind, itemKind);
   }
 
   validateNotebookMembership(name, options = {}, collectionKind = undefined) {
@@ -1841,250 +1813,6 @@ function validateNotebookCollectionKind(kind) {
     );
   }
 }
-function normalizeTransformOperation(value, inputKind, itemKind, index) {
-  assertPlainObject(value, `Transform stage ${index + 1}`);
-  const operation = value.operation;
-  if (![
-    'filter', 'pick', 'limit', 'sample', 'move', 'union', 'intersection', 'difference', 'compare',
-  ].includes(operation)) {
-    throw new ResearchMemoryError(`Unsupported transform operation at stage ${index + 1}: ${operation}.`);
-  }
-  if (value.as !== undefined && (typeof value.as !== 'string' || value.as.trim().length === 0)) {
-    throw new ResearchMemoryError(`Transform stage ${index + 1} as must be a non-empty string.`);
-  }
-  const common = { operation, ...(value.as === undefined ? {} : { as: value.as.trim() }) };
-  if (['union', 'intersection', 'difference', 'compare'].includes(operation)) {
-    rejectUnknownKeys(value, new Set(['operation', 'as', 'with', 'limit']), `${operation} stage`);
-    if (!TRANSFORM_KINDS.has(inputKind)) {
-      throw new ResearchMemoryError(`${operation} requires a subject collection.`);
-    }
-    assertResultCollection(value.with);
-    const rightKind = value.with.kind ?? inferSubjectCollectionKind(value.with.items);
-    if (rightKind !== inputKind) {
-      throw new ResearchMemoryError(
-        `Incompatible ${operation} collections: ${inputKind} and ${rightKind}.`,
-      );
-    }
-    return {
-      ...common, with: cloneJson(value.with), limit: normalizeTransformLimit(value.limit),
-    };
-  }
-  if (operation === 'filter') {
-    rejectUnknownKeys(value, new Set(['operation', 'as', 'where', 'limit']), 'filter stage');
-    assertPlainObject(value.where, 'Filter predicate');
-    rejectUnknownKeys(value.where, new Set(['field', 'equals', 'in']), 'filter predicate');
-    if (!['subject.type', 'subject.id'].includes(value.where.field)) {
-      throw new ResearchMemoryError(
-        'Collection filter accepts only subject.type or subject.id; use relate for value analysis.',
-      );
-    }
-    const operators = ['equals', 'in'].filter((key) => key in value.where);
-    if (operators.length !== 1
-        || (operators[0] === 'in' && (!Array.isArray(value.where.in)
-          || value.where.in.some((item) => typeof item !== 'string')))
-        || (operators[0] === 'equals' && typeof value.where.equals !== 'string')) {
-      throw new ResearchMemoryError('Collection identity filter requires one string equals or in predicate.');
-    }
-    return {
-      ...common, where: cloneJson(value.where), limit: normalizeTransformLimit(value.limit),
-    };
-  }
-  if (operation === 'limit' || operation === 'sample') {
-    rejectUnknownKeys(value, new Set(['operation', 'as', 'limit', 'seed']), `${operation} stage`);
-    if (!TRANSFORM_KINDS.has(inputKind)) {
-      throw new ResearchMemoryError(`${operation} does not support ${inputKind} collections.`);
-    }
-    if (operation === 'sample' && value.seed !== undefined
-        && (typeof value.seed !== 'string' || value.seed.length === 0)) {
-      throw new ResearchMemoryError('Sample seed must be a non-empty string.');
-    }
-    return {
-      ...common, limit: normalizeTransformLimit(value.limit),
-      ...(operation === 'sample' ? { seed: value.seed ?? 'nostr-research' } : {}),
-    };
-  }
-  if (operation === 'pick') {
-    rejectUnknownKeys(value, new Set(['operation', 'as', 'positions']), 'pick stage');
-    if (!TRANSFORM_KINDS.has(inputKind)) {
-      throw new ResearchMemoryError(`Pick does not support ${inputKind} collections.`);
-    }
-    if (!Array.isArray(value.positions) || value.positions.length === 0
-        || value.positions.some((position) => (
-          !Number.isSafeInteger(position) || position < 1 || position > MAX_QUERY_LIMIT
-        ))) {
-      throw new ResearchMemoryError(
-        `Pick positions must be a non-empty array of integers from 1 to ${MAX_QUERY_LIMIT}.`,
-      );
-    }
-    if (new Set(value.positions).size !== value.positions.length) {
-      throw new ResearchMemoryError('Pick positions must be distinct.');
-    }
-    return { ...common, positions: [...value.positions].sort((left, right) => left - right) };
-  }
-  rejectUnknownKeys(value, new Set(['operation', 'as', 'to', 'limit']), 'move stage');
-  const output = MOVE_ROUTES[`${inputKind}:${value.to}`];
-  if (!output) {
-    throw new ResearchMemoryError(`Move from ${inputKind} to ${value.to} is not supported.`);
-  }
-  return { ...common, to: value.to, limit: normalizeTransformLimit(value.limit) };
-}
-
-function normalizeTransformLimit(value) {
-  if (value === undefined) return DEFAULT_TRANSFORM_LIMIT;
-  return normalizeLimit(value);
-}
-
-function applyTransform(memory, collection, operation) {
-  let output;
-  if (operation.operation === 'filter') {
-    const { field, equals, in: choices } = operation.where;
-    const refinedKind = field === 'subject.type' && choices === undefined
-      ? { event: 'events', account: 'accounts', relationship: 'relationships' }[equals]
-      : undefined;
-    output = resultCollection(collection.items.filter(({ subject: item }) => (
-      (field === 'subject.type' ? item.type : item.id) === equals
-      || choices?.includes(field === 'subject.type' ? item.type : item.id)
-    )).slice(0, operation.limit), {}, refinedKind ?? collection.kind);
-  } else if (operation.operation === 'pick') output = applyPick(collection, operation);
-  else if (operation.operation === 'limit') output = boundedSubjectCollection(collection, operation.limit);
-  else if (operation.operation === 'sample') output = applySample(collection, operation);
-  else if (operation.operation === 'move') output = applyMove(memory, collection, operation);
-  else output = applySetOperation(collection, operation);
-  output.bounds ??= cardinalityMetadata(collection.items.length, output.items.length);
-  output.context = transformContext(collection, operation);
-  output.context.cardinality = cloneJson(output.bounds);
-  return output;
-}
-
-function applyPick(collection, operation) {
-  const last = operation.positions.at(-1);
-  if (last > collection.items.length) {
-    throw new ResearchMemoryError(
-      `Pick position ${last} exceeds the input collection count ${collection.items.length}.`,
-    );
-  }
-  return resultCollection(
-    operation.positions.map((position) => collection.items[position - 1]),
-    {},
-    collection.kind,
-  );
-}
-
-function transformContext(input, operation) {
-  const previous = input.context?.stages ?? [];
-  const publicOperation = 'with' in operation
-    ? {
-        ...operation,
-        with: {
-          type: 'collection-reference',
-          kind: operation.with.kind,
-          count: operation.with.items.length,
-        },
-      }
-    : operation;
-  return {
-    operation: 'transform',
-    input: cloneJson(input.context),
-    stages: [...cloneJson(previous), cloneJson(publicOperation)],
-    ...(operation.as ? { name: operation.as } : {}),
-  };
-}
-
-function boundedSubjectCollection(collection, limit) {
-  return resultCollection(collection.items.slice(0, limit), {}, collection.kind);
-}
-
-function applySample(collection, operation) {
-  const ranked = collection.items.map((item, index) => ({
-    item, index,
-    rank: stableHash(`${operation.seed}\u0000${memberKey(item.subject)}`),
-  })).sort((left, right) => left.rank - right.rank || left.index - right.index);
-  return resultCollection(ranked.slice(0, operation.limit).map(({ item }) => item),
-    {}, collection.kind);
-}
-
-function applySetOperation(collection, operation) {
-  const left = new Map(collection.items.map((item) => [memberKey(item.subject), item]));
-  const right = new Map(operation.with.items.map((item) => [memberKey(item.subject), item]));
-  const keys = operation.operation === 'union'
-    ? [...new Set([...left.keys(), ...right.keys()])]
-    : operation.operation === 'intersection'
-      ? [...left.keys()].filter((key) => right.has(key))
-      : operation.operation === 'difference'
-        ? [...left.keys()].filter((key) => !right.has(key))
-        : [];
-  if (operation.operation === 'compare') {
-    const shared = [...left.keys()].filter((key) => right.has(key)).length;
-    const output = typedCollection('summaries', [{
-      key: null,
-      values: {
-        left: left.size, right: right.size, shared,
-        leftOnly: left.size - shared, rightOnly: right.size - shared,
-      },
-      reasons: uniqueJson([...left.values(), ...right.values()].flatMap((item) => item.reasons)),
-      provenance: uniqueJson(
-        [...left.values(), ...right.values()].flatMap((item) => item.provenance),
-      ),
-    }], {}, 'summaries');
-    output.bounds = {
-      leftCount: left.size, rightCount: right.size, outputCount: 1,
-      omittedCount: 0, truncated: false,
-    };
-    return output;
-  }
-  const items = keys.sort().slice(0, operation.limit).map((key) => {
-    const first = left.get(key);
-    const second = right.get(key);
-    return {
-      ...(first ?? second),
-      reasons: uniqueJson([...(first?.reasons ?? []), ...(second?.reasons ?? [])]),
-      provenance: uniqueJson([...(first?.provenance ?? []), ...(second?.provenance ?? [])]),
-    };
-  });
-  const output = resultCollection(items, {}, collection.kind);
-  output.bounds = cardinalityMetadata(keys.length, items.length);
-  output.bounds.leftCount = left.size;
-  output.bounds.rightCount = right.size;
-  return output;
-}
-
-function applyMove(memory, collection, operation) {
-  const merged = new Map();
-  const add = (candidate, source, transition) => {
-    const key = memberKey(candidate.subject);
-    const found = merged.get(key) ?? { ...candidate, reasons: [], provenance: [] };
-    mergeUniqueJson(found.reasons, source.reasons);
-    mergeUniqueJson(found.reasons, [{ type: 'collection-move', transition, source: source.subject }]);
-    mergeUniqueJson(found.provenance, source.provenance);
-    mergeUniqueJson(found.provenance, candidate.provenance);
-    merged.set(key, found);
-  };
-  for (const item of collection.items) {
-    if (operation.to === 'authors') {
-      add(memory.lookup(subject('account', item.record.event.pubkey)).items[0], item, 'event-author');
-    } else if (operation.to === 'referencedAccounts' || operation.to === 'referencedEvents') {
-      const wanted = operation.to === 'referencedAccounts' ? 'account' : 'event';
-      for (const relationship of eventRelationships(item.record.event)) {
-        if (relationship.type === 'author' || relationship.targetType !== wanted) continue;
-        add(memory.lookup(subject(wanted, relationship.targetId)).items[0], item,
-          `event-${operation.to}`);
-      }
-    } else if (operation.to === 'authoredEvents') {
-      for (const candidate of memory.select({
-        authors: [item.subject.id], limit: MAX_QUERY_LIMIT, order: 'oldest',
-      }).items) add(candidate, item, 'account-authored-event');
-    } else {
-      for (const candidate of memory.follows(item.subject).items) {
-        add(candidate, item, 'account-followed-account');
-      }
-    }
-  }
-  const items = [...merged.values()]
-    .sort((left, right) => memberKey(left.subject).localeCompare(memberKey(right.subject)))
-    .slice(0, operation.limit);
-  return resultCollection(items, {}, MOVE_ROUTES[`${collection.kind}:${operation.to}`]);
-}
-
 function typedCollection(kind, items, context, itemKind = kind) {
   return {
     type: 'typed-collection', kind, itemKind,
@@ -2092,68 +1820,8 @@ function typedCollection(kind, items, context, itemKind = kind) {
   };
 }
 
-function cardinalityMetadata(inputCount, outputCount) {
-  return {
-    inputCount,
-    outputCount,
-    omittedCount: Math.max(0, inputCount - outputCount),
-    truncated: outputCount < inputCount,
-  };
-}
-
-function comparePipelineValues(left, right) {
-  if (left === right) return 0;
-  if (left === undefined || left === null) return 1;
-  if (right === undefined || right === null) return -1;
-  if (typeof left === typeof right && ['number', 'string', 'boolean'].includes(typeof left)) {
-    return left < right ? -1 : 1;
-  }
-  return stableJson(left).localeCompare(stableJson(right));
-}
-
-function stableHash(value) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
 export function collectionPipelineSchema() {
-  return cloneJson({
-    type: 'collection-pipeline-schema',
-    version: 2,
-    research: operationSchema(),
-    statement: 'Collections hold stable identities; relations own value-oriented analysis.',
-    operations: {
-      filter: {
-        inputKinds: [...TRANSFORM_KINDS],
-        fields: ['subject.type', 'subject.id'],
-        operators: ['equals', 'in'],
-        limit: 'bound',
-      },
-      pick: {
-        inputKinds: [...TRANSFORM_KINDS],
-        positions: `non-empty distinct 1-based integer[] up to ${MAX_QUERY_LIMIT}`,
-      },
-      limit: { inputKinds: [...TRANSFORM_KINDS], limit: 'bound' },
-      sample: { inputKinds: [...TRANSFORM_KINDS], limit: 'bound', seed: 'string' },
-      move: { routes: cloneJson(MOVE_ROUTES), limit: 'bound' },
-      set: {
-        operations: ['union', 'intersection', 'difference', 'compare'],
-        inputKinds: [...TRANSFORM_KINDS],
-        limit: 'bound',
-      },
-      relation: {
-        operations: [
-          'relate', 'filter', 'project', 'distinct', 'sort', 'join', 'aggregate',
-          'derive', 'slice', 'explode', 'scan', 'balance',
-        ],
-        statement: 'Use relate before field filtering, projection, ordering, or aggregation.',
-      },
-    },
-  });
+  return engineCollectionPipelineSchema();
 }
 
 function uniqueJson(values) {

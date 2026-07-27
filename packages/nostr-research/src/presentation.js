@@ -37,6 +37,16 @@ export function showResearchValue(memory, value, options = {}) {
 
 function showRelation(memory, value, settings) {
   const resolved = resolveRelationForPresentation(memory, value);
+  const distinctSubjects = new Set(resolved.rows.flatMap(
+    (row) => row.subjects.map((subject) => `${subject.type}:${subject.id}`),
+  ));
+  const eventSubjects = new Map(resolved.rows.flatMap((row) => row.subjects
+    .filter(({ type }) => type === 'event')
+    .map((subject) => [subject.id, subject])));
+  const distinctAuthors = new Set([...eventSubjects.values()].flatMap((eventSubject) => {
+    const event = memory.inspect(eventSubject).evidence?.event;
+    return typeof event?.pubkey === 'string' ? [event.pubkey] : [];
+  }));
   const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
   const effectiveOffset = Math.min(settings.offset, resolved.rows.length);
   const preview = resolved.rows.slice(effectiveOffset, effectiveOffset + limit).map((row) => ({
@@ -54,6 +64,8 @@ function showRelation(memory, value, settings) {
   return {
     type: 'research-relation',
     count: resolved.rows.length,
+    distinctSubjectCount: distinctSubjects.size,
+    distinctAuthorCount: distinctAuthors.size,
     preview,
     offset: effectiveOffset,
     limit,

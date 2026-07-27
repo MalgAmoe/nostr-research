@@ -276,7 +276,12 @@ function continuationFilter(memory, starts, options) {
   const events = starts.items.filter(({ subject: item }) => item.type === 'event')
     .map(({ subject: item }) => item.id);
   const base = {
-    limit: options.eventLimit,
+    // The relay request may need more candidates than the final global
+    // projection window so one prolific input cannot consume every slot.
+    limit: Math.min(
+      MAX_PROJECTION_LIMIT,
+      options.eventLimit * Math.max(1, starts.items.length),
+    ),
     ...(options.since === undefined ? {} : { since: options.since }),
     ...(options.until === undefined ? {} : { until: options.until }),
   };
@@ -368,7 +373,20 @@ function projectByInput(memory, starts, options, acquisition) {
     if (status !== 'resolved') omissions.push({ subject: startSubject, reason: status });
   }
 
-  const candidates = [...merged.entries()];
+  // Preserve the global bound while giving each explicit input a chance to
+  // contribute before a prolific earlier input contributes its next result.
+  const candidates = [];
+  const retainedCandidateKeys = new Set();
+  const candidateLists = outcomes.map(({ candidateKeys }) => [...candidateKeys]);
+  for (let index = 0; candidateLists.some((items) => index < items.length); index += 1) {
+    for (const items of candidateLists) {
+      const key = items[index];
+      if (key !== undefined && !retainedCandidateKeys.has(key)) {
+        retainedCandidateKeys.add(key);
+        candidates.push([key, merged.get(key)]);
+      }
+    }
+  }
   const retained = candidates.slice(options.offset, options.offset + options.eventLimit);
   const retainedKeys = new Set(retained.map(([key]) => key));
   const inputs = outcomes.map(({ outcome, candidateKeys }) => {

@@ -13,6 +13,7 @@ const SOURCE_FIELDS = Object.freeze([
   'event.tags',
   'event.links',
   'event.domains',
+  'event.hasMedia',
   'account.name',
   'account.display_name',
   'account.description',
@@ -653,6 +654,7 @@ function resolveSourceField(reference, resolution) {
     'event.tags': event?.tags,
     'event.links': event ? linksIn(event.content) : undefined,
     'event.domains': event ? domainsIn(event.content) : undefined,
+    'event.hasMedia': event ? hasMedia(event) : undefined,
     'account.name': profile?.name ?? null,
     'account.display_name': profile?.display_name ?? null,
     'account.description': profile?.about ?? null,
@@ -746,6 +748,26 @@ function domainsIn(content) {
   return uniqueJson(linksIn(content).flatMap((url) => {
     try { return [new URL(url).hostname.toLocaleLowerCase()]; } catch { return []; }
   }));
+}
+
+function hasMedia(event) {
+  if (event.tags.some((tag) => (
+    tag[0] === 'imeta'
+    || (tag[0] === 'm' && typeof tag[1] === 'string'
+      && /^(?:audio|image|video)\//iu.test(tag[1]))
+  ))) return true;
+  return linksIn(event.content).some((value) => {
+    try {
+      const url = new URL(value);
+      const path = url.pathname.toLocaleLowerCase();
+      if (/\.(?:avif|gif|jpe?g|m4a|m4v|mov|mp3|mp4|ogg|opus|png|svg|wav|webm|webp)$/u
+        .test(path)) return true;
+      return /(?:^|\.)(?:imgur\.com|nostr\.build|void\.cat|youtube\.com|youtu\.be|vimeo\.com|soundcloud\.com)$/u
+        .test(url.hostname.toLocaleLowerCase());
+    } catch {
+      return false;
+    }
+  });
 }
 
 function parseProfile(content) {
