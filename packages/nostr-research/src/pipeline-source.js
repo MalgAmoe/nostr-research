@@ -180,6 +180,10 @@ function field(value, label) {
   }
 }
 
+function unique(values) {
+  return [...new Set(values)];
+}
+
 function resultLimit(value) {
   const limit = value ?? RESULT_LIMIT.default;
   if (!Number.isSafeInteger(limit) || limit < 1

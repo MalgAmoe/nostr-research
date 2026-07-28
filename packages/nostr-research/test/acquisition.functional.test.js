@@ -40,6 +40,7 @@ class RelayFixtureWebSocket {
   static OPEN = 1;
   static CLOSING = 2;
   static CLOSED = 3;
+  static requests = [];
 
   constructor(url) {
     this.url = url;
@@ -64,6 +65,7 @@ class RelayFixtureWebSocket {
   send(serialized) {
     const packet = JSON.parse(serialized);
     if (packet[0] !== 'REQ') return;
+    RelayFixtureWebSocket.requests.push(packet);
     const subscriptionId = packet[1];
     queueMicrotask(() => {
       if (this.url.includes('complete')) {
@@ -108,6 +110,60 @@ class RelayFixtureWebSocket {
     for (const listener of this.listeners.get(name) ?? []) listener(event);
   }
 }
+
+test('relation fetch binds deduplicated values into an ordinary acquisition', async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  globalThis.WebSocket = RelayFixtureWebSocket;
+  RelayFixtureWebSocket.requests = [];
+  const memory = createInMemoryResearchMemory({ capacity: 10 });
+  const session = createDeclarativeResearchSession(memory);
+  const firstKey = Uint8Array.from(Buffer.from('1'.repeat(64), 'hex'));
+  const secondKey = Uint8Array.from(Buffer.from('2'.repeat(64), 'hex'));
+  const events = [
+    finalizeEvent({ kind: 1, created_at: 1, tags: [], content: 'first' }, firstKey),
+    finalizeEvent({ kind: 1, created_at: 2, tags: [], content: 'again' }, firstKey),
+    finalizeEvent({ kind: 1, created_at: 3, tags: [], content: 'second' }, secondKey),
+  ];
+  try {
+    for (const event of events) {
+      memory.ingest(event, {
+        relay: 'wss://source.example',
+        observedAt: '2026-07-28T12:00:00.000Z',
+      });
+    }
+    await session.execute({
+      commandId: 'notes', command: 'select',
+      parameters: { scope: 'corpus', kinds: [1], order: 'oldest', limit: 3 },
+      resultId: 'notes',
+    });
+    await session.execute({
+      commandId: 'rows', command: 'relate', input: 'notes', resultId: 'rows',
+    });
+    const fetched = await session.execute({
+      commandId: 'fetch', command: 'fetch', input: 'rows',
+      parameters: {
+        relays: ['wss://complete.example'],
+        filter: { kinds: [0] },
+        bindings: { authors: 'event.author' },
+        timeoutMs: 1000,
+        observationLimit: 10,
+        distinctEventLimit: 10,
+        concurrency: 1,
+      },
+      resultId: 'profiles',
+    });
+
+    assert.equal(fetched.ok, true);
+    assert.equal(fetched.result.handle.count, 0);
+    assert.deepEqual(RelayFixtureWebSocket.requests.at(-1)[2], {
+      kinds: [0],
+      authors: [events[0].pubkey, events[2].pubkey],
+    });
+  } finally {
+    await session.close();
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
 
 test('acquisition rejects unusable public inputs before networking', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 1000 });
