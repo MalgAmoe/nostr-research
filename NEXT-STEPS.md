@@ -1,7 +1,7 @@
 # Project next steps
 
-Status: current direction after the completed protocol, runtime, relay, and
-event-content milestones on 2026-07-28.
+Status: current direction after naming Nostrarium and defining the caller-side
+vessel on 2026-07-29.
 
 ## Current position
 
@@ -30,6 +30,14 @@ cause.
 The practical CLI is now documented in [CLI.md](./CLI.md), separately from the
 detailed library reference.
 
+Independent agent trials have confirmed that the documented algebra supports
+substantial research without arbitrary JavaScript: acquiring a field,
+identifying accounts, hydrating profiles, scanning and aggregating evidence,
+making an external judgment, and returning selected identities to navigable
+collections. Those trials also confirmed that bounds, partiality, relay
+participation, and response-size limits are exposed honestly when the operator
+reads the complete response.
+
 ## Product direction
 
 Nostrarium's caller-side vessel is a coherent research posture for moving
@@ -52,24 +60,53 @@ classify accounts as good, human, credible, or interesting.
 
 ## What to do next
 
-There is no agreed implementation milestone. Start with another sustained
-vessel-style trial from a cold random field using only the documented CLI.
+The next milestone is not another engine feature. It is the first vessel
+discovery round, conducted interactively by us through one persistent CLI
+session. The aim is to behave as a vessel before deciding what software a
+vessel requires.
 
-Observe:
+For each sustained trial:
 
-- how expensive it is to find the first useful anchor;
-- whether field structure and contextual schema remain understandable;
-- how evidence windows are advanced or abandoned;
-- when preservation or notebook judgments become useful;
-- whether media and event-format facts materially change navigation;
-- which operation, if any, repeatedly forces awkward reconstruction.
+1. Start from a bounded, relatively random field rather than a directed remote
+   search.
+2. Give the voyage a concrete collection intent, while treating the vessel's
+   movement, senses, and judgment practices as provisional.
+3. Operate sequentially: observe each response and its bounds, make a
+   navigator decision, then choose the next operation.
+4. Record what was habitually made visible, which routes were preferred or
+   abandoned, where judgment entered, and what was deliberately collected.
+5. Repeat with enough variation to distinguish one useful convention from an
+   accidental property of a single question.
 
-Only repeated, concrete friction should become an engine task.
+The first likely posture is broad random-field profile discovery because it
+has already produced a coherent loop: expose field structure, navigate toward
+accounts and their evidence, use summaries and coverage as habitual senses,
+record explicit interest or exclusion, and collect explainable profiles with
+supporting evidence. This is a starting posture to inhabit and revise, not a
+formal vessel specification.
 
-In parallel, it is reasonable to sketch the human interaction model without
-building a UI: what a researcher sees when entering a field, inspecting it,
-choosing a direction, retaining evidence, and allowing old observations to
-fall away.
+Only after repeated use should we extract two possible caller-side layers:
+
+- a neutral session driver that owns process lifetime, command IDs, response
+  correlation, and transcripts without adding research semantics; and
+- vessel conventions that arrange movement, senses, explicit judgment, and
+  collection over visible engine operations.
+
+Do not build a general vessel framework or visual UI yet. The first wrapper
+should remove only observed mechanical friction, and the first presentation
+should follow the vessel's discovered senses rather than precede them.
+
+Kimi remains useful as an independent evaluator and navigator for bounded
+research tasks. Its current OpenCode environment cannot conveniently retain
+and drive an interactive subprocess, so its timed pipelines and temporary
+files are valid protocol tests but should not define the primary interaction
+model. We will conduct the formative interactive trials ourselves; later
+wrappers can be tested again by constrained external agents.
+
+Engine work resumes only for a verified correctness problem or a generic
+operation repeatedly reconstructed outside the library. Difficulty caused by
+noisy, malformed, incomplete, or socially concentrated Nostr data is research
+reality, not automatically an engine defect.
 
 ## Parked capabilities and triggers
 
