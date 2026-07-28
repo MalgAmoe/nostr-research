@@ -440,7 +440,27 @@ export function operationSchema() {
     },
     operationFacts: {
       scan: { resultShape: SCAN.resultShape },
+      acquire: { resultFacts: acquisitionResultFacts() },
+      fetch: { resultFacts: acquisitionResultFacts() },
+      hydrate: { resultFacts: acquisitionResultFacts() },
     },
+  };
+}
+
+function acquisitionResultFacts() {
+  return {
+    completionReason: 'operation-wide completion or bound',
+    relayOutcomes: [
+      'eose', 'closed', 'peer-closed', 'peer-error', 'connection-failure',
+      'timeout', 'cancelled', 'observation-budget', 'distinct-event-budget',
+    ],
+    perRelay: {
+      notices: 'up to 10 bounded relay NOTICE texts plus omittedNotices',
+      authChallengeObserved: 'neutral observed AUTH challenge; not a refusal',
+      closedReason: 'standardized category, prefix, and bounded raw value',
+      eoseHints: 'recognized NIP-67 finish/more hints with bounded raw values',
+    },
+    exhaustive: false,
   };
 }
 

@@ -611,6 +611,14 @@ JSON line):
 
 The acquisition may succeed with `external.status: "partial"`; its
 `external.completeness` says which bounds or relay outcomes made it partial.
+Per-relay coverage distinguishes a connection that never opened, an opened
+peer that closed early, an explicit `CLOSED` refusal, and EOSE completion.
+Coverage also retains up to ten bounded `NOTICE` texts (with an omission
+count), a neutral observed `AUTH` challenge, standardized `CLOSED` reason
+categories with bounded raw text, and recognized NIP-67 `finish`/`more` EOSE
+hints. An `AUTH` challenge is evidence only: the library neither answers it
+nor changes an otherwise successful read into `auth-required`. That outcome
+exists only when a relay sends an `auth-required:` `CLOSED` reason.
 Observation does not change `sessionRevision`. Each command names every input
 and output, so there is no active selection or background pipeline.
 

@@ -149,7 +149,8 @@ relevance.
   single-letter tag filters such as `#e`, `#p`, and `#t`;
 - opens a WebSocket to each selected relay;
 - sends one `REQ` subscription per socket;
-- receives `EVENT`, `EOSE`, and `CLOSED`;
+- receives `EVENT`, `EOSE`, `CLOSED`, bounded `NOTICE`, and neutral `AUTH`
+  challenges;
 - sends `CLOSE` during teardown;
 - validates every event;
 - applies the exact requested filter locally before ingesting it;
@@ -170,10 +171,9 @@ Current limitations:
   results are combined as an OR;
 - every operation creates fresh relay connections instead of reusing one
   connection per relay across sequential subscriptions;
-- `NOTICE`, `AUTH`, `OK`, `COUNT`, and other relay messages are not
-  interpreted;
-- `CLOSED` text is retained but its standardized reason prefix is not parsed;
-- optional NIP-67 EOSE completeness hints are not interpreted;
+- `OK`, `COUNT`, and other relay messages are not interpreted;
+- `NOTICE`, `AUTH`, and `CLOSED` diagnostics are observed but authentication
+  responses and authenticated connection state are not implemented;
 - relay metadata is not requested through NIP-11;
 - the NIP-50 `search` filter field is rejected;
 - no event publishing is supported; and
@@ -334,7 +334,7 @@ The table uses these states:
 | Area / NIP | State | Current behavior | Important missing part |
 | --- | --- | --- | --- |
 | NIP-01 basic events | Implemented | Canonical validation, filters, subscriptions, local selection | Multi-filter OR requests and connection reuse |
-| NIP-01 relay messages | Partial | `REQ`, incoming `EVENT`, `EOSE`, `CLOSED`, outgoing `CLOSE` | `NOTICE`, outgoing `EVENT`, incoming `OK`, richer diagnostics |
+| NIP-01 relay messages | Partial | `REQ`, incoming `EVENT`, `EOSE`, `CLOSED`, bounded `NOTICE`, outgoing `CLOSE` | Outgoing `EVENT`, incoming `OK`, connection reuse |
 | NIP-02 follow list | Partial | Current kind `3` follows and reverse follower lookup | Relay hints and petnames |
 | NIP-05 DNS identifier | Raw only | Stored and searchable profile string | Network verification and returned relay hints |
 | NIP-09 deletion request | Partial | Kind `5` event targets are typed and excluded from reply graphs | Validate target authorship and expose deletion status |
@@ -353,7 +353,7 @@ The table uses these states:
 | NIP-36 content warning | Raw only | Tag remains visible | Structured warning/sensitive-content evidence |
 | NIP-39 external identity | Raw only | Tags remain visible | Proof verification with provenance and status |
 | NIP-40 expiration | Raw only | Expired events remain ordinary evidence | Derived expired status and optional caller filtering |
-| NIP-42 relay authentication | Absent | Auth challenges ignored | Signer boundary and authenticated connection state |
+| NIP-42 relay authentication | Partial | Neutral bounded challenge observation and machine-readable `auth-required` subscription refusal | Signer boundary and authenticated connection state |
 | NIP-45 event count | Absent | Must fetch events to learn local counts | Per-relay count request and approximate-result metadata |
 | NIP-50 search | Absent | Local substring scan only | Explicit relay search with relay-specific result semantics |
 | NIP-51 lists | Raw only | Replaceable versions resolve generically | Typed public lists useful for discovery and moderation |
@@ -361,7 +361,7 @@ The table uses these states:
 | NIP-62 vanish request | Raw only | Request can be retained | Expose request status without rewriting historical evidence |
 | NIP-65 relay list metadata | Raw only | Kind `10002` current version resolves | Structured read/write relay claims and explicit routing use |
 | NIP-66 relay discovery | Raw only | Events can be scanned | Structured advertised/probed relay observations |
-| NIP-67 EOSE hints | Absent | Plain EOSE ends the relay attempt | `finish`/`more` completion hint parsing |
+| NIP-67 EOSE hints | Implemented | Attributed bounded `finish`/`more` hints are retained without implying global exhaustiveness | Automatic pagination is deliberately absent |
 | NIP-68 picture events | Raw only | Event and tags remain readable | Structured media projection |
 | NIP-70 protected events | Raw only | `-` tag remains visible | Surface protection requirement and auth implications |
 | NIP-71 video events | Raw only | Events and tags remain readable | Structured video variants and metadata |
@@ -441,12 +441,12 @@ This is useful after address support, not before it.
 | `EOSE` | Implemented as attempt boundary | Separates stored results from later live events |
 | `CLOSE` | Implemented | Clean bounded operation |
 | `CLOSED` | Partially handled | Standardized refusal reason and termination diagnostics |
-| `NOTICE` | Ignored | Human-readable relay diagnostics |
+| `NOTICE` | Implemented | Bounded human-readable relay diagnostics with omission count |
 | client `EVENT` | Absent | Publishing; not needed for current research |
 | relay `OK` | Absent | Only needed with publishing/auth flows |
-| `AUTH` | Ignored | Neutral challenge observation, distinct from an auth-required refusal |
+| `AUTH` | Observed | Neutral bounded challenge observation, distinct from an auth-required refusal |
 | `COUNT` | Absent | Estimate scope before expensive acquisition |
-| NIP-67 EOSE hint | Ignored | More honest completeness and continuation |
+| NIP-67 EOSE hint | Implemented | Attributed `finish`/`more` evidence; no automatic continuation |
 | NIP-77 negentropy messages | Absent | Efficient synchronization, not ordinary exploration |
 
 Relay authentication has three distinct evidence sources that must not be

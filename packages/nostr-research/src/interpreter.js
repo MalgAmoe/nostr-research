@@ -47,7 +47,9 @@ const OBSERVATIONS = new Set([
 const LIFECYCLE = new Set([
   'release', 'release-all', 'delete-membership', 'reset', 'close',
 ]);
-const UNSUCCESSFUL_RELAY_OUTCOMES = new Set(['connection-failure', 'closed']);
+const UNSUCCESSFUL_RELAY_OUTCOMES = new Set([
+  'connection-failure', 'peer-error', 'peer-closed', 'closed',
+]);
 const COMMAND_KEYS = new Set([
   'commandId', 'ifRevision', 'command', 'input', 'inputs', 'parameters', 'resultId', 'replace',
 ]);
@@ -716,6 +718,10 @@ function contextualHandleSchema(memory, id, entry, selectedOperation, configurat
   const structure = isResearchRelation(value)
     ? describeResearchRelation(memory, value)
     : collectionStructure(memory.asCollection(value));
+  if (['acquisition-report', 'hydration-report'].includes(entry.descriptor.resultKind)) {
+    const operation = entry.descriptor.resultKind === 'hydration-report' ? 'hydrate' : 'acquire';
+    structure.reportFacts = operationSchema().operationFacts[operation].resultFacts;
+  }
     const operations = contextualResearchOperationSchema({
       descriptor: entry.descriptor,
       structure,
@@ -915,6 +921,14 @@ function externalStatus(result, operation, memory) {
     .map(([outcome, count]) => ({ outcome, count }));
   const relayOutcomes = allRelayOutcomes.slice(0, 5);
   const completeRelays = relayOutcomeCounts.get('eose') ?? 0;
+  const noticeCount = contactedRelays.reduce(
+    (count, relay) => count + relay.notices.length + relay.omittedNotices, 0,
+  );
+  const authChallengeRelays = contactedRelays
+    .filter(({ authChallengeObserved }) => authChallengeObserved).length;
+  const refusedRelays = contactedRelays.filter(({ outcome }) => outcome === 'closed').length;
+  const eoseHintCounts = contactedRelays.flatMap(({ eoseHints }) => eoseHints)
+    .reduce((counts, { hint }) => ({ ...counts, [hint]: (counts[hint] ?? 0) + 1 }), {});
   const allUnsuccessfulRelays = contactedRelays
     .filter(({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOMES.has(outcome))
     .map(({ relay, outcome }) => ({ relay, outcome }));
@@ -959,6 +973,10 @@ function externalStatus(result, operation, memory) {
         incomplete: contactedRelays.length - completeRelays,
         outcomes: relayOutcomes,
         omittedOutcomes: allRelayOutcomes.length - relayOutcomes.length,
+        notices: noticeCount,
+        authChallengeObserved: authChallengeRelays,
+        explicitRefusals: refusedRelays,
+        eoseHints: eoseHintCounts,
       },
       unsuccessfulRelays,
       omittedUnsuccessfulRelays: allUnsuccessfulRelays.length - unsuccessfulRelays.length,

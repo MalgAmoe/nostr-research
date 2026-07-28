@@ -510,6 +510,14 @@ function showAcquisition(memory, value, settings) {
       exhaustive: false,
       uncertainty: value.coverage?.uncertainty
         ?? 'A bounded attempt was made; exhaustive relay indexing is not implied.',
+      ...(['details', 'explain'].includes(settings.mode) ? {
+        relayDiagnostics: structuredClone(
+          (value.coverage?.relays ?? value.relays ?? []).slice(0, settings.previewLimit),
+        ),
+        omittedRelayDiagnostics: Math.max(
+          0, (value.coverage?.relays ?? value.relays ?? []).length - settings.previewLimit,
+        ),
+      } : {}),
     },
   };
 }

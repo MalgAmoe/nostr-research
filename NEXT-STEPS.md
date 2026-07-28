@@ -261,6 +261,13 @@ turning relay metadata into an automatic score or routing policy.
 
 ### Task 1: relay message and outcome visibility
 
+Implemented in the public acquisition path: bounded notices, neutral
+authentication challenges, structured subscription refusals, early peer
+closure, and NIP-67 hints now survive direct execution, plans, session
+handles, status, presentation, and schema. The remaining milestone work starts
+with explicit NIP-11 inspection; authentication responses remain deliberately
+out of scope.
+
 1. Capture bounded `NOTICE` messages and standardized `CLOSED` reason
    prefixes on the existing acquisition path.
 2. Parse NIP-67 EOSE `finish` and `more` hints without treating either as

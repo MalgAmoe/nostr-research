@@ -6,6 +6,12 @@ import { matchFilter } from 'nostr-tools';
 const WEBSOCKET_CONNECTING = 0;
 const WEBSOCKET_OPEN = 1;
 const WEBSOCKET_CLOSING = 2;
+const MAX_RELAY_NOTICES = 10;
+const MAX_RELAY_TEXT_LENGTH = 512;
+const CLOSED_REASON_CATEGORIES = new Set([
+  'duplicate', 'pow', 'blocked', 'rate-limited', 'invalid', 'restricted',
+  'mute', 'error', 'auth-required',
+]);
 
 const OPTION_KEYS = new Set([
   'relays', 'filter', 'timeoutMs', 'observationLimit', 'distinctEventLimit',
@@ -49,6 +55,12 @@ export async function acquireRelayEvents(memory, options) {
     acceptedObservations: 0,
     distinctEventsAcquired: 0,
     diagnostic: null,
+    notices: [],
+    omittedNotices: 0,
+    authChallengeObserved: false,
+    authChallenge: null,
+    closedReason: null,
+    eoseHints: [],
   }));
   const counts = {
     receivedPackets: 0,
@@ -108,6 +120,7 @@ export async function acquireRelayEvents(memory, options) {
       }
       let settled = false;
       let finishing = false;
+      let opened = false;
 
       const settle = () => {
         if (settled) return;
@@ -130,6 +143,7 @@ export async function acquireRelayEvents(memory, options) {
 
       socket.addEventListener('open', () => {
         if (finishing || stopReason) return finish(stopReason ?? relayResult.outcome);
+        opened = true;
         socket.send(JSON.stringify(['REQ', subscriptionId, normalized.filter]));
       });
       socket.addEventListener('message', (message) => {
@@ -140,7 +154,24 @@ export async function acquireRelayEvents(memory, options) {
         } catch {
           return;
         }
-        if (!Array.isArray(packet) || packet[1] !== subscriptionId) return;
+        if (!Array.isArray(packet)) return;
+
+        if (packet[0] === 'NOTICE') {
+          if (typeof packet[1] !== 'string') return;
+          if (relayResult.notices.length >= MAX_RELAY_NOTICES) {
+            relayResult.omittedNotices += 1;
+          } else {
+            relayResult.notices.push(boundedRelayText(packet[1]));
+          }
+          return;
+        }
+        if (packet[0] === 'AUTH') {
+          if (typeof packet[1] !== 'string') return;
+          relayResult.authChallengeObserved = true;
+          relayResult.authChallenge = boundedRelayText(packet[1]);
+          return;
+        }
+        if (packet[1] !== subscriptionId) return;
 
         if (packet[0] === 'EVENT') {
           relayResult.receivedPackets += 1;
@@ -196,20 +227,24 @@ export async function acquireRelayEvents(memory, options) {
             stop('distinct-event-budget');
           }
         } else if (packet[0] === 'EOSE') {
+          relayResult.eoseHints = parseEoseHints(packet[2]);
           finish('eose');
         } else if (packet[0] === 'CLOSED') {
-          finish('closed', typeof packet[2] === 'string' ? packet[2] : null);
+          relayResult.closedReason = parseClosedReason(packet[2]);
+          finish('closed', relayResult.closedReason?.rawValue ?? null);
         }
       });
       socket.addEventListener('error', (event) => {
-        finish('connection-failure', describeWebSocketError(event.error));
+        finish(opened ? 'peer-error' : 'connection-failure', describeWebSocketError(event.error));
       });
       socket.addEventListener('close', (event) => {
         if (!finishing) {
-          relayResult.outcome = stopReason ?? 'connection-failure';
+          relayResult.outcome = stopReason ?? (opened ? 'peer-closed' : 'connection-failure');
           relayResult.diagnostic = stopReason
             ? null
-            : `Socket closed before relay completion (code ${event.code}).`;
+            : opened
+              ? `Opened peer closed before relay completion (code ${event.code}).`
+              : `Socket closed before opening (code ${event.code}).`;
         }
         settle();
       });
@@ -317,6 +352,34 @@ function describeWebSocketError(error) {
   if (!(error instanceof Error)) return 'WebSocket connection or protocol error.';
   const code = typeof error.code === 'string' ? `${error.code}: ` : '';
   return `${code}${error.message}`;
+}
+
+function boundedRelayText(value) {
+  const rawValue = value.slice(0, MAX_RELAY_TEXT_LENGTH);
+  return {
+    rawValue,
+    omittedCharacters: value.length - rawValue.length,
+  };
+}
+
+function parseClosedReason(value) {
+  if (typeof value !== 'string') return null;
+  const bounded = boundedRelayText(value);
+  const match = /^([a-z0-9-]+):/.exec(value);
+  const prefix = match?.[1] ?? null;
+  return {
+    category: prefix && CLOSED_REASON_CATEGORIES.has(prefix) ? prefix : 'unknown',
+    prefix,
+    ...bounded,
+  };
+}
+
+function parseEoseHints(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((hint) => hint === 'finish' || hint === 'more')
+    .slice(0, 2)
+    .map((hint) => ({ hint, ...boundedRelayText(hint) }));
 }
 
 function finishSocket(socket, subscriptionId) {

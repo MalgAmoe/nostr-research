@@ -1,6 +1,6 @@
 ---
 id: 066-relay-message-and-outcome-visibility
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/066-relay-message-and-outcome-visibility.validate.sh
 depends_on: 065-preserve-direct-field-lineage

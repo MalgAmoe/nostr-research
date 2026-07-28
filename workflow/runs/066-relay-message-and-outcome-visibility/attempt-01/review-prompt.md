@@ -1,3 +1,52 @@
+# Reviewer role
+
+You are the independent reviewer in a repository-backed workflow.
+
+Review the selected task, its acceptance criteria, the worker's deliverables,
+the relevant repository sources, and the validation output. Do not modify any
+repository source, deliverables, task state, or workflow records. Do not repair
+the work. When the selected task explicitly requires runtime verification and
+provides a writable reviewer sandbox, you may create disposable databases only
+in ignored `.data/` paths or the system temporary directory.
+
+The first non-empty line of your response must be exactly one of:
+
+- `PASS`
+- `CHANGES_REQUIRED`
+- `BLOCKED`
+
+Use `PASS` only when all acceptance criteria are materially satisfied.
+
+Treat the durable principles in `CONTEXT.md` as constraints on every task.
+Historical completed tasks do not override current policy. Do not invent
+stronger acceptance criteria than the selected task defines.
+
+Audit test changes as carefully as production changes:
+
+- Permanent tests are exceptional and must protect stable public behavior.
+- Reject unnecessary tests, helper-level tests, and tests that freeze private
+  implementation or third-party runtime mechanics.
+- Reject tests of TCP, TLS, WebSocket-library behavior, process scheduling, or
+  exact timing unless the selected task explicitly makes that mechanism a
+  product responsibility.
+- Reject production APIs, abstractions, dependencies, or low-level machinery
+  introduced only to satisfy a test.
+- Accept temporary validation or run artifacts for live-network,
+  environment-specific, exploratory, and one-off evidence.
+- Passing validation is not evidence that every test is worth keeping.
+
+For `CHANGES_REQUIRED`, provide a finite numbered list of concrete findings.
+Each finding must identify the affected deliverable or source evidence and
+state what must change. Do not request optional polish or expand the task.
+
+Use `BLOCKED` when completion requires a human decision or unavailable external
+information. Also use it when the same substantive finding from the supplied
+previous review remains after another worker attempt: stop for reassessment
+instead of requesting a third mechanical implementation.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -222,3 +271,208 @@ relationship types. Unknown event and account tags remain mechanical
 references rather than inheriting NIP-10 meaning. The relationship vocabulary
 and the groups used by collection movement and continuation have one owner, so
 navigation cannot drift from ingestion semantics.
+
+
+# Selected task
+
+---
+id: 066-relay-message-and-outcome-visibility
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/066-relay-message-and-outcome-visibility.validate.sh
+depends_on: 065-preserve-direct-field-lineage
+---
+
+# Expose relay messages and request outcomes honestly
+
+## Confirmed code seam
+
+All relay-backed research paths reach `acquireRelayEvents`. Its message handler
+currently applies the subscription-ID guard before dispatching packet types.
+That is correct for `EVENT`, `EOSE`, and `CLOSED`, but it silently discards
+connection-level `NOTICE` and `AUTH` messages, whose second element is not a
+subscription ID.
+
+The current result also classifies a socket closing before EOSE as generic
+`connection-failure`, conflating failure before a WebSocket opens with a peer
+that accepted the connection and later closed it. `CLOSED` retains raw text but
+does not expose standardized reason prefixes. EOSE ends the attempt without
+retaining NIP-67 `finish` or `more` hints.
+
+Acquisition reports flow through direct execution, plans, declarative session
+handles, compact external status, `show`, schema, and the browser Worker. New
+facts must survive that complete path rather than remaining private transport
+logs.
+
+## Goal
+
+Make bounded relay messages, refusals, and completion facts observable without
+adding retries, authentication, routing policy, or another acquisition
+implementation.
+
+## Required work
+
+1. Dispatch connection-level and subscription-level relay packets according to
+   their actual protocol shapes. Do not weaken subscription-ID validation for
+   `EVENT`, `EOSE`, or `CLOSED`.
+2. Capture bounded `NOTICE` messages per relay. Preserve their text and
+   omission count; a relay cannot grow an unbounded diagnostic array.
+3. Parse standardized `CLOSED` reason prefixes into a small factual category
+   while retaining the exact bounded raw reason. Unknown prefixes remain
+   visible as unknown rather than being guessed.
+4. Distinguish at least:
+   - failure before the WebSocket opens;
+   - an opened peer closing before EOSE or explicit `CLOSED`;
+   - explicit subscription refusal through `CLOSED`;
+   - EOSE completion; and
+   - operation-wide timeout, cancellation, or budgets.
+   Keep existing stable outcome names where they remain truthful; do not
+   rewrite all acquisition vocabulary merely for symmetry.
+5. Parse the currently specified NIP-67 `finish` and `more` EOSE hints. Retain
+   the attributed hint and its raw bounded value. Neither hint establishes
+   global relay exhaustiveness.
+6. Keep authentication evidence as three separate facts:
+   - an observed relay `AUTH` challenge is neutral
+     `authChallengeObserved` transport evidence;
+   - `auth-required` is an observed request outcome only when the subscription
+     is actually refused with that standardized reason; and
+   - a future NIP-11 `advertisedAuthRequired` value is a relay claim and is not
+     part of this acquisition task.
+7. Do not answer an `AUTH` challenge, load or generate keys, publish an event,
+   or fail a read merely because a challenge was observed.
+8. Extend acquisition reports and coverage with the new bounded per-relay
+   facts. Preserve existing event, observation, duplicate, corpus, and bound
+   accounting.
+9. Carry the facts through:
+   - direct execution and named plans;
+   - session external status and warnings;
+   - named acquisition handles;
+   - `show coverage` and `show details`;
+   - global and contextual factual schema; and
+   - the existing browser-compatible public core.
+10. Keep presentation concise. Compact command responses should summarize
+    noteworthy outcomes; full bounded diagnostics belong in explicit `show`
+    modes.
+11. Update package documentation, the capability map, `NEXT-STEPS.md`, and
+    `CONTEXT.md` only where implementation establishes durable behavior.
+
+## Acceptance criteria
+
+- `NOTICE` and `AUTH` are no longer discarded by the subscription-ID guard.
+- A neutral `AUTH` challenge does not change a successful read into
+  `auth-required`.
+- An actual standardized `auth-required:` refusal is machine-readable and
+  remains distinct from any future NIP-11 advertisement.
+- Pre-open failure, peer-close-after-open, explicit `CLOSED`, EOSE, and
+  operation bounds are distinguishable in the public acquisition report.
+- Recognized `CLOSED` prefixes and NIP-67 hints retain both structured meaning
+  and bounded raw evidence.
+- Every new fact is observable through a named session handle and bounded
+  presentation/schema; no fact exists only in socket callbacks.
+- Existing acquisition budgets, canonical validation, filter matching,
+  deduplication, cancellation, and runtime-neutral behavior remain intact.
+- No retry loop, connection pool, signer, NIP-11 fetch, NIP-45 count, relay
+  score, or routing decision is introduced.
+
+## Verification
+
+- Permanent tests expected: yes, by extending an existing public-boundary
+  acquisition/session scenario with deterministic standard-WebSocket
+  fixtures.
+- Stable public behavior protected: packet dispatch, honest outcomes,
+  acquisition accounting, bounded diagnostics, schema, and presentation.
+- The fixture should exercise representative `NOTICE`, `AUTH`, standardized
+  `CLOSED`, NIP-67 EOSE, and peer-close cases through the public core. It must
+  not import private socket helpers.
+- Temporary task validation: syntax checks, the complete functional suite,
+  and the existing runtime-neutral/browser validation where applicable.
+- Explicitly excluded: TCP, TLS, real WebSocket servers, exact timing, live
+  relay reliability, retry behavior, NIP-42 signing, and exhaustive tests for
+  every possible human-readable relay message.
+
+
+# Worker report
+
+Implemented task 066.
+
+Deliverables changed:
+
+- Relay packet dispatch, bounded diagnostics, honest outcomes, `CLOSED` categories, AUTH evidence, and NIP-67 hints.
+- Session status/warnings, named handles, plans, coverage/details presentation, and factual schemas.
+- Package README, capability map, `NEXT-STEPS.md`, and `CONTEXT.md`.
+- Extended public-boundary acquisition/session WebSocket fixture.
+
+Validation:
+
+- Syntax checks pass.
+- All 24 functional tests pass.
+- Browser Worker bundles successfully for browser runtime.
+- Chromium smoke launch was blocked by the host macOS sandbox before project code ran.
+
+Permanent test expanded:
+
+- Protects public packet dispatch, diagnostic bounds, authentication neutrality, refusal parsing, outcome distinctions, plans, handles, presentation, and schema. A permanent fixture is justified because these stable protocol/reporting contracts cross multiple public seams.
+
+Unresolved uncertainties:
+
+- Only the environment-blocked Chromium launch; no product failures remain.
+- Runner-owned workflow task/run files were left untouched.
+
+# Validation output
+
+Exit code: 0
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/protocol.js && node --check src/reference.js && node --check src/protocol-relationships.js && node --check src/relay-url.js && node --check src/configuration.js && node --check src/contract-facts.js && node --check src/memory.js && node --check src/collection.js && node --check src/acquire.js && node --check src/operations.js && node --check src/relation.js && node --check src/pipeline-source.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/presentation.js && node --check src/jsonl-session.js && node --check src/browser-worker.js && node --check bin/nostr-research-session.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+✔ acquisition rejects unusable public inputs before networking (1.156834ms)
+✔ public acquisition and session reports preserve bounded relay messages and honest outcomes (19.062583ms)
+✔ address subjects navigate typed references to current local replaceable evidence (109.408167ms)
+✔ ordinary acquisition accepts an explicit canonical #a filter (0.789208ms)
+✔ direct, plan, and session execution share operation kinds and failure boundaries (51.510917ms)
+✔ collections navigate identities while relations own value analysis (16.047042ms)
+✔ named account and note handles continue with bounded relationship provenance (2295.028416ms)
+✔ factual schemas construct commands accepted through the public session seam (43.811542ms)
+✔ declarative observation and lifecycle form one bounded public workflow (45.042833ms)
+✔ relation summaries compact source selection details without losing their shape (5.388ms)
+✔ declarative named results compose compatible sets and expose their schema (11.223542ms)
+✔ declarative notebook knowledge survives turnover and remains independent from evidence (26.6595ms)
+✔ explicit archive preservation survives complete buffer turnover and releases atomically (84.454542ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (46.909292ms)
+✔ collections re-resolve stable subjects across observations, replacement metadata, and eviction (25.601625ms)
+✔ JSONL executable provides one persistent bounded process workflow (93.461917ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (33.288583ms)
+✔ public references normalize to stable subjects while hints stay attributed metadata (6.018ms)
+✔ mixed event kinds derive truthful references without polluting conversations (56.936334ms)
+✔ inline NIP-27 references navigate as typed, explainable evidence without becoming threads (13.918792ms)
+✔ replaceable selection and follow interpretation remain stable in one process (27.851334ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (30.37075ms)
+✔ relation handles resolve references across evidence lifetime and keep bounded views composable (61.033958ms)
+✔ large notebook membership is atomic, bounded, process-local, and directly navigable (2232.481125ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2515.24175
+browser smoke passed: Worker, memory, acquisition, handles, preview, close
+
+
+# Review instruction
+
+Inspect the actual deliverables and relevant repository sources now. Do not rely only on the worker report.
