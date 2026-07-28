@@ -48,8 +48,8 @@ judgment rather than to the library.
 
 ## Main decision
 
-The next work should make the existing research model truthful before exposing
-it through another runtime:
+The first two milestones made the existing research model truthful before
+exposing it through another runtime:
 
 ```text
 correct protocol relationships
@@ -63,16 +63,14 @@ prove it through a minimal second consumer
 
 The [protocol capability map](./NOSTR-PROTOCOL-CAPABILITY-MAP.md) found that
 canonical acquisition is sound, but some event kinds passed through generic
-tag interpretation that produced misleading relationships. That defect was
-corrected in Milestone 1. The audit also found that addressable events and
-inline Nostr references do not fit the current event/account/tag subject
-boundary.
+tag interpretation that produced misleading relationships. Milestone 1
+corrected that defect. Milestone 2 added stable address subjects and decoded
+tagged, shareable, and inline protocol references without turning hints into
+identity or hidden relay behavior.
 
-These are not requests for a broader NIP framework or more task-specific
-operations. They are corrections to the evidence-navigation boundary already
-used by the library. The remaining identity correction should precede
-portability so that a second consumer does not stabilize a known incomplete
-subject model.
+These were corrections to the evidence-navigation boundary already used by
+the library, not requests for a broader NIP framework or more task-specific
+operations. The next active milestone is runtime neutrality.
 
 ## Milestone 1: truthful protocol relationships
 
@@ -121,6 +119,8 @@ the same relationship groups.
 
 ## Milestone 2: navigable protocol references
 
+Status: completed on 2026-07-28.
+
 ### Goal
 
 A protocol reference visible in evidence should have the correct stable
@@ -148,6 +148,13 @@ Event, account, and address references found in tags or content can become
 stable subjects and participate in the same collection, relation, inspection,
 and explicit acquisition model. Address coordinates never masquerade as event
 IDs.
+
+Implemented result: canonical replaceable coordinates are stable `address`
+subjects with local current-event resolution. Valid `a` tags, NIP-22 address
+roots and parents, public NIP-19/NIP-21 inputs, and bounded NIP-27 inline
+references produce typed, explainable navigation. Author, kind, and relay
+hints remain attributed metadata and never change identity, session relay
+configuration, or acquisition behavior.
 
 ### What this milestone must not do
 
@@ -395,8 +402,8 @@ None currently justifies changing the engine.
 ## Recommended order
 
 ```text
-1. Correct kind-aware protocol relationships
-2. Complete addressable and inline-reference navigation
+1. Correct kind-aware protocol relationships — completed
+2. Complete addressable and inline-reference navigation — completed
 3. Make the established core runtime-neutral
 4. Add a minimal browser/Worker consumer
 5. Expose relay capability and observed behavior
@@ -413,11 +420,10 @@ bounded, inspectable research environment now lets a caller acquire evidence,
 look at it, make provisional decisions, navigate, and retain selected
 knowledge without confusing source evidence with interpretation.
 
-The next work should first protect the truthfulness of that navigation:
-different event kinds must not create false relationships, and protocol
-references must retain their actual identities. Once those boundaries are
-sound, portability remains more valuable than speculative additional power.
-A second consumer can then test whether the boundary is genuinely general,
-and sustained research can decide which relay or protocol capabilities are
-worth adding. Only after that should the project decide what the human
-application ought to become.
+The truthfulness corrections are now complete: different event kinds do not
+create false thread relationships, and protocol references retain stable
+event, account, or address identities. Portability is now more valuable than
+speculative additional power. A second consumer can then test whether the
+boundary is genuinely general, and sustained research can decide which relay
+or protocol capabilities are worth adding. Only after that should the project
+decide what the human application ought to become.

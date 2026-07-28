@@ -41,19 +41,18 @@ The system can retain and inspect almost any valid event. The first defect
 found by this audit—important event kinds passing through overly generic tag
 rules—has now been corrected. Relationship derivation is kind-aware, and
 reposts, reactions, and deletion requests no longer enter reply graphs.
-Important addressable and inline references can still remain trapped in raw
-tags.
+Address coordinates are now stable subjects, public NIP-19/NIP-21 references
+decode with attributed hints, and valid bounded NIP-27 inline references form
+typed navigation edges.
 
 The most valuable protocol work is therefore, in order:
 
-1. preserve the completed kind-aware relationship interpretation;
-2. make addressable events and inline Nostr references first-class navigation
-   targets;
-3. expose relay capabilities, completion hints, and diagnostics;
-4. add explicit relay search and count operations where relays advertise them;
-5. represent deletion, expiration, labels, reports, and identity proofs as
+1. preserve the completed kind-aware relationship and reference interpretation;
+2. expose relay capabilities, completion hints, and diagnostics;
+3. add explicit relay search and count operations where relays advertise them;
+4. represent deletion, expiration, labels, reports, and identity proofs as
    attributed evidence rather than hidden policy; and
-6. interpret selected list and profile conventions that help people discover
+5. interpret selected list and profile conventions that help people discover
    accounts and groups.
 
 Publishing, private messages, wallets, payments, and automatic trust or relay
@@ -345,8 +344,8 @@ The table uses these states:
 | NIP-18 reposts | Partial | Kind `6` event targets and kind `16` embedded canonical targets are typed | Addressable repost targets |
 | NIP-19 identifiers | Implemented | Public account, event, and address identifiers decode to stable subjects with attributed hints | Additional entity types remain unsupported |
 | NIP-21 `nostr:` URI | Implemented | Public NIP-19 identifiers decode when wrapped in `nostr:` | Browser-link handling is outside the library |
-| NIP-22 comments | Partial | `E/e` event roots/parents and `P/p` account roles are kind-aware | `A/a`, `I/i`, and `K/k` scope typing |
-| NIP-23 long-form content | Raw only | Kind `30023` is a valid addressable event | Structured metadata and address navigation |
+| NIP-22 comments | Partial | `E/e` event and `A/a` address roots/parents plus `P/p` account roles are kind-aware | `I/i` and `K/k` scope typing |
+| NIP-23 long-form content | Partial | Kind `30023` is a resolvable address subject with historical event evidence | Structured long-form metadata |
 | NIP-24 profile/tag conventions | Partial | A small profile subset and generic tags | Website, banner, bot, external identity/title conventions |
 | NIP-25 reactions | Partial | Kind `7` event targets and kind `17` external tag targets are typed | First-class addressable and external identities |
 | NIP-27 text references | Implemented | Valid bounded inline account, event, and address references form explainable typed navigation edges | Rendering and recursive acquisition are deliberately absent |
