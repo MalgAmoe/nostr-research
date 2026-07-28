@@ -278,7 +278,11 @@ export async function acquireRelayEvents(memory, options) {
   }
   const result = {
     type: 'acquisition-report',
-    requested: { filter: normalized.filter, relays: normalized.relays },
+    requested: {
+      filter: normalized.filter,
+      relays: normalized.relays,
+      excludeContentWarnings: normalized.excludeContentWarnings,
+    },
     budget: {
       timeoutMs: normalized.timeoutMs,
       observationLimit: normalized.observationLimit,
@@ -308,6 +312,7 @@ export async function acquireRelayEvents(memory, options) {
     requested: {
       filter: result.requested.filter,
       relays: [...result.requested.relays].sort(),
+      excludeContentWarnings: result.requested.excludeContentWarnings,
     },
     budget: result.budget,
     startedAt: result.startedAt,

@@ -189,6 +189,7 @@ test('relay acquisition excludes direct self-warnings by default with a factual 
     });
     assert.equal(defaultCoverage.result.counts.excludedContentWarnings, 2);
     assert.equal(defaultCoverage.result.relays[0].excludedContentWarnings, 2);
+    assert.equal(defaultCoverage.result.requested.excludeContentWarnings, true);
 
     memory.reset();
     const session = createDeclarativeResearchSession(memory, {
@@ -212,6 +213,7 @@ test('relay acquisition excludes direct self-warnings by default with a factual 
     });
     assert.equal(shown.result.context.counts.excludedContentWarnings, 0);
     assert.equal(shown.result.context.relayDiagnostics[0].excludedContentWarnings, 0);
+    assert.equal(shown.result.context.requested.excludeContentWarnings, false);
 
     const status = await session.execute({ commandId: 'status', command: 'status' });
     assert.equal(status.result.configuration.acquisition.excludeContentWarnings, false);

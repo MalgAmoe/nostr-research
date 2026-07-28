@@ -37,14 +37,19 @@ test('relations normalize bounded attachment evidence and generically explode ob
   const podcast = signed(54, 6, [
     ['audio', 'https://podcast.example/episode', 'audio/mpeg'],
   ], '');
+  const videoWithAudioTrack = signed(34235, 7, [
+    ['imeta', 'url https://video.example/main.mp4', 'm video/mp4'],
+    ['imeta', 'url https://video.example/track.mp3', 'm audio/mpeg'],
+  ], '');
   const bounded = signed(
     1,
-    7,
+    8,
     [],
     Array.from({ length: 22 }, (_, index) => `https://cdn.example/${index}.jpg`).join(' '),
   );
   const events = [
-    declared, file, pictureWithoutUrl, pictureWithContentUrl, voice, podcast, bounded,
+    declared, file, pictureWithoutUrl, pictureWithContentUrl, voice, podcast,
+    videoWithAudioTrack, bounded,
   ];
   const memory = createInMemoryResearchMemory({ capacity: events.length });
   const session = createDeclarativeResearchSession(memory);
@@ -110,6 +115,11 @@ test('relations normalize bounded attachment evidence and generically explode ob
       'voice-kind', 'url-extension',
     ]);
     assert.deepEqual(byId.get(podcast.id)['event.mediaSources'], ['podcast-audio-tag']);
+    const videoAttachments = byId.get(videoWithAudioTrack.id)['event.attachments'];
+    assert.deepEqual(videoAttachments[0].families, ['video']);
+    assert.equal(videoAttachments[0].classification, 'declared');
+    assert.deepEqual(videoAttachments[1].families, ['audio']);
+    assert.equal(videoAttachments[1].classification, 'declared');
     assert.equal(byId.get(pictureWithoutUrl.id)['event.format'], 'picture-first');
     assert.equal(byId.get(pictureWithoutUrl.id)['event.attachmentCount'], 0);
     assert.equal(byId.get(pictureWithoutUrl.id)['event.hasMedia'], false);

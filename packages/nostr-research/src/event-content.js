@@ -146,14 +146,22 @@ function describeAttachments(event) {
   } : null;
   if (dedicatedEvidence) {
     for (const attachment of attachments.values()) {
-      mergeEvidence(attachment, dedicatedEvidence);
+      if (acceptsDedicatedFamily(attachment, dedicated.family)) {
+        mergeEvidence(attachment, dedicatedEvidence);
+      }
     }
   }
   for (const rawUrl of contentUrls(event.content)) {
     const url = normalizedHttpUrl(rawUrl);
     if (!url) continue;
     const hints = inferredUrlHints(url);
-    if (dedicatedEvidence && hints.length > 0) add(url, dedicatedEvidence);
+    if (dedicatedEvidence) {
+      const evidence = attachmentDraft(url);
+      for (const hint of hints) mergeEvidence(evidence, hint);
+      if (acceptsDedicatedFamily(evidence, dedicated.family)) {
+        add(url, dedicatedEvidence);
+      }
+    }
     for (const hint of hints) add(url, hint);
   }
 
@@ -202,6 +210,11 @@ function mergeEvidence(attachment, evidence) {
       attachment[field] = evidence[field];
     }
   }
+}
+
+function acceptsDedicatedFamily(attachment, family) {
+  const concreteFamilies = attachment.families.filter((item) => item !== 'unknown');
+  return concreteFamilies.length === 0 || concreteFamilies.every((item) => item === family);
 }
 
 function finalizeAttachment(draft) {
