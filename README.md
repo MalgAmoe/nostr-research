@@ -29,7 +29,8 @@ notebook separately. `list` reports named working-view cardinalities, making
 complete buffer turnover and accidental evidence duplication observable.
 
 Operations remain explicit: acquire from relays, select from local memory,
-navigate stable subject collections, cross into research relations for value
+navigate stable event, account, and replaceable-address subject collections,
+cross into research relations for value
 analysis, and preserve evidence or attributed notebook knowledge only when
 requested. Contextual schema exposes compatible operations and their factual
 requirements without choosing the research direction.

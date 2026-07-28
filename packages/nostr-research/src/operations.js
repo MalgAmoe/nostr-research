@@ -29,13 +29,15 @@ const ARCHIVE_EXCERPT_CONTRACT =
  */
 
 export const SUBJECT_COLLECTION_KINDS = Object.freeze([
-  'subjects', 'events', 'accounts', 'relationships',
+  'subjects', 'events', 'accounts', 'addresses', 'relationships',
 ]);
 
 export const MOVE_ROUTES = Object.freeze({
   'events:authors': 'accounts',
   'events:referencedAccounts': 'accounts',
   'events:referencedEvents': 'events',
+  'events:referencedAddresses': 'addresses',
+  'addresses:currentEvents': 'events',
   'accounts:authoredEvents': 'events',
   'accounts:followedAccounts': 'accounts',
 });
@@ -198,7 +200,9 @@ function refinedSubjectKind(predicate) {
   if (predicate?.field === 'subject.type') {
     const value = predicate.equals
       ?? (Array.isArray(predicate.in) && predicate.in.length === 1 ? predicate.in[0] : undefined);
-    return value === 'event' ? 'events' : value === 'account' ? 'accounts' : undefined;
+    return value === 'event' ? 'events'
+      : value === 'account' ? 'accounts'
+        : value === 'address' ? 'addresses' : undefined;
   }
   if (Array.isArray(predicate?.all)) {
     const kinds = [...new Set(predicate.all.map(refinedSubjectKind).filter(Boolean))];
@@ -324,7 +328,7 @@ export function operationSchema() {
       },
       extract: {
         field: 'relation field containing stable subject IDs',
-        subjectType: ['account', 'event'],
+        subjectType: ['account', 'event', 'address'],
         limit: RESULT_LIMIT,
       },
       acquire: {
@@ -396,7 +400,7 @@ export function operationSchema() {
       },
       archived: {
         level: 'optional preservation level',
-        subject: 'optional exact event, account, or tag subject',
+        subject: 'optional exact event, account, address, or tag subject',
         limit: {
           type: 'integer',
           minimum: 0,
@@ -690,7 +694,7 @@ function relationSubjectTransitions(value, structure = undefined) {
       || value.rows.length === 0) return [];
   const transitions = [];
   const types = new Set(value.rows.map(({ values }) => values?.['subject.type']));
-  if (types.size === 1 && ['event', 'account'].includes([...types][0])
+  if (types.size === 1 && ['event', 'account', 'address'].includes([...types][0])
       && value.rows.every(({ values }) => typeof values?.['subject.id'] === 'string')) {
     transitions.push({ field: 'subject.id', subjectType: [...types][0] });
   }
@@ -707,7 +711,7 @@ function relationSubjectTransitions(value, structure = undefined) {
     ...(structure?.fields ?? []),
     ...(structure?.technicalFields ?? []),
   ]) {
-    if (!['event', 'account'].includes(field.subjectType)
+    if (!['event', 'account', 'address'].includes(field.subjectType)
         || field.rowsWithValue !== structure.count
         || !field.types.includes('string')
         || transitions.some(({ field: existing }) => existing === field.name)) continue;

@@ -1,3 +1,52 @@
+# Reviewer role
+
+You are the independent reviewer in a repository-backed workflow.
+
+Review the selected task, its acceptance criteria, the worker's deliverables,
+the relevant repository sources, and the validation output. Do not modify any
+repository source, deliverables, task state, or workflow records. Do not repair
+the work. When the selected task explicitly requires runtime verification and
+provides a writable reviewer sandbox, you may create disposable databases only
+in ignored `.data/` paths or the system temporary directory.
+
+The first non-empty line of your response must be exactly one of:
+
+- `PASS`
+- `CHANGES_REQUIRED`
+- `BLOCKED`
+
+Use `PASS` only when all acceptance criteria are materially satisfied.
+
+Treat the durable principles in `CONTEXT.md` as constraints on every task.
+Historical completed tasks do not override current policy. Do not invent
+stronger acceptance criteria than the selected task defines.
+
+Audit test changes as carefully as production changes:
+
+- Permanent tests are exceptional and must protect stable public behavior.
+- Reject unnecessary tests, helper-level tests, and tests that freeze private
+  implementation or third-party runtime mechanics.
+- Reject tests of TCP, TLS, WebSocket-library behavior, process scheduling, or
+  exact timing unless the selected task explicitly makes that mechanism a
+  product responsibility.
+- Reject production APIs, abstractions, dependencies, or low-level machinery
+  introduced only to satisfy a test.
+- Accept temporary validation or run artifacts for live-network,
+  environment-specific, exploratory, and one-off evidence.
+- Passing validation is not evidence that every test is worth keeping.
+
+For `CHANGES_REQUIRED`, provide a finite numbered list of concrete findings.
+Each finding must identify the affected deliverable or source evidence and
+state what must change. Do not request optional polish or expand the task.
+
+Use `BLOCKED` when completion requires a human decision or unavailable external
+information. Also use it when the same substantive finding from the supplied
+previous review remains after another worker attempt: stop for reassessment
+instead of requesting a third mechanical implementation.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -206,3 +255,120 @@ relationship types. Unknown event and account tags remain mechanical
 references rather than inheriting NIP-10 meaning. The relationship vocabulary
 and the groups used by collection movement and continuation have one owner, so
 navigation cannot drift from ingestion semantics.
+
+
+# Selected task
+
+---
+id: 057-addressable-event-subjects
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/057-addressable-event-subjects.validate.sh
+depends_on:
+---
+
+# Add addressable-event subjects and local navigation
+
+## Goal
+
+Make NIP-01 `a` coordinates stable, truthful research subjects instead of
+leaving them as generic tag strings. An address identifies replaceable or
+addressable event state; it must never masquerade as an immutable event ID.
+
+## Required work
+
+1. Add one canonical `address` subject form for
+   `<kind>:<32-byte-lowercase-pubkey>:<d>`.
+   - Normal replaceable kinds `0`, `3`, and `10000`–`19999` require the
+     trailing colon and an empty `d`.
+   - Addressable kinds `30000`–`39999` retain the complete `d` value,
+     including any colons after the first two separators.
+   - Other kinds and malformed coordinates are rejected as address subjects.
+2. Integrate address subjects with the existing stable-subject machinery:
+   collections, lookup, inspection, evidence resolution, notebook membership,
+   preservation references, presentation, and relation subject extraction.
+   Do not create a parallel address API.
+3. Resolve an address locally to the current resident or archived replaceable
+   event using the existing timestamp and lowest-ID tie-breaking rules.
+   Historical event IDs remain independently inspectable evidence.
+4. Derive typed address relationships from canonical tags:
+   - ordinary valid lowercase `a` tags become `referenced-address`;
+   - valid NIP-22 kind-1111 `A` and `a` tags retain distinct root and parent
+     address semantics rather than entering the immutable-event conversation
+     graph.
+   Invalid address-looking tags remain raw canonical tags and must not create
+   a typed address subject.
+5. Add the smallest collection navigation routes needed to move from events to
+   referenced addresses and from addresses to their current locally resolved
+   events. Preserve relationship reasons, canonical tag evidence, provenance,
+   and honest unresolved results.
+6. Make the new subject and routes visible through the existing factual and
+   contextual schemas. Keep plans, direct execution, and sessions on the same
+   normalized executor.
+7. Confirm that an explicit ordinary acquisition filter using `#a` still
+   accepts a canonical coordinate. Do not add automatic acquisition or a
+   task-specific networking command.
+8. Update durable project and package documentation only where the public
+   subject and navigation model changed.
+
+## Acceptance criteria
+
+- Address equality depends only on the canonical coordinate, never on a relay
+  hint or a currently resolved event ID.
+- Resolving an address chooses the same current event as the existing
+  replaceable-event rules.
+- Buffer/archive turnover changes evidence resolution honestly without
+  changing address identity.
+- Event-to-address-to-current-event navigation is available through the
+  established collection operations and explains every transition.
+- NIP-22 address roots and parents do not silently become NIP-10 event edges.
+- Existing event, account, and tag behavior remains compatible.
+- No hidden relay contact, persistence, universal event-kind registry, or
+  second operation language is introduced.
+
+## Verification
+
+- Permanent tests expected: yes.
+- Stable public behavior protected: address validation and identity; current
+  replaceable resolution; typed `a`/`A` relationships; public collection,
+  inspection, schema, and explicit `#a` behavior.
+- Prefer extending one existing public-boundary protocol/navigation scenario
+  over helper-level tests.
+- Temporary task validation: syntax checks and the complete functional suite.
+- Explicitly excluded: live relay tests, TCP/TLS/WebSocket mechanics, UI,
+  NIP-19 decoding, and automatic use of relay hints.
+
+
+# Worker report
+
+Implemented addressable-event subjects and local navigation.
+
+- Deliverables: canonical `address` subjects; local current-event resolution; typed `a`/NIP-22 `A` relationships; collection moves; relation extraction; notebook/archive/presentation/schema integration; documentation updates.
+- Validation: task validation script, syntax checks, full functional suite (21/21 passing), and `git diff --check`.
+- Permanent tests: added one public-boundary address scenario protecting validation, identity, tie-breaking resolution, relationships, navigation, turnover, schemas, extraction, and explicit `#a` filters. Updated existing schema expectations.
+- Unresolved uncertainties: none. No workflow status/run files were modified, staged, or committed.
+
+# Validation output
+
+Exit code: 0
+
+Recovered exact validation after the parent runner was interrupted while
+waiting for the validation subprocess.
+
+sh workflow/tasks/057-addressable-event-subjects.validate.sh
+
+- npm run check: passed
+- npm test: passed
+- tests: 21
+- pass: 21
+- fail: 0
+- duration: 2.53s
+
+The suite included:
+- address subjects navigate typed references to current local replaceable evidence
+- ordinary acquisition accepts an explicit canonical #a filter
+
+
+# Review instruction
+
+Inspect the actual deliverables and relevant repository sources now. Do not rely only on the worker report.

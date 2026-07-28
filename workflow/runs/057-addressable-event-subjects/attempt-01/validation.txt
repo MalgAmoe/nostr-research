@@ -1,0 +1,17 @@
+Exit code: 0
+
+Recovered exact validation after the parent runner was interrupted while
+waiting for the validation subprocess.
+
+sh workflow/tasks/057-addressable-event-subjects.validate.sh
+
+- npm run check: passed
+- npm test: passed
+- tests: 21
+- pass: 21
+- fail: 0
+- duration: 2.53s
+
+The suite included:
+- address subjects navigate typed references to current local replaceable evidence
+- ordinary acquisition accepts an explicit canonical #a filter

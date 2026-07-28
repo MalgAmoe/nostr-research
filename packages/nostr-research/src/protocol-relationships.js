@@ -1,4 +1,4 @@
-import { isCanonicalNostrEvent } from './protocol.js';
+import { isCanonicalNostrEvent, parseAddress } from './protocol.js';
 
 const EVENT_ID = /^[a-f0-9]{64}$/;
 
@@ -26,10 +26,17 @@ export const ACCOUNT_REFERENCE_RELATIONSHIP_TYPES = Object.freeze([
   'reaction-author',
 ]);
 
+export const ADDRESS_REFERENCE_RELATIONSHIP_TYPES = Object.freeze([
+  'referenced-address',
+  'comment-root-address',
+  'comment-parent-address',
+]);
+
 export const NAVIGATION_RELATIONSHIP_TYPES = Object.freeze([
   'author',
   ...EVENT_REFERENCE_RELATIONSHIP_TYPES,
   ...ACCOUNT_REFERENCE_RELATIONSHIP_TYPES,
+  ...ADDRESS_REFERENCE_RELATIONSHIP_TYPES,
   'follow',
   'topic',
   'other-tag',
@@ -112,7 +119,17 @@ function deriveTextNoteRelationships(tags, relationships, handled) {
 
 function deriveCommentRelationships(tags, relationships, handled) {
   for (const { tag, index } of tags) {
-    if (tag[0] === 'E' && EVENT_ID.test(tag[1])) {
+    if (tag[0] === 'A' && parseAddress(tag[1])) {
+      addTagRelationship(
+        relationships, handled, 'comment-root-address', 'address', tag[1],
+        tag, index, 'NIP-22', 'known',
+      );
+    } else if (tag[0] === 'a' && parseAddress(tag[1])) {
+      addTagRelationship(
+        relationships, handled, 'comment-parent-address', 'address', tag[1],
+        tag, index, 'NIP-22', 'known',
+      );
+    } else if (tag[0] === 'E' && EVENT_ID.test(tag[1])) {
       addTagRelationship(
         relationships, handled, 'reply-root', 'event', tag[1],
         tag, index, 'NIP-22', 'known',
@@ -269,6 +286,11 @@ function deriveCommonRelationships(tags, relationships, handled) {
       addTagRelationship(
         relationships, handled, 'referenced-account', 'account', tag[1],
         tag, index, 'NIP-01', 'mechanical-reference',
+      );
+    } else if (tag[0] === 'a' && parseAddress(tag[1])) {
+      addTagRelationship(
+        relationships, handled, 'referenced-address', 'address', tag[1],
+        tag, index, 'NIP-01', 'known',
       );
     } else if (tag[0] === 't' && typeof tag[1] === 'string') {
       addTagRelationship(

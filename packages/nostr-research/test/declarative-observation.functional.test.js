@@ -263,6 +263,7 @@ test('declarative named results compose compatible sets and expose their schema'
     { to: 'authors', outputKind: 'accounts' },
     { to: 'referencedAccounts', outputKind: 'accounts' },
     { to: 'referencedEvents', outputKind: 'events' },
+    { to: 'referencedAddresses', outputKind: 'addresses' },
   ]);
   const unionSchema = await session.execute({
     commandId: 'left-union-schema', command: 'schema', input: 'left',

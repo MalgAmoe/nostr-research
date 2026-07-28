@@ -1094,7 +1094,7 @@ function sessionSchema(configuration) {
         inspect: {
           input: 'forbidden',
           parameters: {
-            subject: 'event, account, or tag subject',
+            subject: 'event, account, address, or tag subject',
             previewLimit: previewRange,
             excerptLimit: excerptRange,
             includeEvidence: 'boolean',
@@ -1104,7 +1104,7 @@ function sessionSchema(configuration) {
         explain: {
           input: 'named result handle',
           parameters: {
-            subject: 'event, account, or tag subject',
+            subject: 'event, account, address, or tag subject',
             previewLimit: previewRange,
             excerptLimit: excerptRange,
             includeEvidence: 'boolean',

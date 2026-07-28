@@ -69,7 +69,10 @@ preservation request; acquisition never evicts archive entries.
 
 Local operations never contact relays. `select` is the canonical local event
 selection operation. `lookup(subject)` is the direct exact-subject selection
-path for a full event or account identity. Collection operations,
+path for a full event, account, or address identity. Address subjects use the
+canonical `<kind>:<64-character-lowercase-hex-pubkey>:<d>` coordinate and
+resolve to the current locally available replaceable event without changing
+the immutable identity of historical event subjects. Collection operations,
 continuations, inspection, and notebook inputs all read the same
 memory. A collection contains stable subjects, reasons, and provenance
 references, not a hidden copy of canonical evidence.
@@ -133,7 +136,11 @@ relationships and therefore do not enter reply graphs. Unknown `e`/`E` and
 `p`/`P` tags remain mechanical event or account references rather than being
 silently assigned thread or mention semantics. `referencedEvents` and
 `referencedAccounts` include both typed and mechanical references while the
-original canonical tags remain available for inspection.
+original canonical tags remain available for inspection. Valid lowercase `a`
+tags derive `referenced-address` relationships; NIP-22 `A` roots and `a`
+parents retain distinct address relationship types. Move
+`events -> referencedAddresses -> currentEvents` for explicit, local,
+provenance-preserving address navigation.
 
 ## Composable research relations
 

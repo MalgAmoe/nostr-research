@@ -8,6 +8,7 @@ import {
 } from './operations.js';
 import {
   ACCOUNT_REFERENCE_RELATIONSHIP_TYPES,
+  ADDRESS_REFERENCE_RELATIONSHIP_TYPES,
   EVENT_REFERENCE_RELATIONSHIP_TYPES,
 } from './protocol-relationships.js';
 
@@ -184,7 +185,9 @@ function apply(memory, collection, operation) {
       || choices?.includes(field === 'subject.type' ? subject.type : subject.id)
     )).slice(0, operation.limit);
     const refined = field === 'subject.type' && choices === undefined
-      ? { event: 'events', account: 'accounts', relationship: 'relationships' }[equals]
+      ? {
+        event: 'events', account: 'accounts', address: 'addresses', relationship: 'relationships',
+      }[equals]
       : undefined;
     output = result(items, refined ?? collection.kind);
   } else if (operation.operation === 'pick') {
@@ -243,10 +246,17 @@ function move(memory, collection, operation) {
     if (operation.to === 'authors' && item.record?.event) {
       add(memory.lookup({ type: 'account', id: item.record.event.pubkey }).items[0],
         item, 'event-author');
-    } else if (operation.to === 'referencedAccounts' || operation.to === 'referencedEvents') {
-      const target = operation.to === 'referencedAccounts' ? 'account' : 'event';
+    } else if (['referencedAccounts', 'referencedEvents', 'referencedAddresses']
+      .includes(operation.to)) {
+      const target = {
+        referencedAccounts: 'account',
+        referencedEvents: 'event',
+        referencedAddresses: 'address',
+      }[operation.to];
       const relationshipTypes = target === 'account'
-        ? ACCOUNT_REFERENCE_RELATIONSHIP_TYPES : EVENT_REFERENCE_RELATIONSHIP_TYPES;
+        ? ACCOUNT_REFERENCE_RELATIONSHIP_TYPES
+        : target === 'event'
+          ? EVENT_REFERENCE_RELATIONSHIP_TYPES : ADDRESS_REFERENCE_RELATIONSHIP_TYPES;
       const traversed = memory.traverse([item.subject], {
         relationshipTypes, direction: 'outbound', depth: 1, limit: MAX_LIMIT,
       });
@@ -254,6 +264,12 @@ function move(memory, collection, operation) {
         if (candidate.role !== 'seed' && candidate.subject.type === target) {
           add(candidate, item, `event-${operation.to}`);
         }
+      }
+    } else if (operation.to === 'currentEvents') {
+      const candidate = memory.lookup(item.subject).items[0];
+      if (candidate.record?.event) {
+        add(memory.lookup({ type: 'event', id: candidate.record.event.id }).items[0],
+          item, 'address-current-event');
       }
     } else if (operation.to === 'authoredEvents') {
       for (const candidate of memory.select({

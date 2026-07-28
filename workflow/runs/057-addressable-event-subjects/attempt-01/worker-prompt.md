@@ -1,3 +1,58 @@
+# Worker role
+
+You are the implementation worker in a repository-backed workflow.
+
+Read `workflow/WORKFLOW.md` and the selected task completely. Treat the task
+definition, its scope, and its acceptance criteria as authoritative within the
+durable principles in `CONTEXT.md`. Historical completed tasks are evidence of
+past work, not current policy.
+
+Work directly in the repository. Produce every required deliverable. Inspect
+real source and tests rather than relying on assumptions. Do not change task
+status, files under `workflow/runs/`, or the workflow runner.
+Do not stage or commit changes; the runner owns the task commit after review.
+
+If a previous review is supplied, address every applicable finding explicitly.
+Do not implement a finding blindly when it conflicts with `CONTEXT.md`, expands
+the selected task, or would add production complexity only to satisfy a test.
+Explain that conflict in the worker report so the reviewer can assess it.
+Do not merely describe work that should be done: perform the task within its
+stated permissions.
+
+## Verification discipline
+
+Permanent tests are exceptional durable product code, not an automatic
+deliverable for every feature or bug.
+
+- Follow the testing policy in `CONTEXT.md`.
+- Prefer a small public-boundary functional scenario over helper-level tests.
+- Add a permanent test only when it protects stable, important behavior that is
+  expensive or risky to verify otherwise.
+- Do not test TCP, TLS, WebSocket-library mechanics, process scheduling,
+  private state, private helpers, or exact timing unless that mechanism is
+  explicitly the product behavior selected by the task.
+- Use task validation or a run artifact for exploratory, live-network,
+  environment-specific, and one-off verification.
+- If a proposed test requires new public API, abstraction, dependency, or
+  low-level production machinery, challenge the test before changing the
+  product.
+- Existing tests are not requirements by themselves. Remove or update a test
+  when the selected product behavior intentionally changes.
+
+When permanent tests are added or materially expanded, the final report must
+name the stable public behavior each one protects and why temporary validation
+was insufficient.
+
+Finish with a concise plain-text report listing:
+
+- deliverables created or changed;
+- validation or checks performed;
+- permanent tests added or expanded, with their justification, or `none`;
+- unresolved uncertainties.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -38,7 +93,6 @@ no presentation layer defines the domain boundary.
 | Term | Meaning |
 | --- | --- |
 | **event** | A raw, valid Nostr event: immutable source evidence. |
-| **address** | A canonical NIP-01 coordinate for current replaceable or addressable event state; it is a stable subject distinct from every immutable historical event ID. |
 | **observation** | A record that evidence was encountered through a particular acquisition context, such as a relay and its outcome. |
 | **memory** | The process-local owner of the observation buffer, evidence archive, research notebook, and their derived indexes. |
 | **observation buffer** | The renewable, capacity-bounded store of canonical events recently acquired from relays, their observations, and temporary indexes. Buffer evidence may be evicted. |
@@ -206,3 +260,85 @@ relationship types. Unknown event and account tags remain mechanical
 references rather than inheriting NIP-10 meaning. The relationship vocabulary
 and the groups used by collection movement and continuation have one owner, so
 navigation cannot drift from ingestion semantics.
+
+
+# Selected task
+
+---
+id: 057-addressable-event-subjects
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/057-addressable-event-subjects.validate.sh
+depends_on:
+---
+
+# Add addressable-event subjects and local navigation
+
+## Goal
+
+Make NIP-01 `a` coordinates stable, truthful research subjects instead of
+leaving them as generic tag strings. An address identifies replaceable or
+addressable event state; it must never masquerade as an immutable event ID.
+
+## Required work
+
+1. Add one canonical `address` subject form for
+   `<kind>:<32-byte-lowercase-pubkey>:<d>`.
+   - Normal replaceable kinds `0`, `3`, and `10000`–`19999` require the
+     trailing colon and an empty `d`.
+   - Addressable kinds `30000`–`39999` retain the complete `d` value,
+     including any colons after the first two separators.
+   - Other kinds and malformed coordinates are rejected as address subjects.
+2. Integrate address subjects with the existing stable-subject machinery:
+   collections, lookup, inspection, evidence resolution, notebook membership,
+   preservation references, presentation, and relation subject extraction.
+   Do not create a parallel address API.
+3. Resolve an address locally to the current resident or archived replaceable
+   event using the existing timestamp and lowest-ID tie-breaking rules.
+   Historical event IDs remain independently inspectable evidence.
+4. Derive typed address relationships from canonical tags:
+   - ordinary valid lowercase `a` tags become `referenced-address`;
+   - valid NIP-22 kind-1111 `A` and `a` tags retain distinct root and parent
+     address semantics rather than entering the immutable-event conversation
+     graph.
+   Invalid address-looking tags remain raw canonical tags and must not create
+   a typed address subject.
+5. Add the smallest collection navigation routes needed to move from events to
+   referenced addresses and from addresses to their current locally resolved
+   events. Preserve relationship reasons, canonical tag evidence, provenance,
+   and honest unresolved results.
+6. Make the new subject and routes visible through the existing factual and
+   contextual schemas. Keep plans, direct execution, and sessions on the same
+   normalized executor.
+7. Confirm that an explicit ordinary acquisition filter using `#a` still
+   accepts a canonical coordinate. Do not add automatic acquisition or a
+   task-specific networking command.
+8. Update durable project and package documentation only where the public
+   subject and navigation model changed.
+
+## Acceptance criteria
+
+- Address equality depends only on the canonical coordinate, never on a relay
+  hint or a currently resolved event ID.
+- Resolving an address chooses the same current event as the existing
+  replaceable-event rules.
+- Buffer/archive turnover changes evidence resolution honestly without
+  changing address identity.
+- Event-to-address-to-current-event navigation is available through the
+  established collection operations and explains every transition.
+- NIP-22 address roots and parents do not silently become NIP-10 event edges.
+- Existing event, account, and tag behavior remains compatible.
+- No hidden relay contact, persistence, universal event-kind registry, or
+  second operation language is introduced.
+
+## Verification
+
+- Permanent tests expected: yes.
+- Stable public behavior protected: address validation and identity; current
+  replaceable resolution; typed `a`/`A` relationships; public collection,
+  inspection, schema, and explicit `#a` behavior.
+- Prefer extending one existing public-boundary protocol/navigation scenario
+  over helper-level tests.
+- Temporary task validation: syntax checks and the complete functional suite.
+- Explicitly excluded: live relay tests, TCP/TLS/WebSocket mechanics, UI,
+  NIP-19 decoding, and automatic use of relay hints.

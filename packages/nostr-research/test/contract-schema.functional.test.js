@@ -43,7 +43,7 @@ test('factual schemas construct commands accepted through the public session sea
   assert.equal('research' in global.result.session, false);
   assert.equal(
     global.result.session.commands.observation.inspect.parameters.subject,
-    'event, account, or tag subject',
+    'event, account, address, or tag subject',
   );
   const summary = await session.execute({
     commandId: 'summary-schema', command: 'schema',

@@ -2,6 +2,7 @@ export {
   InvalidNostrEventError,
   ResearchMemoryError,
   isCanonicalNostrEvent,
+  parseAddress,
   subject,
 } from './protocol.js';
 export {

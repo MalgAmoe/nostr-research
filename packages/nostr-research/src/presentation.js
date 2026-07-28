@@ -1040,7 +1040,7 @@ function excerpt(value, maximum) {
 }
 
 function isSubject(value) {
-  return value && ['event', 'account', 'tag'].includes(value.type)
+  return value && ['event', 'account', 'address', 'tag'].includes(value.type)
     && typeof value.id === 'string';
 }
 

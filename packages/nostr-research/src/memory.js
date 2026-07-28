@@ -10,6 +10,7 @@ import {
   InvalidNostrEventError,
   ResearchMemoryError,
   isCanonicalNostrEvent,
+  parseAddress,
   subject,
 } from './protocol.js';
 import {
@@ -23,8 +24,8 @@ const DEFAULT_QUERY_LIMIT = QUERY_LIMIT.default;
 const MAX_QUERY_LIMIT = QUERY_LIMIT.maximum;
 const MEMORY_CAPACITY = RESEARCH_CONSTRAINTS.memory.capacity;
 const NOTEBOOK_CAPACITY = RESEARCH_CONSTRAINTS.notebook.capacity;
-const SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
-const NOTEBOOK_SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
+const SUBJECT_TYPES = new Set(['event', 'account', 'address', 'tag']);
+const NOTEBOOK_SUBJECT_TYPES = new Set(['event', 'account', 'address', 'tag']);
 const NAVIGATION_RELATIONSHIP_TYPE_SET = new Set(NAVIGATION_RELATIONSHIP_TYPES);
 const MEMORY_TRANSACTION = Symbol.for('nostr-research.memory-plan-attempt');
 
@@ -408,15 +409,15 @@ export class InMemoryResearchMemory {
   lookup(reference) {
     this.#assertOpen();
     const item = this.#resolveTyped(normalizeSubject(reference));
-    if (!['event', 'account'].includes(item.type)) {
-      throw new ResearchMemoryError('Exact lookup supports event and account subjects.');
+    if (!['event', 'account', 'address'].includes(item.type)) {
+      throw new ResearchMemoryError('Exact lookup supports event, account, and address subjects.');
     }
     const resolved = this.#resolveCollectionItem({
       subject: item,
       reasons: [{ type: 'exact-subject' }],
     });
     return resultCollection([resolved], { operation: 'exact-subject-lookup' },
-      item.type === 'event' ? 'events' : 'accounts');
+      item.type === 'event' ? 'events' : item.type === 'account' ? 'accounts' : 'addresses');
   }
 
   /**
@@ -435,7 +436,9 @@ export class InMemoryResearchMemory {
         ? this.#resolveEventRecord(item.id)
         : item.type === 'account'
           ? this.#resolveAccountEvidence(item.id)
-          : { source: 'unresolved', record: null };
+          : item.type === 'address'
+            ? this.#resolveAddressEvidence(item.id)
+            : { source: 'unresolved', record: null };
       if (level !== 'reference' && !resolution.record) {
         throw new ResearchMemoryError(
           `Cannot preserve ${level} evidence for unresolved ${item.type}:${item.id}.`,
@@ -450,7 +453,7 @@ export class InMemoryResearchMemory {
       if (level === 'excerpt') {
         entry.excerpt = evidenceExcerpt(item, resolution.record, excerptLimit);
       } else if (level === 'canonical') {
-        const canonical = item.type === 'event'
+        const canonical = item.type === 'event' || item.type === 'address'
           ? resolution.record : {
               event: resolution.record.metadataEvent,
               observations: resolution.record.observations,
@@ -557,6 +560,13 @@ export class InMemoryResearchMemory {
     };
   }
 
+  #resolveAddressEvidence(coordinate) {
+    const parsed = parseAddress(coordinate);
+    const current = this.#currentByKey(parsed.pubkey, parsed.kind, parsed.d);
+    if (!current) return { source: 'unresolved', record: null };
+    return this.#resolveEventRecord(current.event.id);
+  }
+
   #completeRecords() {
     const records = new Map();
     for (const id of new Set([
@@ -587,6 +597,8 @@ export class InMemoryResearchMemory {
           observations: metadata.observations,
         };
       }
+    } else if (reference.type === 'address') {
+      record = this.#resolveAddressEvidence(reference.id).record;
     }
     const provenance = cloneJson(item.provenance ?? []);
     mergeUniqueJson(provenance, record?.observations ?? []);
@@ -622,6 +634,7 @@ export class InMemoryResearchMemory {
         ? subject('account', item.id)
         : this.#resolveAccountSubject(item.id);
     }
+    if (item.type === 'address') return subject('address', item.id);
     return subject(item.type, item.id);
   }
 
@@ -878,6 +891,19 @@ export class InMemoryResearchMemory {
         resolutionSource: resolution.source,
         evidence,
         provenance: evidence?.observations ?? [],
+      };
+    }
+    if (item.type === 'address') {
+      const resolution = this.#resolveAddressEvidence(item.id);
+      const evidence = resolution.record;
+      return {
+        subject: item,
+        resolved: Boolean(evidence),
+        resident: resolution.source === 'buffer',
+        resolutionSource: resolution.source,
+        evidence,
+        provenance: evidence?.observations ?? [],
+        relationships: cloneJson(this.#relationships('inbound', memberKey(item))),
       };
     }
     const collection = this.traverse([item], {
@@ -1140,6 +1166,21 @@ export class InMemoryResearchMemory {
             metadataEvent: metadata.event, observations: metadata.observations,
           } : {}),
         };
+      } else if (reference.type === 'address') {
+        const resolution = this.#resolveAddressEvidence(reference.id);
+        projection = {
+          type: 'address',
+          id: reference.id,
+          resolved: Boolean(resolution.record),
+          resolutionSource: resolution.source,
+          ...(resolution.record ? {
+            currentEventId: resolution.record.event.id,
+            kind: resolution.record.event.kind,
+            author: resolution.record.event.pubkey,
+            createdAt: resolution.record.event.created_at,
+            ...(mode === 'full' ? resolution.record : {}),
+          } : {}),
+        };
       } else projection = reference;
       return {
         ...projection,
@@ -1216,7 +1257,7 @@ export class InMemoryResearchMemory {
 }
 
 function evidenceExcerpt(item, record, limit) {
-  if (item.type === 'event') {
+  if (item.type === 'event' || item.type === 'address') {
     return {
       eventId: record.event.id,
       author: record.event.pubkey,
@@ -1620,6 +1661,7 @@ function inferSubjectCollectionKind(items) {
   const type = [...types][0];
   return type === 'event' ? 'events'
     : type === 'account' ? 'accounts'
+      : type === 'address' ? 'addresses'
       : 'relationships';
 }
 
@@ -1742,9 +1784,10 @@ function normalizeMember(member) {
     throw new ResearchMemoryError('Notebook membership member has an unsupported subject type.');
   }
   if (typeof member.id !== 'string' || member.id.length === 0
-      || (['event', 'account'].includes(member.type) && !EVENT_ID.test(member.id))) {
+      || (['event', 'account'].includes(member.type) && !EVENT_ID.test(member.id))
+      || (member.type === 'address' && !parseAddress(member.id))) {
     throw new ResearchMemoryError(
-      'Notebook membership member ID must be stable; event and account IDs must be full 64-character lowercase hexadecimal values.',
+      'Notebook membership member ID must be a stable canonical subject ID.',
     );
   }
   return { type: member.type, id: member.id };

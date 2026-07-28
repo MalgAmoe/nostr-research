@@ -1,6 +1,6 @@
 ---
 id: 057-addressable-event-subjects
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/057-addressable-event-subjects.validate.sh
 depends_on:

@@ -51,7 +51,7 @@ export function describeResearchRelation(memory, relation) {
 function relationFrom(memory, value) {
   if (isResearchRelation(value)) return cloneRelation(value);
   const collection = memory.asCollection(value);
-  if (!['subjects', 'events', 'accounts', 'relationships'].includes(collection.kind)) {
+  if (!['subjects', 'events', 'accounts', 'addresses', 'relationships'].includes(collection.kind)) {
     throw new ResearchMemoryError(`Cannot convert ${collection.kind} into a research relation.`);
   }
   const relation = researchRelation(collection.items.map((item) => ({
@@ -73,6 +73,8 @@ function relationFrom(memory, value) {
       ? { 'subject.id': { subjectType: 'event', lineage: ['subject.id'] } } : {}),
     ...(collection.kind === 'accounts'
       ? { 'subject.id': { subjectType: 'account', lineage: ['subject.id'] } } : {}),
+    ...(collection.kind === 'addresses'
+      ? { 'subject.id': { subjectType: 'address', lineage: ['subject.id'] } } : {}),
   };
   return relation;
 }

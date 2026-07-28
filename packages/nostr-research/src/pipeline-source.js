@@ -84,14 +84,17 @@ export function validatePipelineExtract(parameters, input) {
   plainObject(parameters, 'extract parameters');
   rejectUnknown(parameters, EXTRACT_KEYS, 'extract');
   field(parameters.field, 'extract field');
-  if (!['account', 'event'].includes(parameters.subjectType)) {
-    throw new ResearchMemoryError('extract subjectType must be account or event.');
+  if (!['account', 'event', 'address'].includes(parameters.subjectType)) {
+    throw new ResearchMemoryError('extract subjectType must be account, event, or address.');
   }
   resultLimit(parameters.limit);
   return {
-    kind: parameters.subjectType === 'account' ? 'accounts' : 'events',
-    itemKind: parameters.subjectType === 'account' ? 'accounts' : 'events',
-    resultKind: parameters.subjectType === 'account' ? 'accounts' : 'events',
+    kind: parameters.subjectType === 'account' ? 'accounts'
+      : parameters.subjectType === 'address' ? 'addresses' : 'events',
+    itemKind: parameters.subjectType === 'account' ? 'accounts'
+      : parameters.subjectType === 'address' ? 'addresses' : 'events',
+    resultKind: parameters.subjectType === 'account' ? 'accounts'
+      : parameters.subjectType === 'address' ? 'addresses' : 'events',
   };
 }
 
@@ -145,7 +148,8 @@ export function executePipelineExtract(memory, parameters, input) {
     distinctSubjects: items.length,
     retainedSubjects: Math.min(items.length, limit),
     omittedByLimit: Math.max(0, items.length - limit),
-  }, parameters.subjectType === 'account' ? 'accounts' : 'events');
+  }, parameters.subjectType === 'account' ? 'accounts'
+    : parameters.subjectType === 'address' ? 'addresses' : 'events');
 }
 
 function relationInput(input, operation) {
