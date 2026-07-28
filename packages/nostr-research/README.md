@@ -224,7 +224,9 @@ acquisition; `extract` is a pure local projection.
 Local and relay-backed continuation accepts `offset` and `eventLimit`.
 Multi-input projection visits each explicit input in turn before taking
 additional results from a prolific input; `eventLimit` remains one observable
-global result bound. Together with relation `slice`, this makes truncation navigable instead of
+global result bound. Continuation handles expose their embedded subject
+collections consistently on either side of same-kind set operations.
+Together with relation `slice`, this makes truncation navigable instead of
 silently fixing every relationship projection to its first window.
 
 ```js
@@ -543,6 +545,11 @@ account. Archive summaries make the inverse distinction explicit: archive
 entry presence is reported separately from canonical evidence resolution,
 because reference and excerpt preservation do not retain complete canonical
 evidence.
+
+Exact named-membership observation is bounded independently from membership
+storage. `membership` accepts member `offset`/`previewLimit`, per-member
+`reasonOffset`/`reasonLimit`, and `sizeLimit`; its response reports omissions
+instead of returning every accumulated reason graph by default.
 
 Configuration has explicit levels. Engine constraints are immutable supported
 ranges. Memory, archive, and notebook capacities are construction-time

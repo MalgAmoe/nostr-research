@@ -285,6 +285,16 @@ test('named account and note handles continue with bounded relationship provenan
     new Set(boundedPreview.result.preview.map(({ author }) => author.publicKey)),
     new Set([alice, getPublicKey(DAVE_SECRET)]),
   );
+  const comparedContinuations = await session.execute({
+    commandId: 'compare-continuations',
+    command: 'compare',
+    input: 'alice-notes',
+    parameters: { with: 'bounded-notes' },
+    resultId: 'continuation-comparison',
+  });
+  assert.equal(comparedContinuations.ok, true);
+  assert.equal(comparedContinuations.result.handle.kind, 'summaries');
+  assert.equal(comparedContinuations.result.handle.count, 1);
 
   const noReplies = await session.execute({
     commandId: 'no-replies',

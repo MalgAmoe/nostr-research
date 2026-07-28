@@ -18,8 +18,10 @@ import {
   acquisitionCorpusAccounting,
   explainResearchMembership,
   presentHandleList,
+  presentNotebookMembership,
   presentSessionStatus,
   showResearchValue,
+  validateNotebookMembershipPresentationOptions,
   validateResearchPresentationOptions,
 } from './presentation.js';
 import {
@@ -269,8 +271,27 @@ export class DeclarativeResearchSession {
       });
     }
     if (command.command === 'membership') {
-      rejectKeys(parameters, new Set(['name']));
-      return readOnly(() => this.#memory.getMembership(parameters.name));
+      rejectKeys(parameters, new Set([
+        'name', 'offset', 'previewLimit', 'reasonOffset', 'reasonLimit', 'sizeLimit',
+      ]));
+      const { name, ...requestedOptions } = parameters;
+      const options = {
+        previewLimit: this.#configuration.presentation.previewLimit,
+        reasonLimit: this.#configuration.presentation.previewLimit,
+        sizeLimit: this.#configuration.presentation.sizeLimit,
+        ...requestedOptions,
+      };
+      try {
+        validateNotebookMembershipPresentationOptions(options);
+      } catch (error) {
+        if (error instanceof TypeError) {
+          throw protocolError('INVALID_COMMAND', error.message);
+        }
+        throw error;
+      }
+      return readOnly(() => presentNotebookMembership(
+        this.#memory.getMembership(name), options,
+      ));
     }
     return readOnly(() => presentSessionStatus(this.#memory, {
       revision: this.#revision,
@@ -1231,7 +1252,16 @@ function sessionSchema(configuration) {
         },
         list: { parameters: { limit: previewRange, sizeLimit: sizeRange } },
         memberships: { parameters: { limit: 'non-negative integer' } },
-        membership: { parameters: { name: 'membership name' } },
+        membership: {
+          parameters: {
+            name: 'membership name',
+            offset: 'non-negative member offset',
+            previewLimit: previewRange,
+            reasonOffset: 'non-negative reason offset applied to each shown member',
+            reasonLimit: previewRange,
+            sizeLimit: sizeRange,
+          },
+        },
         status: { parameters: { limit: previewRange, sizeLimit: sizeRange } },
         schema: {
           input: 'optional named result handle; omitted returns the global schema',

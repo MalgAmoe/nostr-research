@@ -279,6 +279,9 @@ The `list` unknown-parameter path also returned the intended
 
 ### Further findings
 
+These four findings were corrected after the trial. The descriptions below
+preserve the observed failures and their causes as validation history.
+
 #### 1. Continuation handles do not compose symmetrically in set operations
 
 Local and relay-backed `authored-notes` continuations returned ordinary

@@ -358,7 +358,7 @@ export function operationSchema() {
         since: 'optional non-negative Unix timestamp',
         until: 'optional non-negative Unix timestamp',
         tags: 'optional single-letter tag constraints',
-        text: 'optional text term or term array',
+        text: 'optional text term or term array; every supplied term must match (AND)',
         limit: QUERY_LIMIT,
         order: { values: ['newest', 'oldest'], default: 'newest' },
       },

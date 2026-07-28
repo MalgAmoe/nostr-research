@@ -301,7 +301,8 @@ function normalizeRelationParameters(name, value) {
     return { by: fields(value.by, 'distinct by'), limit: limit(value.limit) };
   }
   if (name === 'sort') {
-    onlyKeys(value, ['by'], name);
+    const unknown = Object.keys(value).find((key) => key !== 'by');
+    if (unknown) throw new ResearchMemoryError(`Unknown sort parameter: ${unknown}.`);
     if (!Array.isArray(value.by) || value.by.length === 0) {
       throw new ResearchMemoryError('sort by must be a non-empty array.');
     }

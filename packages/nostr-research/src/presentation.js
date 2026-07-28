@@ -354,6 +354,45 @@ export function presentHandleList(handles, options = {}) {
   }, settings.sizeLimit);
 }
 
+export function validateNotebookMembershipPresentationOptions(options = {}) {
+  membershipOptions(options);
+}
+
+export function presentNotebookMembership(membership, options = {}) {
+  const settings = membershipOptions(options);
+  const members = membership.members ?? [];
+  const offset = Math.min(settings.offset, members.length);
+  const preview = members.slice(offset, offset + settings.previewLimit).map((member) => {
+    const reasons = member.reasons ?? [];
+    const reasonOffset = Math.min(settings.reasonOffset, reasons.length);
+    const shownReasons = reasons.slice(reasonOffset, reasonOffset + settings.reasonLimit);
+    return {
+      subject: { type: member.type, id: member.id },
+      reasonCount: reasons.length,
+      reasons: structuredClone(shownReasons),
+      reasonOffset,
+      omittedReasonsBefore: reasonOffset,
+      omittedReasonsAfter: Math.max(0, reasons.length - reasonOffset - shownReasons.length),
+    };
+  });
+  return enforceSize({
+    type: 'notebook-membership',
+    id: membership.id,
+    name: membership.name,
+    createdAt: membership.createdAt,
+    ...(membership.updatedAt ? { updatedAt: membership.updatedAt } : {}),
+    count: members.length,
+    preview,
+    offset,
+    limit: settings.previewLimit,
+    nextOffset: offset + preview.length,
+    omittedBefore: offset,
+    omittedAfter: Math.max(0, members.length - offset - preview.length),
+    omitted: Math.max(0, members.length - preview.length),
+    sizeBounded: false,
+  }, settings.sizeLimit);
+}
+
 export function presentSessionStatus(memory, status, options = {}) {
   const settings = listOptions(options);
   const state = memory.describe();
@@ -1030,6 +1069,27 @@ function listOptions(options) {
   return {
     limit: boundedInteger(options.limit, DEFAULT_PREVIEW_LIMIT, MAX_PREVIEW_LIMIT, 'limit'),
     sizeLimit: boundedInteger(options.sizeLimit, DEFAULT_SIZE_LIMIT, MAX_SIZE_LIMIT, 'sizeLimit', 1000),
+  };
+}
+
+function membershipOptions(options) {
+  assertOptions(options, [
+    'offset', 'previewLimit', 'reasonOffset', 'reasonLimit', 'sizeLimit',
+  ]);
+  return {
+    offset: boundedInteger(options.offset, 0, Number.MAX_SAFE_INTEGER, 'offset', 0),
+    previewLimit: boundedInteger(
+      options.previewLimit, DEFAULT_PREVIEW_LIMIT, MAX_PREVIEW_LIMIT, 'previewLimit',
+    ),
+    reasonOffset: boundedInteger(
+      options.reasonOffset, 0, Number.MAX_SAFE_INTEGER, 'reasonOffset', 0,
+    ),
+    reasonLimit: boundedInteger(
+      options.reasonLimit, DEFAULT_PREVIEW_LIMIT, MAX_PREVIEW_LIMIT, 'reasonLimit',
+    ),
+    sizeLimit: boundedInteger(
+      options.sizeLimit, DEFAULT_SIZE_LIMIT, MAX_SIZE_LIMIT, 'sizeLimit', 1000,
+    ),
   };
 }
 

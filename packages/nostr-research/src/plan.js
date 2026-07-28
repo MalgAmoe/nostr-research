@@ -393,7 +393,17 @@ function descriptorCollection(descriptor, operation) {
 
 /** Executes one preflighted operation through the same path used by plans. */
 export async function executeResearchOperation(memory, operation, input = undefined, namedInputs = undefined) {
-  const normalized = normalizeResearchOperation(operation);
+  const requested = normalizeResearchOperation(operation);
+  const normalized = isSetOperation(requested.operation)
+      && typeof requested.parameters.with !== 'string'
+    ? {
+        ...requested,
+        parameters: {
+          ...requested.parameters,
+          with: memory.asCollection(requested.parameters.with),
+        },
+      }
+    : requested;
   preflightResearchOperation(
     memory,
     normalized,

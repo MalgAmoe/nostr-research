@@ -621,9 +621,21 @@ test('declarative notebook knowledge survives turnover and remains independent f
   assert.equal(released.result.type, 'released-result-handle');
   const inspectedSet = await session.execute({
     commandId: 'inspect-membership', command: 'membership',
-    parameters: { name: ` ${membershipName} ` },
+    parameters: {
+      name: ` ${membershipName} `,
+      offset: 0,
+      previewLimit: 1,
+      reasonOffset: 0,
+      reasonLimit: 1,
+      sizeLimit: 2000,
+    },
   });
   assert.equal(inspectedSet.result.name, membershipName);
+  assert.equal(inspectedSet.result.type, 'notebook-membership');
+  assert.equal(inspectedSet.result.count, 1);
+  assert.equal(inspectedSet.result.preview.length, 1);
+  assert.equal(inspectedSet.result.preview[0].reasons.length, 1);
+  assert.equal(inspectedSet.result.preview[0].reasonCount, 1);
 
   const filteredNotebook = await session.execute({
     commandId: 'filter-notebook', command: 'filter', input: 'positives',
