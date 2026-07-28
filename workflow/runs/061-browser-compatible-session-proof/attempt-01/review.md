@@ -1,0 +1,3 @@
+PASS
+
+All acceptance criteria are materially satisfied. The task-level harness uses only the public package entry, exercises the real declarative session workflow with Buffer unavailable and a deterministic standard WebSocket surface, verifies acquisition, navigation, presentation, inspection, provenance, bounds, cancellation, memory state, closure, and structured errors, and introduces no product-code or permanent-test changes. The proof report accurately records the result and remaining environmental assumptions.

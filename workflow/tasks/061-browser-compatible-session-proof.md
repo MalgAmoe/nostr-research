@@ -1,6 +1,6 @@
 ---
 id: 061-browser-compatible-session-proof
-status: ready
+status: done
 max_attempts: 3
 validation: workflow/tasks/061-browser-compatible-session-proof.validate.sh
 depends_on: 060-runtime-neutral-core
