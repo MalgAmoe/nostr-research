@@ -36,6 +36,8 @@ const SOURCE_FIELDS = Object.freeze([
   'account.display_name',
   'account.description',
   'account.nip05',
+  'account.picture',
+  'account.banner',
 ]);
 const RELATION_OPERATIONS = new Set([
   'relate', 'filter', 'project', 'distinct', 'sort',
@@ -875,6 +877,8 @@ function resolveSourceField(reference, resolution) {
     'account.display_name': profile?.display_name ?? null,
     'account.description': profile?.about ?? null,
     'account.nip05': profile?.nip05 ?? null,
+    'account.picture': profile?.picture ?? null,
+    'account.banner': profile?.banner ?? null,
   };
   return clone(fields[reference.field] ?? null);
 }

@@ -201,6 +201,9 @@ Related event fields include factual `event.role`, `event.format`, and
 and `event.domains`. Attachments merge declared NIP-92/NIP-94 and
 kind-specific facts with visibly inferred URL hints, retain conflicts, and
 return at most 20 items while reporting complete counts and omissions.
+Raw-content URL discovery applies to known content events, not structured
+profile, relationship, interaction, moderation, or encrypted payloads.
+Explicit attachment metadata remains factual wherever it occurs.
 The factual fields use a deliberately sparse known-kind
 table; unlisted kinds remain `unknown`, while kind-1 reply and quote roles use
 the protocol relationship interpretation. They describe the outer event, so a
@@ -336,7 +339,8 @@ left/right/shared counts.
 schema as plain data. The declarative/JSONL session exposes the same value with
 the read-only `schema` command. Account profile fields are literal:
 `account.name` reads only `name`, while `account.display_name` reads only
-`display_name`.
+`display_name`; `account.picture` and `account.banner` expose their corresponding
+profile properties without treating those URLs as event attachments.
 
 Archive discovery uses `archived` with optional singular `level`, exact
 `subject`, and `limit` parameters. It returns the general `subjects` collection

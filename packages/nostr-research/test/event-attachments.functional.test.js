@@ -41,15 +41,21 @@ test('relations normalize bounded attachment evidence and generically explode ob
     ['imeta', 'url https://video.example/main.mp4', 'm video/mp4'],
     ['imeta', 'url https://video.example/track.mp3', 'm audio/mpeg'],
   ], '');
+  const profile = signed(0, 8, [
+    ['imeta', 'url https://profiles.example/declared.jpg', 'm image/jpeg'],
+  ], JSON.stringify({
+    picture: 'https://profiles.example/picture.jpg',
+    banner: 'https://profiles.example/banner.jpg',
+  }));
   const bounded = signed(
     1,
-    8,
+    9,
     [],
     Array.from({ length: 22 }, (_, index) => `https://cdn.example/${index}.jpg`).join(' '),
   );
   const events = [
     declared, file, pictureWithoutUrl, pictureWithContentUrl, voice, podcast,
-    videoWithAudioTrack, bounded,
+    videoWithAudioTrack, profile, bounded,
   ];
   const memory = createInMemoryResearchMemory({ capacity: events.length });
   const session = createDeclarativeResearchSession(memory);
@@ -120,6 +126,14 @@ test('relations normalize bounded attachment evidence and generically explode ob
     assert.equal(videoAttachments[0].classification, 'declared');
     assert.deepEqual(videoAttachments[1].families, ['audio']);
     assert.equal(videoAttachments[1].classification, 'declared');
+    const profileFacts = byId.get(profile.id);
+    assert.equal(profileFacts['event.attachmentCount'], 1);
+    assert.equal(
+      profileFacts['event.attachments'][0].url,
+      'https://profiles.example/declared.jpg',
+    );
+    assert.equal(profileFacts['account.picture'], 'https://profiles.example/picture.jpg');
+    assert.equal(profileFacts['account.banner'], 'https://profiles.example/banner.jpg');
     assert.equal(byId.get(pictureWithoutUrl.id)['event.format'], 'picture-first');
     assert.equal(byId.get(pictureWithoutUrl.id)['event.attachmentCount'], 0);
     assert.equal(byId.get(pictureWithoutUrl.id)['event.hasMedia'], false);

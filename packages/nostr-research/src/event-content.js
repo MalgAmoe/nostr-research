@@ -151,18 +151,20 @@ function describeAttachments(event) {
       }
     }
   }
-  for (const rawUrl of contentUrls(event.content)) {
-    const url = normalizedHttpUrl(rawUrl);
-    if (!url) continue;
-    const hints = inferredUrlHints(url);
-    if (dedicatedEvidence) {
-      const evidence = attachmentDraft(url);
-      for (const hint of hints) mergeEvidence(evidence, hint);
-      if (acceptsDedicatedFamily(evidence, dedicated.family)) {
-        add(url, dedicatedEvidence);
+  if (contentMayCarryAttachments(event)) {
+    for (const rawUrl of contentUrls(event.content)) {
+      const url = normalizedHttpUrl(rawUrl);
+      if (!url) continue;
+      const hints = inferredUrlHints(url);
+      if (dedicatedEvidence) {
+        const evidence = attachmentDraft(url);
+        for (const hint of hints) mergeEvidence(evidence, hint);
+        if (acceptsDedicatedFamily(evidence, dedicated.family)) {
+          add(url, dedicatedEvidence);
+        }
       }
+      for (const hint of hints) add(url, hint);
     }
-    for (const hint of hints) add(url, hint);
   }
 
   const complete = [...attachments.values()].map(finalizeAttachment);
@@ -175,6 +177,11 @@ function describeAttachments(event) {
     attachmentsOmitted: complete.length - returned.length,
     hasMedia: complete.length > 0,
   };
+}
+
+function contentMayCarryAttachments(event) {
+  const facts = KIND_FACTS.get(event.kind);
+  return !facts || facts[0] === 'content';
 }
 
 function attachmentDraft(url) {
