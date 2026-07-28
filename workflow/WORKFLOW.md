@@ -159,3 +159,15 @@ Inspect the queue and current phase without invoking Codex or changing state:
 ```sh
 python3 workflow/run.py --status
 ```
+
+Run the deterministic real-browser boundary check:
+
+```sh
+npm run browser:smoke
+```
+
+This check bundles the product Browser Worker, runs it in Playwright's headless
+Chromium, and verifies seeded acquisition and session behavior without using a
+public relay. It is available to task validation when browser compatibility is
+material; it is not required for unrelated tasks. Install Playwright's Chromium
+once in a new environment with `npx playwright install chromium`.

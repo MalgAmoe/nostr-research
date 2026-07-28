@@ -110,6 +110,18 @@ test('relation handles resolve references across evidence lifetime and keep boun
   assert.equal(rows.result.count, 2);
   assert.equal(rows.result.distinctSubjectCount, 2);
   assert.equal(rows.result.distinctAuthorCount, 1);
+  assert.equal('event.tags' in rows.result.preview[0].values, false);
+  assert.equal('event.links' in rows.result.preview[0].values, false);
+  assert.equal('event.domains' in rows.result.preview[0].values, false);
+  assert.deepEqual(rows.result.preview[0].omittedValueFields, [
+    'event.tags', 'event.links', 'event.domains', 'account.description',
+  ]);
+  const detailedRows = await session.execute({
+    commandId: 'show-detailed-rows', command: 'show', input: 'rows',
+    parameters: { previewLimit: 1, includeEvidence: true },
+  });
+  assert.equal(Array.isArray(detailedRows.result.preview[0].values['event.tags']), true);
+  assert.equal('omittedValueFields' in detailedRows.result.preview[0], false);
   const rowSchema = await session.execute({
     commandId: 'schema-rows', command: 'schema', input: 'rows', parameters: {},
   });
@@ -281,6 +293,15 @@ test('relation handles resolve references across evidence lifetime and keep boun
   assert.deepEqual(notesAfterTurnover.result.coverage.evidenceResolution, {
     buffer: 0, archive: 1, unresolved: 1,
   });
+  assert.equal(notesAfterTurnover.result.coverage.partial, true);
+  const rowsAfterTurnover = await session.execute({
+    commandId: 'rows-after-turnover', command: 'show', input: 'rows',
+    parameters: { mode: 'coverage', previewLimit: 2 },
+  });
+  assert.deepEqual(rowsAfterTurnover.result.coverage.evidenceResolution, {
+    buffer: 0, archive: 1, unresolved: 1,
+  });
+  assert.equal(rowsAfterTurnover.result.coverage.partial, true);
 
   const aggregateAfterTurnover = await session.execute({
     commandId: 'aggregate-after-turnover', command: 'show', input: 'aggregate',

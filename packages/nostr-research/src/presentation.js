@@ -7,6 +7,12 @@ const DEFAULT_EXCERPT_LIMIT = RESEARCH_CONSTRAINTS.presentation.excerptLimit.def
 const MAX_EXCERPT_LIMIT = RESEARCH_CONSTRAINTS.presentation.excerptLimit.maximum;
 const DEFAULT_SIZE_LIMIT = RESEARCH_CONSTRAINTS.presentation.sizeLimit.default;
 const MAX_SIZE_LIMIT = RESEARCH_CONSTRAINTS.presentation.sizeLimit.maximum;
+const RELATION_PREVIEW_DETAIL_FIELDS = new Set([
+  'event.tags',
+  'event.links',
+  'event.domains',
+  'account.description',
+]);
 
 export function showResearchValue(memory, value, options = {}) {
   const settings = inspectionOptions(options);
@@ -52,29 +58,33 @@ function showRelation(memory, value, settings) {
   }));
   const limit = settings.mode === 'summary' ? 0 : settings.previewLimit;
   const effectiveOffset = Math.min(settings.offset, resolved.rows.length);
-  const preview = resolved.rows.slice(effectiveOffset, effectiveOffset + limit).map((row) => ({
-    values: compactRelationValue(row.values, settings.excerptLimit),
-    ...(Object.keys(row.fieldMetadata ?? {}).length
-      ? { fieldMetadata: structuredClone(row.fieldMetadata) } : {}),
-    subjectCount: row.subjects.length,
-    reasonCount: row.reasons.length,
-    provenanceCount: row.provenance.length,
-    ...(['details', 'explain'].includes(settings.mode) || settings.includeEvidence ? {
-      subjects: settings.mode === 'details' || settings.includeEvidence
-        ? row.subjects.slice(0, settings.previewLimit).map((subject) => ({
-          subject: structuredClone(subject),
-          ...showSubject(memory, subject, { ...settings, includeEvidence: true }),
-        }))
-        : structuredClone(row.subjects.slice(0, settings.previewLimit)),
-      omittedSubjects: Math.max(0, row.subjects.length - settings.previewLimit),
-      provenance: structuredClone(row.provenance.slice(0, settings.previewLimit)),
-      omittedProvenance: Math.max(0, row.provenance.length - settings.previewLimit),
-      ...(settings.mode === 'explain' ? {
-        reasons: structuredClone(row.reasons.slice(0, settings.previewLimit)),
-        omittedReasons: Math.max(0, row.reasons.length - settings.previewLimit),
+  const preview = resolved.rows.slice(effectiveOffset, effectiveOffset + limit).map((row) => {
+    const shownValues = relationPreviewValues(row.values, settings);
+    return {
+      values: compactRelationValue(shownValues.values, settings.excerptLimit),
+      ...(shownValues.omitted.length ? { omittedValueFields: shownValues.omitted } : {}),
+      ...(Object.keys(row.fieldMetadata ?? {}).length
+        ? { fieldMetadata: structuredClone(row.fieldMetadata) } : {}),
+      subjectCount: row.subjects.length,
+      reasonCount: row.reasons.length,
+      provenanceCount: row.provenance.length,
+      ...(['details', 'explain'].includes(settings.mode) || settings.includeEvidence ? {
+        subjects: settings.mode === 'details' || settings.includeEvidence
+          ? row.subjects.slice(0, settings.previewLimit).map((subject) => ({
+            subject: structuredClone(subject),
+            ...showSubject(memory, subject, { ...settings, includeEvidence: true }),
+          }))
+          : structuredClone(row.subjects.slice(0, settings.previewLimit)),
+        omittedSubjects: Math.max(0, row.subjects.length - settings.previewLimit),
+        provenance: structuredClone(row.provenance.slice(0, settings.previewLimit)),
+        omittedProvenance: Math.max(0, row.provenance.length - settings.previewLimit),
+        ...(settings.mode === 'explain' ? {
+          reasons: structuredClone(row.reasons.slice(0, settings.previewLimit)),
+          omittedReasons: Math.max(0, row.reasons.length - settings.previewLimit),
+        } : {}),
       } : {}),
-    } : {}),
-  }));
+    };
+  });
   const result = {
     type: 'research-relation',
     observation: settings.mode,
@@ -93,16 +103,32 @@ function showRelation(memory, value, settings) {
   };
   if (settings.mode === 'coverage') {
     result.preview = [];
+    const evidenceResolution = resolutionCounts(
+      memory,
+      resolved.rows.flatMap(({ subjects }) => subjects.map((subject) => ({ subject }))),
+    );
     result.coverage = {
-      evidenceResolution: resolutionCounts(memory, resolved.rows.flatMap(({ subjects }) => (
-        subjects.map((subject) => ({ subject }))
-      ))),
+      evidenceResolution,
       rowsWithProvenance: resolved.rows.filter(({ provenance }) => provenance.length > 0).length,
       presentationOmissions: { rowDetails: resolved.rows.length },
-      partial: value.context?.completeness?.status === 'partial',
+      partial: evidenceResolution.unresolved > 0
+        || value.context?.completeness?.status === 'partial',
     };
   }
   return result;
+}
+
+function relationPreviewValues(values, settings) {
+  if (settings.mode !== 'preview' || settings.includeEvidence) {
+    return { values, omitted: [] };
+  }
+  const omitted = Object.keys(values).filter((name) => RELATION_PREVIEW_DETAIL_FIELDS.has(name));
+  return {
+    values: Object.fromEntries(Object.entries(values).filter(
+      ([name]) => !RELATION_PREVIEW_DETAIL_FIELDS.has(name),
+    )),
+    omitted,
+  };
 }
 
 function compactRelationValue(value, excerptLimit) {
@@ -232,13 +258,15 @@ function showCollection(memory, collection, settings) {
   } else if (settings.mode === 'coverage') {
     result.preview = [];
     const provenance = provenanceSummary(collection.items);
+    const evidenceResolution = resolutionCounts(memory, collection.items);
     result.coverage = {
       sources: provenance,
-      evidenceResolution: resolutionCounts(memory, collection.items),
+      evidenceResolution,
       presentationOmissions: { subjectDetails: collection.items.length },
-      partial: collection.context?.completeness?.status === 'partial',
+      partial: evidenceResolution.unresolved > 0
+        || collection.context?.completeness?.status === 'partial',
       bounds: compactBounds(collection),
-      unresolvedEvidence: resolutionCounts(memory, collection.items).unresolved,
+      unresolvedEvidence: evidenceResolution.unresolved,
     };
   } else if (settings.mode === 'details') {
     result.preview = resolved.items.map((item) => ({

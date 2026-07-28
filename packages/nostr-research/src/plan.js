@@ -351,8 +351,7 @@ function inputForSetOperation(outputs, id, operation) {
 function descriptorCollection(descriptor, operation) {
   if (!supportsCollectionOperations(descriptor)) {
     throw new ResearchMemoryError(
-      `Research ${operation} operation requires a subject collection input; `
-      + 'acquisition and hydration report handles must first be converted to a subject collection.',
+      `Research ${operation} operation requires a subject collection input.`,
     );
   }
   return { type: 'result-collection', kind: descriptor.kind, items: [], context: {} };

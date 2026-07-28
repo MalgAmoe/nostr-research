@@ -132,8 +132,7 @@ export function operationResultKind(name, inputKind = undefined) {
 }
 
 export function supportsCollectionOperations(descriptor) {
-  return SUBJECT_COLLECTION_KINDS.includes(descriptor?.kind)
-    && !['acquisition-report', 'hydration-report'].includes(descriptor?.resultKind);
+  return SUBJECT_COLLECTION_KINDS.includes(descriptor?.kind);
 }
 
 export function operationMutation(name, result, parameters = {}) {
@@ -473,9 +472,8 @@ export function contextualResearchOperationSchema({
   }
   if (descriptor?.resultKind === 'acquisition-report') {
     add('select', {
-      reason: 'This handle names one bounded acquisition attempt.',
+      reason: 'Select applies event query constraints within this bounded acquisition attempt.',
     });
-    return operations;
   }
   if (!supportsCollectionOperations(descriptor)) return operations;
   contextualCollectionOperations(add, descriptor.kind, structure, configuration);

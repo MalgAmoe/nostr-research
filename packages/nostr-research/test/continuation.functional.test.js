@@ -471,8 +471,8 @@ test('named account and note handles continue with bounded relationship provenan
     relationshipType === 'reply-parent'
   )));
 
-  assert.throws(
-    () => preflightResearchOperation(
+  assert.deepEqual(
+    preflightResearchOperation(
       memory,
       {
         operation: 'continue',
@@ -480,7 +480,11 @@ test('named account and note handles continue with bounded relationship provenan
       },
       { kind: 'events', itemKind: 'events', resultKind: 'acquisition-report' },
     ),
-    /Research continue operation requires a subject collection input.*must first be converted/,
+    {
+      kind: 'events',
+      itemKind: 'events',
+      resultKind: 'continuation-report',
+    },
   );
 
   await session.close();

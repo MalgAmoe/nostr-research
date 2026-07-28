@@ -526,6 +526,13 @@ new field name. Technical fields are reported separately in relation structure,
 and row-specific truncation details appear under `fieldMetadata` rather than as
 ordinary analysis columns.
 
+Acquisition and hydration handles retain their external-operation accounting
+while exposing their embedded stable subject collection to ordinary collection
+operations. A caller may therefore `relate`, navigate, preserve, or continue
+directly from such a handle. `select` remains available when the caller wants
+to apply event-query constraints within one acquisition attempt; it is not a
+mandatory conversion step.
+
 Configuration has explicit levels. Engine constraints are immutable supported
 ranges. Memory, archive, and notebook capacities are construction-time
 configuration because changing them can evict or reject stored state. Session
@@ -576,6 +583,12 @@ with counts; canonical evidence and detailed membership provenance remain
 available through `inspect`, `details`, and `explain`. Contextual `schema`
 reports the structure and compatible operations for a named handle; the
 researcher decides which action, if any, to take.
+
+Relation previews omit bulky source-evidence fields such as complete tag,
+link, domain, and account-description values and report their names in
+`omittedValueFields`. The underlying relation remains unchanged. Request
+`details` or `includeEvidence` when those values and canonical subject evidence
+are needed.
 
 ### Sequential session walkthrough
 

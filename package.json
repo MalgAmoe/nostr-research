@@ -8,6 +8,11 @@
   "scripts": {
     "test": "npm test --workspace packages/nostr-research",
     "check": "npm run check --workspace packages/nostr-research",
+    "browser:smoke": "node workflow/browser-smoke/run.mjs",
     "research-session": "node packages/nostr-research/bin/nostr-research-session.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.8",
+    "playwright": "1.62.0"
   }
 }
