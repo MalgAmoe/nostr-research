@@ -77,3 +77,83 @@ test('collections navigate identities while relations own value analysis', async
   assert.equal(operationSchema().definitions.project.executor, 'relation');
   memory.close();
 });
+
+test('relation handles report operation-specific cardinality and proven truncation', async () => {
+  const events = [1, 2].map((createdAt) => finalizeEvent({
+    kind: 1,
+    created_at: createdAt,
+    tags: Array.from({ length: 80 }, (_, index) => ['t', `${createdAt}-${index}`]),
+    content: `tag source ${createdAt}`,
+  }, KEY));
+  const memory = createInMemoryResearchMemory({ capacity: 4 });
+  for (const event of events) memory.ingest(event, { relay: 'wss://fixture.example/' });
+  const session = createDeclarativeResearchSession(memory);
+  await session.execute({
+    commandId: 'notes', command: 'select',
+    parameters: { scope: 'corpus', kinds: [1] }, resultId: 'notes',
+  });
+  await session.execute({
+    commandId: 'rows', command: 'relate', input: 'notes', parameters: {}, resultId: 'rows',
+  });
+
+  const exploded = await session.execute({
+    commandId: 'explode', command: 'explode', input: 'rows',
+    parameters: { field: 'event.tags', as: 'tag' }, resultId: 'exploded',
+  });
+  assert.deepEqual(exploded.result.handle, {
+    id: 'exploded', kind: 'relation', count: 100, revision: 3,
+  });
+  const explodedCoverage = await session.execute({
+    commandId: 'explode-coverage', command: 'show', input: 'exploded',
+    parameters: { mode: 'coverage' },
+  });
+  assert.deepEqual(explodedCoverage.result.coverage.bounds, {
+    inputCount: 2,
+    outputCount: 100,
+    truncated: true,
+    outputLimit: 100,
+  });
+  assert.equal(explodedCoverage.result.coverage.partial, true);
+
+  await session.execute({
+    commandId: 'exact', command: 'explode', input: 'rows',
+    parameters: { field: 'event.tags', as: 'tag', limit: 160 }, resultId: 'exact',
+  });
+  const exactSummary = await session.execute({
+    commandId: 'exact-summary', command: 'show', input: 'exact',
+    parameters: { mode: 'summary' },
+  });
+  assert.equal(exactSummary.result.context.cardinality.outputCount, 160);
+  assert.equal(exactSummary.result.context.cardinality.truncated, false);
+  assert.equal('omittedCount' in exactSummary.result.context.cardinality, false);
+
+  await session.execute({
+    commandId: 'filtered', command: 'filter', input: 'rows',
+    parameters: { where: { field: 'event.createdAt', gte: 2 } }, resultId: 'filtered',
+  });
+  const filtered = await session.execute({
+    commandId: 'filtered-summary', command: 'show', input: 'filtered',
+    parameters: { mode: 'summary' },
+  });
+  assert.equal(filtered.result.context.cardinality.rejectedCount, 1);
+  assert.equal(filtered.result.context.cardinality.truncated, false);
+  assert.equal('omittedCount' in filtered.result.context.cardinality, false);
+
+  await session.execute({
+    commandId: 'grouped', command: 'aggregate', input: 'rows',
+    parameters: {
+      by: [],
+      aggregations: [{ name: 'count', operation: 'count' }],
+    },
+    resultId: 'grouped',
+  });
+  const grouped = await session.execute({
+    commandId: 'grouped-summary', command: 'show', input: 'grouped',
+    parameters: { mode: 'summary' },
+  });
+  assert.equal(grouped.result.context.cardinality.producedGroupCount, 1);
+  assert.equal(grouped.result.context.cardinality.retainedGroupCount, 1);
+  assert.equal(grouped.result.context.cardinality.truncated, false);
+  assert.equal('omittedCount' in grouped.result.context.cardinality, false);
+  memory.close();
+});

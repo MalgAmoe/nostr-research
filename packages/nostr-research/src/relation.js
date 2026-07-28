@@ -54,6 +54,8 @@ export function describeResearchRelation(memory, relation) {
   return {
     kind: 'relation',
     count: resolved.rows.length,
+    ...(resolved.context?.cardinality
+      ? { cardinality: clone(resolved.context.cardinality) } : {}),
     fields: catalog.filter(({ role }) => role !== 'technical'),
     technicalFields: catalog.filter(({ role }) => role === 'technical'),
   };
@@ -77,6 +79,11 @@ function relationFrom(memory, value) {
     operation: 'relate',
     sourceKind: collection.kind,
     sourceContext: collection.context,
+    cardinality: {
+      inputCount: collection.items.length,
+      outputCount: collection.items.length,
+      truncated: false,
+    },
   });
   relation.fieldDefinitions = {
     'event.author': { subjectType: 'account', lineage: ['event.author'] },
@@ -147,7 +154,8 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
     cardinality: {
       inputCount: input.rows.length,
       outputCount: output.rows.length,
-      omittedCount: Math.max(0, input.rows.length - output.rows.length),
+      truncated: false,
+      ...(output.context.cardinality ?? {}),
     },
   };
   return output;
@@ -466,14 +474,16 @@ function normalizeRelationParameters(name, value) {
 }
 
 function applyFilter(relation, operation) {
-  return researchRelation(
-    relation.rows.filter((row) => matches(row.values, operation.where)).slice(0, operation.limit),
-    {},
-  );
+  const qualifying = relation.rows.filter((row) => matches(row.values, operation.where));
+  return boundedRelation(qualifying, operation.limit, {
+    inputCount: relation.rows.length,
+    qualifyingCount: qualifying.length,
+    rejectedCount: relation.rows.length - qualifying.length,
+  });
 }
 
 function applyProject(relation, operation) {
-  return researchRelation(relation.rows.slice(0, operation.limit).map((row) => ({
+  const candidates = relation.rows.map((row) => ({
     ...row,
     values: Object.fromEntries(operation.fields.map(({ field: source, name }) => (
       [name, clone(row.values[source] ?? null)]
@@ -484,20 +494,28 @@ function applyProject(relation, operation) {
     fieldMetadata: Object.fromEntries(operation.fields.flatMap(({ field: source, name }) => (
       row.fieldMetadata?.[source] ? [[name, row.fieldMetadata[source]]] : []
     ))),
-  })), {});
+  }));
+  return boundedRelation(candidates, operation.limit, { inputCount: relation.rows.length });
 }
 
 function applyDistinct(relation, operation) {
   const seen = new Set();
-  const rows = [];
+  const candidates = [];
+  let duplicateCount = 0;
   for (const row of relation.rows) {
     const key = stable(operation.by.map((name) => row.values[name] ?? null));
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      duplicateCount += 1;
+      continue;
+    }
     seen.add(key);
-    rows.push(row);
-    if (rows.length === operation.limit) break;
+    candidates.push(row);
   }
-  return researchRelation(rows, {});
+  return boundedRelation(candidates, operation.limit, {
+    inputCount: relation.rows.length,
+    duplicateCount,
+    distinctCount: candidates.length,
+  });
 }
 
 function applySort(relation, operation) {
@@ -513,10 +531,14 @@ function applySort(relation, operation) {
 }
 
 function applySlice(relation, operation) {
-  return researchRelation(
-    relation.rows.slice(operation.offset, operation.offset + operation.limit),
-    { window: operation, totalCount: relation.rows.length },
-  );
+  const candidates = relation.rows.slice(operation.offset);
+  return boundedRelation(candidates, operation.limit, {
+    inputCount: relation.rows.length,
+    sourceTotalCount: relation.rows.length,
+    offset: operation.offset,
+    omittedBefore: Math.min(operation.offset, relation.rows.length),
+    selectedCount: Math.min(candidates.length, operation.limit),
+  }, { window: operation, totalCount: relation.rows.length });
 }
 
 function applyJoin(left, right, operation) {
@@ -539,6 +561,7 @@ function applyJoin(left, right, operation) {
         references: clone(leftRow.references ?? {}),
       });
     }
+    if (rows.length > operation.limit) break;
     for (const rightRow of matches) {
       rows.push({
         values: {
@@ -563,10 +586,14 @@ function applyJoin(left, right, operation) {
         reasons: uniqueJson([...leftRow.reasons, ...rightRow.reasons]),
         provenance: uniqueJson([...leftRow.provenance, ...rightRow.provenance]),
       });
-      if (rows.length === operation.limit) return researchRelation(rows, {});
+      if (rows.length > operation.limit) break;
     }
+    if (rows.length > operation.limit) break;
   }
-  return researchRelation(rows.slice(0, operation.limit), {});
+  return boundedRelation(rows, operation.limit, {
+    inputCount: left.rows.length,
+    rightInputCount: right.rows.length,
+  }, {}, false);
 }
 
 function applyAggregate(relation, operation) {
@@ -579,6 +606,7 @@ function applyAggregate(relation, operation) {
     if (!groups.has(key)) groups.set(key, { values, rows: [] });
     groups.get(key).rows.push(row);
   }
+  const producedGroupCount = groups.size;
   const rows = [...groups.values()].slice(0, operation.limit).map((group) => {
     const values = {};
     const fieldMetadata = {};
@@ -601,18 +629,30 @@ function applyAggregate(relation, operation) {
       provenance: uniqueJson(group.rows.flatMap((row) => row.provenance)),
     };
   });
-  return researchRelation(rows, {});
+  return relationWithAccounting(rows, {
+    inputCount: relation.rows.length,
+    outputCount: rows.length,
+    outputLimit: operation.limit,
+    producedGroupCount,
+    retainedGroupCount: rows.length,
+    truncated: producedGroupCount > rows.length,
+    ...(producedGroupCount > rows.length
+      ? { omittedCount: producedGroupCount - rows.length } : {}),
+  });
 }
 
 function applyDerive(relation, operation) {
-  return researchRelation(relation.rows.map((row) => {
+  const rows = relation.rows.map((row) => {
     const values = clone(row.values);
     const fieldMetadata = clone(row.fieldMetadata ?? {});
     for (const { name, expression } of operation.fields) {
       addBoundedField(values, fieldMetadata, name, evaluate(expression, row.values));
     }
     return { ...row, values, fieldMetadata };
-  }), {});
+  });
+  return relationWithAccounting(rows, {
+    inputCount: relation.rows.length, outputCount: rows.length, truncated: false,
+  });
 }
 
 function applyExplode(relation, operation) {
@@ -636,10 +676,14 @@ function applyExplode(relation, operation) {
         }
       }
       rows.push({ ...row, values: expanded });
-      if (rows.length === operation.limit) return researchRelation(rows, {});
+      if (rows.length > operation.limit) {
+        return boundedRelation(
+          rows, operation.limit, { inputCount: relation.rows.length }, {}, false,
+        );
+      }
     }
   }
-  return researchRelation(rows, {});
+  return boundedRelation(rows, operation.limit, { inputCount: relation.rows.length });
 }
 
 function applyScan(relation, operation) {
@@ -676,24 +720,50 @@ function applyScan(relation, operation) {
           'match.end': match.end,
         },
       });
-      if (rows.length === operation.limit) return researchRelation(rows, {});
+      if (rows.length > operation.limit) {
+        return boundedRelation(
+          rows, operation.limit, { inputCount: relation.rows.length }, {}, false,
+        );
+      }
     }
   }
-  return researchRelation(rows, {});
+  return boundedRelation(rows, operation.limit, { inputCount: relation.rows.length });
 }
 
 function applyBalance(relation, operation) {
   const counts = new Map();
   const rows = [];
+  let perKeyRejectedCount = 0;
   for (const row of relation.rows) {
     const key = stable(operation.by.map((fieldName) => row.values[fieldName] ?? null));
     const count = counts.get(key) ?? 0;
-    if (count >= operation.limitPer) continue;
+    if (count >= operation.limitPer) {
+      perKeyRejectedCount += 1;
+      continue;
+    }
     counts.set(key, count + 1);
     rows.push(row);
-    if (rows.length === operation.limit) break;
   }
-  return researchRelation(rows, {});
+  return boundedRelation(rows, operation.limit, {
+    inputCount: relation.rows.length,
+    perKeyRejectedCount,
+  });
+}
+
+function boundedRelation(candidates, outputLimit, facts = {}, context = {}, totalKnown = true) {
+  const rows = candidates.slice(0, outputLimit);
+  const truncated = candidates.length > rows.length;
+  return relationWithAccounting(rows, {
+    ...facts,
+    outputCount: rows.length,
+    outputLimit,
+    truncated,
+    ...(truncated && totalKnown ? { omittedCount: candidates.length - rows.length } : {}),
+  }, context);
+}
+
+function relationWithAccounting(rows, cardinality, context = {}) {
+  return researchRelation(rows, { ...context, cardinality });
 }
 
 function scanText(value, caseSensitive) {

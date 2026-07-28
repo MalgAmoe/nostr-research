@@ -1,6 +1,6 @@
 ---
 id: 072-truthful-relation-accounting
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/072-truthful-relation-accounting.validate.sh
 depends_on:

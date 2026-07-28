@@ -279,9 +279,12 @@ function showRelation(memory, value, settings) {
     result.coverage = {
       evidenceResolution,
       rowsWithProvenance: resolved.rows.filter(({ provenance }) => provenance.length > 0).length,
+      ...(value.context?.cardinality
+        ? { bounds: structuredClone(value.context.cardinality) } : {}),
       presentationOmissions: { rowDetails: resolved.rows.length },
       partial: evidenceResolution.unresolved > 0
-        || value.context?.completeness?.status === 'partial',
+        || value.context?.completeness?.status === 'partial'
+        || value.context?.cardinality?.truncated === true,
     };
   }
   return result;
@@ -862,6 +865,7 @@ function compactContext(context) {
       operation: 'relate',
       sourceKind: context.sourceKind,
       source: compactContext(context.sourceContext),
+      ...(context.cardinality ? { cardinality: structuredClone(context.cardinality) } : {}),
     };
   }
   if (context.operation === 'relation-pipeline') {

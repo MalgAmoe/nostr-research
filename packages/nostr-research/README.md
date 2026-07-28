@@ -222,6 +222,16 @@ occur. A match emits one row per matching field and term, and `limit` is a
 global emitted-row bound. Relation observation reports row count, distinct
 subject count, and distinct event-author count separately. It does not retain the unlimited original field and
 performs mechanical matching only; it does not classify the result.
+Relation stage cardinality uses row units and reports the applicable output
+limit. `truncated` is true only after the stage observes an additional
+qualifying output; merely filling the limit is not treated as proof. An exact
+`omittedCount` is present only when the stage knows the complete
+omitted-by-limit count. Predicate rejections, duplicate removal, aggregate
+group production, slice windows, and per-key balance rejections are reported
+as separate operation-specific facts rather than being inferred from the
+difference between input and output rows. This corrects the former
+`omittedCount = input rows - output rows` metadata, which was false for
+expanding and collapsing operations.
 Relation `sample` and `collect` aggregations return retained values together
 with explicit input, retained, omitted, and truncation counts. `balance`
 retains at most `limitPer` rows for each selected key,

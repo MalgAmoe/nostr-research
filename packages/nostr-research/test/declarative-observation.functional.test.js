@@ -237,6 +237,7 @@ test('relation summaries compact source selection details without losing their s
       operation: 'selection',
       query: { idCount: 1, limit: 50, order: 'newest' },
     },
+    cardinality: { inputCount: 1, outputCount: 1, truncated: false },
   });
   assert.equal(JSON.stringify(shown.result.context).includes(event.id), false);
 });
