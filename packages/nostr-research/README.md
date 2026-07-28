@@ -184,8 +184,12 @@ remains usable by later relation operations.
 preserving its evidence. The element is written to `as`, its source position
 to `indexAs`, and array elements are also exposed numerically. Exploding
 `event.tags` as `tag`, for example, exposes `tag.0`, `tag.1`, and so on.
-Related event fields include extracted `event.links`, `event.domains`, and
-`event.hasMedia`. Media presence is derived from attributed media metadata,
+Related event fields include factual `event.role`, `event.format`, and
+`event.conversationRole`, plus extracted `event.links`, `event.domains`, and
+`event.hasMedia`. The factual fields use a deliberately sparse known-kind
+table; unlisted kinds remain `unknown`, while kind-1 reply and quote roles use
+the protocol relationship interpretation. They describe the outer event, so a
+repost does not inherit its target's format. Media presence is derived from attributed media metadata,
 media MIME tags, recognized media URL extensions, and known media hosts.
 
 `scan` searches a caller-selected vocabulary across several fields and emits

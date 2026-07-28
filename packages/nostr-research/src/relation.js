@@ -6,6 +6,7 @@ import {
   RESULT_LIMIT,
   SCAN,
 } from './contract-facts.js';
+import { describeEventContent } from './event-content.js';
 
 const MAX_LIMIT = RESULT_LIMIT.maximum;
 const AGGREGATION_OPERATIONS = AGGREGATIONS.item.operation;
@@ -17,6 +18,9 @@ const SOURCE_FIELDS = Object.freeze([
   'observedRelays',
   'event.author',
   'event.kind',
+  'event.role',
+  'event.format',
+  'event.conversationRole',
   'event.text',
   'event.createdAt',
   'event.tags',
@@ -831,9 +835,13 @@ function resolveSourceField(reference, resolution) {
   const event = resolution.evidence?.event ?? resolution.evidence?.metadataEvent;
   const profile = resolution.evidence?.profile
     ?? (event?.kind === 0 ? parseProfile(event.content) : null);
+  const contentFacts = event ? describeEventContent(event) : null;
   const fields = {
     'event.author': event?.pubkey,
     'event.kind': event?.kind,
+    'event.role': contentFacts?.role,
+    'event.format': contentFacts?.format,
+    'event.conversationRole': contentFacts?.conversationRole,
     'event.text': event?.content,
     'event.createdAt': event?.created_at,
     'event.tags': event?.tags,

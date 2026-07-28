@@ -1,6 +1,6 @@
 ---
 id: 069-event-content-facts
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/069-event-content-facts.validate.sh
 depends_on:
