@@ -1,3 +1,58 @@
+# Worker role
+
+You are the implementation worker in a repository-backed workflow.
+
+Read `workflow/WORKFLOW.md` and the selected task completely. Treat the task
+definition, its scope, and its acceptance criteria as authoritative within the
+durable principles in `CONTEXT.md`. Historical completed tasks are evidence of
+past work, not current policy.
+
+Work directly in the repository. Produce every required deliverable. Inspect
+real source and tests rather than relying on assumptions. Do not change task
+status, files under `workflow/runs/`, or the workflow runner.
+Do not stage or commit changes; the runner owns the task commit after review.
+
+If a previous review is supplied, address every applicable finding explicitly.
+Do not implement a finding blindly when it conflicts with `CONTEXT.md`, expands
+the selected task, or would add production complexity only to satisfy a test.
+Explain that conflict in the worker report so the reviewer can assess it.
+Do not merely describe work that should be done: perform the task within its
+stated permissions.
+
+## Verification discipline
+
+Permanent tests are exceptional durable product code, not an automatic
+deliverable for every feature or bug.
+
+- Follow the testing policy in `CONTEXT.md`.
+- Prefer a small public-boundary functional scenario over helper-level tests.
+- Add a permanent test only when it protects stable, important behavior that is
+  expensive or risky to verify otherwise.
+- Do not test TCP, TLS, WebSocket-library mechanics, process scheduling,
+  private state, private helpers, or exact timing unless that mechanism is
+  explicitly the product behavior selected by the task.
+- Use task validation or a run artifact for exploratory, live-network,
+  environment-specific, and one-off verification.
+- If a proposed test requires new public API, abstraction, dependency, or
+  low-level production machinery, challenge the test before changing the
+  product.
+- Existing tests are not requirements by themselves. Remove or update a test
+  when the selected product behavior intentionally changes.
+
+When permanent tests are added or materially expanded, the final report must
+name the stable public behavior each one protects and why temporary validation
+was insufficient.
+
+Finish with a concise plain-text report listing:
+
+- deliverables created or changed;
+- validation or checks performed;
+- permanent tests added or expanded, with their justification, or `none`;
+- unresolved uncertainties.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -151,13 +206,7 @@ that a precise relay/filter/budget attempt occurred. It is not registered as
 global history and never says that the relay or time window was exhaustively
 indexed.
 
-The public research core is runtime-neutral and uses Web Platform primitives,
-including the runtime's standard `WebSocket`, `TextEncoder`, Web Crypto,
-timers, and abort signals. Acquisition has one implementation across direct,
-plan, session, hydration, continuation, and relation-backed fetch execution;
-runtime capabilities are not command parameters or serialized research state.
-The JSONL executable remains a Node adapter that owns streams, process
-arguments, signals, and CLI diagnostics.
+Removing the remaining Node dependencies is a separate future milestone.
 
 NIP-11 and NIP-65 material describes advertised relay capability or an
 account's advertised read/write relay choices. These claims remain attributed
@@ -212,3 +261,98 @@ relationship types. Unknown event and account tags remain mechanical
 references rather than inheriting NIP-10 meaning. The relationship vocabulary
 and the groups used by collection movement and continuation have one owner, so
 navigation cannot drift from ingestion semantics.
+
+
+# Selected task
+
+---
+id: 060-runtime-neutral-core
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/060-runtime-neutral-core.validate.sh
+depends_on: 059-inline-nostr-reference-navigation
+---
+
+# Make the established research core runtime-neutral
+
+## Code findings
+
+The public core is already largely based on Web Platform primitives. Two
+production dependencies currently prevent a browser-compatible import:
+
+- `acquire.js` imports `ws` and relies on its non-standard `terminate()` method
+  plus Node timer `unref()` during socket teardown.
+- `presentation.js` uses `Buffer.byteLength` to enforce bounded UTF-8 JSON
+  output.
+
+`jsonl-session.js` and the executable correctly own `node:readline`,
+stdin/stdout, process arguments, and signals. They are Node adapters and must
+remain outside the runtime-neutral core.
+
+Acquisition is reached through direct calls, normalized operations, plans,
+sessions, hydration, continuation, and relation-backed fetch. Any runtime
+capability must therefore enter at the shared execution seam rather than being
+smuggled into JSON operation parameters or implemented separately in callers.
+
+## Goal
+
+Allow the existing public memory, operation executor, declarative session,
+schema, and bounded presentation modules to run with standard browser
+primitives while preserving the Node JSONL caller's observable behavior.
+
+## Required work
+
+1. Remove the direct `ws` import and all assumptions about `terminate()` and
+   timer `unref()` from the runtime-neutral acquisition implementation.
+2. Prefer the standard WebSocket interface already available in supported
+   Node versions and browsers. Introduce a tiny injected constructor or factory
+   only if the standard global cannot preserve the acquisition contract.
+   Do not build a generalized transport framework.
+3. Make timeout, cancellation, EOSE, CLOSED, connection failure, and
+   operation-wide budget completion settle deterministically without waiting
+   indefinitely for a peer closing handshake. Once acquisition has finished,
+   later socket messages must not mutate memory or accounting.
+4. If injection is necessary, keep the capability outside normalized command
+   parameters, schemas, provenance, and JSON serialization. Direct execution,
+   plans, sessions, hydration, continuation, and fetch must still reach the
+   same acquisition implementation.
+5. Replace `Buffer.byteLength` with a small runtime-neutral UTF-8 byte
+   measurement while preserving the existing approximate `sizeLimit`
+   behavior and bounded presentation shapes.
+6. Keep JSONL parsing, Node streams, signals, process arguments, and CLI
+   diagnostics in the Node adapter. Do not make the browser import depend on
+   `jsonl-session.js`.
+7. Remove the `ws` package dependency if no Node adapter still needs it. Do
+   not add another networking dependency merely to replace it.
+8. Preserve operation names, command envelopes, result handles, schema,
+   acquisition coverage, warnings, and public result shapes.
+9. Update `CONTEXT.md`, package documentation, and the runtime-neutral
+   milestone status only where the implemented seam is now a durable fact.
+
+## Acceptance criteria
+
+- Importing the public core does not require Node built-ins, `ws`, or
+  `Buffer`.
+- Acquisition uses one implementation across direct, plan, session,
+  continuation, hydration, and fetch paths.
+- Research commands remain JSON-serializable and contain no runtime objects.
+- Timeout and cancellation return bounded partial outcomes and cannot ingest
+  events after completion.
+- The JSONL executable continues to expose the same caller-visible protocol.
+- No frontend, alternate operation executor, connection pool, retry policy,
+  relay-ranking policy, or transport framework is introduced.
+
+## Verification
+
+- Permanent tests expected: normally no new test.
+- Stable public behavior protected: existing acquisition accounting,
+  cancellation, operation execution, JSONL behavior, and bounded presentation.
+- Existing public-boundary tests may be adjusted if implementation-neutral
+  assertions are necessary, but must not test TCP, TLS, the WebSocket library,
+  private socket helpers, process scheduling, or exact timing.
+- Temporary task validation: syntax checks, the complete functional suite, a
+  public-core import with `Buffer` unavailable, and inspection of the public
+  core dependency graph for Node-only imports.
+- Explicitly excluded: live relay reliability tests, browser UI, bundler
+  selection, package splitting, persistence, TypeScript conversion, and a
+  generalized networking abstraction.

@@ -1,3 +1,52 @@
+# Reviewer role
+
+You are the independent reviewer in a repository-backed workflow.
+
+Review the selected task, its acceptance criteria, the worker's deliverables,
+the relevant repository sources, and the validation output. Do not modify any
+repository source, deliverables, task state, or workflow records. Do not repair
+the work. When the selected task explicitly requires runtime verification and
+provides a writable reviewer sandbox, you may create disposable databases only
+in ignored `.data/` paths or the system temporary directory.
+
+The first non-empty line of your response must be exactly one of:
+
+- `PASS`
+- `CHANGES_REQUIRED`
+- `BLOCKED`
+
+Use `PASS` only when all acceptance criteria are materially satisfied.
+
+Treat the durable principles in `CONTEXT.md` as constraints on every task.
+Historical completed tasks do not override current policy. Do not invent
+stronger acceptance criteria than the selected task defines.
+
+Audit test changes as carefully as production changes:
+
+- Permanent tests are exceptional and must protect stable public behavior.
+- Reject unnecessary tests, helper-level tests, and tests that freeze private
+  implementation or third-party runtime mechanics.
+- Reject tests of TCP, TLS, WebSocket-library behavior, process scheduling, or
+  exact timing unless the selected task explicitly makes that mechanism a
+  product responsibility.
+- Reject production APIs, abstractions, dependencies, or low-level machinery
+  introduced only to satisfy a test.
+- Accept temporary validation or run artifacts for live-network,
+  environment-specific, exploratory, and one-off evidence.
+- Passing validation is not evidence that every test is worth keeping.
+
+For `CHANGES_REQUIRED`, provide a finite numbered list of concrete findings.
+Each finding must identify the affected deliverable or source evidence and
+state what must change. Do not request optional polish or expand the task.
+
+Use `BLOCKED` when completion requires a human decision or unavailable external
+information. Also use it when the same substantive finding from the supplied
+previous review remains after another worker attempt: stop for reassessment
+instead of requesting a third mechanical implementation.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -212,3 +261,184 @@ relationship types. Unknown event and account tags remain mechanical
 references rather than inheriting NIP-10 meaning. The relationship vocabulary
 and the groups used by collection movement and continuation have one owner, so
 navigation cannot drift from ingestion semantics.
+
+
+# Selected task
+
+---
+id: 060-runtime-neutral-core
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/060-runtime-neutral-core.validate.sh
+depends_on: 059-inline-nostr-reference-navigation
+---
+
+# Make the established research core runtime-neutral
+
+## Code findings
+
+The public core is already largely based on Web Platform primitives. Two
+production dependencies currently prevent a browser-compatible import:
+
+- `acquire.js` imports `ws` and relies on its non-standard `terminate()` method
+  plus Node timer `unref()` during socket teardown.
+- `presentation.js` uses `Buffer.byteLength` to enforce bounded UTF-8 JSON
+  output.
+
+`jsonl-session.js` and the executable correctly own `node:readline`,
+stdin/stdout, process arguments, and signals. They are Node adapters and must
+remain outside the runtime-neutral core.
+
+Acquisition is reached through direct calls, normalized operations, plans,
+sessions, hydration, continuation, and relation-backed fetch. Any runtime
+capability must therefore enter at the shared execution seam rather than being
+smuggled into JSON operation parameters or implemented separately in callers.
+
+## Goal
+
+Allow the existing public memory, operation executor, declarative session,
+schema, and bounded presentation modules to run with standard browser
+primitives while preserving the Node JSONL caller's observable behavior.
+
+## Required work
+
+1. Remove the direct `ws` import and all assumptions about `terminate()` and
+   timer `unref()` from the runtime-neutral acquisition implementation.
+2. Prefer the standard WebSocket interface already available in supported
+   Node versions and browsers. Introduce a tiny injected constructor or factory
+   only if the standard global cannot preserve the acquisition contract.
+   Do not build a generalized transport framework.
+3. Make timeout, cancellation, EOSE, CLOSED, connection failure, and
+   operation-wide budget completion settle deterministically without waiting
+   indefinitely for a peer closing handshake. Once acquisition has finished,
+   later socket messages must not mutate memory or accounting.
+4. If injection is necessary, keep the capability outside normalized command
+   parameters, schemas, provenance, and JSON serialization. Direct execution,
+   plans, sessions, hydration, continuation, and fetch must still reach the
+   same acquisition implementation.
+5. Replace `Buffer.byteLength` with a small runtime-neutral UTF-8 byte
+   measurement while preserving the existing approximate `sizeLimit`
+   behavior and bounded presentation shapes.
+6. Keep JSONL parsing, Node streams, signals, process arguments, and CLI
+   diagnostics in the Node adapter. Do not make the browser import depend on
+   `jsonl-session.js`.
+7. Remove the `ws` package dependency if no Node adapter still needs it. Do
+   not add another networking dependency merely to replace it.
+8. Preserve operation names, command envelopes, result handles, schema,
+   acquisition coverage, warnings, and public result shapes.
+9. Update `CONTEXT.md`, package documentation, and the runtime-neutral
+   milestone status only where the implemented seam is now a durable fact.
+
+## Acceptance criteria
+
+- Importing the public core does not require Node built-ins, `ws`, or
+  `Buffer`.
+- Acquisition uses one implementation across direct, plan, session,
+  continuation, hydration, and fetch paths.
+- Research commands remain JSON-serializable and contain no runtime objects.
+- Timeout and cancellation return bounded partial outcomes and cannot ingest
+  events after completion.
+- The JSONL executable continues to expose the same caller-visible protocol.
+- No frontend, alternate operation executor, connection pool, retry policy,
+  relay-ranking policy, or transport framework is introduced.
+
+## Verification
+
+- Permanent tests expected: normally no new test.
+- Stable public behavior protected: existing acquisition accounting,
+  cancellation, operation execution, JSONL behavior, and bounded presentation.
+- Existing public-boundary tests may be adjusted if implementation-neutral
+  assertions are necessary, but must not test TCP, TLS, the WebSocket library,
+  private socket helpers, process scheduling, or exact timing.
+- Temporary task validation: syntax checks, the complete functional suite, a
+  public-core import with `Buffer` unavailable, and inspection of the public
+  core dependency graph for Node-only imports.
+- Explicitly excluded: live relay reliability tests, browser UI, bundler
+  selection, package splitting, persistence, TypeScript conversion, and a
+  generalized networking abstraction.
+
+
+# Worker report
+
+Implemented the runtime-neutral core milestone.
+
+Deliverables changed:
+
+- Acquisition now uses the standard global WebSocket API.
+- Removed `ws`, `terminate()`, and timer `unref()` assumptions.
+- Completion is deterministic for timeout, cancellation, EOSE, CLOSED, failures, and budgets.
+- Late socket messages cannot mutate completed acquisition results or memory.
+- Presentation sizing now uses `TextEncoder` for UTF-8 measurement.
+- Removed `ws` from package metadata and lockfile.
+- Updated `CONTEXT.md`, package documentation, and milestone status.
+
+Validation performed:
+
+- Full task validation passed.
+- All 23 functional tests passed.
+- Syntax checks passed.
+- Public-core import succeeded with `Buffer` unavailable.
+- Confirmed no Node-only imports or `Buffer` usage in the public core.
+- Temporary timeout scenario confirmed late messages cannot alter accounting.
+- `git diff --check` passed.
+
+Permanent tests added or expanded: none; existing public-boundary coverage plus temporary task validation was sufficient.
+
+Unresolved uncertainties: none.
+
+# Validation output
+
+Exit code: 0
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/protocol.js && node --check src/reference.js && node --check src/protocol-relationships.js && node --check src/configuration.js && node --check src/contract-facts.js && node --check src/memory.js && node --check src/collection.js && node --check src/acquire.js && node --check src/operations.js && node --check src/relation.js && node --check src/pipeline-source.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/presentation.js && node --check src/jsonl-session.js && node --check bin/nostr-research-session.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+✔ acquisition rejects unusable public inputs before networking (1.952333ms)
+✔ address subjects navigate typed references to current local replaceable evidence (107.846583ms)
+✔ ordinary acquisition accepts an explicit canonical #a filter (0.931625ms)
+✔ direct, plan, and session execution share operation kinds and failure boundaries (36.205167ms)
+✔ collections navigate identities while relations own value analysis (21.464583ms)
+✔ named account and note handles continue with bounded relationship provenance (2241.950542ms)
+✔ factual schemas construct commands accepted through the public session seam (33.011291ms)
+✔ declarative observation and lifecycle form one bounded public workflow (36.659667ms)
+✔ relation summaries compact source selection details without losing their shape (6.362417ms)
+✔ declarative named results compose compatible sets and expose their schema (10.579ms)
+✔ declarative notebook knowledge survives turnover and remains independent from evidence (16.69025ms)
+✔ explicit archive preservation survives complete buffer turnover and releases atomically (71.82ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (42.615375ms)
+✔ collections re-resolve stable subjects across observations, replacement metadata, and eviction (32.142833ms)
+✔ JSONL executable provides one persistent bounded process workflow (105.387709ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (34.145959ms)
+✔ public references normalize to stable subjects while hints stay attributed metadata (3.519625ms)
+✔ mixed event kinds derive truthful references without polluting conversations (55.34675ms)
+✔ inline NIP-27 references navigate as typed, explainable evidence without becoming threads (12.434791ms)
+✔ replaceable selection and follow interpretation remain stable in one process (30.19325ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (24.8505ms)
+✔ relation handles resolve references across evidence lifetime and keep bounded views composable (52.205ms)
+✔ large notebook membership is atomic, bounded, process-local, and directly navigable (2248.665375ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2522.730916
+
+
+# Review instruction
+
+Inspect the actual deliverables and relevant repository sources now. Do not rely only on the worker report.

@@ -828,11 +828,11 @@ function boundedInteger(value, fallback, maximum, label, minimum = 1) {
 
 function enforceSize(value, maximum) {
   const copy = structuredClone(value);
-  if (Buffer.byteLength(JSON.stringify(copy)) > maximum && Array.isArray(copy.provenance)) {
+  if (utf8ByteLength(JSON.stringify(copy)) > maximum && Array.isArray(copy.provenance)) {
     copy.provenance = [];
     copy.provenanceOmittedForSize = true;
   }
-  while (Buffer.byteLength(JSON.stringify(copy)) > maximum && Array.isArray(copy.preview)
+  while (utf8ByteLength(JSON.stringify(copy)) > maximum && Array.isArray(copy.preview)
       && copy.preview.length > 1) {
     copy.preview.pop();
     copy.omitted = (copy.omitted ?? 0) + 1;
@@ -840,7 +840,7 @@ function enforceSize(value, maximum) {
     if ('sizeBounded' in copy) markSizeBound(copy);
     if (Number.isSafeInteger(copy.nextOffset)) copy.nextOffset -= 1;
   }
-  if (Buffer.byteLength(JSON.stringify(copy)) <= maximum) return copy;
+  if (utf8ByteLength(JSON.stringify(copy)) <= maximum) return copy;
   if (Array.isArray(copy.preview) && copy.preview.length === 1) {
     const minimal = {
       type: copy.type,
@@ -862,7 +862,7 @@ function enforceSize(value, maximum) {
       },
       provenance: [],
     };
-    if (Buffer.byteLength(JSON.stringify(minimal)) <= maximum) return minimal;
+    if (utf8ByteLength(JSON.stringify(minimal)) <= maximum) return minimal;
 
     const essential = {
       type: copy.type,
@@ -877,7 +877,7 @@ function enforceSize(value, maximum) {
       omitted: Math.max(0, (copy.count ?? 1) - 1),
       ...sizeBoundMetadata(copy, 1),
     };
-    if (Buffer.byteLength(JSON.stringify(essential)) <= maximum) return essential;
+    if (utf8ByteLength(JSON.stringify(essential)) <= maximum) return essential;
   }
   return {
     type: copy.type,
@@ -896,6 +896,10 @@ function enforceSize(value, maximum) {
     context: { bounded: true, note: `Inspection exceeded the ${maximum}-byte approximate bound.` },
     provenance: [],
   };
+}
+
+function utf8ByteLength(value) {
+  return new TextEncoder().encode(value).byteLength;
 }
 
 function markSizeBound(value) {

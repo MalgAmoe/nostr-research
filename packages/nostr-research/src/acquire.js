@@ -1,7 +1,10 @@
 import { isCanonicalNostrEvent, ResearchMemoryError } from './protocol.js';
 import { ACQUISITION } from './contract-facts.js';
 import { matchFilter } from 'nostr-tools';
-import WebSocket from 'ws';
+
+const WEBSOCKET_CONNECTING = 0;
+const WEBSOCKET_OPEN = 1;
+const WEBSOCKET_CLOSING = 2;
 
 const OPTION_KEYS = new Set([
   'relays', 'filter', 'timeoutMs', 'observationLimit', 'distinctEventLimit',
@@ -59,14 +62,20 @@ export async function acquireRelayEvents(memory, options) {
   const acquiredObservations = new Map();
   const acquiredIds = new Set();
   const additions = { added: [], refreshed: [], evicted: [] };
-  const sockets = new Set();
+  const activeFinishes = new Set();
   let stopReason = null;
   let nextRelay = 0;
+  const WebSocketConstructor = globalThis.WebSocket;
+  if (typeof WebSocketConstructor !== 'function') {
+    throw new ResearchMemoryError(
+      'Relay acquisition requires the standard WebSocket interface in this runtime.',
+    );
+  }
 
   const stop = (reason) => {
     if (stopReason) return;
     stopReason = reason;
-    for (const socket of sockets) socket.__researchFinish(reason);
+    for (const finish of [...activeFinishes]) finish(reason);
   };
 
   const timeout = setTimeout(() => stop('timeout'), normalized.timeoutMs);
@@ -87,27 +96,36 @@ export async function acquireRelayEvents(memory, options) {
     await new Promise((resolve) => {
       relayResult.contacted = true;
       const subscriptionId = `research-${crypto.randomUUID()}`;
-      const socket = new WebSocket(relay);
-      sockets.add(socket);
+      let socket;
+      try {
+        socket = new WebSocketConstructor(relay);
+      } catch (error) {
+        relayResult.outcome = 'connection-failure';
+        relayResult.diagnostic = describeWebSocketError(error);
+        resolve();
+        return;
+      }
       let settled = false;
       let finishing = false;
 
       const settle = () => {
         if (settled) return;
         settled = true;
-        sockets.delete(socket);
+        activeFinishes.delete(finish);
         resolve();
       };
 
       const finish = (outcome, diagnostic = null) => {
-        if (!finishing) {
-          finishing = true;
-          relayResult.outcome = outcome;
-          relayResult.diagnostic = diagnostic;
-        }
-        finishSocket(socket, subscriptionId, settle);
+        if (finishing) return;
+        finishing = true;
+        relayResult.outcome = outcome;
+        relayResult.diagnostic = diagnostic;
+        finishSocket(socket, subscriptionId);
+        // Completion is logical, not contingent on a peer acknowledging the
+        // closing handshake. All later callbacks observe `settled`.
+        settle();
       };
-      socket.__researchFinish = finish;
+      activeFinishes.add(finish);
 
       socket.addEventListener('open', () => {
         if (finishing || stopReason) return finish(stopReason ?? relayResult.outcome);
@@ -207,7 +225,7 @@ export async function acquireRelayEvents(memory, options) {
   } finally {
     clearTimeout(timeout);
     normalized.signal?.removeEventListener('abort', abort);
-    for (const socket of sockets) socket.__researchFinish(stopReason ?? 'completed');
+    for (const finish of [...activeFinishes]) finish(stopReason ?? 'completed');
   }
 
   const completionReason = stopReason ?? 'completed';
@@ -300,8 +318,8 @@ function describeWebSocketError(error) {
   return `${code}${error.message}`;
 }
 
-function finishSocket(socket, subscriptionId, onClosed) {
-  if (socket.readyState === WebSocket.OPEN) {
+function finishSocket(socket, subscriptionId) {
+  if (socket.readyState === WEBSOCKET_OPEN) {
     try {
       socket.send(JSON.stringify(['CLOSE', subscriptionId]));
     } catch {
@@ -312,21 +330,14 @@ function finishSocket(socket, subscriptionId, onClosed) {
     } catch {
       // A concurrent peer close can race teardown.
     }
-    // A peer is allowed to ignore the closing handshake. Do not let it extend
-    // the caller's timeout or cancellation indefinitely.
-    const forceClose = setTimeout(() => socket.terminate(), 50);
-    forceClose.unref();
-    socket.addEventListener('close', () => clearTimeout(forceClose), { once: true });
-  } else if (
-    socket.readyState === WebSocket.CONNECTING
-    || socket.readyState === WebSocket.CLOSING
-  ) {
-    // `close()` cannot abort a CONNECTING socket and a CLOSING peer may never
-    // answer. ws exposes the transport-level termination needed to guarantee
-    // that this operation releases sockets it owns.
-    socket.terminate();
-  } else if (socket.readyState === WebSocket.CLOSED) {
-    onClosed();
+  } else if (socket.readyState === WEBSOCKET_CONNECTING) {
+    try {
+      socket.close();
+    } catch {
+      // Logical completion does not depend on transport teardown succeeding.
+    }
+  } else if (socket.readyState === WEBSOCKET_CLOSING) {
+    // Logical completion does not wait for the peer's closing handshake.
   }
 }
 

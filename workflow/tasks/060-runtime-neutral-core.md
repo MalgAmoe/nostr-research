@@ -1,6 +1,6 @@
 ---
 id: 060-runtime-neutral-core
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/060-runtime-neutral-core.validate.sh
 depends_on: 059-inline-nostr-reference-navigation

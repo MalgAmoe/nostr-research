@@ -70,7 +70,9 @@ identity or hidden relay behavior.
 
 These were corrections to the evidence-navigation boundary already used by
 the library, not requests for a broader NIP framework or more task-specific
-operations. The next active milestone is runtime neutrality.
+operations. The runtime-neutral core is now established; the next active
+milestone is proving the same session boundary through a minimal second
+consumer.
 
 ## Milestone 1: truthful protocol relationships
 
@@ -165,6 +167,8 @@ configuration, or acquisition behavior.
 - add a second navigation API.
 
 ## Milestone 3: runtime-neutral core
+
+Status: completed on 2026-07-28.
 
 ### Goal
 
@@ -404,7 +408,7 @@ None currently justifies changing the engine.
 ```text
 1. Correct kind-aware protocol relationships — completed
 2. Complete addressable and inline-reference navigation — completed
-3. Make the established core runtime-neutral
+3. Make the established core runtime-neutral — completed
 4. Add a minimal browser/Worker consumer
 5. Expose relay capability and observed behavior
 6. Run sustained research with buffer turnover

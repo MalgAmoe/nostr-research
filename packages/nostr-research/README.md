@@ -5,6 +5,12 @@ Nostr evidence. The active runtime is one process-local memory with a renewable
 observation buffer, a bounded deliberate evidence archive, and explicit
 research knowledge.
 
+The public library uses Web Platform primitives and can be imported in
+supported Node and browser-compatible runtimes without Node built-ins or
+polyfills. Relay acquisition uses the runtime's standard `WebSocket`.
+`jsonl-session.js` and the executable are intentionally Node adapters and are
+not imported by the public core.
+
 The product path has four layers: memory owns the observation buffer, evidence
 archive, research notebook, and only the indexes needed to retrieve that
 state; the authoritative executor produces collection/relation values and
@@ -397,8 +403,9 @@ behavior. Notebook knowledge lives only while this memory is open. Calling
 `reset()` or `close()`, or ending the Node process, loses all resident state.
 A fresh process always starts empty.
 
-Removing the remaining Node dependencies (`node:crypto`, `ws`, and the Node
-test infrastructure) is a separate future milestone.
+The public core is runtime-neutral. Node streams, process arguments, signals,
+and CLI diagnostics remain confined to the JSONL adapter; functional tests
+remain Node-based development infrastructure.
 
 ## JSON Lines session protocol
 
