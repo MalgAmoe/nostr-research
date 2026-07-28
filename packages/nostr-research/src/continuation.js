@@ -1,5 +1,10 @@
 import { acquireBoundAccountEvents, acquireRelayEvents, normalizeAcquisitionOptions } from './acquire.js';
-import { ACQUISITION, CONTINUATION, RESULT_LIMIT } from './contract-facts.js';
+import {
+  ACQUISITION,
+  CONTINUATION,
+  RESULT_LIMIT,
+  UNSUCCESSFUL_RELAY_OUTCOMES,
+} from './contract-facts.js';
 import { ResearchMemoryError, subject } from './protocol.js';
 import {
   continuationOutputKind,
@@ -15,6 +20,7 @@ const KEYS = new Set([
   'excludeContentWarnings', 'signal',
 ]);
 const MAX_PROJECTION_LIMIT = RESULT_LIMIT.maximum;
+const UNSUCCESSFUL_RELAY_OUTCOME_SET = new Set(UNSUCCESSFUL_RELAY_OUTCOMES);
 
 /**
  * Continue a supplied result collection through one named Nostr relationship.
@@ -50,7 +56,7 @@ export async function continueResearch(memory, input, options) {
       truncated: projectionBoundReached,
     },
   }, continuationOutputKind(normalized.relationship));
-  const externalPartial = acquisition && acquisition.completionReason !== 'completed';
+  const externalPartial = acquisitionIsPartial(acquisition);
   const unresolved = projection.omissions.some(
     ({ reason }) => reason !== 'empty-valid-result',
   );
@@ -364,7 +370,7 @@ function projectByInput(memory, starts, options, acquisition) {
   const merged = new Map();
   const outcomes = [];
   const omissions = [];
-  const externalPartial = acquisition && acquisition.completionReason !== 'completed';
+  const externalPartial = acquisitionIsPartial(acquisition);
 
   for (const start of starts.items) {
     const startSubject = start.subject;
@@ -443,6 +449,15 @@ function projectByInput(memory, starts, options, acquisition) {
     || (options.eventLimit === MAX_PROJECTION_LIMIT
       && candidates.length === MAX_PROJECTION_LIMIT);
   return { items: retained.map(([, item]) => item), inputs, omissions, boundReached };
+}
+
+function acquisitionIsPartial(acquisition) {
+  return Boolean(acquisition && (
+    acquisition.completionReason !== 'completed'
+    || acquisition.coverage?.relays?.some(
+      ({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOME_SET.has(outcome),
+    )
+  ));
 }
 
 function sharedTags(memory, events, query) {

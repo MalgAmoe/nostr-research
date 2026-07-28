@@ -16,6 +16,89 @@ const DAVE_SECRET = Uint8Array.from(Buffer.from('5'.repeat(64), 'hex'));
 const alice = getPublicKey(ALICE_SECRET);
 const carol = getPublicKey(CAROL_SECRET);
 
+class PartialContinuationWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSED = 3;
+
+  constructor(url) {
+    this.url = url;
+    this.readyState = PartialContinuationWebSocket.CONNECTING;
+    this.listeners = new Map();
+    queueMicrotask(() => {
+      if (url.includes('failing')) {
+        this.readyState = PartialContinuationWebSocket.CLOSED;
+        this.emit('close', { code: 1006 });
+      } else {
+        this.readyState = PartialContinuationWebSocket.OPEN;
+        this.emit('open', {});
+      }
+    });
+  }
+
+  addEventListener(name, listener) {
+    if (!this.listeners.has(name)) this.listeners.set(name, []);
+    this.listeners.get(name).push(listener);
+  }
+
+  send(serialized) {
+    const packet = JSON.parse(serialized);
+    if (packet[0] === 'REQ') {
+      queueMicrotask(() => this.emit('message', {
+        data: JSON.stringify(['EOSE', packet[1]]),
+      }));
+    }
+  }
+
+  close() {
+    this.readyState = PartialContinuationWebSocket.CLOSED;
+  }
+
+  emit(name, event) {
+    for (const listener of this.listeners.get(name) ?? []) listener(event);
+  }
+}
+
+test('relay continuation does not claim a valid empty result when one relay fails', async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  globalThis.WebSocket = PartialContinuationWebSocket;
+  const memory = createInMemoryResearchMemory({ capacity: 10 });
+  const session = createDeclarativeResearchSession(memory);
+  const profile = sign(0, 1, [], '{"name":"alice"}', ALICE_SECRET);
+  memory.ingest(profile, { relay: 'wss://fixture.example/' });
+  try {
+    await session.execute({
+      commandId: 'profile', command: 'select',
+      parameters: { scope: 'corpus', ids: [profile.id] }, resultId: 'profile',
+    });
+    await session.execute({
+      commandId: 'account', command: 'move', input: 'profile',
+      parameters: { to: 'authors', limit: 1 }, resultId: 'account',
+    });
+    const continued = await session.execute({
+      commandId: 'continued', command: 'continue', input: 'account',
+      parameters: {
+        relationship: 'authored-notes',
+        source: 'relays',
+        relays: ['wss://failing.example/', 'wss://complete.example/'],
+        timeoutMs: 1000,
+        eventLimit: 10,
+      },
+      resultId: 'notes',
+    });
+
+    assert.equal(continued.ok, true);
+    assert.equal(continued.result.external.status, 'partial');
+    assert.equal(continued.result.completeness.attemptStatus, 'partial');
+    assert.deepEqual(continued.result.completeness.inputs.statuses, [{
+      value: 'partial-external-match', count: 1,
+    }]);
+  } finally {
+    await session.close();
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
+
 test('named account and note handles continue with bounded relationship provenance', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 20 });
   const session = createDeclarativeResearchSession(memory);
