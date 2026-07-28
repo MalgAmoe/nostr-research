@@ -78,6 +78,54 @@ test('collections navigate identities while relations own value analysis', async
   memory.close();
 });
 
+test('collection accounting separates rejected identities from bounded omissions', () => {
+  const events = [1, 2, 3].map((createdAt) => finalizeEvent({
+    kind: 1, created_at: createdAt, tags: [], content: `identity ${createdAt}`,
+  }, KEY));
+  const memory = createInMemoryResearchMemory({ capacity: 4 });
+  for (const event of events) memory.ingest(event, { relay: 'wss://fixture.example/' });
+  const source = memory.select({ ids: events.map(({ id }) => id), order: 'oldest' });
+
+  const exactFilter = memory.transform(source, {
+    operation: 'filter',
+    where: { field: 'subject.id', equals: events[0].id },
+    limit: 10,
+  });
+  assert.deepEqual(exactFilter.context.cardinality, {
+    inputCount: 3,
+    matchedCount: 1,
+    rejectedCount: 2,
+    outputCount: 1,
+    omittedCount: 0,
+    outputLimit: 10,
+    truncated: false,
+  });
+
+  const boundedFilter = memory.transform(source, {
+    operation: 'filter',
+    where: { field: 'subject.id', in: events.map(({ id }) => id) },
+    limit: 2,
+  });
+  assert.deepEqual(boundedFilter.context.cardinality, {
+    inputCount: 3,
+    matchedCount: 3,
+    rejectedCount: 0,
+    outputCount: 2,
+    omittedCount: 1,
+    outputLimit: 2,
+    truncated: true,
+  });
+
+  const picked = memory.transform(source, { operation: 'pick', positions: [1, 3] });
+  assert.deepEqual(picked.context.cardinality, {
+    inputCount: 3,
+    outputCount: 2,
+    omittedCount: 0,
+    truncated: false,
+  });
+  memory.close();
+});
+
 test('relation handles report operation-specific cardinality and proven truncation', async () => {
   const events = [1, 2].map((createdAt) => finalizeEvent({
     kind: 1,

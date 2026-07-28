@@ -16,11 +16,13 @@ import {
 } from './plan.js';
 import { UNSUCCESSFUL_RELAY_OUTCOMES } from './contract-facts.js';
 import {
+  acquisitionCompletenessFacts,
   acquisitionCorpusAccounting,
   explainResearchMembership,
   presentHandleList,
   presentNotebookMembership,
   presentSessionStatus,
+  relayReportCompleteness,
   showResearchValue,
   validateNotebookMembershipPresentationOptions,
   validateResearchPresentationOptions,
@@ -987,14 +989,14 @@ function observationReferences(item) {
 function externalStatus(result, operation, memory) {
   if (operation === 'relay-info') {
     const outcomes = result.outcomes ?? [];
-    const successful = outcomes.filter(({ outcome }) => outcome === 'success').length;
+    const completeness = relayReportCompleteness(outcomes);
     return {
-      status: successful === outcomes.length ? 'complete' : 'partial',
+      status: completeness.status,
       scope: { type: 'relay-information', relays: outcomes.length },
       retrieval: {
-        requested: outcomes.length,
-        successful,
-        unsuccessful: outcomes.length - successful,
+        requested: completeness.requested,
+        successful: completeness.successful,
+        unsuccessful: completeness.unsuccessful,
         outcomes: countedValues(outcomes.map(({ outcome }) => outcome)),
         bounds: cloneJson(result.bounds),
       },
@@ -1003,22 +1005,22 @@ function externalStatus(result, operation, memory) {
   }
   if (operation === 'relay-count') {
     const outcomes = result.outcomes ?? [];
-    const successful = outcomes.filter(({ outcome }) => outcome === 'success').length;
+    const completeness = relayReportCompleteness(outcomes);
     return {
-      status: successful === outcomes.length ? 'complete' : 'partial',
+      status: completeness.status,
       scope: { type: 'relay-count', relays: outcomes.length },
       retrieval: {
-        requested: outcomes.length,
-        successful,
-        unsuccessful: outcomes.length - successful,
+        requested: completeness.requested,
+        successful: completeness.successful,
+        unsuccessful: completeness.unsuccessful,
         outcomes: countedValues(outcomes.map(({ outcome }) => outcome)),
         bounds: cloneJson(result.bounds),
       },
       distinction: 'Counts remain relay-local and are never summed into a global total.',
     };
   }
-  let boundsReached = result.completionReason === 'completed'
-    ? [] : [result.completionReason];
+  const completenessFacts = acquisitionCompletenessFacts(memory, result);
+  const boundsReached = completenessFacts.boundsReached;
   const contactedRelays = result.coverage.relays.filter(
     ({ attemptStarted, contacted }) => attemptStarted ?? contacted,
   );
@@ -1044,23 +1046,11 @@ function externalStatus(result, operation, memory) {
   const allUnsuccessfulRelays = contactedRelays
     .filter(({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOME_SET.has(outcome))
     .map(({ relay, outcome }) => ({ relay, outcome }));
-  if (allUnsuccessfulRelays.length) boundsReached.push('relay-errors');
   const unsuccessfulRelays = allUnsuccessfulRelays.slice(0, 5);
   const hydration = operation === 'hydrate';
-  const requestedAuthors = hydration && Array.isArray(result.requested?.filter?.authors)
-    ? new Set(result.requested.filter.authors) : null;
-  const resolvedAuthors = requestedAuthors === null ? null : new Set(
-    [...requestedAuthors].filter((id) => {
-      try {
-        return memory.inspect({ type: 'account', id }).resolved;
-      } catch {
-        return false;
-      }
-    }),
-  );
-  const requested = requestedAuthors?.size ?? null;
-  const resolved = resolvedAuthors?.size ?? null;
-  const missing = requested === null ? null : Math.max(0, requested - resolved);
+  const requested = completenessFacts.requested ?? null;
+  const resolved = completenessFacts.resolved ?? null;
+  const missing = completenessFacts.missing ?? null;
   const hydratedEventAuthors = hydration
     ? result.acquiredEventIds.map((eventId) => {
       try {
@@ -1073,10 +1063,9 @@ function externalStatus(result, operation, memory) {
   const hydratedEventsByAccount = countedValues(hydratedEventAuthors);
   const accountsWithMultipleMetadataEvents = hydratedEventsByAccount
     .filter(({ count }) => count > 1).length;
-  if (missing > 0 && boundsReached.length === 0) boundsReached = ['unresolved-subjects'];
   const corpusChanges = acquisitionCorpusAccounting(result.additions);
   return {
-    status: boundsReached.length ? 'partial' : 'complete',
+    status: completenessFacts.status,
     completeness: {
       requested,
       resolved,

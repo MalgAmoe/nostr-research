@@ -180,16 +180,26 @@ function apply(memory, collection, operation) {
   let output;
   if (operation.operation === 'filter') {
     const { field, equals, in: choices } = operation.where;
-    const items = collection.items.filter(({ subject }) => (
+    const matched = collection.items.filter(({ subject }) => (
       (field === 'subject.type' ? subject.type : subject.id) === equals
       || choices?.includes(field === 'subject.type' ? subject.type : subject.id)
-    )).slice(0, operation.limit);
+    ));
+    const items = matched.slice(0, operation.limit);
     const refined = field === 'subject.type' && choices === undefined
       ? {
         event: 'events', account: 'accounts', address: 'addresses', relationship: 'relationships',
       }[equals]
       : undefined;
     output = result(items, refined ?? collection.kind);
+    output.bounds = {
+      inputCount: collection.items.length,
+      matchedCount: matched.length,
+      rejectedCount: collection.items.length - matched.length,
+      outputCount: items.length,
+      omittedCount: matched.length - items.length,
+      outputLimit: operation.limit,
+      truncated: matched.length > items.length,
+    };
   } else if (operation.operation === 'pick') {
     const last = operation.positions.at(-1);
     if (last > collection.items.length) {
@@ -199,6 +209,12 @@ function apply(memory, collection, operation) {
     }
     output = result(operation.positions.map((position) => collection.items[position - 1]),
       collection.kind);
+    output.bounds = {
+      inputCount: collection.items.length,
+      outputCount: output.items.length,
+      omittedCount: 0,
+      truncated: false,
+    };
   } else if (operation.operation === 'limit') {
     output = result(collection.items.slice(0, operation.limit), collection.kind);
   } else if (operation.operation === 'sample') {

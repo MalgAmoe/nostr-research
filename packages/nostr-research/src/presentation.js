@@ -831,7 +831,7 @@ function showAcquisition(memory, value, settings) {
           operation: value.type === 'hydration-report' ? 'hydrate' : 'acquire',
         },
         bounds: value.budget,
-        completeness: acquisitionSummaryCompleteness(memory, value),
+        completeness: acquisitionCompletenessFacts(memory, value),
       }),
       subjectCount: collection.items.length,
       corpusChanges,
@@ -1090,7 +1090,7 @@ function summaryCore({
   };
 }
 
-function relayReportCompleteness(outcomes) {
+export function relayReportCompleteness(outcomes) {
   const successful = outcomes.filter(({ outcome }) => outcome === 'success').length;
   return {
     status: successful === outcomes.length ? 'complete' : 'partial',
@@ -1101,7 +1101,7 @@ function relayReportCompleteness(outcomes) {
   };
 }
 
-function acquisitionSummaryCompleteness(memory, value) {
+export function acquisitionCompletenessFacts(memory, value) {
   const boundsReached = value.completionReason === 'completed'
     ? [] : [value.completionReason];
   const relays = value.coverage?.relays ?? value.relays ?? [];
