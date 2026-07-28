@@ -479,7 +479,15 @@ export function operationSchema() {
         },
       },
       fetch: { resultFacts: acquisitionResultFacts() },
-      hydrate: { resultFacts: acquisitionResultFacts() },
+      hydrate: {
+        resultFacts: {
+          ...acquisitionResultFacts(),
+          completeness: {
+            units: 'accounts',
+            eventCardinality: 'the result handle counts immutable metadata events and may contain multiple events per account',
+          },
+        },
+      },
     },
   };
 }

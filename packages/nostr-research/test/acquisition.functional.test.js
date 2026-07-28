@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { finalizeEvent } from 'nostr-tools';
 import {
   acquireRelayEvents,
   createDeclarativeResearchSession,
@@ -8,6 +9,8 @@ import {
   ResearchMemoryError,
   subject,
 } from '@nostr-research/memory';
+
+const HYDRATION_KEY = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
 
 class RelayFixtureWebSocket {
   static CONNECTING = 0;
@@ -47,6 +50,14 @@ class RelayFixtureWebSocket {
         this.message(['AUTH', 'neutral challenge']);
         this.message(['EOSE', 'wrong-subscription', ['more']]);
         this.message(['EOSE', subscriptionId, ['finish']]);
+      } else if (this.url.includes('hydrate-multiple')) {
+        this.message(['EVENT', subscriptionId, finalizeEvent({
+          kind: 0, created_at: 100, tags: [], content: '{"name":"first"}',
+        }, HYDRATION_KEY)]);
+        this.message(['EVENT', subscriptionId, finalizeEvent({
+          kind: 0, created_at: 101, tags: [], content: '{"name":"second"}',
+        }, HYDRATION_KEY)]);
+        this.message(['EOSE', subscriptionId]);
       } else if (this.url.includes('unknown')) {
         this.message(['CLOSED', subscriptionId, 'future-prefix: visible evidence']);
       } else if (this.url.includes('refused')) {
@@ -213,6 +224,10 @@ test('public acquisition and session reports preserve bounded relay messages and
       commandId: 'global-schema', command: 'schema', parameters: { detail: 'full' },
     });
     assert.equal(globalSchema.result.research.operationFacts.acquire.resultFacts.exhaustive, false);
+    assert.equal(
+      globalSchema.result.research.operationFacts.hydrate.resultFacts.completeness.units,
+      'accounts',
+    );
 
     const planned = await session.execute({
       commandId: 'plan', command: 'plan',
@@ -231,6 +246,37 @@ test('public acquisition and session reports preserve bounded relay messages and
       parameters: { mode: 'coverage', previewLimit: 10 },
     });
     assert.equal(plannedCoverage.result.relays[0].closedReason.category, 'auth-required');
+
+    const seed = finalizeEvent({
+      kind: 1, created_at: 99, tags: [], content: 'hydration seed',
+    }, HYDRATION_KEY);
+    memory.ingest(seed, {
+      relay: 'wss://fixture.example',
+      observedAt: '2026-07-28T10:00:00.000Z',
+    });
+    await session.execute({
+      commandId: 'seed-account', command: 'select',
+      parameters: { scope: 'corpus', ids: [seed.id] }, resultId: 'seed-note',
+    });
+    await session.execute({
+      commandId: 'seed-author', command: 'move', input: 'seed-note',
+      parameters: { to: 'authors' }, resultId: 'seed-author',
+    });
+    const hydrated = await session.execute({
+      commandId: 'hydrate-multiple', command: 'hydrate', input: 'seed-author',
+      parameters: {
+        relays: ['wss://hydrate-multiple.example'],
+        timeoutMs: 1000, observationLimit: 10, distinctEventLimit: 10,
+      },
+      resultId: 'hydrated-multiple',
+    });
+    assert.equal(hydrated.result.handle.count, 2);
+    const hydrationCompleteness = hydrated.result.external.completeness;
+    assert.equal(hydrationCompleteness.units, 'accounts');
+    assert.equal(hydrationCompleteness.requested, 1);
+    assert.equal(hydrationCompleteness.resolved, 1);
+    assert.equal(hydrationCompleteness.acquiredMetadataEvents, 2);
+    assert.equal(hydrationCompleteness.accountsWithMultipleMetadataEvents, 1);
   } finally {
     memory.close();
     globalThis.WebSocket = originalWebSocket;

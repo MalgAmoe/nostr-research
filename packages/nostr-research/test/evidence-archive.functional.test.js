@@ -194,6 +194,18 @@ test('explicit archive preservation survives complete buffer turnover and releas
       resultId: 'archived-profile',
     });
     assert.equal(archivedProfile.result.handle.count, 1);
+    const archiveSummary = await command(session, 'show-archive-summary', 'show', {
+      input: 'archived-profile',
+      parameters: { mode: 'summary' },
+    });
+    assert.deepEqual(archiveSummary.result.summary.archiveEntries, {
+      total: 1,
+      byLevel: [{ level: 'canonical', count: 1 }],
+    });
+    assert.deepEqual(archiveSummary.result.summary.canonicalEvidenceResolution, {
+      buffer: 0, archive: 1, unresolved: 0,
+    });
+    assert.equal('evidenceResolution' in archiveSummary.result.summary, false);
     await command(session, 'release-archive-handle', 'release', {
       input: 'archived-profile',
       parameters: {},

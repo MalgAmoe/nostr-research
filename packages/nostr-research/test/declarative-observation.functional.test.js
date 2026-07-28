@@ -147,6 +147,16 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   assert.equal(listed.result.omitted, 2);
   assert.equal(listed.sessionRevision, 3);
 
+  const invalidList = await session.execute({
+    commandId: 'list-with-offset',
+    command: 'list',
+    parameters: { offset: 0 },
+  });
+  assert.equal(invalidList.ok, false);
+  assert.equal(invalidList.error.code, 'INVALID_COMMAND');
+  assert.equal(invalidList.error.message, 'Unknown list parameter: offset.');
+  assert.equal(invalidList.sessionRevision, 3);
+
   const released = await session.execute({
     commandId: 'release',
     command: 'release',

@@ -231,6 +231,11 @@ export class DeclarativeResearchSession {
       throw protocolError('INVALID_COMMAND', `${command.command} does not accept an input handle.`);
     }
     if (command.command === 'list') {
+      const unknown = Object.keys(parameters)
+        .find((key) => !['limit', 'sizeLimit'].includes(key));
+      if (unknown) {
+        throw protocolError('INVALID_COMMAND', `Unknown list parameter: ${unknown}.`);
+      }
       return readOnly(() => presentHandleList(
         [...this.#handles].map(([id, entry]) => handleMetadata(
           id, entry.descriptor, entry.value, entry.revision,
@@ -1032,6 +1037,18 @@ function externalStatus(result, operation, memory) {
   const requested = requestedAuthors?.size ?? null;
   const resolved = resolvedAuthors?.size ?? null;
   const missing = requested === null ? null : Math.max(0, requested - resolved);
+  const hydratedEventAuthors = hydration
+    ? result.acquiredEventIds.map((eventId) => {
+      try {
+        return memory.inspect({ type: 'event', id: eventId }).evidence?.event?.pubkey ?? null;
+      } catch {
+        return null;
+      }
+    }).filter(Boolean)
+    : [];
+  const hydratedEventsByAccount = countedValues(hydratedEventAuthors);
+  const accountsWithMultipleMetadataEvents = hydratedEventsByAccount
+    .filter(({ count }) => count > 1).length;
   if (missing > 0 && boundsReached.length === 0) boundsReached = ['unresolved-subjects'];
   const corpusChanges = acquisitionCorpusAccounting(result.additions);
   return {
@@ -1040,6 +1057,12 @@ function externalStatus(result, operation, memory) {
       requested,
       resolved,
       missing,
+      ...(hydration ? {
+        units: 'accounts',
+        acquiredMetadataEvents: result.counts.distinctEventsAcquired,
+        accountsWithMultipleMetadataEvents,
+        distinction: 'Account completeness counts resolved account subjects; the result handle counts immutable metadata events and may contain multiple events per account.',
+      } : {}),
       boundsReached,
       requestBounds: {
         relays: result.requested.relays.length,

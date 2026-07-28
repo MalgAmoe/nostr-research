@@ -418,10 +418,13 @@ function showCollection(memory, collection, settings) {
   };
   if (settings.mode === 'summary') {
     result.preview = [];
+    const evidenceResolution = resolutionCounts(memory, collection.items);
     result.summary = {
       subjects: collection.items.length,
       byType: countedSubjectTypes(collection.items),
-      evidenceResolution: resolutionCounts(memory, collection.items),
+      ...(collection.context?.operation === 'archived'
+        ? archiveCollectionSummary(collection.items, evidenceResolution)
+        : { evidenceResolution }),
     };
   } else if (settings.mode === 'coverage') {
     result.preview = [];
@@ -429,7 +432,9 @@ function showCollection(memory, collection, settings) {
     const evidenceResolution = resolutionCounts(memory, collection.items);
     result.coverage = {
       sources: provenance,
-      evidenceResolution,
+      ...(collection.context?.operation === 'archived'
+        ? archiveCollectionSummary(collection.items, evidenceResolution)
+        : { evidenceResolution }),
       presentationOmissions: { subjectDetails: collection.items.length },
       partial: evidenceResolution.unresolved > 0
         || collection.context?.completeness?.status === 'partial',
@@ -451,6 +456,23 @@ function showCollection(memory, collection, settings) {
     }));
   }
   return result;
+}
+
+function archiveCollectionSummary(items, canonicalEvidenceResolution) {
+  const levels = items.flatMap(({ reasons = [] }) => reasons
+    .filter(({ type, level }) => type === 'archived-evidence' && typeof level === 'string')
+    .map(({ level }) => level));
+  return {
+    archiveEntries: {
+      total: items.length,
+      byLevel: [...new Set(levels)].sort().map((level) => ({
+        level,
+        count: levels.filter((value) => value === level).length,
+      })),
+    },
+    canonicalEvidenceResolution,
+    distinction: 'Archive entry presence is separate from canonical evidence resolution; reference and excerpt entries do not resolve complete canonical evidence.',
+  };
 }
 
 function countedSubjectTypes(items) {

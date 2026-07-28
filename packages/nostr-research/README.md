@@ -536,6 +536,14 @@ directly from such a handle. `select` remains available when the caller wants
 to apply event-query constraints within one acquisition attempt; it is not a
 mandatory conversion step.
 
+Hydration completeness counts requested, resolved, and missing account
+subjects. The hydration handle itself counts immutable metadata events, so its
+cardinality can be larger when relays return multiple metadata events for one
+account. Archive summaries make the inverse distinction explicit: archive
+entry presence is reported separately from canonical evidence resolution,
+because reference and excerpt preservation do not retain complete canonical
+evidence.
+
 Configuration has explicit levels. Engine constraints are immutable supported
 ranges. Memory, archive, and notebook capacities are construction-time
 configuration because changing them can evict or reject stored state. Session
