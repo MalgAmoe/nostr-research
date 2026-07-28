@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { finalizeEvent, getPublicKey } from 'nostr-tools';
 import {
+  continueResearch,
   createInMemoryResearchMemory,
-    subject,
+  subject,
 } from '@nostr-research/memory';
 
 const ALICE_KEY = Uint8Array.from(Buffer.from('1'.repeat(64), 'hex'));
@@ -13,6 +14,173 @@ const alice = getPublicKey(ALICE_KEY);
 const bob = getPublicKey(BOB_KEY);
 const carol = getPublicKey(CAROL_KEY);
 const unresolved = 'd'.repeat(64);
+
+test('mixed event kinds derive truthful references without polluting conversations', async () => {
+  const root = sign(1, 10, [], 'root', ALICE_KEY);
+  const reply = sign(
+    1, 20,
+    [['e', root.id, '', 'root'], ['p', alice]],
+    'reply',
+    BOB_KEY,
+  );
+  const comment = sign(
+    1111, 30,
+    [
+      ['E', root.id, '', alice],
+      ['e', reply.id, '', bob],
+      ['P', alice],
+      ['p', bob],
+    ],
+    'comment',
+    CAROL_KEY,
+  );
+  const repost = sign(
+    6, 40,
+    [['e', root.id, 'wss://evidence.example'], ['p', alice]],
+    JSON.stringify(root),
+    CAROL_KEY,
+  );
+  const reaction = sign(
+    7, 50,
+    [['e', root.id, 'wss://evidence.example'], ['p', alice], ['k', '1']],
+    '+',
+    BOB_KEY,
+  );
+  const unresolvedReaction = sign(
+    7, 55,
+    [['e', unresolved, 'wss://evidence.example'], ['k', '1']],
+    '-',
+    BOB_KEY,
+  );
+  const deletion = sign(
+    5, 60,
+    [['e', root.id], ['k', '1']],
+    'published by accident',
+    ALICE_KEY,
+  );
+  const mention = sign(1, 70, [['p', bob]], 'hello bob', CAROL_KEY);
+  const quote = sign(1, 80, [['q', root.id]], 'quoted root', CAROL_KEY);
+  const externalReaction = sign(
+    17, 90,
+    [['k', 'web'], ['i', 'https://example.test/research']],
+    '⭐',
+    BOB_KEY,
+  );
+  const file = sign(1063, 100, [], 'file metadata', ALICE_KEY);
+  const genericRepost = sign(
+    16, 110,
+    [['e', file.id, 'wss://evidence.example'], ['k', '1063']],
+    JSON.stringify(file),
+    CAROL_KEY,
+  );
+  const events = [
+    root, reply, comment, repost, reaction, unresolvedReaction, deletion, mention, quote,
+    externalReaction, file, genericRepost,
+  ];
+  const memory = createInMemoryResearchMemory({ capacity: 1000 });
+  try {
+    for (const event of events) {
+      memory.ingest(event, {
+        relay: 'wss://evidence.example',
+        observedAt: '2026-07-28T10:00:00.000Z',
+      });
+    }
+
+    const conversation = memory.traverse([subject('event', root.id)], {
+      relationshipTypes: ['reply-root', 'reply-parent'],
+      direction: 'both',
+      depth: 3,
+      limit: 20,
+    });
+    assert.deepEqual(
+      conversation.items
+        .filter(({ role }) => role !== 'seed')
+        .map(({ subject: item }) => item.id)
+        .sort(),
+      [reply.id, comment.id].sort(),
+    );
+
+    assertRelationship(memory, repost, 'repost-target', root.id, ['e', root.id, 'wss://evidence.example']);
+    assertRelationship(memory, reaction, 'reaction-target', root.id, ['e', root.id, 'wss://evidence.example']);
+    assertRelationship(memory, deletion, 'deletion-target', root.id, ['e', root.id]);
+    const genericRepostTarget = memory.inspect(subject('event', genericRepost.id)).relationships
+      .find(({ type, target }) => type === 'repost-target' && target.id === file.id);
+    assert.ok(genericRepostTarget);
+    assert.deepEqual(genericRepostTarget.evidence, {
+      interpretation: 'known',
+      protocol: 'NIP-18',
+      field: 'content',
+    });
+    assertRelationship(
+      memory,
+      externalReaction,
+      'reaction-target',
+      'i:https://example.test/research',
+      ['i', 'https://example.test/research'],
+    );
+    assertRelationship(memory, mention, 'mentioned-account', bob, ['p', bob]);
+    assertRelationship(memory, quote, 'quoted-event', root.id, ['q', root.id]);
+    assertRelationship(memory, comment, 'comment-root-author', alice, ['P', alice]);
+    assertRelationship(memory, comment, 'comment-parent-author', bob, ['p', bob]);
+
+    for (const event of [repost, reaction, unresolvedReaction, deletion, genericRepost]) {
+      assert.ok(!memory.inspect(subject('event', event.id)).relationships.some(
+        ({ type }) => ['reply-root', 'reply-parent'].includes(type),
+      ));
+    }
+
+    const sources = memory.select({
+      ids: [repost.id, reaction.id, unresolvedReaction.id, deletion.id, genericRepost.id],
+      limit: 10,
+    });
+    const moved = memory.transform(sources, {
+      operation: 'move',
+      to: 'referencedEvents',
+      limit: 10,
+    });
+    assert.deepEqual(
+      moved.items.map(({ subject: item }) => item.id).sort(),
+      [root.id, file.id, unresolved].sort(),
+    );
+    assert.ok(moved.items.every(({ reasons }) => (
+      reasons.some(({ type }) => type === 'relationship')
+      && reasons.some(({ type }) => type === 'collection-move')
+    )));
+
+    const continued = await continueResearch(memory, sources, {
+      relationship: 'referenced-events',
+      source: 'local',
+      eventLimit: 10,
+    });
+    assert.deepEqual(
+      continued.collection.items.map(({ subject: item }) => item.id).sort(),
+      [root.id, file.id, unresolved].sort(),
+    );
+    assert.equal(
+      continued.completeness.inputs.find(({ subject: item }) => (
+        item.id === unresolvedReaction.id
+      )).status,
+      'matched',
+    );
+    assert.equal(memory.inspect(subject('event', unresolved)).resolved, false);
+
+    const cancelled = new AbortController();
+    cancelled.abort();
+    const relayBacked = await continueResearch(memory, sources, {
+      relationship: 'referenced-events',
+      source: 'relays',
+      relays: ['wss://fixture.invalid/'],
+      eventLimit: 10,
+      signal: cancelled.signal,
+    });
+    assert.deepEqual(
+      relayBacked.requested.filter.ids.sort(),
+      [root.id, file.id, unresolved].sort(),
+    );
+  } finally {
+    memory.close();
+  }
+});
 
 test('replaceable selection and follow interpretation remain stable in one process', () => {
   const contactOld = sign(3, 100, [['p', carol]], 'old contacts', ALICE_KEY);
@@ -116,4 +284,12 @@ test('replaceable selection and follow interpretation remain stable in one proce
 
 function sign(kind, createdAt, tags, content, key) {
   return finalizeEvent({ kind, created_at: createdAt, tags, content }, key);
+}
+
+function assertRelationship(memory, sourceEvent, type, targetId, tag) {
+  const relationship = memory.inspect(subject('event', sourceEvent.id)).relationships
+    .find((candidate) => candidate.type === type && candidate.target.id === targetId);
+  assert.ok(relationship, `${type} relationship should target ${targetId}.`);
+  assert.deepEqual(relationship.evidence.tag, tag);
+  assert.deepEqual(sourceEvent.tags[relationship.evidence.tagIndex], tag);
 }

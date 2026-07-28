@@ -6,6 +6,7 @@ import {
   createInMemoryResearchMemory,
   executeResearchOperation,
   executeResearchPlan,
+  preflightResearchOperation,
 } from '@nostr-research/memory';
 
 const ALICE_SECRET = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
@@ -173,7 +174,7 @@ test('named account and note handles continue with bounded relationship provenan
       resultCount: 2,
       statuses: [
         { value: 'empty-valid-result', count: 1 },
-        { value: 'resolved', count: 1 },
+        { value: 'matched', count: 1 },
       ],
     },
   );
@@ -184,7 +185,7 @@ test('named account and note handles continue with bounded relationship provenan
   assert.deepEqual(multiAuthored.result.completeness.outcomes, [
     {
       subject: { type: 'account', id: alice },
-      status: 'resolved',
+      status: 'matched',
       resultCount: 2,
     },
     {
@@ -261,7 +262,7 @@ test('named account and note handles continue with bounded relationship provenan
     resultCount: 2,
     statuses: [
       { value: 'event-limit', count: 1 },
-      { value: 'resolved', count: 1 },
+      { value: 'matched', count: 1 },
     ],
   });
   assert.deepEqual(boundedMulti.result.completeness.omissions, {
@@ -469,6 +470,18 @@ test('named account and note handles continue with bounded relationship provenan
   assert.ok(explained.result.reasons.some(({ relationshipType }) => (
     relationshipType === 'reply-parent'
   )));
+
+  assert.throws(
+    () => preflightResearchOperation(
+      memory,
+      {
+        operation: 'continue',
+        parameters: { relationship: 'conversation', source: 'local' },
+      },
+      { kind: 'events', itemKind: 'events', resultKind: 'acquisition-report' },
+    ),
+    /Research continue operation requires a subject collection input.*must first be converted/,
+  );
 
   await session.close();
 

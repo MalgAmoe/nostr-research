@@ -6,6 +6,10 @@ import {
   operationSchema,
   transformOutputKind,
 } from './operations.js';
+import {
+  ACCOUNT_REFERENCE_RELATIONSHIP_TYPES,
+  EVENT_REFERENCE_RELATIONSHIP_TYPES,
+} from './protocol-relationships.js';
 
 const MAX_LIMIT = RESULT_LIMIT.maximum;
 const DEFAULT_LIMIT = RESULT_LIMIT.default;
@@ -229,6 +233,7 @@ function move(memory, collection, operation) {
     const key = itemKey(candidate);
     const target = found.get(key) ?? { ...candidate, reasons: [], provenance: [] };
     merge(target.reasons, source.reasons);
+    merge(target.reasons, candidate.reasons);
     merge(target.reasons, [{ type: 'collection-move', transition, source: source.subject }]);
     merge(target.provenance, source.provenance);
     merge(target.provenance, candidate.provenance);
@@ -241,7 +246,7 @@ function move(memory, collection, operation) {
     } else if (operation.to === 'referencedAccounts' || operation.to === 'referencedEvents') {
       const target = operation.to === 'referencedAccounts' ? 'account' : 'event';
       const relationshipTypes = target === 'account'
-        ? ['mentioned-account'] : ['reply-root', 'reply-parent', 'mentioned-event', 'quoted-event'];
+        ? ACCOUNT_REFERENCE_RELATIONSHIP_TYPES : EVENT_REFERENCE_RELATIONSHIP_TYPES;
       const traversed = memory.traverse([item.subject], {
         relationshipTypes, direction: 'outbound', depth: 1, limit: MAX_LIMIT,
       });

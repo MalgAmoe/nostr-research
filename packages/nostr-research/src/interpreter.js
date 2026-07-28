@@ -670,7 +670,7 @@ function compactContinuationCompleteness(value = {}, options = {}) {
     ...(input.omittedCount === undefined ? {} : { omittedCount: input.omittedCount }),
   }));
   const retryable = inputs.filter(({ status }) => (
-    !['resolved', 'empty-valid-result'].includes(status)
+    !['matched', 'empty-valid-result'].includes(status)
   ));
   return {
     attemptStatus: value.status,

@@ -197,3 +197,11 @@ operations for ordinary sequential research without executable JavaScript.
 Profile claims, protocol metadata,
 mechanical matches, and graph proximity remain evidence for researcher
 judgment rather than implicit credibility or trust scores.
+
+Protocol relationship derivation is kind-aware and remains a replaceable view
+over canonical evidence. Kind-1 and kind-1111 thread edges alone form
+conversations; repost, reaction, and deletion targets retain distinct
+relationship types. Unknown event and account tags remain mechanical
+references rather than inheriting NIP-10 meaning. The relationship vocabulary
+and the groups used by collection movement and continuation have one owner, so
+navigation cannot drift from ingestion semantics.

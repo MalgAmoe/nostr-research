@@ -5,6 +5,10 @@ import {
   continuationOutputKind,
   continuationSemantics,
 } from './operations.js';
+import {
+  CONVERSATION_RELATIONSHIP_TYPES,
+  EVENT_REFERENCE_RELATIONSHIP_TYPES,
+} from './protocol-relationships.js';
 const KEYS = new Set([
   'relationship', 'source', 'relays', 'since', 'until', 'offset', 'eventLimit', 'depth',
   'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency', 'signal',
@@ -268,15 +272,15 @@ function projectionLimit(eventLimit) {
 
 function traversalFor(relationship) {
   const map = {
-    replies: { types: ['reply-root', 'reply-parent'], direction: 'inbound' },
-    ancestors: { types: ['reply-root', 'reply-parent'], direction: 'outbound' },
+    replies: { types: CONVERSATION_RELATIONSHIP_TYPES, direction: 'inbound' },
+    ancestors: { types: CONVERSATION_RELATIONSHIP_TYPES, direction: 'outbound' },
     mentions: { types: ['mentioned-event'], direction: 'both' },
     quotes: { types: ['quoted-event'], direction: 'both' },
     'referenced-events': {
-      types: ['reply-root', 'reply-parent', 'mentioned-event', 'quoted-event'],
+      types: EVENT_REFERENCE_RELATIONSHIP_TYPES,
       direction: 'outbound',
     },
-    conversation: { types: ['reply-root', 'reply-parent'], direction: 'both' },
+    conversation: { types: CONVERSATION_RELATIONSHIP_TYPES, direction: 'both' },
   };
   return map[relationship] ?? { types: [], direction: 'outbound' };
 }
@@ -284,8 +288,9 @@ function traversalFor(relationship) {
 function continuationFilter(memory, starts, options) {
   const accounts = starts.items.filter(({ subject: item }) => item.type === 'account')
     .map(({ subject: item }) => item.id);
-  const events = starts.items.filter(({ subject: item }) => item.type === 'event')
-    .map(({ subject: item }) => item.id);
+  const eventSubjects = starts.items.filter(({ subject: item }) => item.type === 'event')
+    .map(({ subject: item }) => item);
+  const eventIds = eventSubjects.map(({ id }) => id);
   const base = {
     // The relay request may need more candidates than the final global
     // projection window so one prolific input cannot consume every slot.
@@ -311,11 +316,11 @@ function continuationFilter(memory, starts, options) {
   }
   if (['replies', 'conversation', 'mentions', 'quotes'].includes(
     options.relationship,
-  )) return events.length ? { ...base, '#e': events } : null;
-  const referenced = memory.traverse(events, {
+  )) return eventIds.length ? { ...base, '#e': eventIds } : null;
+  const referenced = memory.traverse(eventSubjects, {
     relationshipTypes: traversalFor(options.relationship).types,
     direction: 'outbound', depth: 1, limit: 1000,
-  }).items.filter(({ subject: item }) => item.type === 'event')
+  }).items.filter(({ subject: item, role }) => item.type === 'event' && role !== 'seed')
     .map(({ subject: item }) => item.id);
   return referenced.length ? { ...base, ids: referenced } : null;
 }
@@ -374,11 +379,11 @@ function projectByInput(memory, starts, options, acquisition) {
       }
     }
     const candidateCount = candidateKeys.size;
-    const status = candidateCount ? (externalPartial ? 'partial-external-resolution' : 'resolved')
-      : externalPartial ? 'partial-external-resolution' : 'empty-valid-result';
+    const status = candidateCount ? (externalPartial ? 'partial-external-match' : 'matched')
+      : externalPartial ? 'partial-external-match' : 'empty-valid-result';
     const outcome = { subject: startSubject, status, resultCount: candidateCount };
     outcomes.push({ outcome, candidateKeys });
-    if (status !== 'resolved') omissions.push({ subject: startSubject, reason: status });
+    if (status !== 'matched') omissions.push({ subject: startSubject, reason: status });
   }
 
   // Preserve the global bound while giving each explicit input a chance to
@@ -409,7 +414,7 @@ function projectByInput(memory, starts, options, acquisition) {
     });
     return {
       ...outcome,
-      status: externalPartial ? 'partial-external-resolution' : 'event-limit',
+      status: externalPartial ? 'partial-external-match' : 'event-limit',
       resultCount,
       omittedCount,
     };

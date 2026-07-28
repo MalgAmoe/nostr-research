@@ -126,6 +126,15 @@ routes cover event authors and protocol references,
 resident authored events, and current kind-3 follows. These transforms never
 acquire, hydrate, remember, or evict evidence.
 
+Protocol relationships are derived according to event kind before they enter
+the navigation indexes. Kind-1 and kind-1111 thread edges form conversations;
+reposts, reactions, and deletion requests retain distinct target
+relationships and therefore do not enter reply graphs. Unknown `e`/`E` and
+`p`/`P` tags remain mechanical event or account references rather than being
+silently assigned thread or mention semantics. `referencedEvents` and
+`referencedAccounts` include both typed and mechanical references while the
+original canonical tags remain available for inspection.
+
 ## Composable research relations
 
 Subject collections enter the general relation algebra with `relate`.
@@ -544,6 +553,9 @@ The response includes a bounded `outcomes` window with each input subject's
 status and contribution count. When a bound or partial relay attempt affects
 particular inputs, `sequentialRetry` identifies those subjects and the original
 input handle so the caller can retry them one at a time.
+An input status of `matched` means that the relationship produced at least one
+candidate; it does not claim that every candidate's canonical evidence is
+resident. `show` and `inspect` report evidence resolution separately.
 `attemptStatus` reports whether that particular local or relay projection
 completed, `dataScope` identifies `resident-corpus` or
 `bounded-relay-attempt`, and `exhaustive` remains separate. Relay completeness

@@ -281,7 +281,7 @@ export function preflightResearchOperation(
       ? {
           ...parameters,
           with: typeof parameters.with === 'string'
-            ? descriptorCollection(inputForSetOperation(references, parameters.with, name))
+            ? descriptorCollection(inputForSetOperation(references, parameters.with, name), name)
             : parameters.with,
         }
       : parameters;
@@ -302,7 +302,7 @@ export function preflightResearchOperation(
     };
   }
   if (name === 'continue') {
-    normalizeContinuation(memory, descriptorCollection(input), parameters);
+    normalizeContinuation(memory, descriptorCollection(input, name), parameters);
     const relationship = continuationSemantics(parameters.relationship);
     return {
       kind: relationship.outputKind,
@@ -348,10 +348,11 @@ function inputForSetOperation(outputs, id, operation) {
   return outputs.get(id);
 }
 
-function descriptorCollection(descriptor) {
+function descriptorCollection(descriptor, operation) {
   if (!supportsCollectionOperations(descriptor)) {
     throw new ResearchMemoryError(
-      'Set composition requires a compatible subject collection result.',
+      `Research ${operation} operation requires a subject collection input; `
+      + 'acquisition and hydration report handles must first be converted to a subject collection.',
     );
   }
   return { type: 'result-collection', kind: descriptor.kind, items: [], context: {} };

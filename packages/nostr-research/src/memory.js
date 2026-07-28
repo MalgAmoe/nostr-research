@@ -12,6 +12,10 @@ import {
   isCanonicalNostrEvent,
   subject,
 } from './protocol.js';
+import {
+  NAVIGATION_RELATIONSHIP_TYPES,
+  deriveEventRelationships,
+} from './protocol-relationships.js';
 
 const EVENT_ID = /^[a-f0-9]{64}$/;
 const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
@@ -21,17 +25,7 @@ const MEMORY_CAPACITY = RESEARCH_CONSTRAINTS.memory.capacity;
 const NOTEBOOK_CAPACITY = RESEARCH_CONSTRAINTS.notebook.capacity;
 const SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
 const NOTEBOOK_SUBJECT_TYPES = new Set(['event', 'account', 'tag']);
-const NAVIGATION_RELATIONSHIP_TYPES = new Set([
-  'author',
-  'reply-root',
-  'reply-parent',
-  'mentioned-event',
-  'quoted-event',
-  'mentioned-account',
-  'follow',
-  'topic',
-  'other-tag',
-]);
+const NAVIGATION_RELATIONSHIP_TYPE_SET = new Set(NAVIGATION_RELATIONSHIP_TYPES);
 const MEMORY_TRANSACTION = Symbol.for('nostr-research.memory-plan-attempt');
 
 /** Creates the authoritative bounded, process-local research memory. */
@@ -83,7 +77,7 @@ class IndexedObservationBuffer {
   insert(record) {
     const stored = cloneJson(record);
     const { event } = stored;
-    const relationships = eventRelationships(event);
+    const relationships = deriveEventRelationships(event);
     if (this.records.has(event.id)) this.remove(event.id);
     this.records.set(event.id, stored);
     addIndex(this.authors, event.pubkey, event.id);
@@ -253,7 +247,7 @@ export class InMemoryResearchMemory {
     const canonical = cloneJson(event);
     // Derive before insertion so invalid relationship material cannot cause a
     // partial mutation. IndexedObservationBuffer derives again from the owned clone.
-    eventRelationships(canonical);
+    deriveEventRelationships(canonical);
     const stored = this.#buffer.records.has(canonical.id);
     if (!stored) this.#buffer.insert({ event: canonical, observations: [] });
     const recorded = { id: this.#nextObservationId++, ...normalized };
@@ -1398,7 +1392,9 @@ function normalizeTraversal(options) {
     options.relationshipTypes, 'relationshipTypes', false,
   );
   if (!relationshipTypes) throw new ResearchMemoryError('Traversal relationshipTypes are required.');
-  const unsupported = relationshipTypes.filter((type) => !NAVIGATION_RELATIONSHIP_TYPES.has(type));
+  const unsupported = relationshipTypes.filter(
+    (type) => !NAVIGATION_RELATIONSHIP_TYPE_SET.has(type),
+  );
   if (unsupported.length) {
     throw new ResearchMemoryError(`Unsupported traversal relationship types: ${unsupported.join(', ')}.`);
   }
@@ -1697,75 +1693,6 @@ function normalizeProjectionLimit(value, fallback, label) {
   return value;
 }
 
-function eventRelationships(event) {
-  const relationships = [{
-    type: 'author',
-    targetType: 'account',
-    targetId: event.pubkey,
-    evidence: { interpretation: 'known', protocol: 'NIP-01', field: 'pubkey' },
-  }];
-  const eTags = event.tags
-    .map((tag, index) => ({ tag, index }))
-    .filter(({ tag }) => tag[0] === 'e' && EVENT_ID.test(tag[1]));
-  const marked = eTags.filter(({ tag }) => ['root', 'reply', 'mention'].includes(tag[3]));
-  const nip22Root = event.kind === 1111
-    ? event.tags.findIndex((tag) => tag[0] === 'E' && EVENT_ID.test(tag[1]))
-    : -1;
-
-  for (const { tag, index } of eTags) {
-    let type;
-    let interpretation = 'known';
-    let protocol = 'NIP-10';
-    if (nip22Root >= 0 && tag[3] === undefined) {
-      type = 'reply-parent';
-      protocol = 'NIP-22';
-    } else if (tag[3] === 'root') type = 'reply-root';
-    else if (tag[3] === 'reply') type = 'reply-parent';
-    else if (tag[3] === 'mention') type = 'mentioned-event';
-    else if (marked.length === 0) {
-      if (eTags.length === 1 || index === eTags[0].index) type = 'reply-root';
-      else if (index === eTags.at(-1).index) type = 'reply-parent';
-      else type = 'mentioned-event';
-      interpretation = 'best-effort-fallback';
-    } else {
-      type = 'mentioned-event';
-      interpretation = 'best-effort-fallback';
-    }
-    relationships.push(tagRelationship(type, 'event', tag[1], tag, index, protocol, interpretation));
-    if (eTags.length === 1 && marked.length === 0 && nip22Root < 0) {
-      relationships.push(tagRelationship(
-        'reply-parent', 'event', tag[1], tag, index, protocol, interpretation,
-      ));
-    }
-  }
-  if (nip22Root >= 0) {
-    const tag = event.tags[nip22Root];
-    relationships.push(tagRelationship('reply-root', 'event', tag[1], tag, nip22Root, 'NIP-22', 'known'));
-  }
-  event.tags.forEach((tag, index) => {
-    if (tag[0] === 'q' && EVENT_ID.test(tag[1])) {
-      relationships.push(tagRelationship('quoted-event', 'event', tag[1], tag, index, 'NIP-18', 'known'));
-    } else if (['p', 'P'].includes(tag[0]) && EVENT_ID.test(tag[1])
-      && !(event.kind === 3 && tag[0] !== 'p')) {
-      relationships.push(tagRelationship(
-        event.kind === 3 ? 'follow' : 'mentioned-account',
-        'account', tag[1], tag, index,
-        event.kind === 1111 ? 'NIP-22' : 'NIP-01', 'known',
-      ));
-    } else if (tag[0] === 't' && typeof tag[1] === 'string') {
-      relationships.push(tagRelationship('topic', 'tag', tag[1], tag, index, 'NIP-01', 'known'));
-    } else if (tag[0] === 'E' && EVENT_ID.test(tag[1]) && event.kind !== 1111) {
-      relationships.push(tagRelationship(
-        'mentioned-event', 'event', tag[1], tag, index,
-        'NIP-01', 'best-effort-fallback',
-      ));
-    } else if (!['e', 'E', 'q', 'p', 'P', 't'].includes(tag[0]) && typeof tag[1] === 'string') {
-      relationships.push(tagRelationship('other-tag', 'tag', `${tag[0]}:${tag[1]}`, tag, index, 'NIP-01', 'known'));
-    }
-  });
-  return relationships;
-}
-
 const TRANSFORM_KINDS = new Set(SUBJECT_COLLECTION_KINDS);
 function validateNotebookCollectionKind(kind) {
   if (!TRANSFORM_KINDS.has(kind)) {
@@ -1786,15 +1713,6 @@ function uniqueJson(values) {
   for (const value of values) found.set(stableJson(value), cloneJson(value));
   return [...found.entries()].sort(([left], [right]) => left.localeCompare(right))
     .map(([, value]) => value);
-}
-
-function tagRelationship(type, targetType, targetId, tag, tagIndex, protocol, interpretation) {
-  return {
-    type,
-    targetType,
-    targetId,
-    evidence: { interpretation, protocol, tag, tagIndex },
-  };
 }
 
 function assertPlainObject(value, label) {
