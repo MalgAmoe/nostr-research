@@ -450,6 +450,15 @@ test('public acquisition and session reports preserve bounded relay messages and
       parameters: { mode: 'coverage', previewLimit: 10 },
     });
     assert.equal(plannedCoverage.result.relays[0].closedReason.category, 'auth-required');
+    const plannedSummary = await session.execute({
+      commandId: 'planned-summary', command: 'show', input: 'planned-attempt',
+      parameters: { mode: 'summary' },
+    });
+    assert.equal(plannedSummary.result.summary.completeness.status, 'partial');
+    assert.deepEqual(
+      plannedSummary.result.summary.completeness.boundsReached,
+      ['relay-errors'],
+    );
 
     const seed = finalizeEvent({
       kind: 1, created_at: 99, tags: [], content: 'hydration seed',

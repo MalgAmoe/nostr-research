@@ -121,6 +121,9 @@ test('relay information stays attributed, bounded, and reusable through the publ
         assert.equal(shown.result.summary.resultKind, 'relay-information-report');
         assert.equal(shown.result.summary.countUnit, 'relays');
         assert.deepEqual(shown.result.summary.lineage, { operation: 'relay-info' });
+        assert.equal(shown.result.summary.completeness.status, 'partial');
+        assert.equal(shown.result.summary.completeness.successful, 1);
+        assert.equal(shown.result.summary.completeness.unsuccessful, 1);
         assert.deepEqual(shown.result.preview ?? [], []);
         assert.equal(shown.result.summary.successfulDocuments, 1);
       }

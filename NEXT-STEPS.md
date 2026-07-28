@@ -21,7 +21,11 @@ Completed work includes kind-aware relationships; event, account, and address
 navigation; Nostr reference decoding; the runtime-neutral core and Worker
 adapter; relay diagnostics, NIP-11 inspection, and NIP-45 counts; event role,
 format, media, attachment, and warning facts; and sustained sequential research
-without arbitrary JavaScript.
+without arbitrary JavaScript. Relation stages now report truthful
+operation-specific cardinality and proven truncation, summaries share explicit
+count units across handle kinds, and relay coverage distinguishes unstarted,
+pre-open, subscribed-zero-packet, and contributing attempts without guessing a
+cause.
 
 The practical CLI is now documented in [CLI.md](./CLI.md), separately from the
 detailed library reference.

@@ -36,6 +36,7 @@ export async function continueResearch(memory, input, options) {
   }
 
   const projection = projectByInput(memory, starts, normalized, acquisition);
+  const projectionBoundReached = projection.boundReached;
   const collection = memory.collection(projection.items, {
     operation: 'continuation',
     relationship: normalized.relationship,
@@ -43,8 +44,12 @@ export async function continueResearch(memory, input, options) {
     starts: starts.items.map(({ subject: itemSubject }) => itemSubject),
     offset: normalized.offset,
     limit: normalized.eventLimit,
+    cardinality: {
+      outputCount: projection.items.length,
+      outputLimit: normalized.eventLimit,
+      truncated: projectionBoundReached,
+    },
   }, continuationOutputKind(normalized.relationship));
-  const projectionBoundReached = projection.boundReached;
   const externalPartial = acquisition && acquisition.completionReason !== 'completed';
   const unresolved = projection.omissions.some(
     ({ reason }) => reason !== 'empty-valid-result',

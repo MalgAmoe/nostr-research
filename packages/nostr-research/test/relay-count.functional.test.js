@@ -158,6 +158,24 @@ test('relay count remains attributed and never creates a global total', async ()
     assert.equal((await session.execute({
       commandId: 'release', command: 'release', input: 'counts', parameters: {},
     })).result.released, true);
+
+    await session.execute({
+      commandId: 'partial-count', command: 'relay-count',
+      parameters: {
+        filter: { kinds: [1] },
+        relays: ['wss://exact.example/', 'wss://notice.example/'],
+        timeoutMs: 1000,
+        concurrency: 2,
+      },
+      resultId: 'partial-counts',
+    });
+    const partialSummary = await session.execute({
+      commandId: 'partial-summary', command: 'show', input: 'partial-counts',
+      parameters: { mode: 'summary' },
+    });
+    assert.equal(partialSummary.result.summary.completeness.status, 'partial');
+    assert.equal(partialSummary.result.summary.completeness.successful, 1);
+    assert.equal(partialSummary.result.summary.completeness.unsuccessful, 1);
   } finally {
     memory.close();
     if (original === undefined) delete globalThis.WebSocket;

@@ -157,6 +157,9 @@ export const FETCH_BINDING_KEYS = Object.freeze(['ids', 'authors', '#e', '#p', '
 export const NOTEBOOK_JUDGMENTS = Object.freeze([
   'interested', 'uninterested', 'uncertain', 'anchor',
 ]);
+export const UNSUCCESSFUL_RELAY_OUTCOMES = Object.freeze([
+  'connection-failure', 'peer-error', 'peer-closed', 'closed',
+]);
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {

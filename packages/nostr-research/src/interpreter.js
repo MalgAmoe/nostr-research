@@ -14,6 +14,7 @@ import {
   preflightResearchOperation,
   preflightResearchPlan,
 } from './plan.js';
+import { UNSUCCESSFUL_RELAY_OUTCOMES } from './contract-facts.js';
 import {
   acquisitionCorpusAccounting,
   explainResearchMembership,
@@ -49,9 +50,7 @@ const OBSERVATIONS = new Set([
 const LIFECYCLE = new Set([
   'release', 'release-all', 'delete-membership', 'reset', 'close',
 ]);
-const UNSUCCESSFUL_RELAY_OUTCOMES = new Set([
-  'connection-failure', 'peer-error', 'peer-closed', 'closed',
-]);
+const UNSUCCESSFUL_RELAY_OUTCOME_SET = new Set(UNSUCCESSFUL_RELAY_OUTCOMES);
 const COMMAND_KEYS = new Set([
   'commandId', 'ifRevision', 'command', 'input', 'inputs', 'parameters', 'resultId', 'replace',
 ]);
@@ -1043,7 +1042,7 @@ function externalStatus(result, operation, memory) {
   const eoseHintCounts = contactedRelays.flatMap(({ eoseHints }) => eoseHints)
     .reduce((counts, { hint }) => ({ ...counts, [hint]: (counts[hint] ?? 0) + 1 }), {});
   const allUnsuccessfulRelays = contactedRelays
-    .filter(({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOMES.has(outcome))
+    .filter(({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOME_SET.has(outcome))
     .map(({ relay, outcome }) => ({ relay, outcome }));
   if (allUnsuccessfulRelays.length) boundsReached.push('relay-errors');
   const unsuccessfulRelays = allUnsuccessfulRelays.slice(0, 5);
@@ -1150,7 +1149,7 @@ function externalWarnings(result, operation) {
   const warnings = result.completionReason === 'completed'
     ? [] : [`External operation completed with ${result.completionReason}.`];
   const unsuccessful = result.coverage.relays
-    .filter(({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOMES.has(outcome));
+    .filter(({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOME_SET.has(outcome));
   if (unsuccessful.length) {
     warnings.push(`${unsuccessful.length} relay attempt${unsuccessful.length === 1 ? '' : 's'} did not complete successfully.`);
   }

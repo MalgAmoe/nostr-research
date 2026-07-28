@@ -285,6 +285,18 @@ test('named account and note handles continue with bounded relationship provenan
     subjects: [{ type: 'account', id: alice }],
     omittedSubjectCount: 0,
   });
+  const boundedSummary = await session.execute({
+    commandId: 'show-bounded-summary',
+    command: 'show',
+    input: 'bounded-notes',
+    parameters: { mode: 'summary' },
+  });
+  assert.deepEqual(boundedSummary.result.summary.bounds, {
+    outputCount: 2,
+    outputLimit: 2,
+    truncated: true,
+  });
+  assert.deepEqual(boundedSummary.result.summary.omissions, { records: 1 });
   const boundedPreview = await session.execute({
     commandId: 'show-bounded-multi',
     command: 'show',

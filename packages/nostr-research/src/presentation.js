@@ -1,5 +1,6 @@
 import { resolveRelationForPresentation } from './relation.js';
 import { RESEARCH_CONSTRAINTS } from './configuration.js';
+import { UNSUCCESSFUL_RELAY_OUTCOMES } from './contract-facts.js';
 
 const DEFAULT_PREVIEW_LIMIT = RESEARCH_CONSTRAINTS.presentation.previewLimit.default;
 const MAX_PREVIEW_LIMIT = RESEARCH_CONSTRAINTS.presentation.previewLimit.maximum;
@@ -76,7 +77,7 @@ function showRelayCount(value, settings) {
           countUnit: 'relays',
           lineage: { operation: 'relay-count' },
           bounds: value.bounds,
-          completeness: { status: 'complete', scope: 'selected-relays' },
+          completeness: relayReportCompleteness(outcomes),
           omissions: value.omissions,
         }),
         outcomes: countedStrings(outcomes.map(({ outcome }) => outcome)),
@@ -164,7 +165,7 @@ function showRelayInformation(value, settings) {
           countUnit: 'relays',
           lineage: { operation: 'relay-info' },
           bounds: value.bounds,
-          completeness: { status: 'complete', scope: 'selected-relays' },
+          completeness: relayReportCompleteness(outcomes),
           omissions: value.omissions,
         }),
         outcomes: counts,
@@ -830,12 +831,7 @@ function showAcquisition(memory, value, settings) {
           operation: value.type === 'hydration-report' ? 'hydrate' : 'acquire',
         },
         bounds: value.budget,
-        completeness: {
-          status: value.completionReason === 'completed' ? 'complete' : 'partial',
-          scope: 'bounded-relay-attempt',
-          exhaustive: false,
-          completionReason: value.completionReason,
-        },
+        completeness: acquisitionSummaryCompleteness(memory, value),
       }),
       subjectCount: collection.items.length,
       corpusChanges,
@@ -862,7 +858,7 @@ function showContinuation(memory, value, settings) {
         bounds: value.collection.context?.cardinality,
         completeness: value.completeness,
         omissions: value.completeness?.omissions?.length
-          ? { inputs: value.completeness.omissions.length } : undefined,
+          ? { records: value.completeness.omissions.length } : undefined,
       }),
     };
   }
@@ -1094,10 +1090,55 @@ function summaryCore({
   };
 }
 
+function relayReportCompleteness(outcomes) {
+  const successful = outcomes.filter(({ outcome }) => outcome === 'success').length;
+  return {
+    status: successful === outcomes.length ? 'complete' : 'partial',
+    scope: 'selected-relays',
+    requested: outcomes.length,
+    successful,
+    unsuccessful: outcomes.length - successful,
+  };
+}
+
+function acquisitionSummaryCompleteness(memory, value) {
+  const boundsReached = value.completionReason === 'completed'
+    ? [] : [value.completionReason];
+  const relays = value.coverage?.relays ?? value.relays ?? [];
+  if (relays.some(({ outcome }) => UNSUCCESSFUL_RELAY_OUTCOMES.includes(outcome))) {
+    boundsReached.push('relay-errors');
+  }
+  const hydration = value.type === 'hydration-report';
+  const requestedAuthors = hydration && Array.isArray(value.requested?.filter?.authors)
+    ? [...new Set(value.requested.filter.authors)] : null;
+  const resolved = requestedAuthors?.filter((id) => {
+    try {
+      return memory.inspect({ type: 'account', id }).resolved;
+    } catch {
+      return false;
+    }
+  }).length;
+  const missing = requestedAuthors === null ? null : requestedAuthors.length - resolved;
+  if (missing > 0 && boundsReached.length === 0) boundsReached.push('unresolved-subjects');
+  return {
+    status: boundsReached.length ? 'partial' : 'complete',
+    scope: 'bounded-relay-attempt',
+    exhaustive: false,
+    completionReason: value.completionReason,
+    boundsReached,
+    ...(requestedAuthors === null ? {} : {
+      units: 'accounts',
+      requested: requestedAuthors.length,
+      resolved,
+      missing,
+    }),
+  };
+}
+
 function compactSummaryCompleteness(value) {
   const {
     status, scope, exhaustive, emptyValidResult, boundsReached, completionReason,
-    attemptStatus, dataScope,
+    attemptStatus, dataScope, units, requested, successful, unsuccessful, resolved, missing,
   } = value;
   return Object.fromEntries(Object.entries({
     status: status ?? attemptStatus,
@@ -1105,6 +1146,12 @@ function compactSummaryCompleteness(value) {
     exhaustive,
     emptyValidResult,
     completionReason,
+    units,
+    requested,
+    successful,
+    unsuccessful,
+    resolved,
+    missing,
     omissionCount: Array.isArray(value.omissions) ? value.omissions.length : undefined,
     inputCount: Array.isArray(value.inputs) ? value.inputs.length : undefined,
     boundsReached: Array.isArray(boundsReached)

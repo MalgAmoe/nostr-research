@@ -166,6 +166,58 @@ this layer. Relations support:
 
 Never guess a field name. Ask contextual `schema`.
 
+## Reusable compositions
+
+These are recipes made from ordinary operations, not special research
+commands. Change the input handles, fields, and thresholds to fit the current
+question.
+
+### Count hashtags or mentioned accounts
+
+Start from an event relation such as `noteRows`. Explode the canonical tag
+arrays and inspect the resulting summary before continuing:
+
+```jsonl
+{"commandId":"tags-1","command":"explode","input":"noteRows","parameters":{"field":"event.tags","as":"tag","limit":1000},"resultId":"tagRows"}
+{"commandId":"tags-summary-1","command":"show","input":"tagRows","parameters":{"mode":"summary"}}
+```
+
+If `summary.bounds.truncated` is true, the frequency result describes only
+that bounded expansion. Narrow or window the source relation before treating
+it as representative.
+
+For hashtag frequency, retain `t` tags. For account-reference frequency,
+replace `"t"` with `"p"`:
+
+```jsonl
+{"commandId":"hashtags-1","command":"filter","input":"tagRows","parameters":{"where":{"field":"tag.0","equals":"t"},"limit":1000},"resultId":"hashtagRows"}
+{"commandId":"hashtag-counts-1","command":"aggregate","input":"hashtagRows","parameters":{"by":[{"field":"tag.1","name":"tag"}],"aggregations":[{"name":"mentions","operation":"count"}],"limit":1000},"resultId":"hashtagCounts"}
+{"commandId":"hashtag-ranking-1","command":"sort","input":"hashtagCounts","parameters":{"by":[{"field":"mentions","direction":"descending"}]},"resultId":"rankedHashtags"}
+{"commandId":"hashtag-preview-1","command":"show","input":"rankedHashtags","parameters":{"mode":"preview","previewLimit":10}}
+```
+
+This counts raw canonical tags. It does not silently reinterpret every `p` tag
+as the same social role.
+
+### Isolate notes from prolific authors
+
+Aggregate event rows by author and retain authors meeting the chosen threshold:
+
+```jsonl
+{"commandId":"author-counts-1","command":"aggregate","input":"noteRows","parameters":{"by":[{"field":"event.author","name":"account"}],"aggregations":[{"name":"noteCount","operation":"count"}],"limit":1000},"resultId":"authorCounts"}
+{"commandId":"prolific-authors-1","command":"filter","input":"authorCounts","parameters":{"where":{"field":"noteCount","gte":10},"limit":1000},"resultId":"prolificAuthors"}
+```
+
+Join that bounded author relation back to the original event rows:
+
+```jsonl
+{"commandId":"prolific-notes-1","command":"join","inputs":{"left":"noteRows","right":"prolificAuthors"},"parameters":{"on":{"left":"event.author","right":"account"},"kind":"inner","select":[{"field":"noteCount","name":"author.noteCount"}],"limit":1000},"resultId":"prolificNotes"}
+{"commandId":"prolific-summary-1","command":"show","input":"prolificNotes","parameters":{"mode":"summary"}}
+```
+
+The threshold is a caller-defined research choice, not a bot or quality
+classification.
+
 ## Observe results
 
 `show` observes a named result:
