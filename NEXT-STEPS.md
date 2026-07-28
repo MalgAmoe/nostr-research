@@ -262,7 +262,8 @@ turning relay metadata into an automatic score or routing policy.
 ### Work
 
 1. Fetch and expose NIP-11 relay information as attributed advertisement.
-2. Parse `NOTICE` messages and standardized `CLOSED` reason prefixes.
+2. Parse `NOTICE` messages and standardized `CLOSED` reason prefixes, and
+   distinguish a peer closing before EOSE from a generic connection failure.
 3. Parse NIP-67 EOSE `finish` and `more` hints.
 4. Keep advertised support separate from observed request outcomes.
 5. Reconsider connection reuse only if the runtime-neutral WebSocket seam
@@ -276,7 +277,9 @@ it advertises, what happened during the actual request, and whether the relay
 provided a completion hint. None of those facts silently changes relay choice.
 
 NIP-45 count, NIP-50 search, NIP-65 routing, and authentication remain later
-candidates. They are not part of this milestone.
+candidates. In particular, an `AUTH` challenge must not silently become key
+management or signing behavior as part of relay diagnostics. These candidates
+are not part of this milestone.
 
 ## Milestone 6: sustained research before more engine design
 
@@ -389,7 +392,9 @@ engine.
 These deserve attention only when evidence makes them active:
 
 - whether the hard observation-buffer maximum of 1,000 events is useful or
-  merely an early safety value;
+  merely an early safety value; current selection, inspection, relation
+  resolution, and cloning costs assume this bound, so raising it requires
+  measurement and review rather than a constant-only change;
 - whether contextual schema remains usable from a non-CLI consumer;
 - whether exact provenance remains understandable after many transformations;
 - whether acquisition retry information is sufficient during unreliable relay
