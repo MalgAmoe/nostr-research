@@ -11,6 +11,7 @@ const RELATION_PREVIEW_DETAIL_FIELDS = new Set([
   'event.tags',
   'event.links',
   'event.domains',
+  'event.attachments',
   'account.description',
 ]);
 

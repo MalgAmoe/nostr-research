@@ -185,12 +185,17 @@ preserving its evidence. The element is written to `as`, its source position
 to `indexAs`, and array elements are also exposed numerically. Exploding
 `event.tags` as `tag`, for example, exposes `tag.0`, `tag.1`, and so on.
 Related event fields include factual `event.role`, `event.format`, and
-`event.conversationRole`, plus extracted `event.links`, `event.domains`, and
-`event.hasMedia`. The factual fields use a deliberately sparse known-kind
+`event.conversationRole`; normalized `event.mediaFamilies`,
+`event.mediaSources`, `event.attachmentCount`, `event.attachments`,
+`event.attachmentsOmitted`, and `event.hasMedia`; plus extracted `event.links`
+and `event.domains`. Attachments merge declared NIP-92/NIP-94 and
+kind-specific facts with visibly inferred URL hints, retain conflicts, and
+return at most 20 items while reporting complete counts and omissions.
+The factual fields use a deliberately sparse known-kind
 table; unlisted kinds remain `unknown`, while kind-1 reply and quote roles use
 the protocol relationship interpretation. They describe the outer event, so a
-repost does not inherit its target's format. Media presence is derived from attributed media metadata,
-media MIME tags, recognized media URL extensions, and known media hosts.
+repost does not inherit its target's format. Media presence is derived from
+the same normalized attachment interpretation.
 
 `scan` searches a caller-selected vocabulary across several fields and emits
 `match.field`, `match.term`, `match.sourceSubject`, a bounded `match.excerpt`,

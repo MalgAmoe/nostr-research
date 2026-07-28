@@ -114,7 +114,8 @@ test('relation handles resolve references across evidence lifetime and keep boun
   assert.equal('event.links' in rows.result.preview[0].values, false);
   assert.equal('event.domains' in rows.result.preview[0].values, false);
   assert.deepEqual(rows.result.preview[0].omittedValueFields, [
-    'event.tags', 'event.links', 'event.domains', 'account.description',
+    'event.attachments', 'event.tags', 'event.links', 'event.domains',
+    'account.description',
   ]);
   const detailedRows = await session.execute({
     commandId: 'show-detailed-rows', command: 'show', input: 'rows',

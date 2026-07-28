@@ -21,6 +21,11 @@ const SOURCE_FIELDS = Object.freeze([
   'event.role',
   'event.format',
   'event.conversationRole',
+  'event.mediaFamilies',
+  'event.mediaSources',
+  'event.attachmentCount',
+  'event.attachments',
+  'event.attachmentsOmitted',
   'event.text',
   'event.createdAt',
   'event.tags',
@@ -200,11 +205,20 @@ function transformFieldDefinitions(name, operation, input, right) {
     return current;
   }
   if (name === 'explode') {
-    return {
+    const definitions = {
       ...current,
       [operation.as]: mappedFieldDefinition(input, operation.field),
       [operation.indexAs]: { role: 'technical' },
     };
+    for (const row of input.rows) {
+      const values = row.values[operation.field];
+      if (!Array.isArray(values)) continue;
+      for (const value of values) {
+        if (!isPlainObject(value)) continue;
+        for (const property of Object.keys(value)) definitions[`${operation.as}.${property}`] = {};
+      }
+    }
+    return definitions;
   }
   if (name !== 'scan') return current;
   return {
@@ -614,6 +628,10 @@ function applyExplode(relation, operation) {
         value.forEach((part, partIndex) => {
           expanded[`${operation.as}.${partIndex}`] = clone(part);
         });
+      } else if (isPlainObject(value)) {
+        for (const [name, property] of Object.entries(value)) {
+          expanded[`${operation.as}.${name}`] = clone(property);
+        }
       }
       rows.push({ ...row, values: expanded });
       if (rows.length === operation.limit) return researchRelation(rows, {});
@@ -842,12 +860,17 @@ function resolveSourceField(reference, resolution) {
     'event.role': contentFacts?.role,
     'event.format': contentFacts?.format,
     'event.conversationRole': contentFacts?.conversationRole,
+    'event.mediaFamilies': contentFacts?.mediaFamilies,
+    'event.mediaSources': contentFacts?.mediaSources,
+    'event.attachmentCount': contentFacts?.attachmentCount,
+    'event.attachments': contentFacts?.attachments,
+    'event.attachmentsOmitted': contentFacts?.attachmentsOmitted,
     'event.text': event?.content,
     'event.createdAt': event?.created_at,
     'event.tags': event?.tags,
     'event.links': event ? linksIn(event.content) : undefined,
     'event.domains': event ? domainsIn(event.content) : undefined,
-    'event.hasMedia': event ? hasMedia(event) : undefined,
+    'event.hasMedia': contentFacts?.hasMedia,
     'account.name': profile?.name ?? null,
     'account.display_name': profile?.display_name ?? null,
     'account.description': profile?.about ?? null,
@@ -944,26 +967,6 @@ function domainsIn(content) {
   }));
 }
 
-function hasMedia(event) {
-  if (event.tags.some((tag) => (
-    tag[0] === 'imeta'
-    || (tag[0] === 'm' && typeof tag[1] === 'string'
-      && /^(?:audio|image|video)\//iu.test(tag[1]))
-  ))) return true;
-  return linksIn(event.content).some((value) => {
-    try {
-      const url = new URL(value);
-      const path = url.pathname.toLocaleLowerCase();
-      if (/\.(?:avif|gif|jpe?g|m4a|m4v|mov|mp3|mp4|ogg|opus|png|svg|wav|webm|webp)$/u
-        .test(path)) return true;
-      return /(?:^|\.)(?:imgur\.com|nostr\.build|void\.cat|youtube\.com|youtu\.be|vimeo\.com|soundcloud\.com)$/u
-        .test(url.hostname.toLocaleLowerCase());
-    } catch {
-      return false;
-    }
-  });
-}
-
 function parseProfile(content) {
   try {
     const profile = JSON.parse(content);
@@ -971,6 +974,12 @@ function parseProfile(content) {
   } catch {
     return null;
   }
+}
+
+function isPlainObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function researchRelation(rows, context, fieldDefinitions = {}) {

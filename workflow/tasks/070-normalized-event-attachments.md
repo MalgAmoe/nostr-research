@@ -1,6 +1,6 @@
 ---
 id: 070-normalized-event-attachments
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/070-normalized-event-attachments.validate.sh
 depends_on: 069-event-content-facts
