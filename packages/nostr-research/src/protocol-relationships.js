@@ -79,8 +79,19 @@ export function deriveEventRelationships(event) {
   }
 
   deriveCommonRelationships(tags, relationships, handled);
-  deriveInlineRelationships(event.content, relationships);
+  if (!isStructuredJson(event.content)) {
+    deriveInlineRelationships(event.content, relationships);
+  }
   return relationships;
+}
+
+function isStructuredJson(content) {
+  try {
+    const parsed = JSON.parse(content);
+    return parsed !== null && typeof parsed === 'object';
+  } catch {
+    return false;
+  }
 }
 
 /*

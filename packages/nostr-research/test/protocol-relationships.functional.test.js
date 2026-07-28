@@ -210,9 +210,16 @@ test('inline NIP-27 references navigate as typed, explainable evidence without b
     `attached-uppercase nostr:${nip19.npubEncode(alice)}X`,
   ].join(' | ');
   const source = sign(1, 125, [], content, ALICE_KEY);
+  const repost = sign(
+    16, 126, [['e', source.id]], JSON.stringify(source), BOB_KEY,
+  );
   const memory = createInMemoryResearchMemory({ capacity: 1000 });
   try {
     memory.ingest(source, {
+      relay: 'wss://observed.example',
+      observedAt: '2026-07-28T10:00:00.000Z',
+    });
+    memory.ingest(repost, {
       relay: 'wss://observed.example',
       observedAt: '2026-07-28T10:00:00.000Z',
     });
@@ -287,6 +294,9 @@ test('inline NIP-27 references navigate as typed, explainable evidence without b
       inspected.relationships.filter(({ type }) => type.startsWith('inline-')).length,
       4,
     );
+    assert.ok(!memory.inspect(subject('event', repost.id)).relationships.some(
+      ({ type }) => type.startsWith('inline-'),
+    ));
 
     const conversation = memory.traverse([subject('event', source.id)], {
       relationshipTypes: ['reply-root', 'reply-parent'],
