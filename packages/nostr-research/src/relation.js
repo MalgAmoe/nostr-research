@@ -185,7 +185,16 @@ function transformFieldDefinitions(name, operation, input, right) {
       output, mappedFieldDefinition(input, source),
     ]));
   }
-  if (name === 'derive') return current;
+  if (name === 'derive') {
+    for (const { name: output, expression } of operation.fields) {
+      if ('field' in expression) {
+        current[output] = mappedFieldDefinition(input, expression.field);
+      } else {
+        delete current[output];
+      }
+    }
+    return current;
+  }
   if (name === 'explode') {
     return {
       ...current,

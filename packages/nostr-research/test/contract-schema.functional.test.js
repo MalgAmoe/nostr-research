@@ -136,6 +136,61 @@ test('factual schemas construct commands accepted through the public session sea
   });
   assert.equal(authors.ok, true);
 
+  const derivedAuthors = await session.execute({
+    commandId: 'derived-authors', command: 'derive', input: 'author-counts',
+    parameters: {
+      fields: [
+        { name: 'authorAlias', expression: { field: 'author' } },
+        { name: 'authorConstant', expression: { constant: events[0].pubkey } },
+        {
+          name: 'authorComputed',
+          expression: {
+            operation: 'coalesce',
+            args: [{ field: 'author' }, { constant: events[0].pubkey }],
+          },
+        },
+      ],
+    },
+    resultId: 'derived-authors',
+  });
+  assert.equal(derivedAuthors.ok, true);
+  const derivedAuthorStructure = await session.execute({
+    commandId: 'derived-author-schema', command: 'schema', input: 'derived-authors',
+  });
+  const derivedFields = derivedAuthorStructure.result.structure.fields;
+  const derivedAuthorSchema = await session.execute({
+    commandId: 'derived-author-extract-schema', command: 'schema', input: 'derived-authors',
+    parameters: { operation: 'extract' },
+  });
+  const authorAlias = derivedFields.find(({ name }) => name === 'authorAlias');
+  assert.deepEqual(authorAlias.lineage, ['event.author', 'author']);
+  assert.equal(authorAlias.subjectType, 'account');
+  for (const fieldName of ['authorConstant', 'authorComputed']) {
+    const fieldDefinition = derivedFields.find(({ name }) => name === fieldName);
+    assert.equal('lineage' in fieldDefinition, false);
+    assert.equal('subjectType' in fieldDefinition, false);
+  }
+  const derivedTransitions = derivedAuthorSchema.result.operation.recognizedTransitions;
+  assert.deepEqual(
+    derivedTransitions.find(({ field }) => field === 'authorAlias'),
+    {
+      field: 'authorAlias',
+      subjectType: 'account',
+      lineage: ['event.author', 'author'],
+    },
+  );
+  assert.equal(
+    derivedTransitions.some(({ field }) => ['authorConstant', 'authorComputed'].includes(field)),
+    false,
+  );
+  const aliasedAuthors = await session.execute({
+    commandId: 'aliased-authors', command: 'extract', input: 'derived-authors',
+    parameters: { field: 'authorAlias', subjectType: 'account' },
+    resultId: 'aliased-authors',
+  });
+  assert.equal(aliasedAuthors.ok, true);
+  assert.equal(aliasedAuthors.result.handle.count, authors.result.handle.count);
+
   const invalidCompare = await session.execute({
     commandId: 'invalid-compare', command: 'compare', input: 'events',
     parameters: { with: 'events', limit: 1 }, resultId: 'invalid',

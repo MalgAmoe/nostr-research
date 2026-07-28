@@ -522,8 +522,11 @@ focused schema supplies the selected operation's details.
 Relation transformations retain lightweight field lineage when a field is
 renamed or used as an aggregation key. This allows later operations such as
 `extract` to recognize account or event identifiers without guessing from the
-new field name. Technical fields are reported separately in relation structure,
-and row-specific truncation details appear under `fieldMetadata` rather than as
+new field name. A `derive` field inherits lineage and its known subject type
+only when its expression is a bare field reference; constants and every
+computed expression remain untyped, regardless of their resulting strings.
+Technical fields are reported separately in relation structure, and
+row-specific truncation details appear under `fieldMetadata` rather than as
 ordinary analysis columns.
 
 Acquisition and hydration handles retain their external-operation accounting

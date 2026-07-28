@@ -1,6 +1,6 @@
 ---
 id: 065-preserve-direct-field-lineage
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/065-preserve-direct-field-lineage.validate.sh
 depends_on: 064-remove-verified-dead-code
