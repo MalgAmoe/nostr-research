@@ -58,6 +58,15 @@ malformed, and inputs over NIP-19's 5000-character bound are rejected.
 `lookup`, `inspect`, and session `inspect`/`explain` accept these references as
 well as subject objects.
 
+Valid NIP-27 `nostr:` references in resident canonical event content derive
+distinct `inline-account-reference`, `inline-event-reference`, or
+`inline-address-reference` navigation relationships. Their evidence retains
+the exact token, content offsets, encoded hints, source event, and observation
+provenance. They participate in the existing referenced-account,
+referenced-event, and referenced-address moves, but never become conversation
+edges or trigger relay acquisition. Invalid, private, unsupported, and
+oversized reference-looking text remains ordinary unchanged content.
+
 Evidence survives buffer turnover only through an explicit preservation
 operation:
 

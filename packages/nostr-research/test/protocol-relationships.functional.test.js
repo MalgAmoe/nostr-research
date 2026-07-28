@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { finalizeEvent, getPublicKey } from 'nostr-tools';
+import { finalizeEvent, getPublicKey, nip19 } from 'nostr-tools';
 import {
   continueResearch,
   createInMemoryResearchMemory,
+  executeResearchOperation,
   subject,
 } from '@nostr-research/memory';
 
@@ -177,6 +178,132 @@ test('mixed event kinds derive truthful references without polluting conversatio
       relayBacked.requested.filter.ids.sort(),
       [root.id, file.id, unresolved].sort(),
     );
+  } finally {
+    memory.close();
+  }
+});
+
+test('inline NIP-27 references navigate as typed, explainable evidence without becoming threads', async () => {
+  const inlineEventId = 'a'.repeat(64);
+  const accountReference = nip19.nprofileEncode({
+    pubkey: bob, relays: ['wss://account-hint.example'],
+  });
+  const eventReference = nip19.neventEncode({
+    id: inlineEventId, author: alice, kind: 30023,
+    relays: ['wss://event-hint.example'],
+  });
+  const addressReference = nip19.naddrEncode({
+    identifier: 'inline-research', pubkey: carol, kind: 30023,
+    relays: ['wss://address-hint.example'],
+  });
+  const privateReference = nip19.nsecEncode(BOB_KEY);
+  const content = [
+    `account nostr:${accountReference}`,
+    `event nostr:${eventReference}`,
+    `duplicate nostr:${eventReference}`,
+    `address nostr:${addressReference}`,
+    `private nostr:${privateReference}`,
+    'malformed nostr:note1notvalid',
+    `oversized nostr:note1${'q'.repeat(5001)}`,
+    `embedded-xnostr:${nip19.npubEncode(alice)}`,
+    `attached-lowercase nostr:${nip19.npubEncode(alice)}b`,
+    `attached-uppercase nostr:${nip19.npubEncode(alice)}X`,
+  ].join(' | ');
+  const source = sign(1, 125, [], content, ALICE_KEY);
+  const memory = createInMemoryResearchMemory({ capacity: 1000 });
+  try {
+    memory.ingest(source, {
+      relay: 'wss://observed.example',
+      observedAt: '2026-07-28T10:00:00.000Z',
+    });
+    const selected = memory.select({ ids: [source.id], limit: 1 });
+
+    const accounts = memory.transform(selected, {
+      operation: 'move', to: 'referencedAccounts', limit: 10,
+    });
+    assert.deepEqual(accounts.items.map(({ subject: item }) => item), [
+      subject('account', bob),
+    ]);
+    const events = memory.transform(selected, {
+      operation: 'move', to: 'referencedEvents', limit: 10,
+    });
+    assert.deepEqual(events.items.map(({ subject: item }) => item), [
+      subject('event', inlineEventId),
+    ]);
+    const addresses = memory.transform(selected, {
+      operation: 'move', to: 'referencedAddresses', limit: 10,
+    });
+    assert.deepEqual(addresses.items.map(({ subject: item }) => item), [
+      subject('address', `30023:${carol}:inline-research`),
+    ]);
+    const accountRows = await executeResearchOperation(memory, {
+      operation: 'relate', parameters: {},
+    }, accounts);
+    const extractedAccounts = await executeResearchOperation(memory, {
+      operation: 'extract',
+      parameters: { field: 'subject.id', subjectType: 'account', limit: 10 },
+    }, accountRows);
+    assert.deepEqual(extractedAccounts.items.map(({ subject: item }) => item), [
+      subject('account', bob),
+    ]);
+
+    const eventReasons = events.items[0].reasons.filter(
+      ({ relationshipType }) => relationshipType === 'inline-event-reference',
+    );
+    assert.equal(eventReasons.length, 2);
+    assert.deepEqual(
+      eventReasons.map(({ evidence }) => content.slice(
+        evidence.position.start, evidence.position.end,
+      )),
+      [`nostr:${eventReference}`, `nostr:${eventReference}`],
+    );
+    assert.deepEqual(eventReasons[0].evidence, {
+      interpretation: 'known',
+      protocol: 'NIP-27',
+      field: 'content',
+      matchedText: `nostr:${eventReference}`,
+      position: {
+        start: content.indexOf(`nostr:${eventReference}`),
+        end: content.indexOf(`nostr:${eventReference}`) + 6 + eventReference.length,
+      },
+      entity: 'nevent',
+      authorHint: alice,
+      kindHint: 30023,
+      relayHints: ['wss://event-hint.example'],
+    });
+    assert.deepEqual(events.items[0].provenance.map(({ relay }) => relay),
+      ['wss://observed.example']);
+
+    const inspected = memory.inspect(subject('event', source.id));
+    assert.equal(inspected.evidence.event.content, content);
+    assert.equal(
+      inspected.relationships.filter(({ type }) => type === 'inline-event-reference').length,
+      2,
+    );
+    assert.ok(!inspected.relationships.some(
+      ({ type }) => ['reply-root', 'reply-parent'].includes(type),
+    ));
+    assert.equal(
+      inspected.relationships.filter(({ type }) => type.startsWith('inline-')).length,
+      4,
+    );
+
+    const conversation = memory.traverse([subject('event', source.id)], {
+      relationshipTypes: ['reply-root', 'reply-parent'],
+      direction: 'both',
+      depth: 2,
+      limit: 10,
+    });
+    assert.equal(conversation.items.length, 1);
+
+    const continued = await continueResearch(memory, selected, {
+      relationship: 'referenced-events',
+      source: 'local',
+      eventLimit: 10,
+    });
+    assert.deepEqual(continued.collection.items.map(({ subject: item }) => item), [
+      subject('event', inlineEventId),
+    ]);
   } finally {
     memory.close();
   }

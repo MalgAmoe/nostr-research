@@ -1,4 +1,8 @@
 import { isCanonicalNostrEvent, parseAddress } from './protocol.js';
+import {
+  InvalidNostrReferenceError,
+  decodeNostrReference,
+} from './reference.js';
 
 const EVENT_ID = /^[a-f0-9]{64}$/;
 
@@ -9,6 +13,7 @@ export const CONVERSATION_RELATIONSHIP_TYPES = Object.freeze([
 
 export const EVENT_REFERENCE_RELATIONSHIP_TYPES = Object.freeze([
   ...CONVERSATION_RELATIONSHIP_TYPES,
+  'inline-event-reference',
   'mentioned-event',
   'quoted-event',
   'referenced-event',
@@ -18,6 +23,7 @@ export const EVENT_REFERENCE_RELATIONSHIP_TYPES = Object.freeze([
 ]);
 
 export const ACCOUNT_REFERENCE_RELATIONSHIP_TYPES = Object.freeze([
+  'inline-account-reference',
   'mentioned-account',
   'referenced-account',
   'comment-root-author',
@@ -27,6 +33,7 @@ export const ACCOUNT_REFERENCE_RELATIONSHIP_TYPES = Object.freeze([
 ]);
 
 export const ADDRESS_REFERENCE_RELATIONSHIP_TYPES = Object.freeze([
+  'inline-address-reference',
   'referenced-address',
   'comment-root-address',
   'comment-parent-address',
@@ -72,7 +79,48 @@ export function deriveEventRelationships(event) {
   }
 
   deriveCommonRelationships(tags, relationships, handled);
+  deriveInlineRelationships(event.content, relationships);
   return relationships;
+}
+
+/*
+ * NIP-27 references are bounded NIP-21 tokens, not a general URL grammar.
+ * Keep the entire bech32-looking suffix so malformed or oversized text cannot
+ * be accepted by decoding a valid prefix.
+ */
+function deriveInlineRelationships(content, relationships) {
+  const pattern = /(^|[^A-Za-z0-9_])(nostr:(?:npub|nprofile|note|nevent|naddr)1[023456789acdefghjklmnpqrstuvwxyz]+)(?![A-Za-z0-9_])/g;
+  for (const match of content.matchAll(pattern)) {
+    const matchedText = match[2];
+    let decoded;
+    try {
+      decoded = decodeNostrReference(matchedText);
+    } catch (error) {
+      if (error instanceof InvalidNostrReferenceError) continue;
+      throw error;
+    }
+    const start = match.index + match[1].length;
+    relationships.push({
+      type: {
+        account: 'inline-account-reference',
+        event: 'inline-event-reference',
+        address: 'inline-address-reference',
+      }[decoded.subject.type],
+      targetType: decoded.subject.type,
+      targetId: decoded.subject.id,
+      evidence: {
+        interpretation: 'known',
+        protocol: 'NIP-27',
+        field: 'content',
+        matchedText,
+        position: { start, end: start + matchedText.length },
+        entity: decoded.entity,
+        ...(decoded.authorHint === undefined ? {} : { authorHint: decoded.authorHint }),
+        ...(decoded.kindHint === undefined ? {} : { kindHint: decoded.kindHint }),
+        ...(decoded.relayHints === undefined ? {} : { relayHints: [...decoded.relayHints] }),
+      },
+    });
+  }
 }
 
 function deriveTextNoteRelationships(tags, relationships, handled) {

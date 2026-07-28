@@ -1,6 +1,6 @@
 ---
 id: 059-inline-nostr-reference-navigation
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/059-inline-nostr-reference-navigation.validate.sh
 depends_on: 058-nostr-reference-decoding

@@ -343,13 +343,13 @@ The table uses these states:
 | NIP-11 relay information | Absent | Caller supplies URLs | Fetch and expose advertised capabilities and limitations |
 | NIP-13 proof of work | Raw only | Nonce tag remains available | Derived difficulty as optional evidence |
 | NIP-18 reposts | Partial | Kind `6` event targets and kind `16` embedded canonical targets are typed | Addressable repost targets |
-| NIP-19 identifiers | Absent | Hex IDs are primary | Decode `npub`, `note`, `nprofile`, `nevent`, `naddr`; retain hints |
-| NIP-21 `nostr:` URI | Absent | Only HTTP(S) links are extracted | Parse Nostr URIs as protocol references |
+| NIP-19 identifiers | Implemented | Public account, event, and address identifiers decode to stable subjects with attributed hints | Additional entity types remain unsupported |
+| NIP-21 `nostr:` URI | Implemented | Public NIP-19 identifiers decode when wrapped in `nostr:` | Browser-link handling is outside the library |
 | NIP-22 comments | Partial | `E/e` event roots/parents and `P/p` account roles are kind-aware | `A/a`, `I/i`, and `K/k` scope typing |
 | NIP-23 long-form content | Raw only | Kind `30023` is a valid addressable event | Structured metadata and address navigation |
 | NIP-24 profile/tag conventions | Partial | A small profile subset and generic tags | Website, banner, bot, external identity/title conventions |
 | NIP-25 reactions | Partial | Kind `7` event targets and kind `17` external tag targets are typed | First-class addressable and external identities |
-| NIP-27 text references | Absent | `nostr:` references inside content are ignored | Extract inline account/event/address references |
+| NIP-27 text references | Implemented | Valid bounded inline account, event, and address references form explainable typed navigation edges | Rendering and recursive acquisition are deliberately absent |
 | NIP-32 labels | Raw only | Label events can be scanned | Attributed label targets and namespaces |
 | NIP-36 content warning | Raw only | Tag remains visible | Structured warning/sensitive-content evidence |
 | NIP-39 external identity | Raw only | Tags remain visible | Proof verification with provenance and status |
