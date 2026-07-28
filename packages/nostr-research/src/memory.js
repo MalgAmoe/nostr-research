@@ -1049,8 +1049,11 @@ export class InMemoryResearchMemory {
 
   getMembership(name) {
     this.#assertOpen();
-    const set = this.#notebookMemberships.get(name);
-    if (!set) throw new ResearchMemoryError(`No notebook membership found for name ${name}.`);
+    const normalizedName = normalizeMembershipName(name);
+    const set = this.#notebookMemberships.get(normalizedName);
+    if (!set) {
+      throw new ResearchMemoryError(`No notebook membership found for name ${normalizedName}.`);
+    }
     return cloneJson(set);
   }
 
@@ -1062,16 +1065,14 @@ export class InMemoryResearchMemory {
   }
 
   replaceMembership(name, collection, options = {}) {
-    const previous = this.getMembership(name);
+    const normalizedName = normalizeMembershipName(name);
+    const previous = this.getMembership(normalizedName);
     collection = this.asCollection(collection);
     validateNotebookCollectionKind(collection.kind);
     assertPlainObject(options, 'Notebook membership replacement options');
     rejectUnknownKeys(options, new Set(['name', 'reason', 'attribution']), 'notebook membership replacement options');
     const membershipContext = options.reason ? normalizeReason(options.reason) : undefined;
-    const attribution = options.attribution ?? 'caller';
-    if (typeof attribution !== 'string' || attribution.trim().length === 0) {
-      throw new ResearchMemoryError('Notebook membership attribution must be a non-empty string.');
-    }
+    const attribution = normalizeMembershipAttribution(options.attribution);
     const entries = collection.items
       .filter((item) => NOTEBOOK_SUBJECT_TYPES.has(item.subject.type))
       .map((item) => ({
@@ -1097,19 +1098,20 @@ export class InMemoryResearchMemory {
     }
     const replacement = {
       id: previous.id,
-      name,
+      name: previous.name,
       createdAt: previous.createdAt,
       updatedAt: new Date().toISOString(),
       members: [...members.values()].sort((a, b) => memberKey(a).localeCompare(memberKey(b))),
     };
-    this.#notebookMemberships.set(name, cloneJson(replacement));
+    this.#notebookMemberships.set(previous.name, cloneJson(replacement));
     return this.#membershipSummary(replacement, 10);
   }
 
   deleteMembership(name) {
-    this.getMembership(name);
-    this.#notebookMemberships.delete(name);
-    return { name, deleted: true };
+    const normalizedName = normalizeMembershipName(name);
+    const membership = this.getMembership(normalizedName);
+    this.#notebookMemberships.delete(membership.name);
+    return { name: membership.name, deleted: true };
   }
 
   rememberMembership(collection, name, options = {}) {
@@ -1118,10 +1120,7 @@ export class InMemoryResearchMemory {
     assertPlainObject(options, 'Notebook membership options');
     rejectUnknownKeys(options, new Set(['reason', 'attribution', 'signal']), 'notebook membership options');
     const membershipContext = options.reason ? normalizeReason(options.reason) : undefined;
-    const attribution = options.attribution ?? 'caller';
-    if (typeof attribution !== 'string' || attribution.trim().length === 0) {
-      throw new ResearchMemoryError('Notebook membership attribution must be a non-empty string.');
-    }
+    const attribution = normalizeMembershipAttribution(options.attribution);
     return this.#createMembership(name, collection.items
       .filter((item) => NOTEBOOK_SUBJECT_TYPES.has(item.subject.type))
       .map((item) => ({
@@ -1129,7 +1128,7 @@ export class InMemoryResearchMemory {
         reasons: (item.reasons.length ? item.reasons : [{ type: 'remembered-result' }])
           .map((reason) => ({
             ...reason, ...(membershipContext ? { membershipContext } : {}),
-            operation: collection.context.operation, attribution: attribution.trim(),
+            operation: collection.context.operation, attribution,
             sourceReferences: membershipProvenance(item),
           })),
       })), { signal: options.signal });
@@ -1789,6 +1788,13 @@ function normalizeMembershipName(name) {
     throw new ResearchMemoryError('Notebook membership name must be a non-empty string.');
   }
   return name.trim();
+}
+
+function normalizeMembershipAttribution(attribution = 'caller') {
+  if (typeof attribution !== 'string' || attribution.trim().length === 0) {
+    throw new ResearchMemoryError('Notebook membership attribution must be a non-empty string.');
+  }
+  return attribution.trim();
 }
 
 function normalizeMember(member) {

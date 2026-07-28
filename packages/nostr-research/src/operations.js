@@ -54,7 +54,7 @@ export const CONTINUATION_RELATIONSHIPS = Object.freeze({
   quotes: { inputKinds: ['events'], outputKind: 'events', external: true },
   'referenced-events': { inputKinds: ['events'], outputKind: 'events', external: true },
   conversation: { inputKinds: ['events'], outputKind: 'events', external: true },
-  'shared-tags': { inputKinds: ['events'], outputKind: 'events', external: true },
+  'shared-tags': { inputKinds: ['events'], outputKind: 'events', external: false },
   'linked-domains': { inputKinds: ['events'], outputKind: 'events', external: false },
 });
 

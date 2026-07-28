@@ -1,6 +1,6 @@
 ---
 id: 063-honest-continuation-and-normalization
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/063-honest-continuation-and-normalization.validate.sh
 depends_on: 062-browser-worker-adapter

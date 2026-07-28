@@ -1,4 +1,5 @@
 import { ResearchMemoryError } from './protocol.js';
+import { normalizeRelayUrl } from './relay-url.js';
 
 export const RESEARCH_CONSTRAINTS = deepFreeze({
   memory: {
@@ -115,18 +116,7 @@ function normalizeRelays(value) {
   if (!Array.isArray(value) || value.some((relay) => typeof relay !== 'string')) {
     throw new ResearchMemoryError('Session relays must be an array of wss:// URLs.');
   }
-  const relays = value.map((relay) => {
-    let url;
-    try {
-      url = new URL(relay);
-    } catch {
-      throw new ResearchMemoryError(`Invalid session relay URL: ${relay}.`);
-    }
-    if (url.protocol !== 'wss:') {
-      throw new ResearchMemoryError('Session relay URLs must use wss://.');
-    }
-    return url.toString();
-  });
+  const relays = value.map((relay) => normalizeRelayUrl(relay, 'Session relay URL'));
   if (new Set(relays).size !== relays.length) {
     throw new ResearchMemoryError('Session relay URLs must not be repeated.');
   }

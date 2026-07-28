@@ -629,10 +629,12 @@ without deleting or rewriting corpus evidence.
 Its `relationship` is one of `authored-notes`, `profiles`, `follow-lists`,
 `followed-accounts`, `followers`, `replies`, `ancestors`, `mentions`, `quotes`,
 `referenced-events`, `conversation`, `shared-tags`, or `linked-domains`.
-`source` is `local` (the default) or `relays`; relay continuations use explicit
-per-command `relays` when supplied, otherwise the session's configured relay
-defaults. They accept time, observation, distinct-event, and concurrency
-bounds. Both forms report completeness and per-input omissions, while
+`source` is `local` (the default), or `relays` for relationships advertised
+with relay support by `schema`; `shared-tags` and `linked-domains` are local
+only. Relay continuations use explicit per-command `relays` when supplied,
+otherwise the session's configured relay defaults. They accept time,
+observation, distinct-event, and concurrency bounds. Both forms report
+completeness and per-input omissions, while
 `explain` exposes the continuation relationship responsible for membership.
 The response includes a bounded `outcomes` window with each input subject's
 status and contribution count. When a bound or partial relay attempt affects

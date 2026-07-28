@@ -164,7 +164,7 @@ export function normalizeContinuation(memory, input, options) {
   if (source === 'relays') {
     if (!continuationSemantics(options.relationship).external) {
       throw new ResearchMemoryError(
-        'Unsupported external continuation relationship: linked-domains has no NIP-01 filter.',
+        `Unsupported external continuation relationship: ${options.relationship} has no NIP-01 filter.`,
       );
     }
     if (!Array.isArray(options.relays) || options.relays.length === 0) {

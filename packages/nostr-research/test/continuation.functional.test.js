@@ -455,6 +455,59 @@ test('named account and note handles continue with bounded relationship provenan
     schema.result.research.continuations['authored-notes'].outputKind,
     'events',
   );
+  assert.deepEqual(schema.result.research.continuations['shared-tags'], {
+    inputKinds: ['events'], outputKind: 'events', sources: ['local'],
+  });
+
+  const continuationSchema = await session.execute({
+    commandId: 'event-continuation-schema',
+    command: 'schema',
+    input: 'root',
+    parameters: { operation: 'continue' },
+  });
+  assert.deepEqual(
+    continuationSchema.result.operation.choices.relationships.find(
+      ({ relationship }) => relationship === 'shared-tags',
+    ),
+    { relationship: 'shared-tags', outputKind: 'events', sources: ['local'] },
+  );
+
+  const localSharedTags = await session.execute({
+    commandId: 'local-shared-tags',
+    command: 'continue',
+    input: 'root',
+    parameters: { relationship: 'shared-tags', source: 'local' },
+    resultId: 'local-shared-tags',
+  });
+  assert.equal(localSharedTags.ok, true);
+  assert.equal(localSharedTags.result.handle.count, 0);
+
+  const originalWebSocket = globalThis.WebSocket;
+  let constructedWebSockets = 0;
+  globalThis.WebSocket = class {
+    constructor() {
+      constructedWebSockets += 1;
+    }
+  };
+  try {
+    const unsupportedSharedTags = await session.execute({
+      commandId: 'unsupported-shared-tags',
+      command: 'continue',
+      input: 'root',
+      parameters: {
+        relationship: 'shared-tags',
+        source: 'relays',
+        relays: ['wss://fixture.invalid/'],
+      },
+      resultId: 'unsupported-shared-tags',
+    });
+    assert.equal(unsupportedSharedTags.ok, false);
+    assert.match(unsupportedSharedTags.error.message, /Unsupported external continuation relationship/);
+    assert.equal(constructedWebSockets, 0);
+  } finally {
+    if (originalWebSocket === undefined) delete globalThis.WebSocket;
+    else globalThis.WebSocket = originalWebSocket;
+  }
 
   const explained = await session.execute({
     commandId: 'why-reply',

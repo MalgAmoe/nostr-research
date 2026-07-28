@@ -400,6 +400,25 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.equal(configured.result.configuration.presentation.sizeLimit, 12000);
   assert.deepEqual(configured.result.configuration.relays, ['wss://fixture.example/']);
 
+  for (const [suffix, relay] of [
+    ['credentials', 'wss://user:secret@fixture.example/'],
+    ['fragment', 'wss://fixture.example/#research'],
+  ]) {
+    const rejected = await session.execute({
+      commandId: `configure-${suffix}`,
+      command: 'configure',
+      parameters: { relays: [relay] },
+    });
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.error.code, 'INVALID_COMMAND');
+    assert.deepEqual(
+      (await session.execute({
+        commandId: `status-after-${suffix}`, command: 'status', parameters: {},
+      })).result.configuration.relays,
+      ['wss://fixture.example/'],
+    );
+  }
+
   const configuredAgain = await session.execute({
     commandId: 'configure-again',
     command: 'configure',
@@ -476,10 +495,18 @@ test('declarative notebook knowledge survives turnover and remains independent f
 
   const retained = await session.execute({
     commandId: 'retain', command: 'remember-membership', input: 'constrained',
-    parameters: { name: 'provisional examples' }, resultId: 'retained-handle',
+    parameters: {
+      name: '  provisional examples  ',
+      attribution: '  researcher  ',
+    },
+    resultId: 'retained-handle',
   });
   assert.deepEqual(retained.warnings, []);
   const membershipName = 'provisional examples';
+  assert.equal(
+    memory.getMembership(membershipName).members[0].reasons[0].attribution,
+    'researcher',
+  );
   const membershipInput = await session.execute({
     commandId: 'membership-input', command: 'filter', input: 'retained-handle',
     parameters: { where: { field: 'subject.type', equals: 'event' }, limit: 10 },
@@ -554,22 +581,24 @@ test('declarative notebook knowledge survives turnover and remains independent f
     { observation: 'explicit bounded example', count: 1 },
   );
 
-  const replaced = await session.execute({
-    commandId: 'replace', command: 'remember-membership', input: 'negatives',
-    parameters: {
-      name: membershipName,
-      reason: { type: 'explicit-negative-example', provisional: true },
-    },
+  const replaced = memory.replaceMembership('  provisional examples  ', negativesForReplacement(), {
+    reason: { type: 'explicit-negative-example', provisional: true },
+    attribution: '  researcher  ',
   });
-  assert.equal(replaced.result.handle.count, 1);
-  assert.equal(memory.getMembership(membershipName).members[0].id, uninterestedEvent.id);
+  assert.equal(replaced.memberCount, 1);
+  const canonicalMembership = memory.getMembership(` ${membershipName} `);
+  assert.equal(canonicalMembership.name, membershipName);
+  assert.equal(canonicalMembership.members[0].id, uninterestedEvent.id);
+  assert.equal(canonicalMembership.members[0].reasons[0].attribution, 'researcher');
+  assert.deepEqual(memory.listMemberships().map(({ name }) => name), [membershipName]);
 
   const released = await session.execute({
     commandId: 'release', command: 'release', input: 'retained-handle', parameters: {},
   });
   assert.equal(released.result.type, 'released-result-handle');
   const inspectedSet = await session.execute({
-    commandId: 'inspect-membership', command: 'membership', parameters: { name: membershipName },
+    commandId: 'inspect-membership', command: 'membership',
+    parameters: { name: ` ${membershipName} ` },
   });
   assert.equal(inspectedSet.result.name, membershipName);
 
@@ -585,9 +614,14 @@ test('declarative notebook knowledge survives turnover and remains independent f
   assert.equal(memory.getMembership(membershipName).members.length, 1);
 
   await session.execute({
-    commandId: 'delete', command: 'delete-membership', parameters: { name: membershipName },
+    commandId: 'delete', command: 'delete-membership',
+    parameters: { name: ` ${membershipName} ` },
   });
   assert.equal(memory.getNotebookEntry({ type: 'event', id: interestedEvent.id }).judgment, 'interested');
 
   await session.close();
+
+  function negativesForReplacement() {
+    return memory.notebook({ judgments: ['uninterested'] });
+  }
 });

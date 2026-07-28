@@ -1,5 +1,6 @@
 import { isCanonicalNostrEvent, ResearchMemoryError } from './protocol.js';
 import { ACQUISITION } from './contract-facts.js';
+import { normalizeRelayUrl } from './relay-url.js';
 import { matchFilter } from 'nostr-tools';
 
 const WEBSOCKET_CONNECTING = 0;
@@ -352,7 +353,7 @@ export function normalizeAcquisitionOptions(options) {
   if (!Array.isArray(options.relays) || options.relays.length === 0) {
     throw new ResearchMemoryError('At least one explicit wss:// relay is required.');
   }
-  const relays = options.relays.map(normalizeRelay);
+  const relays = options.relays.map((relay) => normalizeRelayUrl(relay));
   if (new Set(relays).size !== relays.length) {
     throw new ResearchMemoryError('Relay URLs must not be repeated.');
   }
@@ -392,19 +393,6 @@ export function normalizeHydrationOptions(options) {
   const { kinds: ignoredKinds, ...acquisition } = options;
   const normalized = normalizeAcquisitionOptions({ ...acquisition, filter: { kinds: [0] } });
   return { ...normalized, kinds: [...new Set(kinds)] };
-}
-
-function normalizeRelay(value) {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new ResearchMemoryError(`Invalid relay URL: ${value}`);
-  }
-  if (url.protocol !== 'wss:' || url.username || url.password || url.hash) {
-    throw new ResearchMemoryError(`Relay URL must be an explicit wss:// URL: ${value}`);
-  }
-  return url.href;
 }
 
 function normalizeFilter(filter) {
