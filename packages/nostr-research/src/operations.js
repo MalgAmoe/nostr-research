@@ -383,6 +383,7 @@ export function operationSchema() {
         observationLimit: 'relay source only',
         distinctEventLimit: 'relay source only',
         concurrency: 'relay source only',
+        excludeContentWarnings: 'relay source only',
       },
       'remember-membership': {
         name: 'required membership name',
@@ -495,11 +496,15 @@ export function operationSchema() {
 function acquisitionResultFacts() {
   return {
     completionReason: 'operation-wide completion or bound',
+    counts: {
+      excludedContentWarnings: 'matching canonical self-warned events excluded before budgets and ingestion',
+    },
     relayOutcomes: [
       'eose', 'closed', 'peer-closed', 'peer-error', 'connection-failure',
       'timeout', 'cancelled', 'observation-budget', 'distinct-event-budget',
     ],
     perRelay: {
+      excludedContentWarnings: 'matching canonical self-warned events excluded before budgets and ingestion',
       notices: 'up to 10 bounded relay NOTICE texts plus omittedNotices',
       authChallengeObserved: 'neutral observed AUTH challenge; not a refusal',
       closedReason: 'standardized category, prefix, and bounded raw value',

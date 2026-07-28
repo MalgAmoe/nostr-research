@@ -1,6 +1,6 @@
 ---
 id: 071-default-content-warning-exclusion
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/071-default-content-warning-exclusion.validate.sh
 depends_on: 070-normalized-event-attachments

@@ -1092,6 +1092,7 @@ function externalStatus(result, operation, memory) {
       },
       ...(result.inputResolution ? { inputResolution: cloneJson(result.inputResolution) } : {}),
       observed: result.counts.acceptedObservations,
+      excludedContentWarnings: result.counts.excludedContentWarnings,
       duplicateObservations: result.counts.duplicateObservations,
       distinctEvents: result.counts.distinctEventsAcquired,
       relays: {

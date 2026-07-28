@@ -1,0 +1,3 @@
+PASS
+
+All acceptance criteria are materially satisfied. The implementation centralizes detection and exclusion in the shared acquisition path, preserves configuration precedence, keeps direct ingestion policy-free, maintains distinct accounting, exposes the setting and counts through public reporting/schema surfaces, and extends an appropriate existing functional scenario. Syntax checks, all 30 functional tests, and browser smoke validation passed.

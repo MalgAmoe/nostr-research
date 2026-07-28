@@ -94,6 +94,7 @@ explicit relay URLs + one NIP-01 filter
                     |
                     v
   canonical validation + exact filter matching
+  + default direct self-warning exclusion
                     |
                     v
      bounded process-local observation buffer
@@ -358,7 +359,7 @@ The table uses these states:
 | NIP-25 reactions | Partial | Kind `7` event targets and kind `17` external tag targets are typed | First-class addressable and external identities |
 | NIP-27 text references | Implemented | Valid bounded inline account, event, and address references form explainable typed navigation edges | Rendering and recursive acquisition are deliberately absent |
 | NIP-32 labels | Raw only | Label events can be scanned | Attributed label targets and namespaces |
-| NIP-36 content warning | Raw only | Tag remains visible | Structured warning/sensitive-content evidence |
+| NIP-36 content warning | Acquisition policy + raw evidence | Direct self-warnings are excluded by default with count-only accounting and an explicit override; third-party labels/reports remain evidence | Structured warning evidence for admitted events |
 | NIP-39 external identity | Raw only | Tags remain visible | Proof verification with provenance and status |
 | NIP-40 expiration | Raw only | Expired events remain ordinary evidence | Derived expired status and optional caller filtering |
 | NIP-42 relay authentication | Partial | Neutral bounded challenge observation and machine-readable `auth-required` subscription refusal | Signer boundary and authenticated connection state |

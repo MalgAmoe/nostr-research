@@ -22,6 +22,11 @@ export const QUERY_LIMIT = deepFreeze({
 });
 
 export const ACQUISITION = deepFreeze({
+  excludeContentWarnings: {
+    type: 'boolean',
+    default: RESEARCH_CONSTRAINTS.acquisition.excludeContentWarnings.default,
+    effect: 'exclude directly self-warned matching events before budgets and ingestion',
+  },
   timeoutMs: {
     type: 'integer',
     minimum: RESEARCH_CONSTRAINTS.acquisition.timeoutMs.minimum,

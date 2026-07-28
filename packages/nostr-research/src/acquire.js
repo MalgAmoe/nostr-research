@@ -1,6 +1,7 @@
 import { isCanonicalNostrEvent, ResearchMemoryError } from './protocol.js';
 import { ACQUISITION } from './contract-facts.js';
 import { normalizeRelayUrl } from './relay-url.js';
+import { hasSelfDeclaredContentWarning } from './event-content.js';
 import { matchFilter } from 'nostr-tools';
 
 const WEBSOCKET_CONNECTING = 0;
@@ -15,11 +16,11 @@ const CLOSED_REASON_CATEGORIES = new Set([
 
 const OPTION_KEYS = new Set([
   'relays', 'filter', 'timeoutMs', 'observationLimit', 'distinctEventLimit',
-  'concurrency', 'signal',
+  'concurrency', 'excludeContentWarnings', 'signal',
 ]);
 const HYDRATION_OPTION_KEYS = new Set([
   'relays', 'kinds', 'timeoutMs', 'observationLimit', 'distinctEventLimit',
-  'concurrency', 'signal',
+  'concurrency', 'excludeContentWarnings', 'signal',
 ]);
 
 export const DEFAULT_ACQUISITION_TIMEOUT_MS =
@@ -50,6 +51,7 @@ export async function acquireRelayEvents(memory, options) {
     receivedPackets: 0,
     invalid: 0,
     nonMatching: 0,
+    excludedContentWarnings: 0,
     duplicateObservations: 0,
     newlyStoredCorpusEvents: 0,
     acceptedObservations: 0,
@@ -66,6 +68,7 @@ export async function acquireRelayEvents(memory, options) {
     receivedPackets: 0,
     invalid: 0,
     nonMatching: 0,
+    excludedContentWarnings: 0,
     acceptedObservations: 0,
     duplicateObservations: 0,
     newlyStoredCorpusEvents: 0,
@@ -185,6 +188,11 @@ export async function acquireRelayEvents(memory, options) {
           if (!matchFilter(normalized.filter, event)) {
             relayResult.nonMatching += 1;
             counts.nonMatching += 1;
+            return;
+          }
+          if (normalized.excludeContentWarnings && hasSelfDeclaredContentWarning(event)) {
+            relayResult.excludedContentWarnings += 1;
+            counts.excludedContentWarnings += 1;
             return;
           }
           // This check and ingest are synchronous, so concurrent socket
@@ -344,6 +352,7 @@ export async function acquireBoundAccountEvents(memory, selection, options, filt
     observationLimit: options.observationLimit,
     distinctEventLimit: options.distinctEventLimit,
     concurrency: options.concurrency,
+    excludeContentWarnings: options.excludeContentWarnings,
     signal: options.signal,
   });
 }
@@ -431,12 +440,17 @@ export function normalizeAcquisitionOptions(options) {
     'distinctEventLimit',
   );
   const concurrency = positiveInteger(options.concurrency ?? DEFAULT_RELAY_CONCURRENCY, 'concurrency');
+  const excludeContentWarnings =
+    options.excludeContentWarnings ?? ACQUISITION.excludeContentWarnings.default;
+  if (typeof excludeContentWarnings !== 'boolean') {
+    throw new ResearchMemoryError('excludeContentWarnings must be a boolean.');
+  }
   if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) {
     throw new ResearchMemoryError('signal must be an AbortSignal.');
   }
   return {
     relays, filter, timeoutMs, observationLimit, distinctEventLimit,
-    concurrency, signal: options.signal,
+    concurrency, excludeContentWarnings, signal: options.signal,
   };
 }
 

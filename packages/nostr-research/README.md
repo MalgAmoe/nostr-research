@@ -110,6 +110,7 @@ const acquired = await acquireRelayEvents(memory, {
   filter: { kinds: [1], limit: 20 },
   observationLimit: 40,
   distinctEventLimit: 20,
+  excludeContentWarnings: true,
   timeoutMs: 5_000,
   concurrency: 2,
 });
@@ -126,6 +127,15 @@ ingested and consume neither budget. Unknown acquisition options are rejected
 before relay contact. Attempt coverage is returned directly; the corpus does
 not keep a global acquisition history.
 Cancellation uses an `AbortSignal`.
+
+Acquisition also excludes directly self-warned matching events by default,
+before either acquisition budget or memory ingestion. A direct
+`content-warning` tag or an `L`/`l` self-label in that namespace triggers the
+policy; reports expose only `excludedContentWarnings` counts. Set
+`excludeContentWarnings: false` on a command or in session acquisition
+configuration to admit them. Kind-1985 third-party labels and kind-1984
+reports remain ordinary attributed evidence. Direct `memory.ingest()` does
+not apply this relay-acquisition policy.
 
 ## Local collection algebra
 
@@ -603,7 +613,7 @@ corpora. Counting does not fetch NIP-11 information or mutate research memory.
 Session defaults can be updated without rewriting memory:
 
 ```json
-{"commandId":"configure","command":"configure","parameters":{"relays":["wss://relay.example"],"acquisition":{"timeoutMs":8000,"observationLimit":200,"distinctEventLimit":150,"concurrency":2},"presentation":{"previewLimit":10,"excerptLimit":240,"sizeLimit":20000}}}
+{"commandId":"configure","command":"configure","parameters":{"relays":["wss://relay.example"],"acquisition":{"excludeContentWarnings":true,"timeoutMs":8000,"observationLimit":200,"distinctEventLimit":150,"concurrency":2},"presentation":{"previewLimit":10,"excerptLimit":240,"sizeLimit":20000}}}
 ```
 
 The precedence is per-command parameters, session configuration, engine

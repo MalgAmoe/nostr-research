@@ -11,6 +11,29 @@ import {
 } from '@nostr-research/memory';
 
 const HYDRATION_KEY = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
+const WARNING_KEY = Uint8Array.from(Buffer.from('8'.repeat(64), 'hex'));
+const WARNING_EVENTS = [
+  finalizeEvent({
+    kind: 1, created_at: 200, tags: [], content: 'ordinary retained event',
+  }, WARNING_KEY),
+  finalizeEvent({
+    kind: 1, created_at: 201, tags: [['content-warning', 'sensitive']], content: 'direct warning',
+  }, WARNING_KEY),
+  finalizeEvent({
+    kind: 1, created_at: 202,
+    tags: [['L', 'content-warning'], ['l', 'graphic', 'content-warning']],
+    content: 'self label warning',
+  }, WARNING_KEY),
+  finalizeEvent({
+    kind: 1985, created_at: 203,
+    tags: [['L', 'content-warning'], ['l', 'graphic', 'content-warning'], ['e', 'a'.repeat(64)]],
+    content: 'third party label evidence',
+  }, WARNING_KEY),
+  finalizeEvent({
+    kind: 1984, created_at: 204,
+    tags: [['content-warning'], ['e', 'b'.repeat(64)]], content: 'third party report evidence',
+  }, WARNING_KEY),
+];
 
 class RelayFixtureWebSocket {
   static CONNECTING = 0;
@@ -57,6 +80,9 @@ class RelayFixtureWebSocket {
         this.message(['EVENT', subscriptionId, finalizeEvent({
           kind: 0, created_at: 101, tags: [], content: '{"name":"second"}',
         }, HYDRATION_KEY)]);
+        this.message(['EOSE', subscriptionId]);
+      } else if (this.url.includes('content-warnings')) {
+        for (const event of WARNING_EVENTS) this.message(['EVENT', subscriptionId, event]);
         this.message(['EOSE', subscriptionId]);
       } else if (this.url.includes('unknown')) {
         this.message(['CLOSED', subscriptionId, 'future-prefix: visible evidence']);
@@ -123,6 +149,89 @@ test('acquisition rejects unusable public inputs before networking', async () =>
     );
   } finally {
     memory.close();
+  }
+});
+
+test('relay acquisition excludes direct self-warnings by default with a factual override', async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  globalThis.WebSocket = RelayFixtureWebSocket;
+  const memory = createInMemoryResearchMemory({ capacity: 10 });
+  try {
+    const excluded = await acquireRelayEvents(memory, {
+      relays: ['wss://content-warnings.example'], filter: {},
+      timeoutMs: 1000, observationLimit: 3, distinctEventLimit: 3,
+    });
+    assert.equal(excluded.counts.receivedPackets, 5);
+    assert.equal(excluded.counts.excludedContentWarnings, 2);
+    assert.equal(excluded.counts.acceptedObservations, 3);
+    assert.equal(excluded.counts.distinctEventsAcquired, 3);
+    assert.equal(excluded.relays[0].excludedContentWarnings, 2);
+    assert.deepEqual(
+      new Set(excluded.acquiredEventIds),
+      new Set([WARNING_EVENTS[0].id, WARNING_EVENTS[3].id, WARNING_EVENTS[4].id]),
+    );
+    assert.equal(memory.describe().observationBuffer.eventCount, 3);
+    assert.equal(memory.inspect(subject('event', WARNING_EVENTS[1].id)).resolved, false);
+    assert.equal(memory.inspect(subject('event', WARNING_EVENTS[2].id)).resolved, false);
+
+    const defaultSession = createDeclarativeResearchSession(memory);
+    await defaultSession.execute({
+      commandId: 'default-attempt', command: 'acquire',
+      parameters: {
+        relays: ['wss://content-warnings.example'], filter: {},
+        timeoutMs: 1000, observationLimit: 3, distinctEventLimit: 3,
+      },
+      resultId: 'default-attempt',
+    });
+    const defaultCoverage = await defaultSession.execute({
+      commandId: 'default-coverage', command: 'show', input: 'default-attempt',
+      parameters: { mode: 'coverage', previewLimit: 10 },
+    });
+    assert.equal(defaultCoverage.result.counts.excludedContentWarnings, 2);
+    assert.equal(defaultCoverage.result.relays[0].excludedContentWarnings, 2);
+
+    memory.reset();
+    const session = createDeclarativeResearchSession(memory, {
+      acquisition: { excludeContentWarnings: false },
+    });
+    const admitted = await session.execute({
+      commandId: 'admit', command: 'acquire',
+      parameters: {
+        relays: ['wss://content-warnings.example'], filter: {},
+        timeoutMs: 1000, observationLimit: 5, distinctEventLimit: 5,
+      },
+      resultId: 'admitted',
+    });
+    assert.equal(admitted.ok, true);
+    assert.equal(admitted.result.external.completeness.excludedContentWarnings, 0);
+    assert.equal(memory.describe().observationBuffer.eventCount, 5);
+
+    const shown = await session.execute({
+      commandId: 'shown', command: 'show', input: 'admitted',
+      parameters: { mode: 'details', previewLimit: 10 },
+    });
+    assert.equal(shown.result.context.counts.excludedContentWarnings, 0);
+    assert.equal(shown.result.context.relayDiagnostics[0].excludedContentWarnings, 0);
+
+    const status = await session.execute({ commandId: 'status', command: 'status' });
+    assert.equal(status.result.configuration.acquisition.excludeContentWarnings, false);
+    const schema = await session.execute({
+      commandId: 'schema-warning', command: 'schema', parameters: { detail: 'full' },
+    });
+    assert.deepEqual(
+      schema.result.research.parameterContracts.acquire.excludeContentWarnings,
+      {
+        type: 'boolean', default: true,
+        effect: 'exclude directly self-warned matching events before budgets and ingestion',
+      },
+    );
+    assert.match(
+      schema.result.research.operationFacts.acquire.resultFacts.perRelay.excludedContentWarnings,
+      /excluded before budgets and ingestion/,
+    );
+  } finally {
+    memory.close();
+    globalThis.WebSocket = originalWebSocket;
   }
 });
 

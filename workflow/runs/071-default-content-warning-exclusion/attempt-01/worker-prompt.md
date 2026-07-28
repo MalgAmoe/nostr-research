@@ -1,3 +1,58 @@
+# Worker role
+
+You are the implementation worker in a repository-backed workflow.
+
+Read `workflow/WORKFLOW.md` and the selected task completely. Treat the task
+definition, its scope, and its acceptance criteria as authoritative within the
+durable principles in `CONTEXT.md`. Historical completed tasks are evidence of
+past work, not current policy.
+
+Work directly in the repository. Produce every required deliverable. Inspect
+real source and tests rather than relying on assumptions. Do not change task
+status, files under `workflow/runs/`, or the workflow runner.
+Do not stage or commit changes; the runner owns the task commit after review.
+
+If a previous review is supplied, address every applicable finding explicitly.
+Do not implement a finding blindly when it conflicts with `CONTEXT.md`, expands
+the selected task, or would add production complexity only to satisfy a test.
+Explain that conflict in the worker report so the reviewer can assess it.
+Do not merely describe work that should be done: perform the task within its
+stated permissions.
+
+## Verification discipline
+
+Permanent tests are exceptional durable product code, not an automatic
+deliverable for every feature or bug.
+
+- Follow the testing policy in `CONTEXT.md`.
+- Prefer a small public-boundary functional scenario over helper-level tests.
+- Add a permanent test only when it protects stable, important behavior that is
+  expensive or risky to verify otherwise.
+- Do not test TCP, TLS, WebSocket-library mechanics, process scheduling,
+  private state, private helpers, or exact timing unless that mechanism is
+  explicitly the product behavior selected by the task.
+- Use task validation or a run artifact for exploratory, live-network,
+  environment-specific, and one-off verification.
+- If a proposed test requires new public API, abstraction, dependency, or
+  low-level production machinery, challenge the test before changing the
+  product.
+- Existing tests are not requirements by themselves. Remove or update a test
+  when the selected product behavior intentionally changes.
+
+When permanent tests are added or materially expanded, the final report must
+name the stable public behavior each one protects and why temporary validation
+was insufficient.
+
+Finish with a concise plain-text report listing:
+
+- deliverables created or changed;
+- validation or checks performed;
+- permanent tests added or expanded, with their justification, or `none`;
+- unresolved uncertainties.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -205,14 +260,6 @@ continuation are deliberately absent: one acquisition command performs one
 explicit bounded relay attempt. Multi-step research composes those attempts
 sequentially and keeps each outcome visible.
 
-Relay acquisition excludes directly self-warned content by default after
-canonical validation and exact filter matching but before budgets and
-ingestion. A direct `content-warning` tag or a self-label in the
-`content-warning` namespace triggers the exclusion; its report retains only a
-count. Callers may explicitly disable the setting. Kind-1985 labels and
-kind-1984 reports remain attributed third-party evidence and never become
-hidden acquisition policy. Direct `memory.ingest()` remains policy-free.
-
 Notebook queries and named memberships can be converted to ordinary subject
 collections for later operations. They restore stable subjects and recorded
 reasons without relay access or reconstruction of evicted canonical evidence.
@@ -245,3 +292,77 @@ relationship types. Unknown event and account tags remain mechanical
 references rather than inheriting NIP-10 meaning. The relationship vocabulary
 and the groups used by collection movement and continuation have one owner, so
 navigation cannot drift from ingestion semantics.
+
+
+# Selected task
+
+---
+id: 071-default-content-warning-exclusion
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/071-default-content-warning-exclusion.validate.sh
+depends_on: 070-normalized-event-attachments
+---
+
+# Exclude self-warned relay events by default
+
+## Authority
+
+Implement Task 3 from
+[`EVENT-CONTENT-ENGINE-DESIGN.md`](../../EVENT-CONTENT-ENGINE-DESIGN.md).
+The warning scope, exclusion point, retained accounting, and non-goals are
+settled there.
+
+## Goal
+
+Keep directly self-warned relay events out of the renewable observation buffer
+by default while reporting exactly how many matching canonical events were
+excluded.
+
+## Required work
+
+1. Add shared detection for any direct `content-warning` tag and for a
+   self-label whose `L`/`l` namespace is `content-warning`.
+2. Do not apply kind-1985 third-party labels or kind-1984 reports as hidden
+   policy.
+3. Add boolean acquisition configuration
+   `excludeContentWarnings`, defaulting to `true`, with existing engine,
+   session, and explicit-command precedence.
+4. Apply exclusion after canonical validation and exact requested-filter
+   matching, but before accepted-observation/distinct-event budget accounting
+   and memory ingestion.
+5. Excluded events must not enter memory, evict evidence, appear in acquisition
+   collections, or retain identifiers, content, reasons, or attachments.
+6. Add `excludedContentWarnings` to operation-wide and per-relay counts and
+   expose it through bounded acquisition presentation, completeness, status
+   where configuration is shown, and factual schema.
+7. Propagate the option through the single acquisition implementation used by
+   direct acquisition, hydration, continuation, relation-backed fetch, plans,
+   sessions, JSONL, and the browser Worker.
+8. Keep direct `memory.ingest()` policy-free; it remains an explicit canonical
+   evidence interface.
+9. Update `CONTEXT.md`, package documentation, the capability map, and next
+   steps only where needed to describe implemented behavior.
+
+## Acceptance criteria
+
+- Default relay acquisition excludes both settled self-warning forms.
+- An explicit `false` override admits those events through ordinary
+  acquisition.
+- Third-party label/report events are not silently trusted or followed.
+- Received, invalid, non-matching, excluded, accepted, duplicate, distinct,
+  and newly stored counts remain semantically distinct.
+- Excluded events consume neither acquisition budget and leave no canonical
+  or working-handle residue.
+- Every relay-backed caller uses the same setting and implementation.
+
+## Verification
+
+- Extend an existing deterministic public acquisition/session scenario rather
+  than creating a real TCP/TLS/WebSocket server test.
+- Exercise direct warning, self-label warning, ordinary event, default
+  exclusion, explicit override, counts, schema, and presentation.
+- Do not add permanent live-network tests or test reason-string taxonomies.
+- Run syntax checks, the functional suite, and browser smoke validation.
+- After review passes, perform one bounded live-relay trial as temporary
+  milestone validation.

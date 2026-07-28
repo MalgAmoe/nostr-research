@@ -18,6 +18,7 @@ export const RESEARCH_CONSTRAINTS = deepFreeze({
     sizeLimit: { default: 12000, minimum: 1000, maximum: 50000 },
   },
   acquisition: {
+    excludeContentWarnings: { default: true },
     timeoutMs: { default: 10000, minimum: 1, maximum: 60000 },
     observationLimit: { default: 100, minimum: 1 },
     distinctEventLimit: { default: 100, minimum: 1 },
@@ -61,6 +62,7 @@ export const RESEARCH_CONSTRAINTS = deepFreeze({
 export const DEFAULT_SESSION_CONFIGURATION = deepFreeze({
   relays: [],
   acquisition: {
+    excludeContentWarnings: RESEARCH_CONSTRAINTS.acquisition.excludeContentWarnings.default,
     timeoutMs: RESEARCH_CONSTRAINTS.acquisition.timeoutMs.default,
     observationLimit: RESEARCH_CONSTRAINTS.acquisition.observationLimit.default,
     distinctEventLimit: RESEARCH_CONSTRAINTS.acquisition.distinctEventLimit.default,
@@ -81,11 +83,13 @@ export function normalizeSessionConfiguration(value = {}, base = DEFAULT_SESSION
   if (value.acquisition !== undefined) {
     plainObject(value.acquisition, 'Session acquisition configuration');
     rejectUnknown(value.acquisition, [
-      'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency',
+      'excludeContentWarnings', 'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency',
     ], 'session acquisition configuration');
     for (const name of Object.keys(value.acquisition)) {
       const constraint = RESEARCH_CONSTRAINTS.acquisition[name];
-      next.acquisition[name] = constraint.maximum === undefined
+      next.acquisition[name] = name === 'excludeContentWarnings'
+        ? boolean(value.acquisition[name], name)
+        : constraint.maximum === undefined
         ? atLeast(value.acquisition[name], constraint.minimum, name)
         : bounded(value.acquisition[name], constraint, name);
     }
@@ -158,6 +162,13 @@ function bounded(value, constraint, name) {
 function atLeast(value, minimum, name) {
   if (!Number.isSafeInteger(value) || value < minimum) {
     throw new ResearchMemoryError(`${name} must be an integer of at least ${minimum}.`);
+  }
+  return value;
+}
+
+function boolean(value, name) {
+  if (typeof value !== 'boolean') {
+    throw new ResearchMemoryError(`${name} must be a boolean.`);
   }
   return value;
 }

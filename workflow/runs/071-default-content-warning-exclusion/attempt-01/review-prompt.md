@@ -1,3 +1,52 @@
+# Reviewer role
+
+You are the independent reviewer in a repository-backed workflow.
+
+Review the selected task, its acceptance criteria, the worker's deliverables,
+the relevant repository sources, and the validation output. Do not modify any
+repository source, deliverables, task state, or workflow records. Do not repair
+the work. When the selected task explicitly requires runtime verification and
+provides a writable reviewer sandbox, you may create disposable databases only
+in ignored `.data/` paths or the system temporary directory.
+
+The first non-empty line of your response must be exactly one of:
+
+- `PASS`
+- `CHANGES_REQUIRED`
+- `BLOCKED`
+
+Use `PASS` only when all acceptance criteria are materially satisfied.
+
+Treat the durable principles in `CONTEXT.md` as constraints on every task.
+Historical completed tasks do not override current policy. Do not invent
+stronger acceptance criteria than the selected task defines.
+
+Audit test changes as carefully as production changes:
+
+- Permanent tests are exceptional and must protect stable public behavior.
+- Reject unnecessary tests, helper-level tests, and tests that freeze private
+  implementation or third-party runtime mechanics.
+- Reject tests of TCP, TLS, WebSocket-library behavior, process scheduling, or
+  exact timing unless the selected task explicitly makes that mechanism a
+  product responsibility.
+- Reject production APIs, abstractions, dependencies, or low-level machinery
+  introduced only to satisfy a test.
+- Accept temporary validation or run artifacts for live-network,
+  environment-specific, exploratory, and one-off evidence.
+- Passing validation is not evidence that every test is worth keeping.
+
+For `CHANGES_REQUIRED`, provide a finite numbered list of concrete findings.
+Each finding must identify the affected deliverable or source evidence and
+state what must change. Do not request optional polish or expand the task.
+
+Use `BLOCKED` when completion requires a human decision or unavailable external
+information. Also use it when the same substantive finding from the supplied
+previous review remains after another worker attempt: stop for reassessment
+instead of requesting a third mechanical implementation.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -245,3 +294,173 @@ relationship types. Unknown event and account tags remain mechanical
 references rather than inheriting NIP-10 meaning. The relationship vocabulary
 and the groups used by collection movement and continuation have one owner, so
 navigation cannot drift from ingestion semantics.
+
+
+# Selected task
+
+---
+id: 071-default-content-warning-exclusion
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/071-default-content-warning-exclusion.validate.sh
+depends_on: 070-normalized-event-attachments
+---
+
+# Exclude self-warned relay events by default
+
+## Authority
+
+Implement Task 3 from
+[`EVENT-CONTENT-ENGINE-DESIGN.md`](../../EVENT-CONTENT-ENGINE-DESIGN.md).
+The warning scope, exclusion point, retained accounting, and non-goals are
+settled there.
+
+## Goal
+
+Keep directly self-warned relay events out of the renewable observation buffer
+by default while reporting exactly how many matching canonical events were
+excluded.
+
+## Required work
+
+1. Add shared detection for any direct `content-warning` tag and for a
+   self-label whose `L`/`l` namespace is `content-warning`.
+2. Do not apply kind-1985 third-party labels or kind-1984 reports as hidden
+   policy.
+3. Add boolean acquisition configuration
+   `excludeContentWarnings`, defaulting to `true`, with existing engine,
+   session, and explicit-command precedence.
+4. Apply exclusion after canonical validation and exact requested-filter
+   matching, but before accepted-observation/distinct-event budget accounting
+   and memory ingestion.
+5. Excluded events must not enter memory, evict evidence, appear in acquisition
+   collections, or retain identifiers, content, reasons, or attachments.
+6. Add `excludedContentWarnings` to operation-wide and per-relay counts and
+   expose it through bounded acquisition presentation, completeness, status
+   where configuration is shown, and factual schema.
+7. Propagate the option through the single acquisition implementation used by
+   direct acquisition, hydration, continuation, relation-backed fetch, plans,
+   sessions, JSONL, and the browser Worker.
+8. Keep direct `memory.ingest()` policy-free; it remains an explicit canonical
+   evidence interface.
+9. Update `CONTEXT.md`, package documentation, the capability map, and next
+   steps only where needed to describe implemented behavior.
+
+## Acceptance criteria
+
+- Default relay acquisition excludes both settled self-warning forms.
+- An explicit `false` override admits those events through ordinary
+  acquisition.
+- Third-party label/report events are not silently trusted or followed.
+- Received, invalid, non-matching, excluded, accepted, duplicate, distinct,
+  and newly stored counts remain semantically distinct.
+- Excluded events consume neither acquisition budget and leave no canonical
+  or working-handle residue.
+- Every relay-backed caller uses the same setting and implementation.
+
+## Verification
+
+- Extend an existing deterministic public acquisition/session scenario rather
+  than creating a real TCP/TLS/WebSocket server test.
+- Exercise direct warning, self-label warning, ordinary event, default
+  exclusion, explicit override, counts, schema, and presentation.
+- Do not add permanent live-network tests or test reason-string taxonomies.
+- Run syntax checks, the functional suite, and browser smoke validation.
+- After review passes, perform one bounded live-relay trial as temporary
+  milestone validation.
+
+
+# Worker report
+
+Implemented task 071.
+
+Deliverables changed:
+
+- Added shared self-warning detection for direct tags and `L`/`l` self-labels.
+- Added `excludeContentWarnings`, default `true`, across engine/session/command precedence.
+- Applied exclusion before budgets and ingestion.
+- Added operation-wide and per-relay `excludedContentWarnings` accounting.
+- Propagated configuration through acquisition, hydration, continuation, fetch, plans, JSONL, and browser Worker paths.
+- Updated schema, status, completeness, presentation, context, package docs, capability map, and next steps.
+- Kept `memory.ingest()` policy-free.
+
+Validation:
+
+- Syntax checks passed.
+- Full functional suite passed: 30/30.
+- Diff checks passed.
+- Browser smoke could not launch Chromium because the managed macOS sandbox denied Mach rendezvous registration (`Permission denied`); no product assertion ran or failed.
+- Live-relay validation was not performed because the task specifies doing it after review passes.
+
+Permanent tests expanded:
+
+- Extended the existing public acquisition scenario to protect default exclusion, explicit override, both warning forms, third-party label/report handling, count separation, absence of memory residue, schema, status, and bounded presentation. A deterministic permanent scenario is justified because this is stable public acquisition policy shared by every consumer.
+
+Unresolved uncertainty:
+
+- Browser smoke requires execution in an environment that permits Playwright Chromium startup.
+
+# Validation output
+
+Exit code: 0
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/protocol.js && node --check src/reference.js && node --check src/protocol-relationships.js && node --check src/event-content.js && node --check src/relay-url.js && node --check src/configuration.js && node --check src/contract-facts.js && node --check src/memory.js && node --check src/collection.js && node --check src/acquire.js && node --check src/relay-info.js && node --check src/relay-count.js && node --check src/operations.js && node --check src/relation.js && node --check src/pipeline-source.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/presentation.js && node --check src/jsonl-session.js && node --check src/browser-worker.js && node --check bin/nostr-research-session.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+✔ acquisition rejects unusable public inputs before networking (1.957875ms)
+✔ relay acquisition excludes direct self-warnings by default with a factual override (55.850625ms)
+✔ public acquisition and session reports preserve bounded relay messages and honest outcomes (25.5775ms)
+✔ address subjects navigate typed references to current local replaceable evidence (105.674708ms)
+✔ ordinary acquisition accepts an explicit canonical #a filter (0.440167ms)
+✔ direct, plan, and session execution share operation kinds and failure boundaries (39.569959ms)
+✔ collections navigate identities while relations own value analysis (17.174917ms)
+✔ named account and note handles continue with bounded relationship provenance (2371.59025ms)
+✔ factual schemas construct commands accepted through the public session seam (59.3255ms)
+✔ declarative observation and lifecycle form one bounded public workflow (44.513792ms)
+✔ relation summaries compact source selection details without losing their shape (2.652333ms)
+✔ declarative named results compose compatible sets and expose their schema (17.331667ms)
+✔ declarative notebook knowledge survives turnover and remains independent from evidence (37.590959ms)
+✔ relations normalize bounded attachment evidence and generically explode objects (286.281625ms)
+✔ relations expose lazy factual event content and conversation fields (103.1655ms)
+✔ explicit archive preservation survives complete buffer turnover and releases atomically (63.318ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (43.399ms)
+✔ collections re-resolve stable subjects across observations, replacement metadata, and eviction (44.380583ms)
+✔ JSONL executable provides one persistent bounded process workflow (77.671917ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (33.60675ms)
+✔ public references normalize to stable subjects while hints stay attributed metadata (5.180916ms)
+✔ mixed event kinds derive truthful references without polluting conversations (74.313583ms)
+✔ inline NIP-27 references navigate as typed, explainable evidence without becoming threads (10.500042ms)
+✔ replaceable selection and follow interpretation remain stable in one process (25.310375ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (42.693667ms)
+✔ relation handles resolve references across evidence lifetime and keep bounded views composable (81.383625ms)
+✔ relay count remains attributed and never creates a global total (5.796292ms)
+✔ relay count cancellation distinguishes started and unstarted attempts (0.471958ms)
+✔ relay information stays attributed, bounded, and reusable through the public executor (13.91875ms)
+✔ large notebook membership is atomic, bounded, process-local, and directly navigable (2267.242625ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2662.46675
+browser smoke passed: Worker, memory, acquisition, relay count, handles, preview, close
+
+
+# Review instruction
+
+Inspect the actual deliverables and relevant repository sources now. Do not rely only on the worker report.

@@ -696,6 +696,7 @@ function showAcquisition(memory, value, settings) {
       count: distinctEvents,
       requested: structuredClone(value.coverage?.requested ?? value.requested),
       budget: structuredClone(value.coverage?.budget ?? value.budget),
+      counts: structuredClone(value.counts),
       completionReason: value.completionReason,
       exhaustive: false,
       uncertainty: value.coverage?.uncertainty,

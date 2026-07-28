@@ -11,7 +11,8 @@ import {
 } from './protocol-relationships.js';
 const KEYS = new Set([
   'relationship', 'source', 'relays', 'since', 'until', 'offset', 'eventLimit', 'depth',
-  'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency', 'signal',
+  'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency',
+  'excludeContentWarnings', 'signal',
 ]);
 const MAX_PROJECTION_LIMIT = RESULT_LIMIT.maximum;
 
@@ -108,7 +109,9 @@ export async function acquireContinuationEvidence(
     relays: options.relays, filter, timeoutMs: options.timeoutMs,
     observationLimit: options.observationLimit,
     distinctEventLimit: options.distinctEventLimit,
-    concurrency: options.concurrency, signal: options.signal,
+    concurrency: options.concurrency,
+    excludeContentWarnings: options.excludeContentWarnings,
+    signal: options.signal,
   });
 }
 
@@ -191,6 +194,10 @@ export function normalizeContinuation(memory, input, options) {
         options.concurrency ?? ACQUISITION.concurrency.default,
         'concurrency',
       ),
+      excludeContentWarnings: boolean(
+        options.excludeContentWarnings ?? ACQUISITION.excludeContentWarnings.default,
+        'excludeContentWarnings',
+      ),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     Object.assign(result, {
@@ -199,14 +206,21 @@ export function normalizeContinuation(memory, input, options) {
       observationLimit: acquisition.observationLimit,
       distinctEventLimit: acquisition.distinctEventLimit,
       concurrency: acquisition.concurrency,
+      excludeContentWarnings: acquisition.excludeContentWarnings,
       ...(acquisition.signal === undefined ? {} : { signal: acquisition.signal }),
     });
   } else if (options.relays !== undefined || options.timeoutMs !== undefined
       || options.observationLimit !== undefined || options.distinctEventLimit !== undefined
-      || options.concurrency !== undefined || options.signal !== undefined) {
+      || options.concurrency !== undefined || options.excludeContentWarnings !== undefined
+      || options.signal !== undefined) {
     throw new ResearchMemoryError('Local continuation does not accept relay acquisition options.');
   }
   return result;
+}
+
+function boolean(value, name) {
+  if (typeof value !== 'boolean') throw new ResearchMemoryError(`${name} must be a boolean.`);
+  return value;
 }
 
 function localContinuation(memory, starts, options) {

@@ -12,7 +12,7 @@ import {
 
 const FETCH_KEYS = new Set([
   'relays', 'filter', 'bindings', 'timeoutMs', 'observationLimit',
-  'distinctEventLimit', 'concurrency', 'signal',
+  'distinctEventLimit', 'concurrency', 'excludeContentWarnings', 'signal',
 ]);
 const EXTRACT_KEYS = new Set(['field', 'subjectType', 'limit']);
 const BINDABLE_FILTERS = new Set(FETCH_BINDING_KEYS);

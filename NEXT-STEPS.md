@@ -400,7 +400,8 @@ milestones:
   scanning;
 - selected public NIP-51 lists for attributed discovery and moderation
   evidence;
-- deletion, expiration, warning, label, report, and assertion status;
+- deletion, expiration, admitted-event warning details, label, report, and
+  assertion status (default count-only self-warning exclusion is implemented);
 - NIP-05 and NIP-39 identity verification; and
 - richer profile, long-form, media, and file projections.
 

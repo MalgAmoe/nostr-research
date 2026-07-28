@@ -20,6 +20,26 @@ const MEDIA_HOSTS = new Map([
   ['soundcloud.com', 'audio'],
 ]);
 
+const CONTENT_WARNING_NAMESPACE = 'content-warning';
+
+/**
+ * Reports only warnings declared directly by the event itself. Third-party
+ * label and report events are attributed evidence, not acquisition policy.
+ */
+export function hasSelfDeclaredContentWarning(event) {
+  if (!Array.isArray(event?.tags)) return false;
+  if (event.kind === 1984 || event.kind === 1985) return false;
+  if (event.tags.some((tag) => Array.isArray(tag) && tag[0] === CONTENT_WARNING_NAMESPACE)) {
+    return true;
+  }
+  const declaresNamespace = event.tags.some((tag) => (
+    Array.isArray(tag) && tag[0] === 'L' && tag[1] === CONTENT_WARNING_NAMESPACE
+  ));
+  return declaresNamespace && event.tags.some((tag) => (
+    Array.isArray(tag) && tag[0] === 'l' && tag[2] === CONTENT_WARNING_NAMESPACE
+  ));
+}
+
 const KIND_FACTS = new Map([
   [0, ['profile-metadata', 'none', 'none']],
   [1, ['content', 'plain-text', null]],
