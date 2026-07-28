@@ -1,0 +1,3 @@
+PASS
+
+All acceptance criteria are materially satisfied. The Worker adapter uses the existing public core and declarative session, preserves session envelopes and cancellation/closure semantics, exposes only the required package subpath, and includes appropriate temporary validation and documentation. The proof correctly limits its claims to the Node-based Worker shim and explicitly leaves Safari/browser execution unverified.

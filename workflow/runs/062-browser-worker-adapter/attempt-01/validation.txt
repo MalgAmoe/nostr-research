@@ -1,0 +1,50 @@
+Exit code: 0
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/protocol.js && node --check src/reference.js && node --check src/protocol-relationships.js && node --check src/configuration.js && node --check src/contract-facts.js && node --check src/memory.js && node --check src/collection.js && node --check src/acquire.js && node --check src/operations.js && node --check src/relation.js && node --check src/pipeline-source.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/presentation.js && node --check src/jsonl-session.js && node --check src/browser-worker.js && node --check bin/nostr-research-session.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+✔ acquisition rejects unusable public inputs before networking (2.4955ms)
+✔ address subjects navigate typed references to current local replaceable evidence (89.959167ms)
+✔ ordinary acquisition accepts an explicit canonical #a filter (0.396125ms)
+✔ direct, plan, and session execution share operation kinds and failure boundaries (27.911667ms)
+✔ collections navigate identities while relations own value analysis (22.575ms)
+✔ named account and note handles continue with bounded relationship provenance (2342.592625ms)
+✔ factual schemas construct commands accepted through the public session seam (54.853834ms)
+✔ declarative observation and lifecycle form one bounded public workflow (47.0825ms)
+✔ relation summaries compact source selection details without losing their shape (2.432917ms)
+✔ declarative named results compose compatible sets and expose their schema (12.816625ms)
+✔ declarative notebook knowledge survives turnover and remains independent from evidence (36.791ms)
+✔ explicit archive preservation survives complete buffer turnover and releases atomically (72.316125ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (37.302583ms)
+✔ collections re-resolve stable subjects across observations, replacement metadata, and eviction (22.448417ms)
+✔ JSONL executable provides one persistent bounded process workflow (99.602917ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (40.589083ms)
+✔ public references normalize to stable subjects while hints stay attributed metadata (4.886083ms)
+✔ mixed event kinds derive truthful references without polluting conversations (51.26025ms)
+✔ inline NIP-27 references navigate as typed, explainable evidence without becoming threads (14.817208ms)
+✔ replaceable selection and follow interpretation remain stable in one process (44.130583ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (33.869ms)
+✔ relation handles resolve references across evidence lifetime and keep bounded views composable (56.319333ms)
+✔ large notebook membership is atomic, bounded, process-local, and directly navigable (2361.766083ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2630.443875
+browser Worker adapter proof passed

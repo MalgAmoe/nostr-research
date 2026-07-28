@@ -1,6 +1,6 @@
 ---
 id: 062-browser-worker-adapter
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/062-browser-worker-adapter.validate.sh
 depends_on: 061-browser-compatible-session-proof

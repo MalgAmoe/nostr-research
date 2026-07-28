@@ -434,6 +434,45 @@ commands with `REVISION_CONFLICT`. Revisions advance when the corpus, notebook,
 archive, or named-handle state changes; observation commands and failed commands do not
 advance them.
 
+### Browser Worker adapter
+
+The package also exposes one module Worker entry for browser applications:
+
+```js
+const worker = new Worker(
+  new URL('@nostr-research/memory/browser-worker', import.meta.url),
+  { type: 'module' },
+);
+```
+
+The exact package-subpath URL construction is resolved by the embedding
+application's package tooling. The Worker owns one process-local memory and
+one declarative session. Initialize it once before sending research commands:
+
+```json
+{"type":"initialize","commandId":"start","memory":{"capacity":500,"archiveCapacity":100,"notebookCapacity":250},"configuration":{"presentation":{"previewLimit":10}}}
+```
+
+Successful initialization returns:
+
+```json
+{"ok":true,"commandId":"start","sessionRevision":0,"result":{"type":"browser-worker-initialized"},"warnings":[]}
+```
+
+Initialization is an adapter lifecycle message, not a declarative research
+command. Its `memory` object chooses construction-time capacities and its
+optional `configuration` object supplies the initial session configuration.
+Invalid or duplicate initialization and commands sent before initialization
+return correlated Worker lifecycle errors.
+
+After initialization, send the ordinary command objects documented below.
+The Worker processes messages sequentially and posts each existing session
+response object unchanged. A `close` command retains normal session
+cancellation and closure behavior, but does not terminate the Worker; the
+embedding application owns `worker.terminate()`. Later commands receive the
+session's ordinary `SESSION_CLOSED` response. The adapter adds no runtime
+capabilities to commands, schemas, provenance, or session state.
+
 Research commands include source operations, subject-collection transforms,
 relation operations, explicit archive and notebook operations, and `plan`.
 `schema` without an input reports a compact global vocabulary and
