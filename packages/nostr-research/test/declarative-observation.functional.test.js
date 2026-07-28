@@ -400,6 +400,19 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.equal(configured.result.configuration.presentation.sizeLimit, 12000);
   assert.deepEqual(configured.result.configuration.relays, ['wss://fixture.example/']);
 
+  for (const [suffix, acquisition] of [
+    ['timeout', { timeoutMs: 60001 }],
+    ['concurrency', { concurrency: 11 }],
+  ]) {
+    const rejected = await session.execute({
+      commandId: `configure-${suffix}`,
+      command: 'configure',
+      parameters: { acquisition },
+    });
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.error.code, 'INVALID_COMMAND');
+  }
+
   for (const [suffix, relay] of [
     ['credentials', 'wss://user:secret@fixture.example/'],
     ['fragment', 'wss://fixture.example/#research'],

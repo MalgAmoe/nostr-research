@@ -18,10 +18,10 @@ export const RESEARCH_CONSTRAINTS = deepFreeze({
     sizeLimit: { default: 12000, minimum: 1000, maximum: 50000 },
   },
   acquisition: {
-    timeoutMs: { default: 10000, minimum: 1 },
+    timeoutMs: { default: 10000, minimum: 1, maximum: 60000 },
     observationLimit: { default: 100, minimum: 1 },
     distinctEventLimit: { default: 100, minimum: 1 },
-    concurrency: { default: 4, minimum: 1 },
+    concurrency: { default: 4, minimum: 1, maximum: 10 },
   },
   relayInformation: {
     relayLimit: { maximum: 20 },
@@ -84,9 +84,10 @@ export function normalizeSessionConfiguration(value = {}, base = DEFAULT_SESSION
       'timeoutMs', 'observationLimit', 'distinctEventLimit', 'concurrency',
     ], 'session acquisition configuration');
     for (const name of Object.keys(value.acquisition)) {
-      next.acquisition[name] = atLeast(
-        value.acquisition[name], RESEARCH_CONSTRAINTS.acquisition[name].minimum, name,
-      );
+      const constraint = RESEARCH_CONSTRAINTS.acquisition[name];
+      next.acquisition[name] = constraint.maximum === undefined
+        ? atLeast(value.acquisition[name], constraint.minimum, name)
+        : bounded(value.acquisition[name], constraint, name);
     }
   }
   if (value.presentation !== undefined) {
