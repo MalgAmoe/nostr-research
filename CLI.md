@@ -155,6 +155,10 @@ mixed subjects. Use them for identity and navigation:
 - `union`, `intersection`, `difference`, `compare`;
 - `continue`, `hydrate`, `preserve`, and notebook operations where applicable.
 
+Set operations use `input` for the left collection and `parameters.with` for
+the right collection. The general `inputs` envelope is reserved for operations
+such as relation `join`, whose inputs have separately named roles.
+
 Relations contain rows and values derived from subjects. Use `relate` to enter
 this layer. Relations support:
 
@@ -166,11 +170,31 @@ this layer. Relations support:
 
 Never guess a field name. Ask contextual `schema`.
 
+Collection and relation outputs are bounded to at most 1,000 items. That
+ceiling currently keeps eager scans, cloning, expansions, and joins
+predictable; inspect bounds rather than raising it without measuring the
+resulting runtime and memory cost.
+
 ## Reusable compositions
 
 These are recipes made from ordinary operations, not special research
 commands. Change the input handles, fields, and thresholds to fit the current
 question.
+
+### Compare two acquisition snapshots
+
+Keep two acquisition handles for the same filter, then compare their immutable
+event identities. `compare` returns counts; `difference` returns the events
+present in the newer handle but absent from the older one:
+
+```jsonl
+{"commandId":"compare-snapshots-1","command":"compare","input":"newSnapshot","parameters":{"with":"oldSnapshot"},"resultId":"snapshotComparison"}
+{"commandId":"new-events-1","command":"difference","input":"newSnapshot","parameters":{"with":"oldSnapshot","limit":1000},"resultId":"newEvents"}
+{"commandId":"new-events-summary-1","command":"show","input":"newEvents","parameters":{"mode":"summary"}}
+```
+
+This is a process-local event-identity delta. It does not snapshot changes in
+relay provenance, address resolution, or earlier sessions.
 
 ### Count hashtags or mentioned accounts
 
@@ -289,6 +313,10 @@ These actions are independent:
 - `release-archive` removes archived evidence;
 - `forget` removes notebook judgments;
 - `reset` clears the entire session.
+
+The `anchor` judgment means only that the researcher considers a subject a
+useful place from which to continue. It triggers no acquisition, traversal,
+preservation, or other automatic behavior.
 
 ## Common mistakes
 

@@ -346,7 +346,20 @@ seed (or the documented default), so the same input and seed produce the same
 bounded result. Set operations accept another compatible subject collection in
 `with`, merge reasons and provenance by stable subject identity, and reject
 different collection kinds during preflight. `compare` returns concise
-left/right/shared counts.
+left/right/shared counts. In a declarative session, set operations name the
+left handle with `input` and the right handle with `parameters.with`; named
+`inputs` are used by operations such as relation `join`.
+
+Keeping two acquisition handles for the same filter permits a process-local
+event-identity delta: `compare` describes overlap and `difference` returns
+events present in the newer handle but absent from the older one. This does not
+snapshot later provenance observations, address-resolution changes, or state
+from an earlier process.
+
+The 1,000-item collection and relation result ceiling is currently
+load-bearing for eager scans, cloning, expansions, and joins. Raising it should
+follow runtime and memory measurement rather than being treated as a harmless
+configuration change.
 
 `memory.describeCollectionPipeline()` (also exported as
 `collectionPipelineSchema()`) returns the operation, field, bound, and ordering
@@ -722,6 +735,9 @@ reason and stable source references to each subject in its input; `notebook`
 queries judgments or labels into an ordinary collection; `forget` removes
 entries. `remember-membership` records an explainable named candidate group.
 Nothing is recorded automatically and notebook actions never archive evidence.
+The fixed `anchor` judgment records only that the researcher considers a
+subject useful for later navigation. It triggers no acquisition, traversal,
+preservation, or other automatic behavior.
 
 `select` always makes its scope explicit. With an acquisition result as
 `input`, it selects only among that attempt's stable event subjects (and may
