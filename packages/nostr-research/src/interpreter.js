@@ -224,9 +224,6 @@ export class DeclarativeResearchSession {
       ));
     }
     if (command.command === 'memberships') {
-      if (command.input !== undefined) {
-        throw protocolError('INVALID_COMMAND', 'memberships does not accept an input handle.');
-      }
       const unknown = Object.keys(parameters).find((key) => key !== 'limit');
       if (unknown) {
         throw protocolError('INVALID_COMMAND', `Unknown memberships parameter: ${unknown}.`);
@@ -248,9 +245,6 @@ export class DeclarativeResearchSession {
       });
     }
     if (command.command === 'membership') {
-      if (command.input !== undefined) {
-        throw protocolError('INVALID_COMMAND', 'membership does not accept an input handle.');
-      }
       rejectKeys(parameters, new Set(['name']));
       return readOnly(() => this.#memory.getMembership(parameters.name));
     }

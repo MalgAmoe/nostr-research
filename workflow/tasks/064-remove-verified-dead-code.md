@@ -1,6 +1,6 @@
 ---
 id: 064-remove-verified-dead-code
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/064-remove-verified-dead-code.validate.sh
 depends_on: 063-honest-continuation-and-normalization

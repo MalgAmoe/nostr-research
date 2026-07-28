@@ -124,19 +124,6 @@ class IndexedObservationBuffer {
     this.outbound.delete(sourceKey);
   }
 
-  candidateIds(query, ids, authors) {
-    const sets = [];
-    if (ids) sets.push(ids);
-    if (authors) sets.push(unionIndexes(this.authors, authors));
-    if (query.kinds) sets.push(unionIndexes(this.kinds, query.kinds));
-    for (const [name, values] of Object.entries(query.tags)) {
-      sets.push(unionIndexes(this.tags, values.map((value) => `${name}\u0000${value}`)));
-    }
-    if (!sets.length) return [...this.records.keys()];
-    sets.sort((left, right) => left.size - right.size);
-    return [...sets[0]].filter((id) => sets.every((set) => set.has(id)));
-  }
-
   clear() {
     this.records.clear();
     this.authors.clear();
@@ -1526,14 +1513,6 @@ function removeIndex(index, key, eventId) {
   if (values.size === 0) index.delete(key);
 }
 
-function unionIndexes(index, keys) {
-  const values = new Set();
-  for (const key of keys) {
-    for (const eventId of index.get(key) ?? []) values.add(eventId);
-  }
-  return values;
-}
-
 function addRelation(index, key, relationship) {
   if (!index.has(key)) index.set(key, []);
   index.get(key).push(relationship);
@@ -1735,18 +1714,6 @@ function distinctRelays(observations) {
 function excerpt(content, maximum) {
   const singleLine = content.replace(/\s+/gu, ' ').trim();
   return singleLine.length <= maximum ? singleLine : `${singleLine.slice(0, maximum - 1)}…`;
-}
-
-function normalizeProjectionLimit(value, fallback, label) {
-  if (value === undefined) return fallback;
-  if (!Number.isSafeInteger(value)
-      || value < 1 || value > RESEARCH_CONSTRAINTS.results.maximumLimit) {
-    throw new ResearchMemoryError(
-      `${label} must be an integer from 1 to `
-      + `${RESEARCH_CONSTRAINTS.results.maximumLimit}.`,
-    );
-  }
-  return value;
 }
 
 const TRANSFORM_KINDS = new Set(SUBJECT_COLLECTION_KINDS);
@@ -1955,13 +1922,6 @@ function mergeUniqueJson(target, additions) {
       target.push(cloneJson(addition));
     }
   }
-}
-
-function isPublicResearchSet(value) {
-  return value && typeof value === 'object'
-    && typeof value.id === 'string'
-    && typeof value.name === 'string'
-    && typeof value.createdAt === 'string';
 }
 
 function stableJson(value) {
