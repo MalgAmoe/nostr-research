@@ -56,6 +56,26 @@ test('address subjects navigate typed references to current local replaceable ev
     assert.equal(addresses.kind, 'addresses');
     assert.deepEqual(addresses.items.map(({ subject: item }) => item.id),
       [articleAddress, missingAddress].sort());
+    const boundedAddresses = memory.transform(sourceCollection, {
+      operation: 'move', to: 'referencedAddresses', limit: 1,
+    });
+    assert.deepEqual(boundedAddresses.context.cardinality, {
+      inputCount: 1,
+      discoveredCount: 2,
+      outputCount: 1,
+      omittedCount: 1,
+      truncated: true,
+    });
+    const noAddresses = memory.transform(memory.lookup(subject('event', currentArticle.id)), {
+      operation: 'move', to: 'referencedAddresses', limit: 10,
+    });
+    assert.deepEqual(noAddresses.context.cardinality, {
+      inputCount: 1,
+      discoveredCount: 0,
+      outputCount: 0,
+      omittedCount: 0,
+      truncated: false,
+    });
     assert.ok(addresses.items.every(({ reasons, provenance }) => (
       reasons.some(({ relationshipType }) => relationshipType === 'referenced-address')
       && reasons.some(({ type }) => type === 'collection-move')

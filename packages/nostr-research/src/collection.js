@@ -281,9 +281,18 @@ function move(memory, collection, operation) {
       }
     }
   }
-  const items = [...found.values()].sort((a, b) => itemKey(a).localeCompare(itemKey(b)))
-    .slice(0, operation.limit);
-  return result(items, MOVE_ROUTES[`${collection.kind}:${operation.to}`]);
+  const discovered = [...found.values()]
+    .sort((a, b) => itemKey(a).localeCompare(itemKey(b)));
+  const items = discovered.slice(0, operation.limit);
+  const output = result(items, MOVE_ROUTES[`${collection.kind}:${operation.to}`]);
+  output.bounds = {
+    inputCount: collection.items.length,
+    discoveredCount: discovered.length,
+    outputCount: items.length,
+    omittedCount: Math.max(0, discovered.length - items.length),
+    truncated: discovered.length > items.length,
+  };
+  return output;
 }
 
 function setOperation(collection, operation) {
