@@ -205,7 +205,9 @@ test('explicit archive preservation survives complete buffer turnover and releas
     assert.deepEqual(archiveSummary.result.summary.canonicalEvidenceResolution, {
       buffer: 0, archive: 1, unresolved: 0,
     });
-    assert.equal('evidenceResolution' in archiveSummary.result.summary, false);
+    assert.deepEqual(archiveSummary.result.summary.evidenceResolution, {
+      buffer: 0, archive: 1, unresolved: 0,
+    });
     await command(session, 'release-archive-handle', 'release', {
       input: 'archived-profile',
       parameters: {},

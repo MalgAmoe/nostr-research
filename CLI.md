@@ -171,7 +171,10 @@ Never guess a field name. Ask contextual `schema`.
 `show` observes a named result:
 
 - `preview`: a bounded page of members or rows;
-- `summary`: compact counts and characteristics;
+- `summary`: a compact factual core at `result.summary` with the result kind,
+  count and explicit unit, operation lineage, and applicable evidence
+  resolution, bounds, completeness, and omissions; handle-specific facts
+  remain alongside that core;
 - `coverage`: sources, bounds, omissions, unresolved evidence, relay outcomes;
 - `details`: bounded canonical evidence for the selected page;
 - `explain`: membership reasons and provenance for the selected page.

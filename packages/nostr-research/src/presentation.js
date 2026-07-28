@@ -24,6 +24,9 @@ export function showResearchValue(memory, value, options = {}) {
     shown = showRelayInformation(value, settings);
   }
   else if (value?.type === 'relay-count-report') shown = showRelayCount(value, settings);
+  else if (value?.type === 'continuation-report') {
+    shown = showContinuation(memory, value, settings);
+  }
   else if (isAcquisition(value)) shown = showAcquisition(memory, value, settings);
   else if (value?.type === 'result-collection') shown = showCollection(memory, value, settings);
   else if (value?.collection?.type === 'result-collection') {
@@ -67,6 +70,15 @@ function showRelayCount(value, settings) {
     return {
       ...base,
       summary: {
+        ...summaryCore({
+          resultKind: value.type ?? 'relay-count-report',
+          count: outcomes.length,
+          countUnit: 'relays',
+          lineage: { operation: 'relay-count' },
+          bounds: value.bounds,
+          completeness: { status: 'complete', scope: 'selected-relays' },
+          omissions: value.omissions,
+        }),
         outcomes: countedStrings(outcomes.map(({ outcome }) => outcome)),
         exactResponses: successes.filter(({ response }) => !response.approximate).length,
         approximateResponses: successes.filter(({ response }) => response.approximate).length,
@@ -146,6 +158,15 @@ function showRelayInformation(value, settings) {
     return {
       ...base,
       summary: {
+        ...summaryCore({
+          resultKind: value.type ?? 'relay-information-report',
+          count: outcomes.length,
+          countUnit: 'relays',
+          lineage: { operation: 'relay-info' },
+          bounds: value.bounds,
+          completeness: { status: 'complete', scope: 'selected-relays' },
+          omissions: value.omissions,
+        }),
         outcomes: counts,
         successfulDocuments: successes.length,
         advertisedSupportedNips: supportedNips.size,
@@ -215,12 +236,15 @@ export function validateResearchPresentationOptions(options = {}) {
 
 function showRelation(memory, value, settings) {
   const resolved = resolveRelationForPresentation(memory, value);
-  const distinctSubjects = new Set(resolved.rows.flatMap(
-    (row) => row.subjects.map((subject) => `${subject.type}:${subject.id}`),
+  const subjects = distinctSubjectItems(resolved.rows.flatMap(
+    (row) => row.subjects.map((subject) => ({ subject })),
   ));
-  const eventSubjects = new Map(resolved.rows.flatMap((row) => row.subjects
-    .filter(({ type }) => type === 'event')
-    .map((subject) => [subject.id, subject])));
+  const distinctSubjects = new Set(subjects.map(
+    ({ subject }) => `${subject.type}:${subject.id}`,
+  ));
+  const eventSubjects = new Map(subjects
+    .filter(({ subject }) => subject.type === 'event')
+    .map(({ subject }) => [subject.id, subject]));
   const distinctAuthors = new Set([...eventSubjects.values()].flatMap((eventSubject) => {
     const event = memory.inspect(eventSubject).evidence?.event;
     return typeof event?.pubkey === 'string' ? [event.pubkey] : [];
@@ -259,7 +283,7 @@ function showRelation(memory, value, settings) {
     observation: settings.mode,
     count: resolved.rows.length,
     distinctSubjectCount: distinctSubjects.size,
-    distinctAuthorCount: distinctAuthors.size,
+    ...(distinctAuthors.size ? { distinctAuthorCount: distinctAuthors.size } : {}),
     preview,
     offset: effectiveOffset,
     limit,
@@ -270,11 +294,29 @@ function showRelation(memory, value, settings) {
     sizeBounded: false,
     context: compactContext(value.context),
   };
+  if (settings.mode === 'summary') {
+    const evidenceResolution = resolutionCounts(memory, subjects);
+    result.summary = {
+      ...summaryCore({
+        resultKind: 'research-relation',
+        count: resolved.rows.length,
+        countUnit: 'rows',
+        evidenceResolution,
+        lineage: compactContext(value.context),
+        bounds: value.context?.cardinality,
+        completeness: value.context?.completeness,
+        omissions: relationOmissions(value.context),
+      }),
+      distinctSubjectCount: distinctSubjects.size,
+      evidenceSubjectCount: subjects.length,
+      ...eventSummaryFacts(memory, subjects),
+    };
+  }
   if (settings.mode === 'coverage') {
     result.preview = [];
     const evidenceResolution = resolutionCounts(
       memory,
-      resolved.rows.flatMap(({ subjects }) => subjects.map((subject) => ({ subject }))),
+      subjects,
     );
     result.coverage = {
       evidenceResolution,
@@ -463,8 +505,20 @@ function showCollection(memory, collection, settings) {
     result.preview = [];
     const evidenceResolution = resolutionCounts(memory, collection.items);
     result.summary = {
+      ...summaryCore({
+        resultKind: 'result-collection',
+        count: collection.items.length,
+        countUnit: 'subjects',
+        evidenceResolution,
+        lineage: compactContext(collection.context),
+        bounds: compactBounds(collection),
+        completeness: collection.context?.completeness,
+        omissions: collection.context?.cardinality?.omittedCount
+          ? { subjects: collection.context.cardinality.omittedCount } : undefined,
+      }),
       subjects: collection.items.length,
       byType: countedSubjectTypes(collection.items),
+      ...eventSummaryFacts(memory, collection.items),
       ...(collection.context?.operation === 'archived'
         ? archiveCollectionSummary(collection.items, evidenceResolution)
         : { evidenceResolution }),
@@ -576,6 +630,16 @@ function showTypedCollection(memory, collection, settings) {
   if (settings.mode === 'summary') {
     result.preview = [];
     result.summary = {
+      ...summaryCore({
+        resultKind: 'typed-collection',
+        count: resolved.items.length,
+        countUnit: 'rows',
+        lineage: compactContext(resolved.context),
+        bounds,
+        completeness: bounds?.truncated
+          ? { status: 'partial' } : { status: 'complete' },
+        omissions: bounds?.omittedCount ? { rows: bounds.omittedCount } : undefined,
+      }),
       items: resolved.items.length,
       kind: resolved.kind,
       itemKind: resolved.itemKind,
@@ -718,7 +782,7 @@ function showAcquisition(memory, value, settings) {
   }
   const collection = value.collection ?? memory.asCollection(value);
   const shownCollection = showCollection(memory, collection, settings);
-  return {
+  const result = {
     type: 'acquisition',
     observation: settings.mode,
     count: distinctEvents,
@@ -754,6 +818,55 @@ function showAcquisition(memory, value, settings) {
       } : {}),
     },
   };
+  if (settings.mode === 'summary') {
+    result.summary = {
+      ...shownCollection.summary,
+      ...summaryCore({
+        resultKind: value.type ?? 'acquisition-report',
+        count: distinctEvents,
+        countUnit: 'events',
+        evidenceResolution: shownCollection.summary?.evidenceResolution,
+        lineage: {
+          operation: value.type === 'hydration-report' ? 'hydrate' : 'acquire',
+        },
+        bounds: value.budget,
+        completeness: {
+          status: value.completionReason === 'completed' ? 'complete' : 'partial',
+          scope: 'bounded-relay-attempt',
+          exhaustive: false,
+          completionReason: value.completionReason,
+        },
+      }),
+      subjectCount: collection.items.length,
+      corpusChanges,
+    };
+  }
+  return result;
+}
+
+function showContinuation(memory, value, settings) {
+  const shown = showCollection(memory, value.collection, settings);
+  const result = {
+    ...shown,
+    context: compactContext(value.collection.context),
+  };
+  if (settings.mode === 'summary') {
+    result.summary = {
+      ...shown.summary,
+      ...summaryCore({
+        resultKind: 'continuation-report',
+        count: value.collection.items.length,
+        countUnit: 'subjects',
+        evidenceResolution: shown.summary?.evidenceResolution,
+        lineage: compactContext(value.collection.context),
+        bounds: value.collection.context?.cardinality,
+        completeness: value.completeness,
+        omissions: value.completeness?.omissions?.length
+          ? { inputs: value.completeness.omissions.length } : undefined,
+      }),
+    };
+  }
+  return result;
 }
 
 function showPlanReport(memory, value, settings) {
@@ -761,8 +874,9 @@ function showPlanReport(memory, value, settings) {
   const stages = value.stages ?? [];
   const effectiveOffset = Math.min(settings.offset, stages.length);
   const preview = stages.slice(effectiveOffset, effectiveOffset + limit);
-  return {
+  const result = {
     type: 'research-plan-report',
+    observation: settings.mode,
     count: stages.length,
     preview: preview.map((stage) => ({
       id: stage.id,
@@ -784,6 +898,21 @@ function showPlanReport(memory, value, settings) {
     context: { stageCount: stages.length },
     provenance: [],
   };
+  if (settings.mode === 'summary') {
+    result.summary = summaryCore({
+      resultKind: 'research-plan-report',
+      count: stages.length,
+      countUnit: 'stages',
+      lineage: {
+        operation: 'plan',
+        operations: stages.slice(0, MAX_PREVIEW_LIMIT).map(({ operation }) => operation),
+      },
+      completeness: { status: 'complete', scope: 'executed-plan' },
+      omissions: stages.length > MAX_PREVIEW_LIMIT
+        ? { lineageStages: stages.length - MAX_PREVIEW_LIMIT } : undefined,
+    });
+  }
+  return result;
 }
 
 function evidenceDetail(item, excerptLimit) {
@@ -949,6 +1078,92 @@ function sourceOperation(context) {
   return current?.operation;
 }
 
+function summaryCore({
+  resultKind, count, countUnit, evidenceResolution, lineage, bounds, completeness, omissions,
+}) {
+  return {
+    resultKind,
+    count,
+    countUnit,
+    lineage: lineage ?? null,
+    ...(evidenceResolution ? { evidenceResolution: structuredClone(evidenceResolution) } : {}),
+    ...(bounds ? { bounds: structuredClone(bounds) } : {}),
+    ...(completeness ? { completeness: compactSummaryCompleteness(completeness) } : {}),
+    ...(omissions && Object.keys(omissions).length
+      ? { omissions: structuredClone(omissions) } : {}),
+  };
+}
+
+function compactSummaryCompleteness(value) {
+  const {
+    status, scope, exhaustive, emptyValidResult, boundsReached, completionReason,
+    attemptStatus, dataScope,
+  } = value;
+  return Object.fromEntries(Object.entries({
+    status: status ?? attemptStatus,
+    scope: scope ?? dataScope,
+    exhaustive,
+    emptyValidResult,
+    completionReason,
+    omissionCount: Array.isArray(value.omissions) ? value.omissions.length : undefined,
+    inputCount: Array.isArray(value.inputs) ? value.inputs.length : undefined,
+    boundsReached: Array.isArray(boundsReached)
+      ? structuredClone(boundsReached.slice(0, MAX_PREVIEW_LIMIT)) : undefined,
+    omittedBoundsReached: Array.isArray(boundsReached) && boundsReached.length > MAX_PREVIEW_LIMIT
+      ? boundsReached.length - MAX_PREVIEW_LIMIT : undefined,
+  }).filter(([, item]) => item !== undefined));
+}
+
+function relationOmissions(context) {
+  const omittedRows = context?.cardinality?.omittedCount;
+  return omittedRows ? { rows: omittedRows } : undefined;
+}
+
+function distinctSubjectItems(items) {
+  const seen = new Set();
+  return items.filter(({ subject: item }) => {
+    if (!isSubject(item)) return false;
+    const key = `${item.type}:${item.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function eventSummaryFacts(memory, items) {
+  const events = distinctSubjectItems(items)
+    .filter(({ subject }) => subject.type === 'event')
+    .flatMap(({ subject }) => {
+      const event = memory.inspect(subject).evidence?.event;
+      return event ? [event] : [];
+    });
+  if (events.length === 0) return {};
+  const kindCounts = new Map();
+  const authors = new Set();
+  const createdAt = [];
+  for (const event of events) {
+    kindCounts.set(event.kind, (kindCounts.get(event.kind) ?? 0) + 1);
+    if (typeof event.pubkey === 'string') authors.add(event.pubkey);
+    if (Number.isSafeInteger(event.created_at)) createdAt.push(event.created_at);
+  }
+  const kinds = [...kindCounts].sort(([left], [right]) => left - right);
+  return {
+    eventFacts: {
+      resolvedEventCount: events.length,
+      kindHistogram: kinds.slice(0, MAX_PREVIEW_LIMIT).map(([kind, count]) => ({ kind, count })),
+      ...(kinds.length > MAX_PREVIEW_LIMIT
+        ? { omittedKinds: kinds.length - MAX_PREVIEW_LIMIT } : {}),
+      distinctAuthorCount: authors.size,
+      ...(createdAt.length ? {
+        createdAtRange: {
+          earliest: Math.min(...createdAt),
+          latest: Math.max(...createdAt),
+        },
+      } : {}),
+    },
+  };
+}
+
 function compactStage(stage) {
   if (!stage || typeof stage !== 'object') return stage;
   if (stage.operation === 'filter') {
@@ -1022,7 +1237,7 @@ function corpusEffects(memory, items) {
 
 function resolutionCounts(memory, items) {
   const counts = { buffer: 0, archive: 0, unresolved: 0 };
-  for (const { subject: item } of items) {
+  for (const { subject: item } of distinctSubjectItems(items)) {
     const source = memory.inspect(item).resolutionSource;
     counts[source] = (counts[source] ?? 0) + 1;
   }
@@ -1133,6 +1348,9 @@ function enforceSize(value, maximum) {
     if (Number.isSafeInteger(copy.nextOffset)) copy.nextOffset -= 1;
   }
   if (utf8ByteLength(JSON.stringify(copy)) <= maximum) return copy;
+  if (copy.observation === 'summary' && copy.summary) {
+    return boundedSummaryResponse(copy, maximum);
+  }
   if (Array.isArray(copy.preview) && copy.preview.length === 1) {
     const minimal = {
       type: copy.type,
@@ -1188,6 +1406,112 @@ function enforceSize(value, maximum) {
     context: { bounded: true, note: `Inspection exceeded the ${maximum}-byte approximate bound.` },
     provenance: [],
   };
+}
+
+function boundedSummaryResponse(value, maximum) {
+  const coreFields = new Set([
+    'resultKind', 'count', 'countUnit', 'lineage', 'evidenceResolution',
+    'bounds', 'completeness', 'omissions',
+  ]);
+  const specializedFields = Object.keys(value.summary).filter((key) => !coreFields.has(key));
+  const compactedCoreFields = [];
+  const compactCore = {
+    resultKind: value.summary.resultKind,
+    count: value.summary.count,
+    countUnit: value.summary.countUnit,
+    lineage: compactSummaryField(value.summary.lineage, compactedCoreFields, 'lineage'),
+    ...(value.summary.evidenceResolution ? {
+      evidenceResolution: compactSummaryField(
+        value.summary.evidenceResolution, compactedCoreFields, 'evidenceResolution',
+      ),
+    } : {}),
+    ...(value.summary.bounds ? {
+      bounds: compactSummaryField(value.summary.bounds, compactedCoreFields, 'bounds'),
+    } : {}),
+    ...(value.summary.completeness ? {
+      completeness: compactSummaryField(
+        value.summary.completeness, compactedCoreFields, 'completeness',
+      ),
+    } : {}),
+    ...(value.summary.omissions ? {
+      omissions: compactSummaryField(value.summary.omissions, compactedCoreFields, 'omissions'),
+    } : {}),
+  };
+  const base = {
+    type: value.type,
+    ...(value.count !== undefined ? { count: value.count } : {}),
+    observation: 'summary',
+    preview: [],
+    summary: {
+      ...compactCore,
+      presentationOmissions: {
+        reason: 'response-size',
+        specializedFieldCount: specializedFields.length,
+        ...(specializedFields.length <= MAX_PREVIEW_LIMIT ? { specializedFields } : {}),
+        ...(specializedFields.length > MAX_PREVIEW_LIMIT
+          ? { omittedSpecializedFieldNames: specializedFields.length } : {}),
+        ...(compactedCoreFields.length ? { compactedCoreFields } : {}),
+      },
+    },
+    ...(value.offset !== undefined ? { offset: value.offset } : {}),
+    ...(value.limit !== undefined ? { limit: value.limit } : {}),
+    ...sizeBoundMetadata(value, 0),
+  };
+  if (utf8ByteLength(JSON.stringify(base)) <= maximum) return base;
+
+  const minimalSummary = {
+    resultKind: value.summary.resultKind,
+    count: value.summary.count,
+    countUnit: value.summary.countUnit,
+    lineage: { omittedForSize: true },
+    ...(value.summary.evidenceResolution
+      ? { evidenceResolution: value.summary.evidenceResolution } : {}),
+    ...(value.summary.bounds ? { bounds: { omittedForSize: true } } : {}),
+    ...(value.summary.completeness ? {
+      completeness: {
+        ...(value.summary.completeness.status
+          ? { status: excerpt(String(value.summary.completeness.status), 40) } : {}),
+        omittedForSize: true,
+      },
+    } : {}),
+    ...(value.summary.omissions ? { omissions: { omittedForSize: true } } : {}),
+    presentationOmissions: {
+      reason: 'response-size',
+      specializedFieldCount: specializedFields.length,
+      coreFieldsCompacted: true,
+    },
+  };
+  const minimal = {
+    type: value.type,
+    ...(value.count !== undefined ? { count: value.count } : {}),
+    observation: 'summary',
+    preview: [],
+    summary: minimalSummary,
+    ...sizeBoundMetadata(value, 0),
+  };
+  if (utf8ByteLength(JSON.stringify(minimal)) <= maximum) return minimal;
+
+  throw new RangeError(`The required summary core exceeds the ${maximum}-byte size limit.`);
+}
+
+function compactSummaryField(value, compactedFields, fieldName) {
+  const compacted = compactSummaryValue(value, 0);
+  if (JSON.stringify(compacted) !== JSON.stringify(value)) compactedFields.push(fieldName);
+  return compacted;
+}
+
+function compactSummaryValue(value, depth) {
+  if (typeof value === 'string') return excerpt(value, 120);
+  if (value === null || typeof value !== 'object') return value;
+  if (depth >= 2) return { omittedForSize: true };
+  if (Array.isArray(value)) {
+    return value.slice(0, MAX_PREVIEW_LIMIT).map((item) => compactSummaryValue(item, depth + 1));
+  }
+  const entries = Object.entries(value);
+  return Object.fromEntries(entries.slice(0, MAX_PREVIEW_LIMIT).map(
+    ([key, item]) => [key, compactSummaryValue(item, depth + 1)],
+  ).concat(entries.length > MAX_PREVIEW_LIMIT
+    ? [['omittedFieldCount', entries.length - MAX_PREVIEW_LIMIT]] : []));
 }
 
 function utf8ByteLength(value) {

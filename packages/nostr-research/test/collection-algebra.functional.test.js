@@ -126,6 +126,28 @@ test('relation handles report operation-specific cardinality and proven truncati
   assert.equal(exactSummary.result.context.cardinality.outputCount, 160);
   assert.equal(exactSummary.result.context.cardinality.truncated, false);
   assert.equal('omittedCount' in exactSummary.result.context.cardinality, false);
+  assert.deepEqual({
+    resultKind: exactSummary.result.summary.resultKind,
+    count: exactSummary.result.summary.count,
+    countUnit: exactSummary.result.summary.countUnit,
+    distinctSubjectCount: exactSummary.result.summary.distinctSubjectCount,
+    evidenceSubjectCount: exactSummary.result.summary.evidenceSubjectCount,
+    evidenceResolution: exactSummary.result.summary.evidenceResolution,
+  }, {
+    resultKind: 'research-relation',
+    count: 160,
+    countUnit: 'rows',
+    distinctSubjectCount: 2,
+    evidenceSubjectCount: 2,
+    evidenceResolution: { buffer: 2, archive: 0, unresolved: 0 },
+  });
+  assert.deepEqual(exactSummary.result.summary.eventFacts, {
+    resolvedEventCount: 2,
+    kindHistogram: [{ kind: 1, count: 2 }],
+    distinctAuthorCount: 1,
+    createdAtRange: { earliest: 1, latest: 2 },
+  });
+  assert.deepEqual(exactSummary.result.preview, []);
 
   await session.execute({
     commandId: 'filtered', command: 'filter', input: 'rows',

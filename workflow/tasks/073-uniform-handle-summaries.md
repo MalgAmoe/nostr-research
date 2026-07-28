@@ -1,6 +1,6 @@
 ---
 id: 073-uniform-handle-summaries
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/073-uniform-handle-summaries.validate.sh
 depends_on: 072-truthful-relation-accounting

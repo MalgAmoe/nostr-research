@@ -9,6 +9,47 @@ import { loadFixtureEvents } from '../test-support/fixtures.js';
 
 const NOTEBOOK_TEST_KEY = Uint8Array.from(Buffer.from('6'.repeat(64), 'hex'));
 
+test('summary size bounds retain the public factual core and report presentation omissions', async () => {
+  const events = Array.from({ length: 40 }, (_, index) => finalizeEvent({
+    kind: 1000 + index,
+    created_at: 100 + index,
+    tags: [],
+    content: `bounded summary fixture ${index}`,
+  }, NOTEBOOK_TEST_KEY));
+  const memory = createInMemoryResearchMemory({ capacity: events.length });
+  const session = createDeclarativeResearchSession(memory);
+  for (const event of events) {
+    memory.ingest(event, {
+      relay: 'wss://fixture.example/',
+      observedAt: '2026-07-26T10:00:00.000Z',
+    });
+  }
+  await session.execute({
+    commandId: 'select-many-kinds',
+    command: 'select',
+    parameters: { scope: 'corpus', limit: events.length },
+    resultId: 'many-kinds',
+  });
+
+  const shown = await session.execute({
+    commandId: 'show-bounded-summary',
+    command: 'show',
+    input: 'many-kinds',
+    parameters: { mode: 'summary', sizeLimit: 1000 },
+  });
+
+  assert.equal(shown.ok, true);
+  assert.ok(Buffer.byteLength(JSON.stringify(shown.result)) <= 1000);
+  assert.equal(shown.result.summary.resultKind, 'result-collection');
+  assert.equal(shown.result.summary.count, events.length);
+  assert.equal(shown.result.summary.countUnit, 'subjects');
+  assert.equal(shown.result.summary.lineage.operation, 'selection');
+  assert.equal(shown.result.sizeBounded, true);
+  assert.equal(shown.result.summary.presentationOmissions.reason, 'response-size');
+  assert.ok(shown.result.summary.presentationOmissions.specializedFieldCount > 0);
+  assert.deepEqual(shown.result.preview, []);
+});
+
 test('declarative observation and lifecycle form one bounded public workflow', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 1 });
   const session = createDeclarativeResearchSession(memory);
@@ -60,7 +101,21 @@ test('declarative observation and lifecycle form one bounded public workflow', a
     assert.equal(observed.ok, true);
     assert.equal(observed.result.observation, mode);
     assert.ok(Buffer.byteLength(JSON.stringify(observed.result)) <= 1000);
-    if (mode === 'summary') assert.equal(observed.result.summary.subjects, 1);
+    if (mode === 'summary') {
+      assert.equal(observed.result.summary.subjects, 1);
+      assert.deepEqual({
+        resultKind: observed.result.summary.resultKind,
+        count: observed.result.summary.count,
+        countUnit: observed.result.summary.countUnit,
+        evidenceResolution: observed.result.summary.evidenceResolution,
+      }, {
+        resultKind: 'result-collection',
+        count: 1,
+        countUnit: 'subjects',
+        evidenceResolution: { buffer: 1, archive: 0, unresolved: 0 },
+      });
+      assert.equal(observed.result.summary.eventFacts.distinctAuthorCount, 1);
+    }
     if (mode === 'coverage') assert.equal(observed.result.coverage.evidenceResolution.buffer, 1);
     if (mode === 'details') {
       assert.ok(observed.result.preview[0], JSON.stringify(observed.result));
@@ -324,7 +379,11 @@ test('declarative named results compose compatible sets and expose their schema'
       parameters: { mode, previewLimit: 1, sizeLimit: 2000 },
     });
     assert.equal(observed.result.observation, mode);
-    if (mode === 'summary') assert.equal(observed.result.summary.items, 1);
+    if (mode === 'summary') {
+      assert.equal(observed.result.summary.items, 1);
+      assert.equal(observed.result.summary.resultKind, 'typed-collection');
+      assert.equal(observed.result.summary.countUnit, 'rows');
+    }
     if (mode === 'coverage') {
       assert.equal(observed.result.coverage.bounds.outputCount, 1);
       assert.equal(observed.result.coverage.partial, false);

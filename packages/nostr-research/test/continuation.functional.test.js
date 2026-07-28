@@ -91,6 +91,16 @@ test('named account and note handles continue with bounded relationship provenan
       omitted: 1,
     },
   );
+  const authoredSummary = await session.execute({
+    commandId: 'show-authored-summary',
+    command: 'show',
+    input: 'alice-notes',
+    parameters: { mode: 'summary' },
+  });
+  assert.equal(authoredSummary.result.summary.resultKind, 'continuation-report');
+  assert.equal(authoredSummary.result.summary.countUnit, 'subjects');
+  assert.equal(authoredSummary.result.summary.completeness.status, 'complete');
+  assert.equal(authoredSummary.result.summary.completeness.scope, 'resident-corpus');
 
   const refined = await session.execute({
     commandId: 'refine-events',

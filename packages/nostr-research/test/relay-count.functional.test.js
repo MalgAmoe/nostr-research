@@ -134,7 +134,11 @@ test('relay count remains attributed and never creates a global total', async ()
         parameters: { mode, previewLimit: 10 },
       })).result;
     }
-    assert.deepEqual(shown.summary.summary, {
+    assert.deepEqual({
+      outcomes: shown.summary.summary.outcomes,
+      exactResponses: shown.summary.summary.exactResponses,
+      approximateResponses: shown.summary.summary.approximateResponses,
+    }, {
       outcomes: [{ outcome: 'success', count: 2 }],
       exactResponses: 1,
       approximateResponses: 1,

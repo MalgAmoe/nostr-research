@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. `packages/nostr-research/src/presentation.js` does not reliably enforce `sizeLimit` for summaries. `enforceSize()` copies the complete summary through `compactObservationForSize()` in both fallback paths and returns the final fallback without verifying its byte length. Large bounds, lineage, or specialized summary data can therefore exceed the requested limit. Make summary fallback genuinely bounded while retaining the required common core and explicit omission metadata.

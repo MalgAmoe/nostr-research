@@ -117,6 +117,13 @@ test('relay information stays attributed, bounded, and reusable through the publ
       assert.equal(shown.ok, true, JSON.stringify(shown));
       assert.equal(shown.result.type, 'relay-information');
       assert.equal(shown.result.observation, mode);
+      if (mode === 'summary') {
+        assert.equal(shown.result.summary.resultKind, 'relay-information-report');
+        assert.equal(shown.result.summary.countUnit, 'relays');
+        assert.deepEqual(shown.result.summary.lineage, { operation: 'relay-info' });
+        assert.deepEqual(shown.result.preview ?? [], []);
+        assert.equal(shown.result.summary.successfulDocuments, 1);
+      }
     }
     const schema = await session.execute({
       commandId: 'schema',

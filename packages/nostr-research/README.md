@@ -656,8 +656,13 @@ Research commands return compact operational results by default: the named
 handle, structured external completeness and corpus effects where relevant,
 and warnings. They do not embed evidence previews. `show` gives
 observation five explicit meanings: `preview` is a bounded member/row page,
-`summary` is compact counts and characteristics, `coverage` reports sources,
-bounds, omissions, unresolved evidence, and partiality, `details` resolves
+`summary` has one compact factual core in `result.summary`: `resultKind`,
+`count`, `countUnit`, and `lineage`, plus evidence resolution, bounds,
+completeness, and omissions when they apply. Specialized relay, archive,
+relation, and event facts remain alongside that core. Event facts appear only
+for currently resolvable canonical event subjects, and relation evidence
+resolution counts distinct stable subjects rather than repeated rows.
+`coverage` reports sources, bounds, omissions, unresolved evidence, and partiality, `details` resolves
 currently known canonical evidence for the selected page, and `explain`
 reports the selected page's membership reasons and provenance. `inspect`
 remains the direct exact-subject evidence view and `explain` the direct

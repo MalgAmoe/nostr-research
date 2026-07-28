@@ -368,6 +368,19 @@ test('public acquisition and session reports preserve bounded relay messages and
     assert.equal(acquired.result.external.completeness.relays.authChallengeObserved, 1);
     assert.equal(acquired.result.external.completeness.relays.notices, 12);
 
+    const summary = await session.execute({
+      commandId: 'summary', command: 'show', input: 'attempt',
+      parameters: { mode: 'summary', sizeLimit: 2000 },
+    });
+    assert.equal(summary.result.summary.resultKind, 'acquisition-report');
+    assert.equal(summary.result.summary.countUnit, 'events');
+    assert.equal(summary.result.summary.subjectCount, 0);
+    assert.deepEqual(summary.result.summary.evidenceResolution, {
+      buffer: 0, archive: 0, unresolved: 0,
+    });
+    assert.equal('eventFacts' in summary.result.summary, false);
+    assert.deepEqual(summary.result.preview, []);
+
     const coverage = await session.execute({
       commandId: 'coverage', command: 'show', input: 'attempt',
       parameters: { mode: 'coverage', previewLimit: 10 },
@@ -444,6 +457,20 @@ test('public acquisition and session reports preserve bounded relay messages and
     assert.equal(hydrationCompleteness.resolved, 1);
     assert.equal(hydrationCompleteness.acquiredMetadataEvents, 2);
     assert.equal(hydrationCompleteness.accountsWithMultipleMetadataEvents, 1);
+    const hydrationSummary = await session.execute({
+      commandId: 'hydrate-summary', command: 'show', input: 'hydrated-multiple',
+      parameters: { mode: 'summary', sizeLimit: 2000 },
+    });
+    assert.equal(hydrationSummary.result.summary.resultKind, 'hydration-report');
+    assert.equal(hydrationSummary.result.summary.count, 2);
+    assert.equal(hydrationSummary.result.summary.countUnit, 'events');
+    assert.equal(hydrationSummary.result.summary.subjectCount, 2);
+    assert.deepEqual(hydrationSummary.result.summary.eventFacts, {
+      resolvedEventCount: 2,
+      kindHistogram: [{ kind: 0, count: 2 }],
+      distinctAuthorCount: 1,
+      createdAtRange: { earliest: 100, latest: 101 },
+    });
   } finally {
     memory.close();
     globalThis.WebSocket = originalWebSocket;
