@@ -23,6 +23,10 @@ VALID_STATUSES = {"ready", "in_progress", "done", "blocked"}
 VERDICTS = {"PASS", "CHANGES_REQUIRED", "BLOCKED"}
 
 
+def announce(message: str) -> None:
+    print(message, flush=True)
+
+
 def parse_task(path: Path) -> tuple[dict[str, str], str]:
     text = path.read_text(encoding="utf-8")
     match = re.match(r"\A---\n(.*?)\n---\n(.*)\Z", text, re.S)
@@ -88,14 +92,13 @@ def attempt_count(task_id: str) -> int:
     return len([path for path in task_root.glob("attempt-*") if path.is_dir()])
 
 
-def resumable_review(task_id: str) -> Path | None:
-    """Return the latest attempt whose worker finished but review did not."""
+def resumable_attempt(task_id: str) -> Path | None:
+    """Return the latest unfinished attempt without consuming another attempt."""
     count = attempt_count(task_id)
     if not count:
         return None
     attempt_dir = RUNS / task_id / f"attempt-{count:02d}"
-    required = (attempt_dir / "worker-output.md", attempt_dir / "validation.txt")
-    if all(path.exists() for path in required) and not (attempt_dir / "review.md").exists():
+    if not (attempt_dir / "review.md").exists():
         return attempt_dir
     return None
 
@@ -263,50 +266,89 @@ def write_run_state(task_id: str, status: str, attempt: int, detail: str) -> Non
     )
 
 
+def queue_summary() -> str:
+    counts = {status: 0 for status in VALID_STATUSES}
+    tasks = []
+    for path in sorted(TASKS.glob("*.md")):
+        metadata, _ = parse_task(path)
+        counts[metadata["status"]] += 1
+        tasks.append((metadata["id"], metadata["status"]))
+    compact = ", ".join(f"{status}={counts[status]}" for status in ("ready", "in_progress", "done", "blocked"))
+    active = ", ".join(f"{task_id} ({status})" for task_id, status in tasks if status != "done")
+    return f"Queue: {compact}" + (f"\nActive: {active}" if active else "")
+
+
+def print_status() -> None:
+    announce(queue_summary())
+    for task_root in sorted(path for path in RUNS.iterdir() if path.is_dir()) if RUNS.exists() else []:
+        state = task_root / "state.md"
+        if not state.exists():
+            continue
+        metadata, _ = parse_task(TASKS / f"{task_root.name}.md")
+        if metadata["status"] in {"in_progress", "blocked"}:
+            announce(f"\n{state.read_text(encoding='utf-8').strip()}")
+
+
 def execute_task(task_path: Path, metadata: dict[str, str]) -> str:
     task_id = metadata["id"]
     maximum = int(metadata["max_attempts"])
     current = attempt_count(task_id)
-    pending_review = resumable_review(task_id)
-    if current >= maximum and pending_review is None:
+    pending_attempt = resumable_attempt(task_id)
+    if current >= maximum and pending_attempt is None:
         write_status(task_path, "blocked")
         write_run_state(task_id, "blocked", current, "Maximum attempts already reached.")
         return "blocked"
 
     write_status(task_path, "in_progress")
-    while current < maximum or pending_review is not None:
-        if pending_review is not None:
-            attempt_dir = pending_review
-            pending_review = None
-            validation_text = (attempt_dir / "validation.txt").read_text(encoding="utf-8")
-            match = re.match(r"Exit code:\s*(\d+)", validation_text)
-            validation_returncode = int(match.group(1)) if match else 1
+    while current < maximum or pending_attempt is not None:
+        if pending_attempt is not None:
+            attempt_dir = pending_attempt
+            pending_attempt = None
+            announce(f"{task_id} attempt {current}/{maximum}: resuming incomplete attempt")
         else:
             current += 1
             attempt_dir = RUNS / task_id / f"attempt-{current:02d}"
             attempt_dir.mkdir(parents=True, exist_ok=False)
 
+        worker_output = attempt_dir / "worker-output.md"
+        protected_fingerprint = attempt_dir / "protected-paths.sha256"
+        if not worker_output.exists():
             worker_prompt = build_worker_prompt(task_path, latest_review(task_id))
             (attempt_dir / "worker-prompt.md").write_text(worker_prompt, encoding="utf-8")
-            worker_output = attempt_dir / "worker-output.md"
+            write_run_state(task_id, "in_progress", current, "Worker is running.")
+            announce(f"{task_id} attempt {current}/{maximum}: worker running")
             protected_before = fingerprint_paths(metadata.get("protected_paths", ""))
+            protected_fingerprint.write_text(protected_before, encoding="utf-8")
             worker_process = run_process(codex_command("workspace-write", worker_output), stdin=worker_prompt)
-            protected_after = fingerprint_paths(metadata.get("protected_paths", ""))
             (attempt_dir / "worker-process.log").write_text(worker_process.stdout, encoding="utf-8")
             if worker_process.returncode != 0 or not worker_output.exists():
                 write_status(task_path, "blocked")
                 write_run_state(task_id, "blocked", current, f"Worker infrastructure failed with exit code {worker_process.returncode}; see worker-process.log.")
                 return "blocked"
 
+        validation_file = attempt_dir / "validation.txt"
+        if validation_file.exists():
+            validation_text = validation_file.read_text(encoding="utf-8")
+            match = re.match(r"Exit code:\s*(\d+)", validation_text)
+            validation_returncode = int(match.group(1)) if match else 1
+        else:
+            write_run_state(task_id, "in_progress", current, "Task validation is running.")
+            announce(f"{task_id} attempt {current}/{maximum}: validation running")
             validation_path = ROOT / metadata["validation"]
             validation = run_process(["sh", str(validation_path)])
             validation_text = f"Exit code: {validation.returncode}\n\n{validation.stdout}"
             validation_returncode = validation.returncode
+            protected_before = (
+                protected_fingerprint.read_text(encoding="utf-8")
+                if protected_fingerprint.exists()
+                else fingerprint_paths(metadata.get("protected_paths", ""))
+            )
+            protected_after = fingerprint_paths(metadata.get("protected_paths", ""))
             if protected_before != protected_after:
                 validation_returncode = 1
                 validation_text += "\nProtected product paths changed during this worker attempt.\n"
             validation_text = re.sub(r"^Exit code: \d+", f"Exit code: {validation_returncode}", validation_text)
-            (attempt_dir / "validation.txt").write_text(validation_text, encoding="utf-8")
+            validation_file.write_text(validation_text, encoding="utf-8")
 
         review_prompt = build_review_prompt(task_path, attempt_dir)
         (attempt_dir / "review-prompt.md").write_text(review_prompt, encoding="utf-8")
@@ -314,6 +356,8 @@ def execute_task(task_path: Path, metadata: dict[str, str]) -> str:
         reviewer_sandbox = metadata.get("reviewer_sandbox", "read-only")
         if reviewer_sandbox not in {"read-only", "workspace-write"}:
             raise ValueError(f"Unsupported reviewer_sandbox: {reviewer_sandbox}")
+        write_run_state(task_id, "in_progress", current, "Independent review is running.")
+        announce(f"{task_id} attempt {current}/{maximum}: reviewer running")
         review_before = fingerprint_repository_surface()
         reviewer = run_process(codex_command(reviewer_sandbox, review_output), stdin=review_prompt)
         review_after = fingerprint_repository_surface()
@@ -333,6 +377,7 @@ def execute_task(task_path: Path, metadata: dict[str, str]) -> str:
             return "blocked"
 
         verdict = verdict_from(review_output.read_text(encoding="utf-8"))
+        announce(f"{task_id} attempt {current}/{maximum}: reviewer returned {verdict}")
         if verdict == "PASS" and validation_returncode == 0:
             write_status(task_path, "done")
             write_run_state(
@@ -341,6 +386,7 @@ def execute_task(task_path: Path, metadata: dict[str, str]) -> str:
                 current,
                 "Validation passed and reviewer returned PASS; task committed automatically.",
             )
+            announce(f"{task_id}: committing reviewed task")
             committed, detail = commit_completed_task(task_path, task_id)
             if not committed:
                 write_status(task_path, "blocked")
@@ -371,20 +417,28 @@ def execute_task(task_path: Path, metadata: dict[str, str]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--max-tasks", type=int, default=1, help="Maximum queued tasks to process.")
+    parser.add_argument("--max-tasks", type=int, help="Maximum queued tasks to process (default: 1).")
+    parser.add_argument("--all", action="store_true", help="Process every selectable queued task.")
+    parser.add_argument("--status", action="store_true", help="Show queue and active-run status without changing anything.")
     parser.add_argument("--dry-run", action="store_true", help="Show the next selectable task.")
     args = parser.parse_args()
-    if args.max_tasks < 1:
+    if args.all and args.max_tasks is not None:
+        parser.error("--all and --max-tasks cannot be used together")
+    if args.max_tasks is not None and args.max_tasks < 1:
         parser.error("--max-tasks must be at least 1")
+    if args.status:
+        print_status()
+        return 0
+    maximum_tasks = None if args.all else (args.max_tasks or 1)
 
     processed = 0
-    while processed < args.max_tasks:
+    while maximum_tasks is None or processed < maximum_tasks:
         selected = select_task()
         if not selected:
-            print("No ready task with satisfied dependencies.")
+            announce("No ready task with satisfied dependencies.")
             break
         task_path, metadata = selected
-        print(f"Selected {metadata['id']} ({metadata['status']})")
+        announce(f"Selected {metadata['id']} ({metadata['status']})")
         if args.dry_run:
             break
         if metadata["status"] == "ready" and not worktree_is_clean():
@@ -394,10 +448,12 @@ def main() -> int:
             )
             return 2
         result = execute_task(task_path, metadata)
-        print(f"{metadata['id']}: {result}")
+        announce(f"{metadata['id']}: {result}")
         processed += 1
         if result == "blocked":
+            announce(queue_summary())
             return 2
+    announce(queue_summary())
     return 0
 
 

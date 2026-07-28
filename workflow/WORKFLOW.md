@@ -29,6 +29,12 @@ task attempts. The runner stops immediately and marks the task `blocked` with
 the captured process log; it never burns through the review-attempt budget by
 blindly retrying the same broken command.
 
+The runner prints and records each long-running phase before it starts:
+worker, validation, independent review, and commit. `--status` reports the
+queue plus the recorded phase of any active or blocked task. If execution is
+interrupted, rerunning the workflow resumes the latest unfinished attempt
+instead of consuming another attempt number.
+
 ## Repository layout
 
 ```text
@@ -136,8 +142,20 @@ Run one queued task:
 python3 workflow/run.py --max-tasks 1
 ```
 
+Run every task that becomes selectable:
+
+```sh
+python3 workflow/run.py --all
+```
+
 Preview task selection without invoking Codex:
 
 ```sh
 python3 workflow/run.py --dry-run
+```
+
+Inspect the queue and current phase without invoking Codex or changing state:
+
+```sh
+python3 workflow/run.py --status
 ```
