@@ -38,6 +38,10 @@ import {
   inspectRelayInformation,
   normalizeRelayInformationOptions,
 } from './relay-info.js';
+import {
+  countRelayEvents,
+  normalizeRelayCountOptions,
+} from './relay-count.js';
 
 const MEMORY_TRANSACTION = Symbol.for('nostr-research.memory-plan-attempt');
 
@@ -259,6 +263,18 @@ export function preflightResearchOperation(
       scope: 'external-report',
     };
   }
+  if (name === 'relay-count') {
+    if (input !== undefined) {
+      throw new ResearchMemoryError('Research relay-count operation must not have an input.');
+    }
+    normalizeRelayCountOptions(parameters);
+    return {
+      kind: semantics.outputKind,
+      itemKind: semantics.outputKind,
+      resultKind: semantics.resultKind,
+      scope: 'external-report',
+    };
+  }
   if (name === 'select') {
     if (input && input.resultKind !== 'acquisition-report') {
       throw new ResearchMemoryError('Research select input must be an acquisition result.');
@@ -396,6 +412,7 @@ export async function executeResearchOperation(memory, operation, input = undefi
   }
   if (name === 'acquire') return acquireRelayEvents(memory, parameters);
   if (name === 'relay-info') return inspectRelayInformation(parameters);
+  if (name === 'relay-count') return countRelayEvents(parameters);
   if (name === 'select') {
     const query = normalizeSelectionScope(parameters, input !== undefined);
     if (input === undefined) return memory.select(query);

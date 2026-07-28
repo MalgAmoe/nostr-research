@@ -562,6 +562,20 @@ Advertised NIPs, limitations, and `advertisedAuthRequired` remain relay claims;
 they do not establish observed support, trust, quality, or an authentication
 refusal. Ordinary acquisition never performs this HTTP request.
 
+`relay-count` explicitly sends one NIP-45 count request for one normalized
+filter to each selected relay (or the session relay defaults):
+
+```jsonl
+{"commandId":"count","command":"relay-count","parameters":{"filter":{"kinds":[1]},"relays":["wss://relay.example"],"timeoutMs":5000,"concurrency":2},"resultId":"relay-counts"}
+{"commandId":"preview","command":"show","input":"relay-counts","parameters":{"mode":"preview"}}
+```
+
+The ephemeral `relay-count` handle supports `summary`, `preview`, `coverage`,
+and `details`. Exact and approximate responses, HLL evidence, notices,
+refusals, transport failures, and bounds stay attributed per relay. Summaries
+count outcome categories but never sum event counts across overlapping relay
+corpora. Counting does not fetch NIP-11 information or mutate research memory.
+
 Session defaults can be updated without rewriting memory:
 
 ```json

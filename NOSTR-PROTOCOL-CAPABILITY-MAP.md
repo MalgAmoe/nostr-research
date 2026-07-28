@@ -49,6 +49,9 @@ It can also explicitly retrieve bounded NIP-11 relay information through the
 shared direct, plan, session, JSONL, and browser execution path. Those
 documents remain attributed advertisements and retrieval outcomes remain
 separate from WebSocket acquisition observations.
+NIP-45 count is also explicit through that path: one filter is sent to each
+selected relay, and exact, approximate, diagnostic, refusal, and failure facts
+remain relay-local rather than becoming a global total.
 
 The most valuable protocol work is therefore, in order:
 
@@ -450,7 +453,7 @@ This is useful after address support, not before it.
 | client `EVENT` | Absent | Publishing; not needed for current research |
 | relay `OK` | Absent | Only needed with publishing/auth flows |
 | `AUTH` | Observed | Neutral bounded challenge observation, distinct from an auth-required refusal |
-| `COUNT` | Absent | Estimate scope before expensive acquisition |
+| `COUNT` | Implemented with one filter and relay-local outcomes | Estimate scope before expensive acquisition without summing overlapping corpora |
 | NIP-67 EOSE hint | Implemented | Attributed `finish`/`more` evidence; no automatic continuation |
 | NIP-77 negentropy messages | Absent | Efficient synchronization, not ordinary exploration |
 

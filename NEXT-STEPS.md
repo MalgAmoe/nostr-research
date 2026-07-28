@@ -328,6 +328,11 @@ before deciding whether and how to acquire events.
 
 ### Work
 
+Implemented through the authoritative external-operation path. `relay-count`
+returns one bounded attributed outcome per relay for one exact filter, is
+nameable and observable through all adapters, and never aggregates relay
+counts or mutates memory.
+
 1. Add an explicit external count operation using NIP-45 rather than hiding a
    count request inside acquisition.
 2. Normalize the request and response through the same public operation,

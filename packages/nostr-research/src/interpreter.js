@@ -175,11 +175,13 @@ export class DeclarativeResearchSession {
       const options = projectionOptions(
         presentationParametersWithSessionDefaults(parameters, this.#configuration), true,
       );
-      if (entry.descriptor.resultKind === 'relay-information-report'
+      if (['relay-information-report', 'relay-count-report'].includes(
+        entry.descriptor.resultKind,
+      )
           && options.mode === 'explain') {
         throw protocolError(
           'INVALID_OPERATION',
-          'show explain is not compatible with relay-information.',
+          `show explain is not compatible with ${entry.descriptor.kind}.`,
         );
       }
       return readOnly(() => showResearchValue(this.#memory, entry.value, options));
@@ -196,10 +198,12 @@ export class DeclarativeResearchSession {
     }
     if (command.command === 'explain') {
       const entry = this.#requireHandle(command.input);
-      if (entry.descriptor.resultKind === 'relay-information-report') {
+      if (['relay-information-report', 'relay-count-report'].includes(
+        entry.descriptor.resultKind,
+      )) {
         throw protocolError(
           'INVALID_OPERATION',
-          'explain is not compatible with relay-information.',
+          `explain is not compatible with ${entry.descriptor.kind}.`,
         );
       }
       const { subject, ...rawOptions } = parameters;
@@ -742,6 +746,20 @@ function contextualHandleSchema(memory, id, entry, selectedOperation, configurat
         observationModes: ['summary', 'preview', 'coverage', 'details'],
         facts: operationSchema().operationFacts['relay-info'].resultFacts,
       }
+    : entry.descriptor.resultKind === 'relay-count-report'
+    ? {
+        kind: 'relay-count',
+        count: entry.value.outcomes.length,
+        fields: {
+          report: ['requested', 'startedAt', 'finishedAt', 'bounds', 'outcomes', 'omissions'],
+          outcome: [
+            'relay', 'contacted', 'outcome', 'response', 'notice', 'closedReason',
+            'authChallengeObserved', 'authChallenge', 'diagnostic',
+          ],
+        },
+        observationModes: ['summary', 'preview', 'coverage', 'details'],
+        facts: operationSchema().operationFacts['relay-count'].resultFacts,
+      }
     : isResearchRelation(value)
     ? describeResearchRelation(memory, value)
     : collectionStructure(memory.asCollection(value));
@@ -905,6 +923,9 @@ function resultCount(value) {
   if (value?.type === 'relay-information-report' && Array.isArray(value.outcomes)) {
     return value.outcomes.length;
   }
+  if (value?.type === 'relay-count-report' && Array.isArray(value.outcomes)) {
+    return value.outcomes.length;
+  }
   return 0;
 }
 
@@ -953,6 +974,22 @@ function externalStatus(result, operation, memory) {
         bounds: cloneJson(result.bounds),
       },
       distinction: 'Advertised NIP-11 claims are not observed acquisition behavior.',
+    };
+  }
+  if (operation === 'relay-count') {
+    const outcomes = result.outcomes ?? [];
+    const successful = outcomes.filter(({ outcome }) => outcome === 'success').length;
+    return {
+      status: successful === outcomes.length ? 'complete' : 'partial',
+      scope: { type: 'relay-count', relays: outcomes.length },
+      retrieval: {
+        requested: outcomes.length,
+        successful,
+        unsuccessful: outcomes.length - successful,
+        outcomes: countedValues(outcomes.map(({ outcome }) => outcome)),
+        bounds: cloneJson(result.bounds),
+      },
+      distinction: 'Counts remain relay-local and are never summed into a global total.',
     };
   }
   let boundsReached = result.completionReason === 'completed'

@@ -33,6 +33,12 @@ class FixtureWebSocket {
 
   send(serialized) {
     const packet = JSON.parse(serialized);
+    if (packet[0] === 'COUNT') {
+      queueMicrotask(() => this.#emit('message', {
+        data: JSON.stringify(['COUNT', packet[1], { count: events.length }]),
+      }));
+      return;
+    }
     if (packet[0] !== 'REQ') return;
     const subscriptionId = packet[1];
     for (const event of events) {

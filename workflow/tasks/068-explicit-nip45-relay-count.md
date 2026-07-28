@@ -1,6 +1,6 @@
 ---
 id: 068-explicit-nip45-relay-count
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/068-explicit-nip45-relay-count.validate.sh
 depends_on: 067-explicit-nip11-relay-inspection

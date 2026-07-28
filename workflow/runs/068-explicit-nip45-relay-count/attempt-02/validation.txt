@@ -1,0 +1,54 @@
+Exit code: 0
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/protocol.js && node --check src/reference.js && node --check src/protocol-relationships.js && node --check src/relay-url.js && node --check src/configuration.js && node --check src/contract-facts.js && node --check src/memory.js && node --check src/collection.js && node --check src/acquire.js && node --check src/relay-info.js && node --check src/relay-count.js && node --check src/operations.js && node --check src/relation.js && node --check src/pipeline-source.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/presentation.js && node --check src/jsonl-session.js && node --check src/browser-worker.js && node --check bin/nostr-research-session.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+✔ acquisition rejects unusable public inputs before networking (1.0325ms)
+✔ public acquisition and session reports preserve bounded relay messages and honest outcomes (16.785916ms)
+✔ address subjects navigate typed references to current local replaceable evidence (90.652ms)
+✔ ordinary acquisition accepts an explicit canonical #a filter (0.934125ms)
+✔ direct, plan, and session execution share operation kinds and failure boundaries (29.832334ms)
+✔ collections navigate identities while relations own value analysis (18.612542ms)
+✔ named account and note handles continue with bounded relationship provenance (2283.106667ms)
+✔ factual schemas construct commands accepted through the public session seam (49.499875ms)
+✔ declarative observation and lifecycle form one bounded public workflow (41.725709ms)
+✔ relation summaries compact source selection details without losing their shape (2.418166ms)
+✔ declarative named results compose compatible sets and expose their schema (9.309958ms)
+✔ declarative notebook knowledge survives turnover and remains independent from evidence (18.97325ms)
+✔ explicit archive preservation survives complete buffer turnover and releases atomically (73.286542ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (32.752125ms)
+✔ collections re-resolve stable subjects across observations, replacement metadata, and eviction (20.637333ms)
+✔ JSONL executable provides one persistent bounded process workflow (111.567875ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (33.050708ms)
+✔ public references normalize to stable subjects while hints stay attributed metadata (4.0375ms)
+✔ mixed event kinds derive truthful references without polluting conversations (56.516708ms)
+✔ inline NIP-27 references navigate as typed, explainable evidence without becoming threads (12.92925ms)
+✔ replaceable selection and follow interpretation remain stable in one process (25.439542ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (31.495542ms)
+✔ relation handles resolve references across evidence lifetime and keep bounded views composable (57.411ms)
+✔ relay count remains attributed and never creates a global total (5.545667ms)
+✔ relay count cancellation distinguishes started and unstarted attempts (0.196167ms)
+✔ relay information stays attributed, bounded, and reusable through the public executor (15.547208ms)
+✔ large notebook membership is atomic, bounded, process-local, and directly navigable (2253.137042ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2559.253666
+browser smoke passed: Worker, memory, acquisition, relay count, handles, preview, close

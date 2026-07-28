@@ -1,0 +1,4 @@
+- Deliverables changed: bounded relay-count transport diagnostics and malformed response evidence; added explicit omission metadata; expanded the public WebSocket fixture for oversized errors and nested payloads.
+- Validation: syntax checks passed; all 27 functional tests passed; focused relay-count tests passed; `git diff --check` passed.
+- Permanent tests expanded: public relay-count functional coverage now protects bounded diagnostics and malformed protocol evidence because these limits must hold across direct, plan, session, and handle results.
+- Unresolved uncertainty: browser smoke could not launch Chromium due to the managed macOS sandbox denying Mach port registration. No application assertion failed.

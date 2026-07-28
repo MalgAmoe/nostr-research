@@ -22,6 +22,7 @@ export function showResearchValue(memory, value, options = {}) {
   else if (value?.type === 'relay-information-report') {
     shown = showRelayInformation(value, settings);
   }
+  else if (value?.type === 'relay-count-report') shown = showRelayCount(value, settings);
   else if (isAcquisition(value)) shown = showAcquisition(memory, value, settings);
   else if (value?.type === 'result-collection') shown = showCollection(memory, value, settings);
   else if (value?.collection?.type === 'result-collection') {
@@ -41,6 +42,78 @@ export function showResearchValue(memory, value, options = {}) {
   else throw new TypeError('show does not recognize this value.');
 
   return enforceSize(shown, settings.sizeLimit);
+}
+
+function showRelayCount(value, settings) {
+  if (settings.mode === 'explain') {
+    throw new TypeError('Relay count supports summary, preview, coverage, and details.');
+  }
+  const outcomes = value.outcomes ?? [];
+  const offset = Math.min(settings.offset, outcomes.length);
+  const visible = outcomes.slice(offset, offset + settings.previewLimit);
+  const base = {
+    type: 'relay-count',
+    observation: settings.mode,
+    count: outcomes.length,
+    offset,
+    limit: settings.mode === 'summary' ? 0 : settings.previewLimit,
+    omittedBefore: offset,
+    omittedAfter: Math.max(0, outcomes.length - offset - settings.previewLimit),
+    sizeBounded: false,
+  };
+  if (settings.mode === 'summary') {
+    const successes = outcomes.filter(({ outcome }) => outcome === 'success');
+    return {
+      ...base,
+      summary: {
+        outcomes: countedStrings(outcomes.map(({ outcome }) => outcome)),
+        exactResponses: successes.filter(({ response }) => !response.approximate).length,
+        approximateResponses: successes.filter(({ response }) => response.approximate).length,
+      },
+    };
+  }
+  if (settings.mode === 'coverage') {
+    return {
+      ...base,
+      requested: structuredClone(value.requested),
+      startedAt: value.startedAt,
+      finishedAt: value.finishedAt,
+      bounds: structuredClone(value.bounds),
+      attempts: visible.map((item) => ({
+        relay: item.relay,
+        contacted: item.contacted,
+        outcome: item.outcome,
+        ...(item.diagnostic ? {
+          diagnostic: excerpt(item.diagnostic, settings.excerptLimit),
+        } : {}),
+      })),
+      omissions: structuredClone(value.omissions),
+    };
+  }
+  if (settings.mode === 'details') {
+    return {
+      ...base,
+      outcomes: visible.map((item) => ({
+        ...structuredClone(item),
+        ...(typeof item.diagnostic === 'string'
+          ? { diagnostic: excerpt(item.diagnostic, settings.excerptLimit) } : {}),
+      })),
+    };
+  }
+  return {
+    ...base,
+    preview: visible.map((item) => ({
+      relay: item.relay,
+      outcome: item.outcome,
+      ...(item.response ? {
+        count: item.response.count,
+        approximate: item.response.approximate,
+        hasHll: typeof item.response.hll === 'string',
+      } : {}),
+      ...(item.notice ? { notice: excerpt(item.notice.rawValue, settings.excerptLimit) } : {}),
+      ...(item.closedReason ? { closedReason: structuredClone(item.closedReason) } : {}),
+    })),
+  };
 }
 
 function showRelayInformation(value, settings) {

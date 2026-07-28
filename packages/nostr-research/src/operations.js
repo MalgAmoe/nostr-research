@@ -68,6 +68,8 @@ export const RESEARCH_OPERATIONS = Object.freeze({
   acquire: definition('forbidden', 'events', 'acquisition-report', 'external', 'buffer', 'bounded-attempt', 'acquire'),
   'relay-info': definition('forbidden', 'relay-information', 'relay-information-report',
     'external', 'none', 'bounded-attempt', 'relay-info'),
+  'relay-count': definition('forbidden', 'relay-count', 'relay-count-report',
+    'external', 'none', 'bounded-attempt', 'relay-count'),
   select: definition('optional-acquisition', 'events', 'events', 'local', 'none', 'resident-view', 'select'),
   ...Object.fromEntries(COLLECTION_OPERATIONS.map((name) => [name, {
     ...definition('required', undefined, undefined, 'local', 'none', 'bounded-view', 'collection'),
@@ -342,6 +344,12 @@ export function operationSchema() {
         timeoutMs: RESEARCH_CONSTRAINTS.relayInformation.timeoutMs,
         concurrency: RESEARCH_CONSTRAINTS.relayInformation.concurrency,
       },
+      'relay-count': {
+        filter: 'one normalized NIP-01 filter',
+        relays: 'non-empty normalized relay URL array; session relay defaults apply',
+        timeoutMs: RESEARCH_CONSTRAINTS.relayCount.timeoutMs,
+        concurrency: RESEARCH_CONSTRAINTS.relayCount.concurrency,
+      },
       select: {
         scope: '"corpus" without an input; omitted or "acquisition" with an acquisition input',
         ids: 'optional event ID prefix or prefix array; each prefix is 4–64 lowercase hex characters',
@@ -454,6 +462,19 @@ export function operationSchema() {
           descriptor: 'relay-information',
           attribution: 'one retrieval outcome per exact requested relay',
           advertisement: 'attributed NIP-11 claim, not observed acquisition behavior',
+          observationModes: ['summary', 'preview', 'coverage', 'details'],
+        },
+      },
+      'relay-count': {
+        resultFacts: {
+          type: 'relay-count-report',
+          descriptor: 'relay-count',
+          attribution: 'one independent count outcome per exact requested relay',
+          interpretation: 'exact or approximate for that relay response; never a global total',
+          relayOutcomes: [
+            'success', 'notice', 'closed', 'malformed-response', 'connection-failure',
+            'peer-closed', 'peer-error', 'timeout', 'cancelled',
+          ],
           observationModes: ['summary', 'preview', 'coverage', 'details'],
         },
       },

@@ -348,13 +348,13 @@ export async function acquireBoundAccountEvents(memory, selection, options, filt
   });
 }
 
-function describeWebSocketError(error) {
+export function describeWebSocketError(error) {
   if (!(error instanceof Error)) return 'WebSocket connection or protocol error.';
   const code = typeof error.code === 'string' ? `${error.code}: ` : '';
   return `${code}${error.message}`;
 }
 
-function boundedRelayText(value) {
+export function boundedRelayText(value) {
   const rawValue = value.slice(0, MAX_RELAY_TEXT_LENGTH);
   return {
     rawValue,
@@ -362,7 +362,7 @@ function boundedRelayText(value) {
   };
 }
 
-function parseClosedReason(value) {
+export function parseClosedReason(value) {
   if (typeof value !== 'string') return null;
   const bounded = boundedRelayText(value);
   const match = /^([a-z0-9-]+):/.exec(value);
@@ -458,7 +458,7 @@ export function normalizeHydrationOptions(options) {
   return { ...normalized, kinds: [...new Set(kinds)] };
 }
 
-function normalizeFilter(filter) {
+export function normalizeFilter(filter) {
   if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
     throw new ResearchMemoryError('A Nostr filter JSON object is required.');
   }

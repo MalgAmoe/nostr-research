@@ -35,6 +35,10 @@ export {
   normalizeRelayInformationOptions,
 } from './relay-info.js';
 export {
+  countRelayEvents,
+  normalizeRelayCountOptions,
+} from './relay-count.js';
+export {
   executeResearchOperation,
   executeResearchPlan,
   normalizeResearchOperation,

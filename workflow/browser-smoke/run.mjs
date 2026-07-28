@@ -77,6 +77,15 @@ try {
       resultId: 'recent',
     }));
     results.push(await send({
+      commandId: 'relay-count',
+      command: 'relay-count',
+      parameters: {
+        relays: ['wss://fixture.invalid/'],
+        filter: { kinds: [1] },
+      },
+      resultId: 'relay-counts',
+    }));
+    results.push(await send({
       commandId: 'relate',
       command: 'relate',
       input: 'recent',
@@ -106,21 +115,25 @@ try {
   check(responses[2].result.external?.completeness?.boundsReached
     ?.includes('observation-budget'), 'acquisition bound was not visible');
   check(responses[3].ok
-    && responses[3].result?.handle?.kind === 'relation'
-    && responses[3].result?.handle?.count === acquiredCount,
-  'acquisition handle did not transition directly into analysis');
+    && responses[3].result?.handle?.kind === 'relay-count'
+    && responses[3].result?.handle?.count === 1,
+  `relay count did not use the browser Worker path: ${JSON.stringify(responses[3])}`);
   check(responses[4].ok
-    && responses[4].result?.observation === 'preview'
-    && responses[4].result?.preview?.length === 1
-    && responses[4].result?.omitted === acquiredCount - 1,
-  `bounded browser presentation was incorrect: ${JSON.stringify(responses[4])}`);
-  check(responses[5].ok && responses[5].result?.type === 'close-session',
+    && responses[4].result?.handle?.kind === 'relation'
+    && responses[4].result?.handle?.count === acquiredCount,
+  'acquisition handle did not transition directly into analysis');
+  check(responses[5].ok
+    && responses[5].result?.observation === 'preview'
+    && responses[5].result?.preview?.length === 1
+    && responses[5].result?.omitted === acquiredCount - 1,
+  `bounded browser presentation was incorrect: ${JSON.stringify(responses[5])}`);
+  check(responses[6].ok && responses[6].result?.type === 'close-session',
     'session did not close');
-  check(responses[6].error?.code === 'SESSION_CLOSED',
+  check(responses[7].error?.code === 'SESSION_CLOSED',
     'post-close command was not rejected');
   check(errors.length === 0, `browser emitted errors: ${errors.join('; ')}`);
 
-  console.log('browser smoke passed: Worker, memory, acquisition, handles, preview, close');
+  console.log('browser smoke passed: Worker, memory, acquisition, relay count, handles, preview, close');
 } finally {
   await browser?.close();
   await rm(temporaryDirectory, { recursive: true, force: true });
