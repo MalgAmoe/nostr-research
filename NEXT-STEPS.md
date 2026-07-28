@@ -259,16 +259,41 @@ of actual human use against the same engine.
 Make relay capability, limitations, completion, and refusal visible without
 turning relay metadata into an automatic score or routing policy.
 
-### Work
+### Task 1: relay message and outcome visibility
 
-1. Fetch and expose NIP-11 relay information as attributed advertisement.
-2. Parse `NOTICE` messages and standardized `CLOSED` reason prefixes, and
-   distinguish a peer closing before EOSE from a generic connection failure.
-3. Parse NIP-67 EOSE `finish` and `more` hints.
-4. Keep advertised support separate from observed request outcomes.
-5. Reconsider connection reuse only if the runtime-neutral WebSocket seam
-   makes a small sequential connection owner clearly useful. Do not redesign
-   acquisition merely to pool sockets.
+1. Capture bounded `NOTICE` messages and standardized `CLOSED` reason
+   prefixes on the existing acquisition path.
+2. Parse NIP-67 EOSE `finish` and `more` hints without treating either as
+   proof that a relay corpus is globally exhaustive.
+3. Distinguish failure before a WebSocket opens, a peer closing before relay
+   completion, an explicit subscription refusal, and ordinary operation
+   bounds.
+4. Keep three authentication facts distinct:
+   - `authChallengeObserved` means that the relay sent a neutral NIP-42
+     challenge;
+   - `auth-required` is an observed request outcome only when the subscription
+     is actually refused as requiring authentication; and
+   - `advertisedAuthRequired` is an attributed NIP-11 claim, not an acquisition
+     outcome.
+5. Do not answer an authentication challenge, load a signer, or infer that a
+   read request failed merely because a challenge was observed.
+6. Carry every new fact through acquisition, normalized results, session
+   handles, bounded `show coverage`/`show details`, and factual schema. A fact
+   hidden in transport bookkeeping does not satisfy this milestone.
+
+### Task 2: explicit NIP-11 relay inspection
+
+1. Add one explicit external operation that requests NIP-11 documents and
+   returns an attributed, bounded relay-information report.
+2. Report the requested relay, retrieval time, HTTP outcome, document fields,
+   supported NIPs, advertised limitations, and omissions.
+3. Preserve retrieval failures, non-JSON responses, malformed fields, and
+   absent optional fields without turning them into empty relay claims.
+4. Make the ephemeral result nameable by a session and observable through
+   bounded `show` modes and contextual schema.
+5. Do not put relay advertisements in the research notebook or acquisition
+   coverage, fetch them implicitly during acquisition, or make a relay into a
+   stable Nostr subject merely to support `inspect`.
 
 ### Success condition
 
@@ -276,14 +301,42 @@ A caller can understand what a selected relay claims to support, what limits
 it advertises, what happened during the actual request, and whether the relay
 provided a completion hint. None of those facts silently changes relay choice.
 
-NIP-45 count, NIP-50 search, NIP-65 routing, and authentication remain later
-candidates. In particular, an `AUTH` challenge must not silently become key
-management or signing behavior as part of relay diagnostics. These candidates
-are not part of this milestone.
+Connection reuse, retry policy, NIP-50 search, NIP-65 routing, and responding
+to authentication remain later candidates. In particular, an `AUTH` challenge
+must not silently become key management or signing behavior as part of relay
+diagnostics.
+
+## Milestone 7: NIP-45 count before acquisition
+
+### Goal
+
+Let a researcher estimate the scale of one exact request at selected relays
+before deciding whether and how to acquire events.
+
+### Work
+
+1. Add an explicit external count operation using NIP-45 rather than hiding a
+   count request inside acquisition.
+2. Normalize the request and response through the same public operation,
+   session, schema, and bounded-presentation seams as the existing core.
+3. Report each relay independently, including unsupported, rejected, timed
+   out, malformed, exact, and approximate outcomes.
+4. Preserve the relay's approximate metadata when supplied.
+5. Treat every count as attributed planning evidence. Never sum or otherwise
+   collapse overlapping relay counts into an unexplained global total.
+6. Do not mutate the observation buffer, archive, or notebook.
+
+### Success condition
+
+A researcher can compare bounded per-relay estimates for one filter and decide
+whether to narrow, partition, or acquire it without mistaking the estimates
+for global Nostr truth.
 
 ## Milestone 6: sustained research before more engine design
 
-Once two consumers use the same core, return to research trials.
+After relay visibility and explicit count are available, return to sustained
+research trials. The milestone numbers preserve the historical document names;
+the deliberate execution order is M5, then M7, then M6.
 
 The important trials are not isolated searches for a known answer. They should
 exercise movement over time:
@@ -325,7 +378,6 @@ work.
 The protocol audit identifies useful possibilities beyond the committed
 milestones:
 
-- NIP-45 per-relay count for estimating a request before acquisition;
 - NIP-50 relay search as an explicit remote operation distinct from local
   scanning;
 - selected public NIP-51 lists for attributed discovery and moderation
@@ -414,12 +466,14 @@ None currently justifies changing the engine.
 1. Correct kind-aware protocol relationships — completed
 2. Complete addressable and inline-reference navigation — completed
 3. Make the established core runtime-neutral — completed
-4. Add a minimal browser/Worker consumer
-5. Expose relay capability and observed behavior
-6. Run sustained research with buffer turnover
-7. Make further changes only from repeated observed friction
-8. Design a human-facing interface after observing the second consumer
-9. Add persistence or Rust only if real constraints demand them
+4. Add a minimal browser/Worker consumer — completed
+5. M5: expose relay capability and observed behavior
+6. M7: add explicit per-relay NIP-45 count
+7. M6: run sustained research with buffer turnover
+8. Let repeated trial friction decide multi-filter REQ, NIP-51, authentication,
+   retry policy, or unanticipated work
+9. Design a human-facing interface after observing the second consumer
+10. Add persistence or Rust only if real constraints demand them
 ```
 
 ## Final perspective

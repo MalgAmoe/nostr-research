@@ -440,14 +440,23 @@ This is useful after address support, not before it.
 | relay `EVENT` | Implemented and validated | Core evidence |
 | `EOSE` | Implemented as attempt boundary | Separates stored results from later live events |
 | `CLOSE` | Implemented | Clean bounded operation |
-| `CLOSED` | Partially handled | Relay refusal or termination diagnostics |
+| `CLOSED` | Partially handled | Standardized refusal reason and termination diagnostics |
 | `NOTICE` | Ignored | Human-readable relay diagnostics |
 | client `EVENT` | Absent | Publishing; not needed for current research |
 | relay `OK` | Absent | Only needed with publishing/auth flows |
-| `AUTH` | Ignored | Required by some restricted relays |
+| `AUTH` | Ignored | Neutral challenge observation, distinct from an auth-required refusal |
 | `COUNT` | Absent | Estimate scope before expensive acquisition |
 | NIP-67 EOSE hint | Ignored | More honest completeness and continuation |
 | NIP-77 negentropy messages | Absent | Efficient synchronization, not ordinary exploration |
+
+Relay authentication has three distinct evidence sources that must not be
+collapsed:
+
+- an `AUTH` message says only that a challenge was observed;
+- a standardized `auth-required:` subscription refusal says that the actual
+  request required authentication; and
+- NIP-11 `limitation.auth_required` is the relay's attributed advertisement,
+  not an observed request outcome.
 
 ### NIP-11 snapshots from three public relays
 
@@ -708,11 +717,26 @@ form an explicit acquisition step.
 
 ### Pass C: relay visibility and specialized requests
 
-- add NIP-11 inspection;
-- parse `NOTICE`, `CLOSED` reason prefixes, and NIP-67 hints;
-- evaluate connection reuse at the transport boundary;
-- add explicit NIP-45 count;
-- add explicit NIP-50 search;
+- add explicit NIP-11 inspection as an attributed, ephemeral
+  relay-information report rather than notebook knowledge or hidden
+  acquisition work;
+- preserve NIP-11 retrieval errors, malformed responses, omissions, and
+  advertised limitations as carefully as successful document content;
+- parse bounded `NOTICE` messages, standardized `CLOSED` reason prefixes, and
+  NIP-67 hints;
+- distinguish failure before opening, peer closure before completion, explicit
+  refusal, and ordinary request bounds;
+- observe `AUTH` challenges without inferring that a read request failed or
+  introducing a signer;
+- expose every new transport fact through acquisition reports, session
+  handles, bounded presentation, and factual schema;
+- add explicit NIP-45 count as per-relay planning evidence, preserving exact
+  and approximate metadata and never aggregating overlapping relay counts into
+  a global total;
+- defer explicit NIP-50 search until a search-capable relay is part of regular
+  trials;
+- let sustained trials decide whether connection reuse or bounded retry earns
+  implementation;
 - consider NIP-42 only when a signer/security boundary is deliberately chosen.
 
 Success means that the researcher can understand relay capability,
@@ -757,12 +781,15 @@ Protocol work should preserve the project's existing strengths:
 7. **Partiality remains machine-readable.** EOSE, timeouts, limits, NIP-67
    hints, and approximate counts should not be compressed into a single
    success flag.
-8. **No automatic trust score.** Graph distance, labels, reports, identity
+8. **Per-relay counts remain per-relay.** Relay corpora overlap, so NIP-45
+   results are attributed planning evidence and must not be summed into an
+   unexplained global count.
+9. **No automatic trust score.** Graph distance, labels, reports, identity
    proofs, PoW, relay choice, and activity are features for researcher
    judgment.
-9. **Prefer small interpreters over a NIP framework.** Add semantics only when
+10. **Prefer small interpreters over a NIP framework.** Add semantics only when
    they improve real navigation or correct existing behavior.
-10. **Keep sequential research composable.** Better relay support must not
+11. **Keep sequential research composable.** Better relay support must not
     reintroduce hidden multi-step workflows.
 
 ## Final assessment
