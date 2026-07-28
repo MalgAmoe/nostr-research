@@ -222,3 +222,123 @@ immediately redesigning:
 
 After those checks, repeat one sustained trial before promoting a larger
 protocol feature.
+
+## Post-fix verification trial
+
+Date: 2026-07-28
+
+A second persistent session tested the corrected cardinality presentation and
+a wider cross-section of the public interface. It used the same three relays,
+a 400-event buffer, a 40-entry archive, and a 60-entry notebook.
+
+### Boundaries exercised
+
+- JSONL session configuration, schema, status, revisions, and lifecycle;
+- browser Worker initialization, deterministic acquisition, relay count,
+  relation transition, bounded preview, and close;
+- NIP-11 relay information and NIP-45 relay-local count;
+- bounded live acquisition and all acquisition observation modes;
+- local text selection, collection movement, set comparison and union;
+- profile hydration and account-field relation scanning;
+- relation aggregation, sorting, slicing, extraction, and hydration;
+- declarative multi-stage plans;
+- notebook judgments and named membership;
+- excerpt preservation, archive query, and buffer turnover;
+- local and relay-backed continuation;
+- stale-revision rejection and explicit handle release.
+
+The browser smoke test passed outside the macOS process sandbox. The sandboxed
+failure was Chromium's denied Mach-port registration, not an application
+failure.
+
+### Corrected behavior confirmed with live data
+
+Hydrating 14 account subjects acquired 15 immutable metadata events. The
+response reported:
+
+- `requested: 14`;
+- `resolved: 14`;
+- `units: "accounts"`;
+- `acquiredMetadataEvents: 15`; and
+- one account with multiple metadata events.
+
+The handle still honestly counted 15 event records.
+
+Twenty-four excerpt entries were then preserved. After a 300-event acquisition
+filled the 400-event buffer and caused 55 evictions, the archive summary
+reported:
+
+- 24 archive entries, all at excerpt level; and
+- canonical evidence resolution of 16 buffer, zero archive, and eight
+  unresolved.
+
+This is the intended distinction: all excerpts remain deliberately preserved,
+while only complete resident or canonical archive evidence resolves a subject.
+The `list` unknown-parameter path also returned the intended
+`INVALID_COMMAND` with `Unknown list parameter: offset.`
+
+### Further findings
+
+#### 1. Continuation handles do not compose symmetrically in set operations
+
+Local and relay-backed `authored-notes` continuations returned ordinary
+event-kind handles with 14 and 30 members. Contextual schema advertised
+`compare` for the local continuation and explicitly requested another events
+handle. Comparing the two nevertheless failed with:
+
+```text
+INVALID_OPERATION: Expected a result collection.
+```
+
+The input continuation is resolved through `memory.asCollection`, but the
+continuation supplied as the set operation's `with` value remains wrapped in
+its outer report. This is an execution inconsistency with the factual schema,
+not a limitation of relay data.
+
+#### 2. Exact membership inspection bypasses bounded presentation
+
+Querying one five-member named membership returned its complete accumulated
+reason graphs directly. Even a small membership produced a very large JSON
+response. `membership` currently exposes the raw memory accessor rather than a
+bounded observation with offsets, omissions, and size enforcement.
+
+Membership identity and reasons are important and should remain available.
+The problem is the unbounded default response, not the stored data.
+
+#### 3. Text-array conjunction is not discoverable enough
+
+`select` with `text: ["music", "musician", "album", "song"]` returned no
+matches because every supplied term is required. Independent one-term searches
+behaved correctly. Conjunctive semantics are defensible, but contextual schema
+currently says only “text term or term array” and does not state that an array
+means AND.
+
+#### 4. Unknown sort parameters use misleading vocabulary
+
+Supplying `limit` directly to `sort` correctly failed because bounding belongs
+in a following `slice`, but the error was:
+
+```text
+Unknown sort field: limit.
+```
+
+`limit` was an unknown operation parameter, not a relation field. The schema
+made the valid composition discoverable; only the error label is misleading.
+
+### Behaviors that remained coherent
+
+- Relay information succeeded for all three relays.
+- Relay count remained per-relay and partial when two relays returned NOTICE.
+- Acquisition exposed duplicates, per-relay outcomes, and global bounds.
+- Profile hydration distinguished unresolved accounts from successful relay
+  completion.
+- Account relation schema accurately exposed populated fields and lineage.
+- `scan` with explicit fields and match modes remained mechanical.
+- Aggregate → sort → slice → extract → hydrate composed successfully after
+  following contextual schema.
+- Plans and individual commands used the same operation semantics.
+- A stale mutating command left revision and state unchanged.
+- Notebook knowledge, membership, and archived excerpts survived buffer
+  turnover.
+- Explicit releases reduced handle count without affecting notebook or archive
+  state.
