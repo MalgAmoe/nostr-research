@@ -1,7 +1,8 @@
-# Nostr Research
+# Nostrarium
 
-This repository develops Nostr research and navigation as a composable,
-UI-independent library.
+Nostrarium develops research and navigation through the Nostr field. Its
+foundation is a composable, UI-independent research engine; caller-side
+vessels will progressively give that engine coherent ways of being operated.
 
 ```text
 packages/nostr-research/    UI-independent research library and JSONL session

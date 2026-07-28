@@ -1,4 +1,4 @@
-# Nostr Research
+# Nostrarium research engine
 
 `@nostr-research/memory` is a UI-independent research library for canonical
 Nostr evidence. The active runtime is one process-local memory with a renewable

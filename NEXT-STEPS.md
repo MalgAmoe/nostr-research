@@ -32,8 +32,10 @@ detailed library reference.
 
 ## Product direction
 
-The central metaphor is a vessel moving through an effectively unbounded,
-noisy Nostr field.
+Nostrarium's caller-side vessel is a coherent research posture for moving
+through an effectively unbounded, noisy Nostr field. Its durable definition
+and ownership model live in [CONTEXT.md](./CONTEXT.md); its unresolved details
+are to be discovered through use rather than specified in advance.
 
 The system does not ingest the whole network. It acquires bounded windows,
 exposes what is present, lets the researcher navigate or acquire in a chosen

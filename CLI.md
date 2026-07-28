@@ -1,7 +1,8 @@
 # CLI guide
 
-This is the practical entry point for operating Nostr Research. The CLI is a
-persistent research process, not a one-shot command and not a prompted shell.
+This is the practical entry point for operating Nostrarium's research engine.
+The CLI is a persistent research process, not a one-shot command and not a
+prompted shell.
 
 ## Start and stop
 

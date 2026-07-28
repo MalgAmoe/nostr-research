@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This project is a tool for research, navigation, and exploration of Nostr. It
+Nostrarium is a project for research, navigation, and exploration of Nostr. It
 is not being shaped as a conventional feed client. Its job is to help a person
 acquire evidence, inspect it, navigate relationships, preserve useful collections,
 and understand why a result is present.
@@ -55,6 +55,61 @@ no presentation layer defines the domain boundary.
 | **query** | An operation over local memory that selects and explains results; it does not itself require relay access. |
 | **provenance** | Observable source and acquisition history for evidence, including the context needed to assess it. |
 | **derived relationship** | A reproducible interpretation connecting evidence (for example reply, mention, tag, author, or citation); it is not raw evidence and can be replaced. |
+| **navigator** | The human or agent operating a vessel and making every research decision. |
+| **vessel** | A coherent, named research posture adopted by a navigator over the existing engine and session. It shapes attention and movement without owning facts or conclusions. |
+
+## Vessels
+
+A vessel is a coherent, named way of moving through the Nostr field on top of
+the research engine. It is operated by a navigator—a human or an agent—who
+makes every research decision.
+
+A vessel is not an engine feature, a UI, an autonomous actor, or a subset of
+the operation vocabulary. It is a complete research posture expressed through
+caller-side conventions over the existing session: configuration defaults,
+habitual operations, observation modes, judgment practices, and a collection
+goal. Most vessels may use most of the engine.
+
+A vessel couples four dimensions:
+
+1. **Movement** — how the navigator acquires and traverses the field: breadth
+   versus depth, acquisition habits, preferred navigation primitives, and the
+   routes made attractive at each point.
+2. **Senses** — which observations, projections, and presentation modes
+   habitually frame the evidence encountered by the navigator.
+3. **Judgment** — the practices and tempo through which the navigator forms
+   notebook knowledge. Judgment always belongs to the navigator; the vessel
+   shapes what is seen, in what order, and with what framing.
+4. **Collection** — the shape and intent of the knowledge the navigator is
+   trying to accumulate toward an eventual exportable artifact.
+
+These dimensions form a loop with the navigator at its center: senses inform
+judgment, judgment steers movement, and movement determines what the senses
+encounter next. A distinct vessel deliberately changes at least one dimension
+while keeping the whole loop coherent. Two vessels use the same engine,
+operations, and session protocol, but should lead the same navigator through
+measurably different journeys over the same field.
+
+Ownership remains explicit:
+
+```text
+engine     owns what is true
+vessel     owns what is attended to
+navigator  owns what is concluded
+```
+
+Vessels live entirely on the caller side. The engine, session, schema, and
+operation vocabulary do not know they exist. A vessel may arrange and
+foreground factual engine results, but it never computes domain facts, ranks
+by its own authority, or acts on the navigator's behalf. Any remembering or
+preservation remains an explicit engine operation directed by the navigator;
+the vessel owns no hidden research memory.
+
+A vessel is disposable and implies a way of visualizing evidence even before
+that presentation exists. Its exact lifetime, interaction model, degree of
+factual observation assistance, and concrete presentation are deliberately
+open. They will be discovered by building and using vessels, then promoting
+only repeated findings into the durable model.
 
 ## Testing policy
 
