@@ -12,6 +12,10 @@ import {
 
 const HYDRATION_KEY = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
 const WARNING_KEY = Uint8Array.from(Buffer.from('8'.repeat(64), 'hex'));
+const PARTICIPATION_KEY = Uint8Array.from(Buffer.from('9'.repeat(64), 'hex'));
+const PARTICIPATION_EVENT = finalizeEvent({
+  kind: 1, created_at: 300, tags: [], content: 'participation fixture',
+}, PARTICIPATION_KEY);
 const WARNING_EVENTS = [
   finalizeEvent({
     kind: 1, created_at: 200, tags: [], content: 'ordinary retained event',
@@ -93,6 +97,11 @@ class RelayFixtureWebSocket {
       } else if (this.url.includes('peer-close')) {
         this.readyState = RelayFixtureWebSocket.CLOSED;
         this.emit('close', { code: 1006 });
+      } else if (this.url.includes('budget-contributor')) {
+        this.message(['EVENT', subscriptionId, PARTICIPATION_EVENT]);
+      } else if (this.url.includes('invalid-packet')) {
+        this.message(['EVENT', subscriptionId, { id: 'not-canonical' }]);
+        this.message(['EOSE', subscriptionId]);
       }
     });
   }
@@ -314,6 +323,9 @@ test('public acquisition and session reports preserve bounded relay messages and
     });
     const complete = report.relays.find(({ relay }) => relay.includes('complete'));
     assert.equal(complete.outcome, 'eose');
+    assert.equal(complete.attemptStarted, true);
+    assert.equal(complete.socketOpened, true);
+    assert.equal(complete.subscriptionSent, true);
     assert.equal(complete.notices.length, 10);
     assert.deepEqual(complete.notices[0], {
       rawValue: 'fixture notice 0', omittedCharacters: 0,
@@ -350,8 +362,16 @@ test('public acquisition and session reports preserve bounded relay messages and
       'peer-closed',
     );
     assert.equal(
+      report.relays.find(({ relay }) => relay.includes('peer-close')).subscriptionSent,
+      true,
+    );
+    assert.equal(
       report.relays.find(({ relay }) => relay.includes('pre-open')).outcome,
       'connection-failure',
+    );
+    assert.equal(
+      report.relays.find(({ relay }) => relay.includes('pre-open')).socketOpened,
+      false,
     );
 
     const session = createDeclarativeResearchSession(memory);
@@ -399,6 +419,10 @@ test('public acquisition and session reports preserve bounded relay messages and
     assert.equal(
       contextualSchema.result.structure.reportFacts.perRelay.authChallengeObserved,
       'neutral observed AUTH challenge; not a refusal',
+    );
+    assert.match(
+      contextualSchema.result.structure.reportFacts.perRelay.subscriptionSent,
+      /Nostr REQ/,
     );
     const globalSchema = await session.execute({
       commandId: 'global-schema', command: 'schema', parameters: { detail: 'full' },
@@ -457,6 +481,14 @@ test('public acquisition and session reports preserve bounded relay messages and
     assert.equal(hydrationCompleteness.resolved, 1);
     assert.equal(hydrationCompleteness.acquiredMetadataEvents, 2);
     assert.equal(hydrationCompleteness.accountsWithMultipleMetadataEvents, 1);
+    const hydrationCoverage = await session.execute({
+      commandId: 'hydrate-coverage', command: 'show', input: 'hydrated-multiple',
+      parameters: { mode: 'coverage', previewLimit: 10 },
+    });
+    assert.equal(hydrationCoverage.result.relays[0].attemptStarted, true);
+    assert.equal(hydrationCoverage.result.relays[0].socketOpened, true);
+    assert.equal(hydrationCoverage.result.relays[0].subscriptionSent, true);
+    assert.equal(hydrationCoverage.result.relays[0].acceptedObservations, 2);
     const hydrationSummary = await session.execute({
       commandId: 'hydrate-summary', command: 'show', input: 'hydrated-multiple',
       parameters: { mode: 'summary', sizeLimit: 2000 },
@@ -471,6 +503,110 @@ test('public acquisition and session reports preserve bounded relay messages and
       distinctAuthorCount: 1,
       createdAtRange: { earliest: 100, latest: 101 },
     });
+  } finally {
+    memory.close();
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
+
+test('relay lifecycle facts distinguish unstarted, pre-open, subscribed-zero, rejected, and contributed attempts', async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  globalThis.WebSocket = RelayFixtureWebSocket;
+  const memory = createInMemoryResearchMemory({ capacity: 10 });
+  try {
+    const bounded = await acquireRelayEvents(memory, {
+      relays: [
+        'wss://budget-contributor.example',
+        'wss://opened-zero.example',
+        'wss://unstarted.example',
+      ],
+      filter: { kinds: [1] },
+      timeoutMs: 1000,
+      observationLimit: 10,
+      distinctEventLimit: 1,
+      concurrency: 2,
+    });
+    assert.equal(bounded.completionReason, 'distinct-event-budget');
+    assert.deepEqual(
+      bounded.relays.map((relay) => ({
+        attemptStarted: relay.attemptStarted,
+        socketOpened: relay.socketOpened,
+        subscriptionSent: relay.subscriptionSent,
+        receivedPackets: relay.receivedPackets,
+        acceptedObservations: relay.acceptedObservations,
+        outcome: relay.outcome,
+      })),
+      [
+        {
+          attemptStarted: true, socketOpened: true, subscriptionSent: true,
+          receivedPackets: 1, acceptedObservations: 1,
+          outcome: 'distinct-event-budget',
+        },
+        {
+          attemptStarted: true, socketOpened: true, subscriptionSent: true,
+          receivedPackets: 0, acceptedObservations: 0,
+          outcome: 'distinct-event-budget',
+        },
+        {
+          attemptStarted: false, socketOpened: false, subscriptionSent: false,
+          receivedPackets: 0, acceptedObservations: 0,
+          outcome: 'distinct-event-budget',
+        },
+      ],
+    );
+
+    const preOpen = await acquireRelayEvents(memory, {
+      relays: ['wss://pre-open.example'], filter: { kinds: [1] },
+      timeoutMs: 1000, observationLimit: 10, distinctEventLimit: 10,
+    });
+    assert.deepEqual(
+      {
+        attemptStarted: preOpen.relays[0].attemptStarted,
+        socketOpened: preOpen.relays[0].socketOpened,
+        subscriptionSent: preOpen.relays[0].subscriptionSent,
+        outcome: preOpen.relays[0].outcome,
+      },
+      {
+        attemptStarted: true, socketOpened: false, subscriptionSent: false,
+        outcome: 'connection-failure',
+      },
+    );
+
+    const rejected = await acquireRelayEvents(memory, {
+      relays: ['wss://invalid-packet.example'], filter: { kinds: [1] },
+      timeoutMs: 1000, observationLimit: 10, distinctEventLimit: 10,
+    });
+    assert.equal(rejected.relays[0].receivedPackets, 1);
+    assert.equal(rejected.relays[0].acceptedObservations, 0);
+    assert.equal(rejected.relays[0].outcome, 'eose');
+
+    const session = createDeclarativeResearchSession(memory);
+    try {
+      await session.execute({
+        commandId: 'bounded', command: 'acquire',
+        parameters: {
+          relays: [
+            'wss://budget-contributor.example',
+            'wss://opened-zero.example',
+            'wss://unstarted.example',
+          ],
+          filter: { kinds: [1] },
+          timeoutMs: 1000, observationLimit: 10, distinctEventLimit: 1,
+          concurrency: 2,
+        },
+        resultId: 'bounded',
+      });
+      const coverage = await session.execute({
+        commandId: 'coverage', command: 'show', input: 'bounded',
+        parameters: { mode: 'coverage', previewLimit: 10 },
+      });
+      const byRelay = new Map(coverage.result.relays.map((relay) => [relay.relay, relay]));
+      assert.equal(byRelay.get('wss://opened-zero.example/').subscriptionSent, true);
+      assert.equal(byRelay.get('wss://opened-zero.example/').receivedPackets, 0);
+      assert.equal(byRelay.get('wss://unstarted.example/').attemptStarted, false);
+    } finally {
+      await session.close();
+    }
   } finally {
     memory.close();
     globalThis.WebSocket = originalWebSocket;

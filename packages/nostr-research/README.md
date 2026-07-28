@@ -700,8 +700,13 @@ JSON line):
 
 The acquisition may succeed with `external.status: "partial"`; its
 `external.completeness` says which bounds or relay outcomes made it partial.
-Per-relay coverage distinguishes a connection that never opened, an opened
-peer that closed early, an explicit `CLOSED` refusal, and EOSE completion.
+Per-relay coverage records whether each configured attempt started, whether
+its WebSocket opened, whether its Nostr `REQ` subscription was sent, how many
+subscription event packets arrived and observations were accepted, and its
+final outcome. These facts distinguish an unstarted relay, a connection that
+never opened, and an opened subscription with zero packets without claiming
+that the relay was slow, silent, or late. Opened peer closure, explicit
+`CLOSED` refusal, and EOSE completion remain distinct outcomes.
 Coverage also retains up to ten bounded `NOTICE` texts (with an omission
 count), a neutral observed `AUTH` challenge, standardized `CLOSED` reason
 categories with bounded raw text, and recognized NIP-67 `finish`/`more` EOSE

@@ -633,6 +633,9 @@ function emptyHydrationReport(memory, options) {
     relays: options.relays.map((relay) => ({
       relay,
       contacted: false,
+      attemptStarted: false,
+      socketOpened: false,
+      subscriptionSent: false,
       outcome: 'no-account-subjects',
       receivedPackets: 0,
       invalid: 0,

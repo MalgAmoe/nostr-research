@@ -47,6 +47,9 @@ export async function acquireRelayEvents(memory, options) {
   const relayResults = normalized.relays.map((relay) => ({
     relay,
     contacted: false,
+    attemptStarted: false,
+    socketOpened: false,
+    subscriptionSent: false,
     outcome: 'pending',
     receivedPackets: 0,
     invalid: 0,
@@ -111,6 +114,7 @@ export async function acquireRelayEvents(memory, options) {
   async function acquireFromRelay(relay, relayResult) {
     await new Promise((resolve) => {
       relayResult.contacted = true;
+      relayResult.attemptStarted = true;
       const subscriptionId = `research-${crypto.randomUUID()}`;
       let socket;
       try {
@@ -147,7 +151,9 @@ export async function acquireRelayEvents(memory, options) {
       socket.addEventListener('open', () => {
         if (finishing || stopReason) return finish(stopReason ?? relayResult.outcome);
         opened = true;
+        relayResult.socketOpened = true;
         socket.send(JSON.stringify(['REQ', subscriptionId, normalized.filter]));
+        relayResult.subscriptionSent = true;
       });
       socket.addEventListener('message', (message) => {
         if (settled || stopReason) return;

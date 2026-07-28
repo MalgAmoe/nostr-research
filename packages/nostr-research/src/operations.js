@@ -504,6 +504,12 @@ function acquisitionResultFacts() {
       'timeout', 'cancelled', 'observation-budget', 'distinct-event-budget',
     ],
     perRelay: {
+      attemptStarted: 'whether a worker began this relay attempt',
+      socketOpened: 'whether the WebSocket open event was observed before the attempt finished',
+      subscriptionSent: 'whether the Nostr REQ subscription was sent before the attempt finished',
+      receivedPackets: 'subscription-scoped EVENT packets received',
+      acceptedObservations: 'matching canonical observations accepted into memory',
+      outcome: 'final observed per-attempt outcome or operation-wide stopping reason',
       excludedContentWarnings: 'matching canonical self-warned events excluded before budgets and ingestion',
       notices: 'up to 10 bounded relay NOTICE texts plus omittedNotices',
       authChallengeObserved: 'neutral observed AUTH challenge; not a refusal',

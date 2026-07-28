@@ -1,6 +1,6 @@
 ---
 id: 074-relay-participation-visibility
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/074-relay-participation-visibility.validate.sh
 depends_on: 073-uniform-handle-summaries

@@ -1,3 +1,58 @@
+# Worker role
+
+You are the implementation worker in a repository-backed workflow.
+
+Read `workflow/WORKFLOW.md` and the selected task completely. Treat the task
+definition, its scope, and its acceptance criteria as authoritative within the
+durable principles in `CONTEXT.md`. Historical completed tasks are evidence of
+past work, not current policy.
+
+Work directly in the repository. Produce every required deliverable. Inspect
+real source and tests rather than relying on assumptions. Do not change task
+status, files under `workflow/runs/`, or the workflow runner.
+Do not stage or commit changes; the runner owns the task commit after review.
+
+If a previous review is supplied, address every applicable finding explicitly.
+Do not implement a finding blindly when it conflicts with `CONTEXT.md`, expands
+the selected task, or would add production complexity only to satisfy a test.
+Explain that conflict in the worker report so the reviewer can assess it.
+Do not merely describe work that should be done: perform the task within its
+stated permissions.
+
+## Verification discipline
+
+Permanent tests are exceptional durable product code, not an automatic
+deliverable for every feature or bug.
+
+- Follow the testing policy in `CONTEXT.md`.
+- Prefer a small public-boundary functional scenario over helper-level tests.
+- Add a permanent test only when it protects stable, important behavior that is
+  expensive or risky to verify otherwise.
+- Do not test TCP, TLS, WebSocket-library mechanics, process scheduling,
+  private state, private helpers, or exact timing unless that mechanism is
+  explicitly the product behavior selected by the task.
+- Use task validation or a run artifact for exploratory, live-network,
+  environment-specific, and one-off verification.
+- If a proposed test requires new public API, abstraction, dependency, or
+  low-level production machinery, challenge the test before changing the
+  product.
+- Existing tests are not requirements by themselves. Remove or update a test
+  when the selected product behavior intentionally changes.
+
+When permanent tests are added or materially expanded, the final report must
+name the stable public behavior each one protects and why temporary validation
+was insufficient.
+
+Finish with a concise plain-text report listing:
+
+- deliverables created or changed;
+- validation or checks performed;
+- permanent tests added or expanded, with their justification, or `none`;
+- unresolved uncertainties.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -197,13 +252,6 @@ global exhaustiveness. An observed authentication challenge is neutral
 transport evidence; only an `auth-required:` refusal establishes that request
 outcome, and acquisition never signs or answers a challenge.
 
-Per-relay acquisition coverage also retains the observed attempt lifecycle:
-whether a worker started the attempt, whether the WebSocket opened, whether
-the Nostr subscription request was sent, packets received, observations
-accepted, and the final outcome. An unstarted relay, a pre-open stop, and an
-opened subscription with zero packets remain distinguishable. Zero packets
-does not imply that a relay was slow, silent, or late.
-
 Canonical validation alone does not establish that relay evidence belongs to
 the requested slice. Acquisition matches each canonical event against the
 exact normalized NIP-01 filter before ingestion or budget accounting and
@@ -252,3 +300,102 @@ relationship types. Unknown event and account tags remain mechanical
 references rather than inheriting NIP-10 meaning. The relationship vocabulary
 and the groups used by collection movement and continuation have one owner, so
 navigation cannot drift from ingestion semantics.
+
+
+# Selected task
+
+---
+id: 074-relay-participation-visibility
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/074-relay-participation-visibility.validate.sh
+depends_on: 073-uniform-handle-summaries
+---
+
+# Preserve relay participation facts during bounded acquisition
+
+## Context
+
+One live acquisition returned:
+
+```text
+contacted: true
+outcome: distinct-event-budget
+receivedPackets: 0
+diagnostic: null
+```
+
+`contacted` is currently set before WebSocket construction. The acquisition
+path tracks whether the socket opened and sends the subscription request, but
+does not retain those facts in the per-relay result. When another relay
+exhausts a shared budget, active attempts inherit the global stopping reason.
+Afterward the report cannot distinguish a connection attempt that never opened
+from an opened, subscribed attempt that produced no packets before the stop.
+
+## Goal
+
+Per-relay coverage should retain the transport participation facts the engine
+actually observed, without guessing why a subscribed relay contributed
+nothing.
+
+## Work
+
+1. Preserve explicit per-attempt facts for:
+   - whether an attempt was started;
+   - whether the WebSocket opened;
+   - whether the Nostr subscription request was sent;
+   - packets received and observations accepted;
+   - the final per-attempt outcome.
+2. Keep the existing global completion reason. A shared budget may legitimately
+   stop several active attempts.
+3. Make the states distinguishable:
+   - no attempt started;
+   - attempted but never opened before stopping;
+   - opened and subscription sent but no packet arrived before stopping;
+   - packets arrived but no observation was accepted;
+   - observations contributed.
+4. Do not infer whether a zero-packet subscribed relay was slow, silent, or
+   merely late. The report should state observed lifecycle facts only.
+5. Surface the new facts through:
+   - normalized acquisition and hydration reports;
+   - continuation reports that reuse acquisition;
+   - `show coverage` and relevant details;
+   - contextual and global factual schema;
+   - concise external completeness only where useful.
+6. Preserve runtime neutrality and the single acquisition implementation used
+   by Node and browser consumers.
+7. Update durable documentation describing relay attempt outcomes.
+
+## Acceptance criteria
+
+- A relay never assigned to a worker remains distinguishable from an attempt
+  that began.
+- An attempted connection stopped before `open` is distinguishable from an
+  opened subscription.
+- An opened subscription stopped by another relay exhausting the global budget
+  can report zero packets without becoming an unclassifiable state.
+- Peer failure, explicit refusal, EOSE, timeout, cancellation, NOTICE, AUTH,
+  and NIP-67 behavior remain unchanged.
+- The system does not claim a cause for zero packets that it did not observe.
+- Acquisition, hydration, continuation, plans, JSONL, and browser Worker still
+  share the same engine facts.
+
+## Non-goals
+
+- Connection timing, latency ranking, relay scoring, or quality inference.
+- Retry, fallback, connection pooling, NIP-42 response, or relay scheduling.
+- Per-relay event totals beyond existing bounded accounting.
+- Changing global acquisition budgets.
+
+## Verification
+
+- Permanent tests expected: yes, by extending the existing public acquisition
+  functional fixture for unstarted, pre-open, opened-zero-packet, contributed,
+  peer-close, and EOSE outcomes.
+- Stable public behavior protected: truthful lifecycle facts through direct
+  acquisition and session coverage, including global-budget cancellation.
+- Temporary task validation or field evidence: deterministic fake-WebSocket
+  race; no public relay is required.
+- Explicitly excluded test levels or mechanisms: TCP/WebSocket server tests,
+  timing benchmarks, live relays, browser UI tests, and transport-helper unit
+  tests.

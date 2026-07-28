@@ -1020,7 +1020,11 @@ function externalStatus(result, operation, memory) {
   }
   let boundsReached = result.completionReason === 'completed'
     ? [] : [result.completionReason];
-  const contactedRelays = result.coverage.relays.filter(({ contacted }) => contacted);
+  const contactedRelays = result.coverage.relays.filter(
+    ({ attemptStarted, contacted }) => attemptStarted ?? contacted,
+  );
+  const openedRelays = contactedRelays.filter(({ socketOpened }) => socketOpened);
+  const subscribedRelays = contactedRelays.filter(({ subscriptionSent }) => subscriptionSent);
   const relayOutcomeCounts = new Map();
   for (const { outcome } of contactedRelays) {
     relayOutcomeCounts.set(outcome, (relayOutcomeCounts.get(outcome) ?? 0) + 1);
@@ -1097,6 +1101,9 @@ function externalStatus(result, operation, memory) {
       distinctEvents: result.counts.distinctEventsAcquired,
       relays: {
         attempted: contactedRelays.length,
+        unstarted: result.coverage.relays.length - contactedRelays.length,
+        opened: openedRelays.length,
+        subscribed: subscribedRelays.length,
         complete: completeRelays,
         incomplete: contactedRelays.length - completeRelays,
         outcomes: relayOutcomes,

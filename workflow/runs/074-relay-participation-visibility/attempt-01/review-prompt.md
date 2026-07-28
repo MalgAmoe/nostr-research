@@ -1,3 +1,52 @@
+# Reviewer role
+
+You are the independent reviewer in a repository-backed workflow.
+
+Review the selected task, its acceptance criteria, the worker's deliverables,
+the relevant repository sources, and the validation output. Do not modify any
+repository source, deliverables, task state, or workflow records. Do not repair
+the work. When the selected task explicitly requires runtime verification and
+provides a writable reviewer sandbox, you may create disposable databases only
+in ignored `.data/` paths or the system temporary directory.
+
+The first non-empty line of your response must be exactly one of:
+
+- `PASS`
+- `CHANGES_REQUIRED`
+- `BLOCKED`
+
+Use `PASS` only when all acceptance criteria are materially satisfied.
+
+Treat the durable principles in `CONTEXT.md` as constraints on every task.
+Historical completed tasks do not override current policy. Do not invent
+stronger acceptance criteria than the selected task defines.
+
+Audit test changes as carefully as production changes:
+
+- Permanent tests are exceptional and must protect stable public behavior.
+- Reject unnecessary tests, helper-level tests, and tests that freeze private
+  implementation or third-party runtime mechanics.
+- Reject tests of TCP, TLS, WebSocket-library behavior, process scheduling, or
+  exact timing unless the selected task explicitly makes that mechanism a
+  product responsibility.
+- Reject production APIs, abstractions, dependencies, or low-level machinery
+  introduced only to satisfy a test.
+- Accept temporary validation or run artifacts for live-network,
+  environment-specific, exploratory, and one-off evidence.
+- Passing validation is not evidence that every test is worth keeping.
+
+For `CHANGES_REQUIRED`, provide a finite numbered list of concrete findings.
+Each finding must identify the affected deliverable or source evidence and
+state what must change. Do not request optional polish or expand the task.
+
+Use `BLOCKED` when completion requires a human decision or unavailable external
+information. Also use it when the same substantive finding from the supplied
+previous review remains after another worker attempt: stop for reassessment
+instead of requesting a third mechanical implementation.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -252,3 +301,195 @@ relationship types. Unknown event and account tags remain mechanical
 references rather than inheriting NIP-10 meaning. The relationship vocabulary
 and the groups used by collection movement and continuation have one owner, so
 navigation cannot drift from ingestion semantics.
+
+
+# Selected task
+
+---
+id: 074-relay-participation-visibility
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/074-relay-participation-visibility.validate.sh
+depends_on: 073-uniform-handle-summaries
+---
+
+# Preserve relay participation facts during bounded acquisition
+
+## Context
+
+One live acquisition returned:
+
+```text
+contacted: true
+outcome: distinct-event-budget
+receivedPackets: 0
+diagnostic: null
+```
+
+`contacted` is currently set before WebSocket construction. The acquisition
+path tracks whether the socket opened and sends the subscription request, but
+does not retain those facts in the per-relay result. When another relay
+exhausts a shared budget, active attempts inherit the global stopping reason.
+Afterward the report cannot distinguish a connection attempt that never opened
+from an opened, subscribed attempt that produced no packets before the stop.
+
+## Goal
+
+Per-relay coverage should retain the transport participation facts the engine
+actually observed, without guessing why a subscribed relay contributed
+nothing.
+
+## Work
+
+1. Preserve explicit per-attempt facts for:
+   - whether an attempt was started;
+   - whether the WebSocket opened;
+   - whether the Nostr subscription request was sent;
+   - packets received and observations accepted;
+   - the final per-attempt outcome.
+2. Keep the existing global completion reason. A shared budget may legitimately
+   stop several active attempts.
+3. Make the states distinguishable:
+   - no attempt started;
+   - attempted but never opened before stopping;
+   - opened and subscription sent but no packet arrived before stopping;
+   - packets arrived but no observation was accepted;
+   - observations contributed.
+4. Do not infer whether a zero-packet subscribed relay was slow, silent, or
+   merely late. The report should state observed lifecycle facts only.
+5. Surface the new facts through:
+   - normalized acquisition and hydration reports;
+   - continuation reports that reuse acquisition;
+   - `show coverage` and relevant details;
+   - contextual and global factual schema;
+   - concise external completeness only where useful.
+6. Preserve runtime neutrality and the single acquisition implementation used
+   by Node and browser consumers.
+7. Update durable documentation describing relay attempt outcomes.
+
+## Acceptance criteria
+
+- A relay never assigned to a worker remains distinguishable from an attempt
+  that began.
+- An attempted connection stopped before `open` is distinguishable from an
+  opened subscription.
+- An opened subscription stopped by another relay exhausting the global budget
+  can report zero packets without becoming an unclassifiable state.
+- Peer failure, explicit refusal, EOSE, timeout, cancellation, NOTICE, AUTH,
+  and NIP-67 behavior remain unchanged.
+- The system does not claim a cause for zero packets that it did not observe.
+- Acquisition, hydration, continuation, plans, JSONL, and browser Worker still
+  share the same engine facts.
+
+## Non-goals
+
+- Connection timing, latency ranking, relay scoring, or quality inference.
+- Retry, fallback, connection pooling, NIP-42 response, or relay scheduling.
+- Per-relay event totals beyond existing bounded accounting.
+- Changing global acquisition budgets.
+
+## Verification
+
+- Permanent tests expected: yes, by extending the existing public acquisition
+  functional fixture for unstarted, pre-open, opened-zero-packet, contributed,
+  peer-close, and EOSE outcomes.
+- Stable public behavior protected: truthful lifecycle facts through direct
+  acquisition and session coverage, including global-budget cancellation.
+- Temporary task validation or field evidence: deterministic fake-WebSocket
+  race; no public relay is required.
+- Explicitly excluded test levels or mechanisms: TCP/WebSocket server tests,
+  timing benchmarks, live relays, browser UI tests, and transport-helper unit
+  tests.
+
+
+# Worker report
+
+Implemented task 074.
+
+Deliverables changed:
+
+- Added per-relay lifecycle facts: `attemptStarted`, `socketOpened`, and `subscriptionSent`.
+- Propagated facts through acquisition, hydration, continuation reuse, session coverage/details, plans, JSONL/browser shared engine reports, schemas, and external completeness summaries.
+- Updated `CONTEXT.md` and package README.
+- Extended the public acquisition fixture for unstarted, pre-open, subscribed-zero, rejected-packet, contributed, peer-close, EOSE, hydration, and global-budget outcomes.
+
+Validation performed:
+
+- `npm run check`
+- `npm test`
+- Task validation script
+- `git diff --check`
+
+All 34 tests pass.
+
+Permanent tests expanded: `acquisition.functional.test.js`, protecting truthful public lifecycle reporting and global-budget cancellation behavior. Temporary validation alone was insufficient because these are stable public coverage semantics.
+
+Unresolved uncertainties: none.
+
+# Validation output
+
+Exit code: 0
+
+
+> nostr-research@0.1.0 check
+> npm run check --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 check
+> node --check src/index.js && node --check src/protocol.js && node --check src/reference.js && node --check src/protocol-relationships.js && node --check src/event-content.js && node --check src/relay-url.js && node --check src/configuration.js && node --check src/contract-facts.js && node --check src/memory.js && node --check src/collection.js && node --check src/acquire.js && node --check src/relay-info.js && node --check src/relay-count.js && node --check src/operations.js && node --check src/relation.js && node --check src/pipeline-source.js && node --check src/plan.js && node --check src/interpreter.js && node --check src/continuation.js && node --check src/presentation.js && node --check src/jsonl-session.js && node --check src/browser-worker.js && node --check bin/nostr-research-session.js
+
+
+> nostr-research@0.1.0 test
+> npm test --workspace packages/nostr-research
+
+
+> @nostr-research/memory@0.1.0 test
+> node --test
+
+✔ relation fetch binds deduplicated values into an ordinary acquisition (19.794166ms)
+✔ acquisition rejects unusable public inputs before networking (0.378708ms)
+✔ relay acquisition excludes direct self-warnings by default with a factual override (88.127667ms)
+✔ public acquisition and session reports preserve bounded relay messages and honest outcomes (49.724542ms)
+✔ relay lifecycle facts distinguish unstarted, pre-open, subscribed-zero, rejected, and contributed attempts (4.766333ms)
+✔ address subjects navigate typed references to current local replaceable evidence (102.691375ms)
+✔ ordinary acquisition accepts an explicit canonical #a filter (0.402833ms)
+✔ direct, plan, and session execution share operation kinds and failure boundaries (43.469375ms)
+✔ collections navigate identities while relations own value analysis (18.742167ms)
+✔ relation handles report operation-specific cardinality and proven truncation (286.606166ms)
+✔ named account and note handles continue with bounded relationship provenance (2415.602625ms)
+✔ factual schemas construct commands accepted through the public session seam (51.118375ms)
+✔ summary size bounds retain the public factual core and report presentation omissions (225.674958ms)
+✔ declarative observation and lifecycle form one bounded public workflow (19.433958ms)
+✔ relation summaries compact source selection details without losing their shape (3.719708ms)
+✔ declarative named results compose compatible sets and expose their schema (9.355042ms)
+✔ declarative notebook knowledge survives turnover and remains independent from evidence (22.03425ms)
+✔ relations normalize bounded attachment evidence and generically explode objects (343.299209ms)
+✔ relations expose lazy factual event content and conversation fields (104.974583ms)
+✔ explicit archive preservation survives complete buffer turnover and releases atomically (69.754583ms)
+✔ mixed ingestion and FIFO eviction leave coherent public indexes and source edges (32.415042ms)
+✔ collections re-resolve stable subjects across observations, replacement metadata, and eviction (25.846875ms)
+✔ JSONL executable provides one persistent bounded process workflow (82.23875ms)
+✔ process-local memory preserves canonical evidence and independent relay observations (27.721666ms)
+✔ public references normalize to stable subjects while hints stay attributed metadata (5.562833ms)
+✔ mixed event kinds derive truthful references without polluting conversations (67.670375ms)
+✔ inline NIP-27 references navigate as typed, explainable evidence without becoming threads (10.761584ms)
+✔ replaceable selection and follow interpretation remain stable in one process (25.9935ms)
+✔ public local search composes constraints, explains matches, and preserves provenance (46.649667ms)
+✔ relation handles resolve references across evidence lifetime and keep bounded views composable (77.408792ms)
+✔ relay count remains attributed and never creates a global total (6.167875ms)
+✔ relay count cancellation distinguishes started and unstarted attempts (1.030792ms)
+✔ relay information stays attributed, bounded, and reusable through the public executor (15.046334ms)
+✔ large notebook membership is atomic, bounded, process-local, and directly navigable (2280.157667ms)
+ℹ tests 34
+ℹ suites 0
+ℹ pass 34
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2750.011042
+
+
+# Review instruction
+
+Inspect the actual deliverables and relevant repository sources now. Do not rely only on the worker report.
