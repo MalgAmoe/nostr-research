@@ -23,6 +23,16 @@ export const RESEARCH_CONSTRAINTS = deepFreeze({
     distinctEventLimit: { default: 100, minimum: 1 },
     concurrency: { default: 4, minimum: 1 },
   },
+  relayInformation: {
+    relayLimit: { maximum: 20 },
+    timeoutMs: { default: 10000, minimum: 1, maximum: 60000 },
+    concurrency: { default: 4, minimum: 1, maximum: 10 },
+    responseByteLimit: { maximum: 65536 },
+    stringLength: { maximum: 2000 },
+    arrayLength: { maximum: 100 },
+    fieldLimit: { maximum: 100 },
+    nestingLimit: { maximum: 8 },
+  },
   continuation: {
     eventLimit: { default: 50, minimum: 1, maximum: 1000 },
     offset: { default: 0, minimum: 0, maximum: 1000000 },
@@ -92,11 +102,17 @@ export function operationParametersWithSessionDefaults(operation, parameters, co
     return structuredClone(parameters);
   }
   const next = structuredClone(parameters);
-  const external = ['acquire', 'hydrate', 'fetch'].includes(operation)
+  const external = ['acquire', 'hydrate', 'fetch', 'relay-info'].includes(operation)
     || (operation === 'continue' && next.source === 'relays');
   if (!external) return next;
   if (next.relays === undefined && configuration.relays.length) {
     next.relays = structuredClone(configuration.relays);
+  }
+  if (operation === 'relay-info') {
+    for (const name of ['timeoutMs', 'concurrency']) {
+      if (next[name] === undefined) next[name] = configuration.acquisition[name];
+    }
+    return next;
   }
   for (const [name, value] of Object.entries(configuration.acquisition)) {
     if (next[name] === undefined) next[name] = value;

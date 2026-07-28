@@ -19,6 +19,9 @@ export function showResearchValue(memory, value, options = {}) {
   let shown;
 
   if (value?.type === 'research-plan-report') shown = showPlanReport(memory, value, settings);
+  else if (value?.type === 'relay-information-report') {
+    shown = showRelayInformation(value, settings);
+  }
   else if (isAcquisition(value)) shown = showAcquisition(memory, value, settings);
   else if (value?.type === 'result-collection') shown = showCollection(memory, value, settings);
   else if (value?.collection?.type === 'result-collection') {
@@ -38,6 +41,98 @@ export function showResearchValue(memory, value, options = {}) {
   else throw new TypeError('show does not recognize this value.');
 
   return enforceSize(shown, settings.sizeLimit);
+}
+
+function showRelayInformation(value, settings) {
+  if (settings.mode === 'explain') {
+    throw new TypeError('Relay information supports summary, preview, coverage, and details.');
+  }
+  const outcomes = value.outcomes ?? [];
+  const offset = Math.min(settings.offset, outcomes.length);
+  const visible = outcomes.slice(offset, offset + settings.previewLimit);
+  const counts = countedStrings(outcomes.map(({ outcome }) => outcome));
+  const successes = outcomes.filter(({ outcome }) => outcome === 'success');
+  const supportedNips = new Set(successes.flatMap(
+    ({ advertised }) => advertised?.supportedNips ?? [],
+  ));
+  const authRequired = successes.filter(
+    ({ advertised }) => advertised?.advertisedAuthRequired === true,
+  ).length;
+  const base = {
+    type: 'relay-information',
+    observation: settings.mode,
+    count: outcomes.length,
+    offset,
+    limit: settings.mode === 'summary' ? 0 : settings.previewLimit,
+    omittedBefore: offset,
+    omittedAfter: Math.max(0, outcomes.length - offset - settings.previewLimit),
+    sizeBounded: false,
+  };
+  if (settings.mode === 'summary') {
+    return {
+      ...base,
+      summary: {
+        outcomes: counts,
+        successfulDocuments: successes.length,
+        advertisedSupportedNips: supportedNips.size,
+        advertisedAuthRequired: authRequired,
+      },
+    };
+  }
+  if (settings.mode === 'coverage') {
+    return {
+      ...base,
+      requested: structuredClone(value.requested),
+      startedAt: value.startedAt,
+      finishedAt: value.finishedAt,
+      bounds: structuredClone(value.bounds),
+      outcomes: visible.map((item) => ({
+        relay: item.relay,
+        endpoint: item.endpoint,
+        outcome: item.outcome,
+        ...(item.http ? { http: structuredClone(item.http) } : {}),
+        ...(item.responseBytes === undefined ? {} : { responseBytes: item.responseBytes }),
+        ...(item.omissions ? { omissions: structuredClone(item.omissions) } : {}),
+      })),
+      omissions: structuredClone(value.omissions),
+    };
+  }
+  if (settings.mode === 'details') {
+    return {
+      ...base,
+      outcomes: visible.map((item) => ({
+        ...structuredClone(item),
+        ...(typeof item.diagnostic === 'string'
+          ? { diagnostic: excerpt(item.diagnostic, settings.excerptLimit) } : {}),
+      })),
+    };
+  }
+  return {
+    ...base,
+    preview: visible.map((item) => ({
+      relay: item.relay,
+      outcome: item.outcome,
+      ...(item.advertised?.supportedNips
+        ? { supportedNips: item.advertised.supportedNips.slice(0, settings.previewLimit) } : {}),
+      ...(item.advertised?.advertisedAuthRequired === undefined ? {} : {
+        advertisedAuthRequired: item.advertised.advertisedAuthRequired,
+      }),
+      ...(isObject(item.advertised?.limitations)
+        ? { limitations: compactRelationValue(item.advertised.limitations, settings.excerptLimit) }
+        : {}),
+      ...(item.http ? { http: structuredClone(item.http) } : {}),
+    })),
+  };
+}
+
+function countedStrings(values) {
+  return [...values.reduce((counts, value) => (
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  ), new Map())].map(([outcome, count]) => ({ outcome, count }));
+}
+
+function isObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function validateResearchPresentationOptions(options = {}) {

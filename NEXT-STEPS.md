@@ -70,9 +70,9 @@ identity or hidden relay behavior.
 
 These were corrections to the evidence-navigation boundary already used by
 the library, not requests for a broader NIP framework or more task-specific
-operations. The runtime-neutral core is now established; the next active
-milestone is proving the same session boundary through a minimal second
-consumer.
+operations. The runtime-neutral core and browser consumer are now established.
+Explicit relay-information retrieval also uses that same session boundary,
+without becoming hidden acquisition behavior.
 
 ## Milestone 1: truthful protocol relationships
 
@@ -289,6 +289,12 @@ out of scope.
    hidden in transport bookkeeping does not satisfy this milestone.
 
 ### Task 2: explicit NIP-11 relay inspection
+
+Implemented through the authoritative operation path. `relay-info` retrieves
+bounded attributed documents with the runtime fetch interface, preserves one
+outcome per requested relay, and creates an ephemeral factual
+`relay-information` handle. Advertisements remain distinct from observed
+acquisition behavior and from archive or notebook state.
 
 1. Add one explicit external operation that requests NIP-11 documents and
    returns an attributed, bounded relay-information report.

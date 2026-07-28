@@ -544,6 +544,24 @@ presentation. Per-command parameters override those defaults for one command.
 The `schema` command reports constraints and effective configuration; `status`
 reports the effective runtime configuration.
 
+`relay-info` is the explicit NIP-11 inspection operation. It takes normalized
+`wss://` relay URLs (or session relay defaults), converts each to the same host
+and path over HTTPS, and uses the runtime's standard `fetch` with
+`Accept: application/nostr+json`. Timeout and concurrency are command bounds;
+document bytes and retained values have engine bounds. The result is a
+nameable `relay-information` handle with one attributed outcome per relay:
+
+```jsonl
+{"commandId":"relay-info","command":"relay-info","parameters":{"relays":["wss://relay.example/path"],"timeoutMs":5000,"concurrency":2},"resultId":"relay-advertisements"}
+{"commandId":"coverage","command":"show","input":"relay-advertisements","parameters":{"mode":"coverage"}}
+```
+
+Its supported observations are `summary`, `preview`, `coverage`, and
+`details`. It is neither a subject collection nor acquisition coverage.
+Advertised NIPs, limitations, and `advertisedAuthRequired` remain relay claims;
+they do not establish observed support, trust, quality, or an authentication
+refusal. Ordinary acquisition never performs this HTTP request.
+
 Session defaults can be updated without rewriting memory:
 
 ```json

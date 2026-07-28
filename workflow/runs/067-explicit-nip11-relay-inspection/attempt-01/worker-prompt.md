@@ -1,3 +1,58 @@
+# Worker role
+
+You are the implementation worker in a repository-backed workflow.
+
+Read `workflow/WORKFLOW.md` and the selected task completely. Treat the task
+definition, its scope, and its acceptance criteria as authoritative within the
+durable principles in `CONTEXT.md`. Historical completed tasks are evidence of
+past work, not current policy.
+
+Work directly in the repository. Produce every required deliverable. Inspect
+real source and tests rather than relying on assumptions. Do not change task
+status, files under `workflow/runs/`, or the workflow runner.
+Do not stage or commit changes; the runner owns the task commit after review.
+
+If a previous review is supplied, address every applicable finding explicitly.
+Do not implement a finding blindly when it conflicts with `CONTEXT.md`, expands
+the selected task, or would add production complexity only to satisfy a test.
+Explain that conflict in the worker report so the reviewer can assess it.
+Do not merely describe work that should be done: perform the task within its
+stated permissions.
+
+## Verification discipline
+
+Permanent tests are exceptional durable product code, not an automatic
+deliverable for every feature or bug.
+
+- Follow the testing policy in `CONTEXT.md`.
+- Prefer a small public-boundary functional scenario over helper-level tests.
+- Add a permanent test only when it protects stable, important behavior that is
+  expensive or risky to verify otherwise.
+- Do not test TCP, TLS, WebSocket-library mechanics, process scheduling,
+  private state, private helpers, or exact timing unless that mechanism is
+  explicitly the product behavior selected by the task.
+- Use task validation or a run artifact for exploratory, live-network,
+  environment-specific, and one-off verification.
+- If a proposed test requires new public API, abstraction, dependency, or
+  low-level production machinery, challenge the test before changing the
+  product.
+- Existing tests are not requirements by themselves. Remove or update a test
+  when the selected product behavior intentionally changes.
+
+When permanent tests are added or materially expanded, the final report must
+name the stable public behavior each one protects and why temporary validation
+was insufficient.
+
+Finish with a concise plain-text report listing:
+
+- deliverables created or changed;
+- validation or checks performed;
+- permanent tests added or expanded, with their justification, or `none`;
+- unresolved uncertainties.
+
+
+# Canonical project context
+
 # Project context
 
 ## Purpose
@@ -165,14 +220,6 @@ evidence. Per-relay acquisition outcomes are observed behavior, and the
 library does not silently turn either advertised claims or observations into a
 relay quality, trust, or fallback score.
 
-NIP-11 inspection is one explicit input-free external operation over selected
-relay URLs. It uses the runtime's standard fetch, returns one bounded attributed
-retrieval outcome per relay, and may be held only as an ephemeral factual
-session view. It does not mutate the observation buffer, archive, or notebook;
-it is not acquisition coverage, and ordinary acquisition never performs a
-hidden relay-information request. Advertised authentication requirements
-remain claims and do not establish an acquisition refusal.
-
 Acquisition exposes separate operation-wide bounds for accepted valid relay
 observations and distinct canonical event IDs. Duplicate observations consume
 the observation budget but not the distinct-event budget. Reports keep
@@ -230,3 +277,132 @@ relationship types. Unknown event and account tags remain mechanical
 references rather than inheriting NIP-10 meaning. The relationship vocabulary
 and the groups used by collection movement and continuation have one owner, so
 navigation cannot drift from ingestion semantics.
+
+
+# Selected task
+
+---
+id: 067-explicit-nip11-relay-inspection
+status: in_progress
+max_attempts: 4
+validation: workflow/tasks/067-explicit-nip11-relay-inspection.validate.sh
+depends_on: 066-relay-message-and-outcome-visibility
+---
+
+# Add explicit attributed NIP-11 relay inspection
+
+## Confirmed code seam
+
+The operation registry, normalizer/executor, plans, declarative session,
+handles, presentation, schema, JSONL adapter, and browser Worker already form
+one public execution path. NIP-11 must enter through that path as an explicit
+external operation.
+
+Existing non-relation handles are assumed to contain subject collections in
+parts of contextual schema and presentation. A relay-information report is not
+a Nostr subject collection, acquisition report, notebook entry, or archive
+record. Supporting it therefore requires one factual result kind and explicit
+presentation/schema handling; it must not be coerced through
+`memory.asCollection`.
+
+The runtime-neutral core has standard `fetch` available in Node and browser
+environments. Node streams, filesystem access, and process configuration
+remain adapter concerns.
+
+## Goal
+
+Allow a caller to explicitly inspect what selected relays advertise through
+NIP-11 and how each retrieval actually behaved, without mutating research
+memory or turning advertisements into observed capability or trust.
+
+## Required work
+
+1. Add one input-free external research operation named `relay-info`.
+2. Accept explicit relay URLs, or configured session relay defaults, plus
+   bounded timeout and concurrency parameters. Reuse the shared relay URL
+   normalization rule and the established configuration precedence.
+3. Convert each normalized `wss://` relay URL to the corresponding HTTPS
+   NIP-11 endpoint without changing its host or path.
+4. Request the document with `Accept: application/nostr+json` through the
+   runtime's standard fetch interface. Do not create a Node-only HTTP path or
+   serialize runtime capabilities into command parameters.
+5. Bound:
+   - number of concurrent requests;
+   - operation duration;
+   - retained response bytes;
+   - retained strings, arrays, unknown fields, and presentation output.
+   A hostile or malformed relay response must not consume unbounded memory.
+6. Return one attributed `relay-information-report` containing the exact
+   requested relays, retrieval time/bounds, and one outcome per relay.
+7. Distinguish successful document retrieval from connection failure, timeout,
+   non-success HTTP status, incompatible content, invalid JSON, oversized
+   response, and malformed known fields. Preserve useful bounded HTTP status,
+   content type, diagnostic, and omission information.
+8. Retain the bounded advertised document as attributed relay evidence and
+   expose normalized convenience fields only where they are unambiguous,
+   including supported NIPs and advertised limitations. Missing optional
+   fields mean absent claims, not retrieval failure.
+9. Keep `advertisedAuthRequired` as a NIP-11 claim. It must not become an
+   acquisition outcome or evidence that another request was refused.
+10. Register the operation once in the authoritative operation semantics,
+    normalization, preflight, execution, schema, plans, and session path. The
+    operation mutates no observation-buffer, archive, or notebook state.
+11. Make the ephemeral report nameable as a session handle with a factual
+    `relay-information` descriptor and count equal to requested relay outcomes.
+    Handle release must behave like other working views.
+12. Extend bounded presentation for this result only:
+    - `show summary` gives compact outcome/capability counts;
+    - `show preview` gives bounded per-relay advertised highlights;
+    - `show coverage` gives retrieval outcomes, bounds, and omissions; and
+    - `show details` gives bounded retained documents and diagnostics.
+    `show explain` and direct `inspect` must not be repurposed for relay
+    information.
+13. Extend contextual schema to describe relay-information structure and its
+    observation modes without pretending it supports subject-collection or
+    relation operations. Do not advertise invented next actions.
+14. Keep the report separate from acquisition coverage. Ordinary acquisition
+    must not issue a hidden NIP-11 request.
+15. Keep the report out of the research notebook and evidence archive. A later
+    caller may interpret or compare it explicitly, but M5 adds no relay
+    subject, trust score, quality ranking, or persistence.
+16. Update package documentation, `NEXT-STEPS.md`, the capability map, and
+    `CONTEXT.md` only to record the implemented explicit operation and durable
+    distinctions.
+
+## Acceptance criteria
+
+- Direct execution, plans, declarative sessions, JSONL, and the browser Worker
+  reach one `relay-info` implementation.
+- The operation uses session relay defaults when explicit relays are absent
+  and per-command values override those defaults.
+- A named relay-information handle can be listed, shown in its four supported
+  bounded modes, queried through contextual schema, and released.
+- Contextual schema never attempts to coerce the report into a subject
+  collection and advertises no collection, relation, notebook, archive, or
+  subject-inspection operation.
+- HTTP and document failures remain attributed per-relay outcomes and cannot
+  masquerade as an empty advertisement.
+- Advertised capability remains distinct from observed acquisition behavior.
+- No hidden NIP-11 request occurs during acquisition.
+- No Node-only dependency, alternate executor, relay identity subject,
+  persistence, scoring, retry policy, NIP-42 response, or NIP-45 count is
+  introduced.
+
+## Verification
+
+- Permanent tests expected: yes, through one existing public-boundary
+  operation/session scenario using a temporarily installed deterministic
+  standard global `fetch` fixture. Do not add a production injection seam
+  solely to satisfy the test.
+- Stable public behavior protected: operation normalization, plans and
+  sessions sharing one executor, configured defaults, per-relay outcome
+  attribution, bounded response handling, handle lifecycle, presentation, and
+  schema.
+- Include representative success, HTTP failure, malformed JSON, oversized
+  response, missing optional fields, and `advertisedAuthRequired` behavior
+  without importing private parsing helpers.
+- Temporary task validation: syntax checks, the complete functional suite,
+  and the existing runtime-neutral/browser smoke validation.
+- Explicitly excluded: live public-relay checks, HTTP server tests, TCP/TLS,
+  browser UI, exact fetch scheduling, snapshotting entire NIP-11 documents,
+  and tests that freeze private parser structure.

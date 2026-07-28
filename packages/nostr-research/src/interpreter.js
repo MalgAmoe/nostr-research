@@ -189,6 +189,12 @@ export class DeclarativeResearchSession {
     }
     if (command.command === 'explain') {
       const entry = this.#requireHandle(command.input);
+      if (entry.descriptor.resultKind === 'relay-information-report') {
+        throw protocolError(
+          'INVALID_OPERATION',
+          'explain is not compatible with relay-information.',
+        );
+      }
       const { subject, ...rawOptions } = parameters;
       const options = projectionOptions(
         presentationParametersWithSessionDefaults(rawOptions, this.#configuration),
@@ -715,7 +721,21 @@ function handleMetadata(id, descriptor, value, revision) {
 function contextualHandleSchema(memory, id, entry, selectedOperation, configuration) {
   const handle = handleMetadata(id, entry.descriptor, entry.value, entry.revision);
   const value = entry.value?.collection ?? entry.value;
-  const structure = isResearchRelation(value)
+  const structure = entry.descriptor.resultKind === 'relay-information-report'
+    ? {
+        kind: 'relay-information',
+        count: entry.value.outcomes.length,
+        fields: {
+          report: ['requested', 'startedAt', 'finishedAt', 'bounds', 'outcomes', 'omissions'],
+          outcome: [
+            'relay', 'endpoint', 'outcome', 'http', 'responseBytes', 'document',
+            'advertised', 'malformedFields', 'diagnostic', 'omissions',
+          ],
+        },
+        observationModes: ['summary', 'preview', 'coverage', 'details'],
+        facts: operationSchema().operationFacts['relay-info'].resultFacts,
+      }
+    : isResearchRelation(value)
     ? describeResearchRelation(memory, value)
     : collectionStructure(memory.asCollection(value));
   if (['acquisition-report', 'hydration-report'].includes(entry.descriptor.resultKind)) {
@@ -875,6 +895,9 @@ function resultCount(value) {
   if (Array.isArray(value?.collection?.items)) return value.collection.items.length;
   if (Array.isArray(value?.acquiredEventIds)) return value.acquiredEventIds.length;
   if (Number.isSafeInteger(value?.memberCount)) return value.memberCount;
+  if (value?.type === 'relay-information-report' && Array.isArray(value.outcomes)) {
+    return value.outcomes.length;
+  }
   return 0;
 }
 
@@ -909,6 +932,22 @@ function observationReferences(item) {
 }
 
 function externalStatus(result, operation, memory) {
+  if (operation === 'relay-info') {
+    const outcomes = result.outcomes ?? [];
+    const successful = outcomes.filter(({ outcome }) => outcome === 'success').length;
+    return {
+      status: successful === outcomes.length ? 'complete' : 'partial',
+      scope: { type: 'relay-information', relays: outcomes.length },
+      retrieval: {
+        requested: outcomes.length,
+        successful,
+        unsuccessful: outcomes.length - successful,
+        outcomes: countedValues(outcomes.map(({ outcome }) => outcome)),
+        bounds: cloneJson(result.bounds),
+      },
+      distinction: 'Advertised NIP-11 claims are not observed acquisition behavior.',
+    };
+  }
   let boundsReached = result.completionReason === 'completed'
     ? [] : [result.completionReason];
   const contactedRelays = result.coverage.relays.filter(({ contacted }) => contacted);

@@ -31,6 +31,10 @@ export {
 } from './acquire.js';
 export { continueResearch } from './continuation.js';
 export {
+  inspectRelayInformation,
+  normalizeRelayInformationOptions,
+} from './relay-info.js';
+export {
   executeResearchOperation,
   executeResearchPlan,
   normalizeResearchOperation,

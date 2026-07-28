@@ -66,6 +66,8 @@ const SET_OPERATIONS = ['union', 'intersection', 'difference', 'compare'];
 
 export const RESEARCH_OPERATIONS = Object.freeze({
   acquire: definition('forbidden', 'events', 'acquisition-report', 'external', 'buffer', 'bounded-attempt', 'acquire'),
+  'relay-info': definition('forbidden', 'relay-information', 'relay-information-report',
+    'external', 'none', 'bounded-attempt', 'relay-info'),
   select: definition('optional-acquisition', 'events', 'events', 'local', 'none', 'resident-view', 'select'),
   ...Object.fromEntries(COLLECTION_OPERATIONS.map((name) => [name, {
     ...definition('required', undefined, undefined, 'local', 'none', 'bounded-view', 'collection'),
@@ -335,6 +337,11 @@ export function operationSchema() {
         filter: 'normalized NIP-01 filter',
         ...ACQUISITION,
       },
+      'relay-info': {
+        relays: 'non-empty normalized relay URL array; session relay defaults apply',
+        timeoutMs: RESEARCH_CONSTRAINTS.relayInformation.timeoutMs,
+        concurrency: RESEARCH_CONSTRAINTS.relayInformation.concurrency,
+      },
       select: {
         scope: '"corpus" without an input; omitted or "acquisition" with an acquisition input',
         ids: 'optional event ID prefix or prefix array; each prefix is 4–64 lowercase hex characters',
@@ -441,6 +448,15 @@ export function operationSchema() {
     operationFacts: {
       scan: { resultShape: SCAN.resultShape },
       acquire: { resultFacts: acquisitionResultFacts() },
+      'relay-info': {
+        resultFacts: {
+          type: 'relay-information-report',
+          descriptor: 'relay-information',
+          attribution: 'one retrieval outcome per exact requested relay',
+          advertisement: 'attributed NIP-11 claim, not observed acquisition behavior',
+          observationModes: ['summary', 'preview', 'coverage', 'details'],
+        },
+      },
       fetch: { resultFacts: acquisitionResultFacts() },
       hydrate: { resultFacts: acquisitionResultFacts() },
     },

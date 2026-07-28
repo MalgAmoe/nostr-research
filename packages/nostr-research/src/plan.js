@@ -34,6 +34,10 @@ import {
   validatePipelineExtract,
   validatePipelineFetch,
 } from './pipeline-source.js';
+import {
+  inspectRelayInformation,
+  normalizeRelayInformationOptions,
+} from './relay-info.js';
 
 const MEMORY_TRANSACTION = Symbol.for('nostr-research.memory-plan-attempt');
 
@@ -138,7 +142,9 @@ export function normalizeResearchPlan(plan) {
     }
     const semantics = operationSemantics(normalizedOperation.operation);
     if (semantics.input === 'forbidden' && hasInput) {
-      throw new ResearchMemoryError(`Research plan acquire stage ${id} must not have an input.`);
+      throw new ResearchMemoryError(
+        `Research plan ${stage.operation} stage ${id} must not have an input.`,
+      );
     }
     if (hasInput && (typeof stage.input !== 'string' || !ids.has(stage.input))) {
       throw new ResearchMemoryError(
@@ -239,6 +245,18 @@ export function preflightResearchOperation(
       itemKind: semantics.outputKind,
       resultKind: semantics.resultKind,
       scope: 'acquisition',
+    };
+  }
+  if (name === 'relay-info') {
+    if (input !== undefined) {
+      throw new ResearchMemoryError('Research relay-info operation must not have an input.');
+    }
+    normalizeRelayInformationOptions(parameters);
+    return {
+      kind: semantics.outputKind,
+      itemKind: semantics.outputKind,
+      resultKind: semantics.resultKind,
+      scope: 'external-report',
     };
   }
   if (name === 'select') {
@@ -377,6 +395,7 @@ export async function executeResearchOperation(memory, operation, input = undefi
     return executeRelationOperation(memory, name, parameters, namedInputs ?? { input });
   }
   if (name === 'acquire') return acquireRelayEvents(memory, parameters);
+  if (name === 'relay-info') return inspectRelayInformation(parameters);
   if (name === 'select') {
     const query = normalizeSelectionScope(parameters, input !== undefined);
     if (input === undefined) return memory.select(query);

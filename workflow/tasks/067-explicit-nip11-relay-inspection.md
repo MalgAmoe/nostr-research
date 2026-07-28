@@ -1,6 +1,6 @@
 ---
 id: 067-explicit-nip11-relay-inspection
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/067-explicit-nip11-relay-inspection.validate.sh
 depends_on: 066-relay-message-and-outcome-visibility

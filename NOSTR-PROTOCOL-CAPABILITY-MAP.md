@@ -45,10 +45,15 @@ Address coordinates are now stable subjects, public NIP-19/NIP-21 references
 decode with attributed hints, and valid bounded NIP-27 inline references form
 typed navigation edges.
 
+It can also explicitly retrieve bounded NIP-11 relay information through the
+shared direct, plan, session, JSONL, and browser execution path. Those
+documents remain attributed advertisements and retrieval outcomes remain
+separate from WebSocket acquisition observations.
+
 The most valuable protocol work is therefore, in order:
 
 1. preserve the completed kind-aware relationship and reference interpretation;
-2. expose relay capabilities, completion hints, and diagnostics;
+2. preserve explicit relay advertisements, completion hints, and diagnostics;
 3. add explicit relay search and count operations where relays advertise them;
 4. represent deletion, expiration, labels, reports, and identity proofs as
    attributed evidence rather than hidden policy; and
