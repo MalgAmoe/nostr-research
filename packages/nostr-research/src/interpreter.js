@@ -175,6 +175,13 @@ export class DeclarativeResearchSession {
       const options = projectionOptions(
         presentationParametersWithSessionDefaults(parameters, this.#configuration), true,
       );
+      if (entry.descriptor.resultKind === 'relay-information-report'
+          && options.mode === 'explain') {
+        throw protocolError(
+          'INVALID_OPERATION',
+          'show explain is not compatible with relay-information.',
+        );
+      }
       return readOnly(() => showResearchValue(this.#memory, entry.value, options));
     }
     if (command.command === 'inspect') {

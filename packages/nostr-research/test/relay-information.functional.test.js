@@ -131,6 +131,15 @@ test('relay information stays attributed, bounded, and reusable through the publ
       'summary', 'preview', 'coverage', 'details',
     ]);
 
+    const unsupportedShow = await session.execute({
+      commandId: 'show-explain',
+      command: 'show',
+      input: 'relay-advertisements',
+      parameters: { mode: 'explain' },
+    });
+    assert.equal(unsupportedShow.ok, false);
+    assert.equal(unsupportedShow.error.code, 'INVALID_OPERATION');
+
     const explained = await session.execute({
       commandId: 'explain',
       command: 'explain',
