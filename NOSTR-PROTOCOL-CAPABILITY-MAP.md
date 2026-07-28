@@ -309,23 +309,23 @@ The relation layer exposes generic fields including:
 
 - author, kind, text, timestamp, and tags;
 - extracted HTTP(S) links and domains;
-- a derived media-presence flag;
+- factual event role, format, and conversation role;
+- normalized attachments, media families, sources, links, and domains;
+- attachment counts and explicit omission metadata;
 - profile fields; and
 - observed relays and resolution source.
 
-`event.hasMedia` recognizes media tags, MIME hints, familiar extensions, and
-known media hosts. Generic `explode`, `scan`, and `project` operations make all
-raw tags and content available without waiting for a dedicated NIP
-interpretation.
+`event.hasMedia` is derived from the same normalized attachment interpretation
+as `event.attachments`. Declared NIP-92/NIP-94 and kind-specific facts remain
+distinguishable from inferred URL hints. Generic `explode`, `scan`, and
+`project` operations make the normalized facts and raw evidence composable.
 
 Not yet structured:
 
 - NIP-23 long-form title, summary, image, and publication metadata;
-- NIP-68 picture events;
-- NIP-71 video events;
-- NIP-92 `imeta` attachment metadata;
-- NIP-94 file metadata;
-- NIP-36 content warnings; and
+- complete kind-specific projection for every picture, video, long-form, and
+  file convention;
+- structured warning evidence for admitted events; and
 - Markdown or client-specific rendering.
 
 Most of these are presentation and richer analysis conveniences, not blockers
@@ -348,7 +348,7 @@ The table uses these states:
 | NIP-05 DNS identifier | Raw only | Stored and searchable profile string | Network verification and returned relay hints |
 | NIP-09 deletion request | Partial | Kind `5` event targets are typed and excluded from reply graphs | Validate target authorship and expose deletion status |
 | NIP-10 text-note threads | Implemented | Kind-scoped root/reply/mention handling, positional fallback, `q` quotes | Address-form `q` references remain pending |
-| NIP-11 relay information | Absent | Caller supplies URLs | Fetch and expose advertised capabilities and limitations |
+| NIP-11 relay information | Implemented | Explicit attributed relay-information reports expose retrieval outcomes, advertised NIPs, and limitations | Claims remain distinct from observed behavior |
 | NIP-13 proof of work | Raw only | Nonce tag remains available | Derived difficulty as optional evidence |
 | NIP-18 reposts | Partial | Kind `6` event targets and kind `16` embedded canonical targets are typed | Addressable repost targets |
 | NIP-19 identifiers | Implemented | Public account, event, and address identifiers decode to stable subjects with attributed hints | Additional entity types remain unsupported |
@@ -363,23 +363,23 @@ The table uses these states:
 | NIP-39 external identity | Raw only | Tags remain visible | Proof verification with provenance and status |
 | NIP-40 expiration | Raw only | Expired events remain ordinary evidence | Derived expired status and optional caller filtering |
 | NIP-42 relay authentication | Partial | Neutral bounded challenge observation and machine-readable `auth-required` subscription refusal | Signer boundary and authenticated connection state |
-| NIP-45 event count | Absent | Must fetch events to learn local counts | Per-relay count request and approximate-result metadata |
+| NIP-45 event count | Implemented | Explicit per-relay exact/approximate count reports without corpus mutation or global summation | Unsupported and failing relays remain attributed outcomes |
 | NIP-50 search | Absent | Local substring scan only | Explicit relay search with relay-specific result semantics |
-| NIP-51 lists | Raw only | Replaceable versions resolve generically | Typed public lists useful for discovery and moderation |
+| NIP-51 lists | Raw only by design | Replaceable versions resolve and tags remain mechanically analyzable | Typed navigation is deliberately declined because it imports incumbent curation topology |
 | NIP-56 reports | Raw only | Kind `1984` remains inspectable | Attributed report relationships; never implicit truth |
 | NIP-62 vanish request | Raw only | Request can be retained | Expose request status without rewriting historical evidence |
 | NIP-65 relay list metadata | Raw only | Kind `10002` current version resolves | Structured read/write relay claims and explicit routing use |
 | NIP-66 relay discovery | Raw only | Events can be scanned | Structured advertised/probed relay observations |
 | NIP-67 EOSE hints | Implemented | Attributed bounded `finish`/`more` hints are retained without implying global exhaustiveness | Automatic pagination is deliberately absent |
-| NIP-68 picture events | Raw only | Event and tags remain readable | Structured media projection |
+| NIP-68 picture events | Partial | Event format and normalized attachment facts are exposed | Complete picture-specific presentation metadata |
 | NIP-70 protected events | Raw only | `-` tag remains visible | Surface protection requirement and auth implications |
-| NIP-71 video events | Raw only | Events and tags remain readable | Structured video variants and metadata |
+| NIP-71 video events | Partial | Video/short-video format and normalized attachment facts are exposed | Complete video-specific presentation metadata |
 | NIP-73 external content IDs | Raw only | `i`/`I` tags become generic tags | Normalized external subjects and typed references |
 | NIP-77 negentropy | Absent | Relay documents may advertise it | Synchronization protocol |
 | NIP-85 trusted assertions | Raw only | Assertion events remain inspectable | Attributed assertion type/target; never implicit score |
 | NIP-89 app handlers | Raw only | Events can be inspected | App discovery for unknown kinds |
-| NIP-92 media attachments | Partial/raw | Media presence may be detected | Structured `imeta` fields and attachment relationships |
-| NIP-94 file metadata | Raw only | Kind `1063` retained | Structured file metadata |
+| NIP-92 media attachments | Implemented factual projection | Bounded normalized attachments preserve declared metadata, conflicts, sources, and omissions | Rendering and media retrieval remain outside the engine |
+| NIP-94 file metadata | Partial | Kind `1063` format and declared attachment facts are normalized | Complete file-specific presentation metadata |
 
 ### Completed correction: kind-aware tag interpretation
 
@@ -602,28 +602,13 @@ The research-safe behavior is:
 Reports, labels, and assertions are subjective and can be gamed. They are
 useful evidence only when attribution remains visible.
 
-### Priority 6: use curated protocol structures for discovery
+### Declined direction: curated protocol structures as navigation
 
-Selected NIP-51 public lists can substantially improve the main product goal:
-finding interesting people and coherent groups.
-
-High-value list types include:
-
-- follow sets;
-- interest sets;
-- starter packs;
-- curation sets;
-- bookmarks;
-- search-relay lists;
-- relay sets;
-- mute lists; and
-- blocked-relay lists.
-
-These should become typed list membership relationships with visible list
-author and event provenance. They should not automatically modify the
-researcher's notebook, relay configuration, or moderation state.
-
-Encrypted private-list handling requires keys and is not part of this step.
+NIP-51 list events remain canonical evidence and can be studied mechanically.
+They do not become typed navigation or research weight. Published account
+lists are likely to reproduce the small network core's overlapping curation
+and pull exploration toward an incumbent echo chamber. This project instead
+keeps navigation choices visible and attributable to the current researcher.
 
 ### Priority 7: verify selected identity claims
 
@@ -644,14 +629,12 @@ the account.
 
 ## Useful later, but not first
 
-### Rich content projections
+### Rich content presentation
 
-Structured long-form, media, picture, video, and file metadata would improve
-inspection and a future UI. They are not currently blocking generic research
-because raw tags and content can already be scanned and projected.
-
-Add these when a real consumer needs predictable fields, rather than creating
-one parser for every content NIP in advance.
+The engine now exposes a sparse known-kind role/format vocabulary and bounded
+normalized attachment facts. Complete format-specific presentation and media
+retrieval remain consumer work. Add further projections only when a real
+consumer repeatedly needs a fact missing from the normalized boundary.
 
 ### NIP-66 relay observations
 
@@ -753,7 +736,6 @@ limitations, partiality, and request failure before resorting to guesswork.
 
 ### Pass D: attributed research context
 
-- typed NIP-51 public lists;
 - deletion, expiration, and warning status;
 - attributed labels, reports, and assertions;
 - explicit NIP-05 and selected NIP-39 verification.
@@ -765,7 +747,8 @@ becoming hidden trust policy.
 
 - rich profile fields;
 - long-form metadata;
-- structured media and file metadata;
+- further format-specific media and file metadata beyond the implemented
+  normalized attachment boundary;
 - NIP-66 relay-monitor evidence if sustained relay research needs it.
 
 Only implement projections that remove repeated friction in actual sessions.

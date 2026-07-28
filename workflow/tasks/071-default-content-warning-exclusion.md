@@ -11,7 +11,9 @@ depends_on: 070-normalized-event-attachments
 ## Authority
 
 Implement Task 3 from
-[`EVENT-CONTENT-ENGINE-DESIGN.md`](../../EVENT-CONTENT-ENGINE-DESIGN.md).
+The completed event-content design was the implementation input for this
+historical task and was removed after the milestone was consolidated into the
+package reference and capability map.
 The warning scope, exclusion point, retained accounting, and non-goals are
 settled there.
 

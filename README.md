@@ -17,20 +17,15 @@ npm run research-session -- --capacity 1000
 ```
 
 It reads one JSON command per line and writes one correlated JSON response per
-line. Named result handles make acquisition, local selection, continuation,
-inspection, transformation, and explicit notebook knowledge composable without an
-implicit current selection. Persistence and a database format are deliberately
-absent: closing or resetting the session, or exiting the process, loses all
-resident evidence, notebook entries, named membership, and handles. See the
-package README for the command protocol and examples.
+line. Start with the [CLI guide](./CLI.md). It explains the process model,
+schema discovery, a complete first research session, collections versus
+relations, navigation, observation, and common mistakes.
 
-`status` reports the observation buffer, evidence archive, and research
-notebook separately. `list` reports named working-view cardinalities, making
-complete buffer turnover and accidental evidence duplication observable.
+The [package reference](./packages/nostr-research/README.md) documents the
+in-process JavaScript API, browser Worker adapter, exact engine behavior, and
+protocol semantics. [CONTEXT.md](./CONTEXT.md) contains durable product and
+engineering decisions.
 
-Operations remain explicit: acquire from relays, select from local memory,
-navigate stable event, account, and replaceable-address subject collections,
-cross into research relations for value
-analysis, and preserve evidence or attributed notebook knowledge only when
-requested. Contextual schema exposes compatible operations and their factual
-requirements without choosing the research direction.
+Persistence and a database format are deliberately absent. Closing or
+resetting the session, or exiting the process, loses all resident evidence,
+notebook entries, named memberships, and handles.

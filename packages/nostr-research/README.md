@@ -11,6 +11,10 @@ polyfills. Relay acquisition uses the runtime's standard `WebSocket`.
 `jsonl-session.js` and the executable are intentionally Node adapters and are
 not imported by the public core.
 
+For practical CLI operation, begin with the repository
+[CLI guide](../../CLI.md). This file is the detailed library and protocol
+reference.
+
 The product path has four layers: memory owns the observation buffer, evidence
 archive, research notebook, and only the indexes needed to retrieve that
 state; the authoritative executor produces collection/relation values and

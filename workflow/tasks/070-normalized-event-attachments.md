@@ -11,7 +11,9 @@ depends_on: 069-event-content-facts
 ## Authority
 
 Implement Task 2 from
-[`EVENT-CONTENT-ENGINE-DESIGN.md`](../../EVENT-CONTENT-ENGINE-DESIGN.md).
+The completed event-content design was the implementation input for this
+historical task and was removed after the milestone was consolidated into the
+package reference and capability map.
 Use its exact attachment shape, construction rules, vocabulary, bounds, and
 precedence. Do not create global attachment identity or storage.
 

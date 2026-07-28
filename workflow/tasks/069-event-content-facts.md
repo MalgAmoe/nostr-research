@@ -11,7 +11,9 @@ depends_on:
 ## Authority
 
 Implement Task 1 from
-[`EVENT-CONTENT-ENGINE-DESIGN.md`](../../EVENT-CONTENT-ENGINE-DESIGN.md).
+The completed event-content design was the implementation input for this
+historical task and was removed after the milestone was consolidated into the
+package reference and capability map.
 That document settles vocabulary and scope. Do not expand the kind table,
 invent scoring, or add a content-classification operation.
 
