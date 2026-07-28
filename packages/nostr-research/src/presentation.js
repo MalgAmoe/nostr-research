@@ -24,7 +24,9 @@ export function showResearchValue(memory, value, options = {}) {
     shown = showCollection(memory, memory.asCollection(value), settings);
   }
   else if (isCorpusSummary(value)) shown = showCorpus(value);
-  else if (isSubject(value?.subject)) shown = showSubject(memory, value.subject, settings);
+  else if (isSubject(value?.subject)) {
+    shown = showSubject(memory, value.subject, settings, value.decodedReference);
+  }
   else if (isSubject(value)) shown = showSubject(memory, value, settings);
   else if (value === memory) shown = showCorpus(memory.describe());
   else throw new TypeError('show does not recognize this value.');
@@ -131,6 +133,7 @@ export function explainResearchMembership(memory, collectionValue, subjectValue,
   return enforceSize({
     type: 'membership-explanation',
     subject: inspected.subject,
+    ...(inspected.decodedReference ? { decodedReference: inspected.decodedReference } : {}),
     member: Boolean(item),
     resultCount: collection.items.length,
     reasons: settings.mode === 'summary' ? [] : structuredClone(shownReasons),
@@ -380,7 +383,7 @@ function showSummary(summary, settings) {
   };
 }
 
-function showSubject(memory, item, settings) {
+function showSubject(memory, item, settings, decodedReference) {
   const projected = memory.project(item, {
     mode: 'compact', excerptLimit: settings.excerptLimit, previewLimit: settings.previewLimit,
   }).results[0];
@@ -395,6 +398,7 @@ function showSubject(memory, item, settings) {
     resolved: inspected.resolved,
     resolutionSource: inspected.resolutionSource,
     context: { resolved: inspected.resolved, resolutionSource: inspected.resolutionSource },
+    ...(decodedReference ? { decodedReference: structuredClone(decodedReference) } : {}),
     provenance: provenanceSummary([{ provenance }]),
     freshness: evidenceFreshness(memory, [{ subject: item }]),
     corpus: corpusEffects(memory, [{ subject: item }]),

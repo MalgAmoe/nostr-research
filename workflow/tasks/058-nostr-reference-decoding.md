@@ -1,6 +1,6 @@
 ---
 id: 058-nostr-reference-decoding
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/058-nostr-reference-decoding.validate.sh
 depends_on: 057-addressable-event-subjects

@@ -43,7 +43,7 @@ test('factual schemas construct commands accepted through the public session sea
   assert.equal('research' in global.result.session, false);
   assert.equal(
     global.result.session.commands.observation.inspect.parameters.subject,
-    'event, account, address, or tag subject',
+    'subject object or bare/NIP-21 nostr: npub, nprofile, note, nevent, or naddr reference; encoded author, kind, and relay hints are unverified and never followed automatically',
   );
   const summary = await session.execute({
     commandId: 'summary-schema', command: 'schema',

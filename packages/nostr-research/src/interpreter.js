@@ -1094,7 +1094,7 @@ function sessionSchema(configuration) {
         inspect: {
           input: 'forbidden',
           parameters: {
-            subject: 'event, account, address, or tag subject',
+            subject: 'subject object or bare/NIP-21 nostr: npub, nprofile, note, nevent, or naddr reference; encoded author, kind, and relay hints are unverified and never followed automatically',
             previewLimit: previewRange,
             excerptLimit: excerptRange,
             includeEvidence: 'boolean',
@@ -1104,7 +1104,7 @@ function sessionSchema(configuration) {
         explain: {
           input: 'named result handle',
           parameters: {
-            subject: 'event, account, address, or tag subject',
+            subject: 'subject object or bare/NIP-21 nostr: npub, nprofile, note, nevent, or naddr reference; encoded author, kind, and relay hints are unverified and never followed automatically',
             previewLimit: previewRange,
             excerptLimit: excerptRange,
             includeEvidence: 'boolean',

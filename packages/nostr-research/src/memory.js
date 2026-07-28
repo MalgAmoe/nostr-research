@@ -13,6 +13,7 @@ import {
   parseAddress,
   subject,
 } from './protocol.js';
+import { decodeNostrReference } from './reference.js';
 import {
   NAVIGATION_RELATIONSHIP_TYPES,
   deriveEventRelationships,
@@ -408,7 +409,9 @@ export class InMemoryResearchMemory {
 
   lookup(reference) {
     this.#assertOpen();
-    const item = this.#resolveTyped(normalizeSubject(reference));
+    const decodedReference = typeof reference === 'string'
+      ? decodeNostrReference(reference) : null;
+    const item = this.#resolveTyped(normalizeSubject(decodedReference?.subject ?? reference));
     if (!['event', 'account', 'address'].includes(item.type)) {
       throw new ResearchMemoryError('Exact lookup supports event, account, and address subjects.');
     }
@@ -416,7 +419,10 @@ export class InMemoryResearchMemory {
       subject: item,
       reasons: [{ type: 'exact-subject' }],
     });
-    return resultCollection([resolved], { operation: 'exact-subject-lookup' },
+    return resultCollection([resolved], {
+      operation: 'exact-subject-lookup',
+      ...(decodedReference ? { decodedReference } : {}),
+    },
       item.type === 'event' ? 'events' : item.type === 'account' ? 'accounts' : 'addresses');
   }
 
@@ -867,7 +873,10 @@ export class InMemoryResearchMemory {
 
   inspect(reference) {
     this.#assertOpen();
-    const item = normalizeSubject(reference);
+    const decodedReference = typeof reference === 'string'
+      ? decodeNostrReference(reference) : null;
+    const item = normalizeSubject(decodedReference?.subject ?? reference);
+    const referenceContext = decodedReference ? { decodedReference } : {};
     if (item.type === 'event') {
       const resolution = this.#resolveEventRecord(item.id);
       const record = resolution.record;
@@ -879,6 +888,7 @@ export class InMemoryResearchMemory {
         evidence: record,
         provenance: record?.observations ?? [],
         relationships: cloneJson(this.#relationships('outbound', memberKey(item))),
+        ...referenceContext,
       };
     }
     if (item.type === 'account') {
@@ -891,6 +901,7 @@ export class InMemoryResearchMemory {
         resolutionSource: resolution.source,
         evidence,
         provenance: evidence?.observations ?? [],
+        ...referenceContext,
       };
     }
     if (item.type === 'address') {
@@ -904,13 +915,17 @@ export class InMemoryResearchMemory {
         evidence,
         provenance: evidence?.observations ?? [],
         relationships: cloneJson(this.#relationships('inbound', memberKey(item))),
+        ...referenceContext,
       };
     }
     const collection = this.traverse([item], {
       relationshipTypes: [...NAVIGATION_RELATIONSHIP_TYPES],
       direction: 'both', depth: 1, limit: this.#capacity,
     });
-    return { subject: item, resident: collection.context.relationships.length > 0, collection };
+    return {
+      subject: item, resident: collection.context.relationships.length > 0, collection,
+      ...referenceContext,
+    };
   }
 
   remember(reference, value) {

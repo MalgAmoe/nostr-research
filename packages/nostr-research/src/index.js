@@ -6,6 +6,11 @@ export {
   subject,
 } from './protocol.js';
 export {
+  InvalidNostrReferenceError,
+  NOSTR_REFERENCE_MAX_LENGTH,
+  decodeNostrReference,
+} from './reference.js';
+export {
   DEFAULT_SESSION_CONFIGURATION,
   RESEARCH_CONSTRAINTS,
   normalizeSessionConfiguration,

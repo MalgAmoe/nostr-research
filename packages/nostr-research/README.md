@@ -48,6 +48,16 @@ entries and named membership keep stable subject references.
 `inspect(subject)` reports `resolutionSource` as
 `"archive"`, `"buffer"`, or `"unresolved"`.
 
+`decodeNostrReference(reference)` accepts public `npub`, `nprofile`, `note`,
+`nevent`, and `naddr` NIP-19 values, bare or in a `nostr:` NIP-21 URI. It
+returns the stable account, event, or address subject, the original reference
+and form, and only the author, kind, and relay hints actually encoded. Hints
+remain attributed, unverified reference metadata: they never change identity,
+session relay defaults, or trigger acquisition. Private `nsec`, unsupported,
+malformed, and inputs over NIP-19's 5000-character bound are rejected.
+`lookup`, `inspect`, and session `inspect`/`explain` accept these references as
+well as subject objects.
+
 Evidence survives buffer turnover only through an explicit preservation
 operation:
 
