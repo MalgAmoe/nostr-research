@@ -78,11 +78,17 @@ panels. A live account-discovery voyage confirmed that this improves visibility
 without constructing commands, choosing routes, or hiding operations. The
 trial is recorded in [VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md).
 
-The next experiment is a contrasting voyage through the same arrangement,
-preferably media- or thread-oriented. It should test whether the grouping and
-panels remain useful when the research posture changes, and record which
-command-construction friction actually repeats. Do not add convenience
-commands merely because raw JSON remains verbose.
+The next experiments are defined in
+[NAVIGATOR-VOYAGE-SUITE.md](./NAVIGATOR-VOYAGE-SUITE.md). Six contrasting
+voyages test thread movement, media evidence, weak signals, disconfirming
+judgment, account depth, and deliberate collection through the unchanged
+arrangement. Do not add convenience commands merely because raw JSON remains
+verbose; normally require repeated friction across voyages.
+
+Voyage 1, thread descent, is complete. It found no correctness defect and
+recorded one command-construction error after the navigator skipped a focused
+contract. The next experiment is Voyage 2, media trail, with the arrangement
+unchanged.
 
 The experiment should compare the voyages to identify:
 
@@ -137,6 +143,8 @@ conventionally have one.
 - [CLI.md](./CLI.md): operating guide.
 - [VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md): direct voyage evidence and control
   implications.
+- [NAVIGATOR-VOYAGE-SUITE.md](./NAVIGATOR-VOYAGE-SUITE.md): active contrasting
+  voyage protocol and progressive results.
 - [packages/nostrarium-controller/README.md](./packages/nostrarium-controller/README.md):
   neutral controller and Node transport.
 - [packages/nostr-research/README.md](./packages/nostr-research/README.md):
