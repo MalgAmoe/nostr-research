@@ -117,19 +117,25 @@ voyage ended with 31 handles, 87% buffer pressure, and 280 of 300 archive
 entries occupied. A composer that hides this state would make the arrangement
 worse even if it made commands easier to write.
 
-The next step is analytical rather than architectural: extract a small set of
-provisional vessel conventions from the original six voyages and the two
-composer follow-ups. Separate:
+Two deliberately small provisional postures—Depth and Breadth—have now been
+defined and flown through independently reproduced copies of the same random
+300-event field. Their complete instructions, measurements, and evidence are
+recorded in [PROVISIONAL-VESSELS.md](./PROVISIONAL-VESSELS.md).
 
-- posture-dependent movement and observation habits;
-- universal lifecycle orientation;
-- navigator judgment practices that must remain external; and
-- raw-command coping habits that disappeared with composition.
+The journeys diverged for posture reasons rather than starting data or command
+friction. Depth followed one note through an author, 30 authored notes, exact
+relationship explanation, and a second ring; it produced one uncertain
+judgment and 30 preserved excerpts. Breadth compared three signals, sampled
+their authors, resolved six profiles, and retained three lightly qualified
+candidates without opening authored histories or a second ring.
 
-Do not turn those observations into a general vessel framework or visual UI.
-Write down at most two contrasting provisional postures, then fly each through
-the same random field and check whether they produce measurably different
-journeys for reasons other than command friction. Vessel conventions remain
+This supports the vessel premise but does not justify a framework. Keep the two
+cards as plain caller-side instructions. The next useful evidence would be one
+replication on a second shared field, preferably with voyage order reversed or
+an independent navigator. Revise a card only if that replication exposes
+specific friction or fails to produce posture-driven divergence.
+
+Do not build a general vessel framework or visual UI. Vessel conventions remain
 caller-side and compile to visible controller commands.
 
 Engine work resumes only for a verified correctness problem or a generic
@@ -172,8 +178,10 @@ conventionally have one.
 - [CLI.md](./CLI.md): operating guide.
 - [VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md): direct voyage evidence and control
   implications.
-- [NAVIGATOR-VOYAGE-SUITE.md](./NAVIGATOR-VOYAGE-SUITE.md): active contrasting
-  voyage protocol and progressive results.
+- [NAVIGATOR-VOYAGE-SUITE.md](./NAVIGATOR-VOYAGE-SUITE.md): completed
+  contrasting voyage protocol and composer follow-ups.
+- [PROVISIONAL-VESSELS.md](./PROVISIONAL-VESSELS.md): first same-field Depth
+  versus Breadth posture comparison.
 - [packages/nostrarium-controller/README.md](./packages/nostrarium-controller/README.md):
   neutral controller and Node transport.
 - [packages/nostr-research/README.md](./packages/nostr-research/README.md):
