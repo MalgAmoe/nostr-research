@@ -1,7 +1,7 @@
 # Nostr protocol and relay capability map
 
-Status: protocol-side audit of the repository on 2026-07-27, updated after the
-kind-aware relationship milestone on 2026-07-28.
+Status: protocol-side audit of the repository, updated on 2026-07-29 after the
+relationship, reference, relay-visibility, count, and content-fact milestones.
 
 ## Purpose
 
@@ -53,15 +53,11 @@ NIP-45 count is also explicit through that path: one filter is sent to each
 selected relay, and exact, approximate, diagnostic, refusal, and failure facts
 remain relay-local rather than becoming a global total.
 
-The most valuable protocol work is therefore, in order:
-
-1. preserve the completed kind-aware relationship and reference interpretation;
-2. preserve explicit relay advertisements, completion hints, and diagnostics;
-3. add explicit relay search and count operations where relays advertise them;
-4. represent deletion, expiration, labels, reports, and identity proofs as
-   attributed evidence rather than hidden policy; and
-5. interpret selected list and profile conventions that help people discover
-   accounts and groups.
+No protocol feature is the active milestone. The current priority is to use the
+completed foundation through caller-side voyages and let repeated friction
+justify further protocol work. NIP-50 search, multi-filter `REQ`, attributed
+status claims, and identity verification remain conditional candidates. Typed
+NIP-51 navigation is deliberately declined.
 
 Publishing, private messages, wallets, payments, and automatic trust or relay
 ranking do not currently serve the research core.
@@ -76,9 +72,9 @@ Nostr support must be described at three levels.
 | Semantic interpretation | The system understands what the kind and tags mean and derives correct typed relationships or status. | Supported for a useful but incomplete subset. |
 | Protocol interaction | The system can issue the corresponding relay request or client message and interpret its response. | Mainly NIP-01 `REQ` subscriptions. |
 
-For example, a kind `1063` file-metadata event can be retained and its content
-and tags can be scanned. That does not mean NIP-94 is semantically complete:
-its file fields are not yet exposed as a structured projection.
+For example, a kind `1063` file-metadata event can be retained and contributes
+bounded normalized attachment facts. That does not mean NIP-94 is semantically
+complete or that the engine retrieves or renders its media.
 
 This distinction should remain visible in future documentation and schemas.
 
@@ -183,7 +179,8 @@ Current limitations:
 - `OK`, `COUNT`, and other relay messages are not interpreted;
 - `NOTICE`, `AUTH`, and `CLOSED` diagnostics are observed but authentication
   responses and authenticated connection state are not implemented;
-- relay metadata is not requested through NIP-11;
+- NIP-11 metadata is an explicit separate operation, not hidden acquisition
+  work;
 - the NIP-50 `search` filter field is rejected;
 - no event publishing is supported; and
 - no relay authentication is supported.
@@ -403,31 +400,12 @@ Generic fallback tags should remain visible after typed relationships are
 derived. The implementation preserves this rule: interpretation adds a
 replaceable view over evidence and does not consume or rewrite source tags.
 
-## Missing first-class identities
+## Identity boundaries
 
-The current `event`, `account`, and `tag` subject types cover much of the
-existing workflow, but two protocol identities are now limiting navigation.
-
-### Addressable event coordinates
-
-An `a` reference identifies:
-
-```text
-kind:pubkey:d
-```
-
-It refers to the current version of an addressable event, not one immutable
-event ID. Treating it only as a generic tag loses:
-
-- current-version resolution;
-- long-form and curated-set navigation;
-- addressable repost, reaction, deletion, and comment targets;
-- `naddr` navigation; and
-- relay acquisition through `#a`.
-
-The system needs a stable address subject or an equally explicit reference
-value. It must not pretend that an address coordinate is an immutable event
-ID.
+Event IDs, accounts, and address coordinates are first-class subjects.
+Address coordinates preserve `kind:pubkey:d`, resolve the current canonical
+version without pretending it is immutable, and support decoded references,
+typed relationships, and explicit `#a` acquisition.
 
 ### External content identifiers
 
@@ -439,7 +417,9 @@ Nostr event is the common target. A normalized external subject is therefore
 potentially valuable. It should preserve the namespace and original
 identifier, and it should not make a claim about the referenced material.
 
-This is useful after address support, not before it.
+External identifiers are not first-class subjects. Adding them remains
+conditional on repeated research needing navigation through shared external
+works rather than ordinary link and tag analysis.
 
 ## Relay protocol map
 
@@ -495,112 +475,26 @@ can vary. The system should retain both:
 
 It should not collapse them into an unexplained relay quality score.
 
-## What would actually improve research
+## Current protocol priorities
 
-### Priority 1: correct the graph already exposed — completed
+The completed foundation includes kind-aware graph interpretation, address and
+reference navigation, relay diagnostics and NIP-11 inspection, per-relay
+NIP-45 counts, and normalized event role, format, warning, link, media, and
+attachment facts.
 
-Add kind-aware protocol relationship interpreters for:
+Further protocol work is trigger-based:
 
-- kind `1`: NIP-10 threads, mentions, and quotes;
-- kind `1111`: complete NIP-22 comments;
-- kinds `6` and `16`: reposts;
-- kinds `7` and `17`: reactions; and
-- kind `5`: deletion requests.
-
-The completed outcome is not more data. It is fewer false reply/conversation
-edges and more honest reasons for navigation membership.
-
-This work should use small, explicit interpreters keyed by event kind. It does
-not require a plugin registry or a schema language for NIPs.
-
-### Priority 2: make protocol references navigable
-
-Add:
-
-1. an addressable-event coordinate subject or reference;
-2. parsing for NIP-19 identifiers;
-3. parsing for `nostr:` URIs and inline NIP-27 references;
-4. address-aware continuation using local resolution and explicit `#a`
-   acquisition; and
-5. retained relay hints as attributed routing suggestions.
-
-This closes a major hole between raw Nostr content and the system's navigation
-model. It also allows long-form notes, curated sets, addressable reposts, and
-comments to participate without building separate product workflows for each.
-
-Relay hints must never silently expand the configured relay set. They can be
-shown as candidate sources or used by an explicit acquisition command.
-
-### Priority 3: make relay behavior visible
-
-Add a narrow relay-information capability:
-
-- fetch and validate a relay's NIP-11 document;
-- expose supported NIPs, software/version, limitations, fees, auth
-  requirements, and retention claims where present;
-- parse `NOTICE`;
-- parse the standardized prefix of `CLOSED` messages;
-- parse NIP-67 `finish` and `more` EOSE hints; and
-- keep advertised facts separate from observed request outcomes.
-
-This is more valuable than hardcoding a large relay list. It lets the
-researcher understand why an operation was rejected, truncated, authenticated,
-or unlikely to support a requested feature.
-
-Connection reuse may become worthwhile at the same seam. One connection per
-relay can serve sequential explicit subscriptions without making research
-operations themselves parallel or automatic. It is especially relevant to
-NIP-42 authentication.
-
-### Priority 4: add explicit remote search and scope estimation
-
-Two relay operations would complement, not replace, existing acquisition:
-
-#### NIP-50 relay search
-
-- accept the NIP-50 `search` string only in a clearly remote search operation;
-- prefer relays that advertise NIP-50;
-- retain which relay produced every result;
-- expose that relevance ordering and spam filtering are relay-specific;
-- do not merge it conceptually with deterministic local `scan`; and
-- allow several supporting relays because their indexes and policies differ.
-
-This can help seed research from names, topics, and harder-to-bind concepts
-without pretending the results are complete or neutral.
-
-#### NIP-45 count
-
-- count a filter on selected relays before fetching a large window;
-- report every relay separately;
-- indicate exact versus approximate results when supplied by the relay; and
-- use the result as planning evidence, not a global Nostr count.
-
-This directly helps choose bounds and avoid expensive or unproductive
-acquisition.
-
-### Priority 5: expose status claims without enforcing policy
-
-Interpret:
-
-- NIP-09 deletion requests;
-- NIP-40 expiration;
-- NIP-62 vanish requests;
-- NIP-36 content warnings;
-- NIP-32 labels;
-- NIP-56 reports; and
-- NIP-85 trusted assertions.
-
-The research-safe behavior is:
-
-- preserve canonical evidence;
-- validate relationships such as same-author deletion authority where the NIP
-  requires it;
-- show the claim, issuer, target, time, and reason;
-- offer explicit filters or derived status; and
-- let the researcher choose sources and policy.
-
-Reports, labels, and assertions are subjective and can be gamed. They are
-useful evidence only when attribution remains visible.
+- NIP-50 remote search only if directed anchoring becomes more important than
+  the random-field constraint and reliable search relays join regular trials;
+- multi-filter `REQ` only if repeated round trips become material;
+- NIP-42 only if a relay needed for research requires authenticated reads and
+  a signer boundary is deliberately accepted;
+- deletion, expiration, label, report, and assertion status only when a
+  repeated research question needs attributed status evidence;
+- NIP-05 or selected NIP-39 verification only when explicit identity checks
+  repeatedly matter; and
+- external-content subjects only when links and raw identifiers are
+  insufficient for navigation.
 
 ### Declined direction: curated protocol structures as navigation
 
@@ -609,23 +503,6 @@ They do not become typed navigation or research weight. Published account
 lists are likely to reproduce the small network core's overlapping curation
 and pull exploration toward an incumbent echo chamber. This project instead
 keeps navigation choices visible and attributable to the current researcher.
-
-### Priority 7: verify selected identity claims
-
-NIP-05 and NIP-39 checks can help a researcher judge whether a profile connects
-to a domain or external identity.
-
-They should be explicit external operations that return:
-
-- the original claim;
-- where and when it was checked;
-- resolved, missing, mismatch, or error status;
-- returned relay hints where applicable; and
-- enough evidence to reproduce the conclusion.
-
-Verification is not universal credibility. A valid NIP-05 identifier or
-external proof establishes control of another identifier, not the quality of
-the account.
 
 ## Useful later, but not first
 
@@ -679,79 +556,18 @@ The following should not be implemented merely for broader Nostr compliance:
 Some of these could become separate products. They do not improve the current
 research vessel enough to justify their security and complexity costs.
 
-## Recommended protocol work sequence
+## Completed protocol passes
 
-This is a dependency order, not a commitment to implement all items.
+- Kind-aware thread, repost, reaction, deletion, and comment relationships.
+- Address subjects plus NIP-19, NIP-21, and bounded NIP-27 reference decoding.
+- Relay diagnostics, NIP-11 advertisements, NIP-67 hints, and per-relay NIP-45
+  counts.
+- Sparse known-kind roles and formats plus normalized warning, link, media, and
+  attachment facts.
 
-### Pass A: relationship correctness — completed 2026-07-28
-
-- introduce explicit kind-aware relationship interpretation;
-- correctly type NIP-10, NIP-22, repost, reaction, and deletion targets;
-- retain generic raw-tag visibility;
-- verify existing conversation and continuation behavior against the corrected
-  relationships.
-
-The completed pass gives relationship interpretation one owner, keeps
-conversations limited to thread edges, exposes typed repost/reaction/deletion
-targets, and preserves generic mechanical references.
-
-### Pass B: reference completeness
-
-- introduce addressable-event identity;
-- decode NIP-19 and NIP-21 values;
-- extract NIP-27 inline references;
-- support local and explicit relay navigation for event, account, address, and
-  optionally external subjects;
-- surface relay and author hints without automatically trusting them.
-
-Success means that a visible protocol reference can be inspected or used to
-form an explicit acquisition step.
-
-### Pass C: relay visibility and specialized requests
-
-- add explicit NIP-11 inspection as an attributed, ephemeral
-  relay-information report rather than notebook knowledge or hidden
-  acquisition work;
-- preserve NIP-11 retrieval errors, malformed responses, omissions, and
-  advertised limitations as carefully as successful document content;
-- parse bounded `NOTICE` messages, standardized `CLOSED` reason prefixes, and
-  NIP-67 hints;
-- distinguish failure before opening, peer closure before completion, explicit
-  refusal, and ordinary request bounds;
-- observe `AUTH` challenges without inferring that a read request failed or
-  introducing a signer;
-- expose every new transport fact through acquisition reports, session
-  handles, bounded presentation, and factual schema;
-- add explicit NIP-45 count as per-relay planning evidence, preserving exact
-  and approximate metadata and never aggregating overlapping relay counts into
-  a global total;
-- defer explicit NIP-50 search until a search-capable relay is part of regular
-  trials;
-- let sustained trials decide whether connection reuse or bounded retry earns
-  implementation;
-- consider NIP-42 only when a signer/security boundary is deliberately chosen.
-
-Success means that the researcher can understand relay capability,
-limitations, partiality, and request failure before resorting to guesswork.
-
-### Pass D: attributed research context
-
-- deletion, expiration, and warning status;
-- attributed labels, reports, and assertions;
-- explicit NIP-05 and selected NIP-39 verification.
-
-Success means that protocol-native curation and claims enrich research without
-becoming hidden trust policy.
-
-### Pass E: consumer-driven projections
-
-- rich profile fields;
-- long-form metadata;
-- further format-specific media and file metadata beyond the implemented
-  normalized attachment boundary;
-- NIP-66 relay-monitor evidence if sustained relay research needs it.
-
-Only implement projections that remove repeated friction in actual sessions.
+These passes are current capabilities, not an implied roadmap. New protocol
+interpretation should remove repeated friction in actual voyages without
+becoming hidden policy.
 
 ## Design guardrails
 
@@ -800,19 +616,17 @@ The present core is already suitable for:
 - provenance-aware comparison; and
 - iterative manual research.
 
-It is not yet reliable enough for:
+It deliberately does not yet provide:
 
-- navigating addressable or inline protocol references;
-- understanding why relays support, reject, truncate, or authenticate
-  requests;
-- using relay-native search or count facilities;
-- consuming protocol-native lists as discovery structures; or
-- evaluating deletion, expiration, identity, moderation, and assertion claims
-  as structured attributed evidence.
+- relay-native full-text search;
+- protocol-native lists as discovery weight;
+- authenticated relay sessions;
+- first-class external-content subjects; or
+- structured deletion, expiration, identity, moderation, and assertion
+  claims.
 
-Correcting those boundaries would make the system substantially more useful
-without specializing it into one research workflow or turning it into a
-conventional Nostr client.
+Those are named boundaries, not a queue. They should change only when voyage
+evidence shows that one of them blocks useful research.
 
 ## Primary sources
 

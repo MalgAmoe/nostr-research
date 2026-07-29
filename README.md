@@ -6,6 +6,7 @@ vessels will progressively give that engine coherent ways of being operated.
 
 ```text
 packages/nostr-research/    UI-independent research library and JSONL session
+packages/nostrarium-controller/  Neutral caller-side controller and Node transport
 workflow/                   Worker/reviewer task generator
 ```
 
@@ -26,6 +27,10 @@ The [package reference](./packages/nostr-research/README.md) documents the
 in-process JavaScript API, browser Worker adapter, exact engine behavior, and
 protocol semantics. [CONTEXT.md](./CONTEXT.md) contains durable product and
 engineering decisions.
+
+The [controller reference](./packages/nostrarium-controller/README.md)
+documents the neutral caller-side session controller and its Node JSONL
+transport.
 
 Persistence and a database format are deliberately absent. Closing or
 resetting the session, or exiting the process, loses all resident evidence,

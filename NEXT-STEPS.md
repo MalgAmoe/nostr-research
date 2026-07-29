@@ -60,63 +60,16 @@ classify accounts as good, human, credible, or interesting.
 
 ## What to do next
 
-The first direct vessel-discovery round is recorded in
-[VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md). Three sequential voyages tested broad
-field orientation, media evidence, and account discovery through the persistent
-CLI without arbitrary JavaScript or engine changes.
+The neutral controller and Node JSONL transport are implemented. Three
+controller-operated voyages, recorded in
+[VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md), confirmed that this boundary removes
+process, correlation, transcript, and handle-orientation friction without
+selecting research actions. They did not expose another controller defect or a
+missing engine primitive.
 
-For each sustained trial:
-
-1. Start from a bounded, relatively random field rather than a directed remote
-   search.
-2. Give the voyage a concrete collection intent, while treating the vessel's
-   movement, senses, and judgment practices as provisional.
-3. Operate sequentially: observe each response and its bounds, make a
-   navigator decision, then choose the next operation.
-4. Record what was habitually made visible, which routes were preferred or
-   abandoned, where judgment entered, and what was deliberately collected.
-5. Repeat with enough variation to distinguish one useful convention from an
-   accidental property of a single question.
-
-The first likely posture is broad random-field profile discovery because it
-has already produced a coherent loop: expose field structure, navigate toward
-accounts and their evidence, use summaries and coverage as habitual senses,
-record explicit interest or exclusion, and collect explainable profiles with
-supporting evidence. This is a starting posture to inhabit and revise, not a
-formal vessel specification.
-
-Those voyages now justify extracting the first of two caller-side layers:
-
-- a neutral session driver that owns process lifetime, command IDs, response
-  correlation, transcripts, contextual controls, visible handle lifecycle, and
-  compact post-operation orientation without adding research semantics; and
-- vessel conventions that arrange movement, senses, explicit judgment, and
-  collection over visible engine operations.
-
-The next work is to define and build the smallest neutral controller around the
-existing session protocol, then repeat the voyages through it. It must compile
-to the same visible commands, derive controls from schema, keep the navigator
-responsible for every next action, and make immutable evidence, current subject
-resolution, bounds, and handle lifecycle understandable.
-
-The code-boundary review and proposed minimal interface are recorded in
-[NEUTRAL-CONTROLLER-PROPOSAL.md](./NEUTRAL-CONTROLLER-PROPOSAL.md). The proposed
-implementation order is a runtime-neutral controller core first, followed by a
-Node JSONL transport and one repeated voyage. Browser transport and
-presentation remain later decisions informed by that use.
-
-The controller core and Node JSONL transport have now been implemented and
-independently reviewed. The repeated live voyage is recorded in
-[VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md); it confirmed that the controller removes
-mechanical session friction without selecting research actions or observation
-modes. The next decision should be based on using this controller boundary,
-not on adding more engine or transport behavior speculatively.
-
-Two further controller voyages—one account-depth path and one media-oriented
-path—reproduced that result. Neither exposed another controller defect or a
-missing engine primitive. They located the remaining friction above the
-controller: raw structured commands, unarranged contextual controls, and the
-choice of evidence projection at each research moment.
+The remaining friction sits above the controller: raw structured commands,
+unarranged contextual controls, and choosing an evidence projection at each
+research moment.
 
 The next experiment should therefore be a navigator-facing control and
 observation arrangement over the existing controller. It should begin with the
@@ -126,9 +79,18 @@ in advance. The concurrent persistent-process harness work may provide the
 right environment for this experiment; do not add another repository transport
 merely to anticipate it.
 
-Do not build a general vessel framework or visual UI yet. The controller should
-remove only the mechanical friction recorded by the trials. Vessel conventions
-should be extracted only after the controller itself has been used.
+The experiment should compare the voyages to identify:
+
+- stable movement and observation habits worth making easy;
+- choices that vary with the collection intent and must stay exposed;
+- the moments where navigator judgment enters;
+- the evidence needed to explain collected subjects; and
+- the lifecycle controls needed to keep a voyage bounded.
+
+Do not build a general vessel framework or visual UI yet. Build the smallest
+arrangement that can be used in another voyage, then revise it from evidence.
+Vessel conventions remain caller-side and must compile to visible controller
+commands.
 
 Engine work resumes only for a verified correctness problem or a generic
 operation repeatedly reconstructed outside the library. Difficulty caused by
@@ -170,8 +132,8 @@ conventionally have one.
 - [CLI.md](./CLI.md): operating guide.
 - [VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md): direct voyage evidence and control
   implications.
-- [NEUTRAL-CONTROLLER-PROPOSAL.md](./NEUTRAL-CONTROLLER-PROPOSAL.md): inspected
-  controller boundary, minimal interface, and first implementation milestone.
+- [packages/nostrarium-controller/README.md](./packages/nostrarium-controller/README.md):
+  neutral controller and Node transport.
 - [packages/nostr-research/README.md](./packages/nostr-research/README.md):
   detailed library and protocol reference.
 - [CONTEXT.md](./CONTEXT.md): durable principles and terminology.
