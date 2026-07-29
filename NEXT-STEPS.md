@@ -129,11 +129,21 @@ judgment and 30 preserved excerpts. Breadth compared three signals, sampled
 their authors, resolved six profiles, and retained three lightly qualified
 candidates without opening authored histories or a second ring.
 
-This supports the vessel premise but does not justify a framework. Keep the two
-cards as plain caller-side instructions. The next useful evidence would be one
-replication on a second shared field, preferably with voyage order reversed or
-an independent navigator. Revise a card only if that replication exposes
-specific friction or fails to produce posture-driven divergence.
+The reversal replication is also complete. A second shared 300-event field ran
+Breadth first and Depth second. Breadth again produced three qualified
+candidates, no authored descent, no archive, and 19 handles. Depth again
+produced one deeply investigated subject and 30 preserved excerpts, this time
+ending in a qualified anchor. Neither voyage had a construction failure.
+
+The two cards can now be treated as genuinely distinct provisional vessels
+rather than an order effect. Keep them as plain caller-side instructions.
+
+The next test is collection-to-artifact export. Take the strongest existing
+collection evidence and produce one bounded human-readable artifact containing
+selected profiles, explicit navigator reasons, qualifications, and stable
+evidence references. This should be a caller-side projection over notebook,
+membership, archive, and current evidence—not a new engine command or
+persistence mechanism.
 
 Do not build a general vessel framework or visual UI. Vessel conventions remain
 caller-side and compile to visible controller commands.

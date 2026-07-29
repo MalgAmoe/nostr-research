@@ -201,3 +201,115 @@ It also exposes the tradeoff without turning it into a score:
 No vessel framework or engine behavior is justified by one comparison. These
 two posture cards are now usable experimental objects and may be revised only
 after another voyage reveals concrete friction.
+
+## Reversal replication
+
+Status: completed on 2026-07-29.
+
+A new acquisition produced 300 distinct kind-1 events and 360 accepted
+observations. The exact canonical events and observations were again reproduced
+in two independent 700-event memories. Voyage order was reversed: Breadth ran
+first and Depth second. Neither posture card changed.
+
+### Breadth-first result
+
+The three pre-selection signals contained:
+
+- 52 media-bearing rows;
+- 14 creative-term matches; and
+- 38 inquiry-term matches.
+
+Creative and inquiry previews were again dominated by the aéPiot
+semantic-search network. The branch was treated as field evidence rather than
+as an invitation to investigate the spam cluster.
+
+Deterministic account samples across the three branches resolved seven
+profiles. After comparison, three varied candidates were retained:
+
+- a Spanish-language Netasgard linked-source news feed;
+- `atasinti`, a Japanese family, culture, music, and sports identity; and
+- `SciTechDaily`, explicitly retained as an unofficial automated science-news
+  publisher rather than a person.
+
+All three remained qualified `uncertain` judgments. No authored history or
+second ring was opened.
+
+Measurements:
+
+- Research commands: 29, excluding configuration and final synchronization.
+- Composed commands: 3.
+- Construction-class invalid commands: 0.
+- Handles at exit: 19.
+- Observation buffer: 309 of 700 events, 44.1% pressure.
+- Archive: empty.
+- Notebook: 3 uncertain judgments.
+- Research decisions made from receipts alone: 0.
+- Evidence-requiring decisions: 5—branch comparison, finalist selection, and
+  three individual qualifications.
+
+### Depth-second result
+
+The first twelve notes contained machine presence events, semantic-search
+spam, news automation, and one conversational reply expressing uncertainty
+about why a technical project was special. The navigator chose that first note.
+
+Details showed an explicit NIP-10 root reference. Its author resolved as
+`YODL`, whose sparse profile supplied almost no useful claim. A 30-note authored
+window instead showed a coherent conversational person discussing ordinary
+social experiences, humor, music, and work.
+
+Ancestor continuation resolved the selected note's exact root: a technical
+post describing experiments with Buzz internals and a running fork. Exact
+membership explanation confirmed a known NIP-10 `reply-root` relationship from
+the selected event.
+
+The account was recorded as a qualified `anchor` at strength `0.65`: useful as
+a conversational path into a technical/social context, while making no strong
+identity claim from the sparse profile. Thirty authored excerpts were
+preserved.
+
+Measurements:
+
+- Research commands: 19, excluding configuration and final synchronization.
+- Composed commands: 4 (`authored-notes`, `ancestors`, `remember`,
+  `preserve`).
+- Construction-class invalid commands: 0.
+- Handles at exit: 7.
+- Observation buffer: 348 of 700 events, 49.7% pressure.
+- Archive: 30 excerpts.
+- Notebook: 1 qualified anchor.
+- Research decisions made from receipts alone: 0.
+- Evidence-requiring decisions: 4—seed selection, authored descent, ancestor
+  branch, and final judgment.
+
+## Replication conclusion
+
+Reversing voyage order did not collapse the difference:
+
+| Stable pattern | Depth, first field | Depth, reversed field | Breadth, first field | Breadth, reversed field |
+| --- | ---: | ---: | ---: | ---: |
+| Collected subjects | 1 | 1 | 3 | 3 |
+| Authored histories opened | 1 | 1 | 0 | 0 |
+| Relationship/second-ring descent | yes | yes | no | no |
+| Archived excerpts | 30 | 30 | 0 | 0 |
+| Notebook judgments | 1 | 1 | 3 | 3 |
+| Handles at exit | 9 | 7 | 19 | 19 |
+| Buffer pressure | 50% | 49.7% | 44% | 44.1% |
+| Construction failures | 0 | 0 | 0 | 0 |
+
+The subjects and final judgments changed with the field, as they should:
+Depth produced one uncertain result and one qualified anchor; Breadth produced
+different candidate categories. The movement, senses, judgment tempo,
+collection shape, and lifecycle footprint remained recognizably vessel-shaped.
+
+This replication is sufficient to treat Depth and Breadth as genuinely
+distinct provisional vessels rather than one navigator's order effect. It does
+not make either vessel universally better:
+
+- Depth repeatedly achieved behavioral and relationship explanation at the
+  cost of concentration on one topology.
+- Breadth repeatedly preserved variety and exposed field composition at the
+  cost of shallow evidence and repeated keyword-spam exposure.
+
+The next question is no longer whether these two postures diverge. It is
+whether either produces a useful artifact for its stated goal.
