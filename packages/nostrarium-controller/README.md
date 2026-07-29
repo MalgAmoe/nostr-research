@@ -32,6 +32,10 @@ const history = controller.transcript({ afterSequence: 0, limit: 50 });
 await controller.close();
 ```
 
+For an in-process session, `closeTransport` may be omitted or supplied by the
+embedding caller. With the Node transport below, pass `transport.close`
+directly, as shown in its example.
+
 The public controller exposes only `execute`, `state`, `transcript`,
 `synchronize`, and `close`. `execute` resolves both successful and `ok: false`
 protocol responses; request, malformed-response, and correlation failures
@@ -82,3 +86,9 @@ responses still resolve normally. Process, timeout, malformed-output, and
 correlation failures reject with `NodeJsonlTransportError`; its bounded
 `details` and `transport.status()` keep lifecycle, stderr, malformed-line, and
 exit facts separate from JSONL responses.
+
+A `NodeJsonlTransportError` is terminal for that transport instance because a
+strict one-request/one-response stream can no longer be trusted after transport
+failure. Start a new session to continue. The bounded controller transcript and
+transport diagnostics remain available for diagnosis or caller-directed
+replay; neither layer retries or replays commands automatically.
