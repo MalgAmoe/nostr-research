@@ -1,0 +1,23 @@
+{
+  "name": "@nostrarium/controller",
+  "version": "0.1.0",
+  "description": "Runtime-neutral mechanical controller for a Nostrarium research session",
+  "type": "module",
+  "exports": {
+    ".": "./src/controller.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/controller.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "devDependencies": {
+    "@nostr-research/memory": "0.1.0"
+  }
+}

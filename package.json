@@ -6,8 +6,8 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "npm test --workspace packages/nostr-research",
-    "check": "npm run check --workspace packages/nostr-research",
+    "test": "npm test --workspaces",
+    "check": "npm run check --workspaces",
     "browser:smoke": "node workflow/browser-smoke/run.mjs",
     "research-session": "node packages/nostr-research/bin/nostr-research-session.js"
   },

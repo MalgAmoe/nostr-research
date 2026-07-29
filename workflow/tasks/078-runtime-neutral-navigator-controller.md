@@ -1,6 +1,6 @@
 ---
 id: 078-runtime-neutral-navigator-controller
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/078-runtime-neutral-navigator-controller.validate.sh
 depends_on:
