@@ -78,30 +78,46 @@ panels. A live account-discovery voyage confirmed that this improves visibility
 without constructing commands, choosing routes, or hiding operations. The
 trial is recorded in [VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md).
 
-The next experiments are defined in
-[NAVIGATOR-VOYAGE-SUITE.md](./NAVIGATOR-VOYAGE-SUITE.md). Six contrasting
-voyages test thread movement, media evidence, weak signals, disconfirming
-judgment, account depth, and deliberate collection through the unchanged
-arrangement. Do not add convenience commands merely because raw JSON remains
-verbose; normally require repeated friction across voyages.
+All six experiments in
+[NAVIGATOR-VOYAGE-SUITE.md](./NAVIGATOR-VOYAGE-SUITE.md) are complete. Thread,
+media, weak-signal, contradiction, account-depth, and collection postures
+produced measurably different journeys over the same operation vocabulary.
+This is the first practical evidence that vessels can remain caller-side
+research postures rather than engine features.
 
-Voyage 1, thread descent, is complete. It found no correctness defect and
-recorded one command-construction error after the navigator skipped a focused
-contract. The next experiment is Voyage 2, media trail, with the arrangement
-unchanged.
+The arrangement's observation side held up across the suite. Cardinality,
+partiality, evidence, details, and lifecycle pressure remained legible. The
+control side is factual but still passive: contextual schema repairs wrong
+field names, relationships, and nested parameter shapes after a failed command,
+while a fluent navigator often bypasses it entirely.
 
-The experiment should compare the voyages to identify:
+The next experiment should be a minimal schema-backed command composer over the
+neutral controller. It should:
 
-- stable movement and observation habits worth making easy;
-- choices that vary with the collection intent and must stay exposed;
-- the moments where navigator judgment enters;
-- the evidence needed to explain collected subjects; and
-- the lifecycle controls needed to keep a voyage bounded.
+- focus one contextual operation contract;
+- expose the contract's actual required, optional, and nested choices;
+- accept only navigator-supplied values;
+- emit a complete visible command draft for review; and
+- leave execution as a separate explicit action.
 
-Do not build a general vessel framework or visual UI yet. Build the smallest
-arrangement that can be used in another voyage, then revise it from evidence.
-Vessel conventions remain caller-side and must compile to visible controller
-commands.
+It must not recommend routes, choose defaults that express research intent,
+execute automatically, chain hidden operations, or introduce a second command
+language. The output remains an ordinary controller command and therefore
+remains visible in the transcript.
+
+This is justified by repeated construction friction in the thread, media, and
+collection voyages. It is not justified as a general form framework. Start
+with the smallest representation that can express the actual contextual
+contracts encountered in those voyages, then use it in another voyage before
+expanding it.
+
+Lifecycle orientation should remain visible beside composition. The collection
+voyage ended with 31 handles, 87% buffer pressure, and 280 of 300 archive
+entries occupied. A composer that hides this state would make the arrangement
+worse even if it made commands easier to write.
+
+Do not build a general vessel framework or visual UI yet. Vessel conventions
+remain caller-side and compile to visible controller commands.
 
 Engine work resumes only for a verified correctness problem or a generic
 operation repeatedly reconstructed outside the library. Difficulty caused by
