@@ -100,8 +100,10 @@ already-requested schema and observation responses for a navigator:
 
 ```js
 import {
+  arrangeCommand,
   arrangeControls,
   arrangeObservation,
+  composeCommand,
 } from '@nostrarium/controller/arrangement';
 
 const broad = await controller.execute({
@@ -126,6 +128,15 @@ const shown = await controller.execute({
   parameters: { mode: 'summary' },
 });
 const observation = arrangeObservation(shown.response);
+
+const composition = arrangeCommand(move.response);
+const draft = composeCommand(composition, {
+  parameters: { to: 'authoredEvents', limit: 50 },
+  resultId: 'authored',
+});
+
+// Execution remains a separate, explicit navigator action.
+const moved = await controller.execute(draft);
 ```
 
 Handle-compatible controls are grouped as contact, movement, analysis,
@@ -133,8 +144,14 @@ judgment, and collection. Session-wide observation and lifecycle commands
 remain visible through the controller and global schema rather than being
 misrepresented as handle controls. Every compatible operation remains present.
 A focused contract is included only when the caller explicitly requested it;
-the arrangement does not fetch schemas, recommend a control, construct
-commands, or execute a sequence.
+the arrangement does not fetch schemas, recommend a control, or execute a
+sequence.
+
+`arrangeCommand` turns one focused contract into a caller-side composition
+description. `composeCommand` accepts navigator-supplied values, checks only
+facts declared by that contract, and returns an ordinary visible controller
+command. It does not choose values, apply research defaults, execute, or chain
+commands. Fluent callers remain free to construct the same command directly.
 
 Observation panels expose only response-declared orientation, evidence,
 paging, and context. They do not summarize content, infer domain facts, or

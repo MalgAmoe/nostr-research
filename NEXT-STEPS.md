@@ -91,33 +91,46 @@ control side is factual but still passive: contextual schema repairs wrong
 field names, relationships, and nested parameter shapes after a failed command,
 while a fluent navigator often bypasses it entirely.
 
-The next experiment should be a minimal schema-backed command composer over the
-neutral controller. It should:
+The minimal schema-backed command composer now exists over the neutral
+controller. It:
 
-- focus one contextual operation contract;
-- expose the contract's actual required, optional, and nested choices;
-- accept only navigator-supplied values;
-- emit a complete visible command draft for review; and
-- leave execution as a separate explicit action.
+- focuses one contextual operation contract;
+- exposes the contract's actual required, optional, and nested choices;
+- accepts only navigator-supplied values;
+- emits a complete visible command draft for review; and
+- leaves execution as a separate explicit action.
 
-It must not recommend routes, choose defaults that express research intent,
+It does not recommend routes, choose defaults that express research intent,
 execute automatically, chain hidden operations, or introduce a second command
 language. The output remains an ordinary controller command and therefore
 remains visible in the transcript.
 
-This is justified by repeated construction friction in the thread, media, and
-collection voyages. It is not justified as a general form framework. Start
-with the smallest representation that can express the actual contextual
-contracts encountered in those voyages, then use it in another voyage before
-expanding it.
+Two follow-up voyages used the composer for ten unfamiliar or nested commands
+without a construction failure. The media voyage exercised field selection,
+explode, aggregate, and preservation. The mixed collection voyage exercised
+profile and authored-evidence scans, continuation, judgment, preservation, and
+membership. Fluent commands remained direct. Results and bounds are recorded
+in [NAVIGATOR-VOYAGE-SUITE.md](./NAVIGATOR-VOYAGE-SUITE.md).
 
 Lifecycle orientation should remain visible beside composition. The collection
 voyage ended with 31 handles, 87% buffer pressure, and 280 of 300 archive
 entries occupied. A composer that hides this state would make the arrangement
 worse even if it made commands easier to write.
 
-Do not build a general vessel framework or visual UI yet. Vessel conventions
-remain caller-side and compile to visible controller commands.
+The next step is analytical rather than architectural: extract a small set of
+provisional vessel conventions from the original six voyages and the two
+composer follow-ups. Separate:
+
+- posture-dependent movement and observation habits;
+- universal lifecycle orientation;
+- navigator judgment practices that must remain external; and
+- raw-command coping habits that disappeared with composition.
+
+Do not turn those observations into a general vessel framework or visual UI.
+Write down at most two contrasting provisional postures, then fly each through
+the same random field and check whether they produce measurably different
+journeys for reasons other than command friction. Vessel conventions remain
+caller-side and compile to visible controller commands.
 
 Engine work resumes only for a verified correctness problem or a generic
 operation repeatedly reconstructed outside the library. Difficulty caused by

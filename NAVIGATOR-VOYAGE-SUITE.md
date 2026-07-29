@@ -677,3 +677,82 @@ This targets friction repeated across the thread, media, and collection
 voyages while preserving the ownership boundary: the engine owns facts, the
 arrangement owns attention and expression, and the navigator owns direction
 and conclusions.
+
+## Composer follow-up
+
+Status: two composer-mediated voyages completed on 2026-07-29.
+
+The minimal caller-side composer was tested immediately against the two
+postures named by the suite:
+
+### Compact media follow-up
+
+A 300-event random field produced 45 media-bearing rows and 73 normalized
+attachments. The navigator composed four unfamiliar or nested commands from
+focused contracts:
+
+- filter media-bearing rows;
+- explode the populated `event.attachments` field;
+- aggregate attachment classification; and
+- preserve a five-event evidence sample.
+
+The resulting attachment relation contained 31 declared and 42 inferred
+attachments. All four composed drafts were accepted on their first execution.
+Construction-class invalid commands: 0.
+
+The composer did not select media, attachments, classification, evidence
+samples, or preservation level. Those values remained explicit navigator
+choices. Fluent collection transitions and observation commands were still
+written directly.
+
+At exit the session held 7 handles, 300 of 700 buffer events, 5 archived
+excerpts, and a 16-entry/21,085-byte transcript.
+
+### Mixed collection follow-up
+
+A second random field produced 320 events, 40 sampled accounts, and 33 resolved
+profiles. The navigator composed six commands:
+
+- scan populated profile descriptions for caller-chosen maker terms;
+- continue one resulting account through the exposed `authored-notes`
+  relationship;
+- scan authored `event.text` for supporting terms;
+- record an attributed `uncertain` judgment;
+- preserve 30 supporting excerpts; and
+- record one named membership.
+
+Only one profile matched the deliberately narrow word scan. Its profile claimed
+system-engineering and relay work; the authored window supplied one concrete
+developer-tool observation but insufficient evidence for the broader claim.
+The navigator therefore retained it as uncertain rather than broadening the
+criterion silently.
+
+All six composed drafts were accepted on their first execution.
+Construction-class invalid commands: 0. At exit the session held 11 handles,
+395 of 800 buffer events, 30 archived excerpts, one notebook judgment, one
+membership, and a 25-entry/30,844-byte transcript.
+
+### Follow-up conclusion
+
+The measured success criterion was met in both voyages: commands expressible by
+the focused contracts produced no construction failures. The composer was most
+useful for populated fields, enumerated relationships, nested aggregations,
+preservation reasons, and notebook requirements. Direct command construction
+remained available and was still preferable for familiar simple operations.
+
+The cost is explicit schema contact: every composed operation begins with one
+focused contract request. That is appropriate when a navigator selects an
+unfamiliar operation and unnecessary for a fluent direct path.
+
+The trial also exposed one genuine factual-contract contradiction. `remember`
+listed `content` as though it were an accepted parameter, although runtime
+treats it only as a cross-field requirement. The schema now exposes the real
+accepted parameters plus a structured `atLeastOne` requirement. This was an
+engine-schema correctness fix, not vessel policy.
+
+The composer deliberately does not promise more than the contract says.
+Several older contracts still express parts of their shape as prose; the
+composer exposes those facts and validates the structured portions used by the
+measured failures. It must not grow into a second runtime validator. Future
+schema corrections should occur only when live composition demonstrates a
+specific factual contradiction or unusable missing fact.

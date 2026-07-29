@@ -415,7 +415,6 @@ export function operationSchema() {
         attribution: 'required non-empty caller attribution',
         sourceReferences: 'optional evidence references',
         summary: 'optional caller summary',
-        content: 'at least one label, note, judgment, or summary is required',
       },
       forget: {},
       notebook: {
@@ -471,6 +470,11 @@ export function operationSchema() {
     },
     operationFacts: {
       scan: { resultShape: SCAN.resultShape },
+      remember: {
+        parameterRequirements: {
+          atLeastOne: ['labels', 'note', 'judgment', 'summary'],
+        },
+      },
       acquire: { resultFacts: acquisitionResultFacts() },
       'relay-info': {
         resultFacts: {
