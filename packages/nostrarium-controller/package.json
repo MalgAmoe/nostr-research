@@ -4,7 +4,8 @@
   "description": "Runtime-neutral mechanical controller for a Nostrarium research session",
   "type": "module",
   "exports": {
-    ".": "./src/controller.js"
+    ".": "./src/controller.js",
+    "./node": "./src/node.js"
   },
   "files": [
     "src",
@@ -12,12 +13,12 @@
   ],
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/controller.js"
+    "check": "node --check src/controller.js && node --check src/node.js"
   },
   "engines": {
     "node": ">=22.5.0"
   },
-  "devDependencies": {
+  "dependencies": {
     "@nostr-research/memory": "0.1.0"
   }
 }

@@ -1,6 +1,6 @@
 ---
 id: 079-node-jsonl-controller-transport
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/079-node-jsonl-controller-transport.validate.sh
 depends_on: 078-runtime-neutral-navigator-controller

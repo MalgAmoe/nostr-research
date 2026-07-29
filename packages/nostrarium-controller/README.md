@@ -44,3 +44,41 @@ in `state()`.
 Transcript limits are required and measured against each retained entry's
 UTF-8 JSON serialization. Evicted or individually oversized entries contribute
 to visible omitted-entry and omitted-byte totals.
+
+## Node JSONL transport
+
+The Node-specific entry point starts the existing session executable directly
+and retains its process-local memory across controller commands:
+
+```js
+import { createNavigatorController } from '@nostrarium/controller';
+import { createNodeJsonlTransport } from '@nostrarium/controller/node';
+
+const transport = createNodeJsonlTransport({
+  workingDirectory: process.cwd(),
+  capacity: 2_000,
+  archiveCapacity: 500,
+  notebookCapacity: 500,
+  responseTimeoutMs: 10_000,
+});
+const controller = createNavigatorController({
+  request: transport.request,
+  closeTransport: transport.close,
+  transcript: { maxEntries: 500, maxBytes: 2_000_000 },
+});
+
+await controller.execute({
+  command: 'select',
+  parameters: { scope: 'corpus', kinds: [1] },
+  resultId: 'notes',
+});
+console.log(transport.status());
+await controller.close();
+```
+
+Controller closure first sends the session's ordinary `close` command, then
+ends the transport input and waits for the child process. Protocol `ok: false`
+responses still resolve normally. Process, timeout, malformed-output, and
+correlation failures reject with `NodeJsonlTransportError`; its bounded
+`details` and `transport.status()` keep lifecycle, stderr, malformed-line, and
+exit facts separate from JSONL responses.
