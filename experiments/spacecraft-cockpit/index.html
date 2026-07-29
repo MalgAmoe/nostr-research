@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nostrarium Spacecraft Laboratory</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main id="cockpit" data-craft="surveyor">
+    <div class="hull-grain"></div>
+    <header class="overhead">
+      <div class="craft-id">
+        <span class="eyebrow">NOSTRARIUM // EXPERIMENTAL FLIGHT DECK</span>
+        <strong id="craft-name">NRSV FARSTAR</strong>
+      </div>
+      <nav class="craft-selector" aria-label="Craft configuration">
+        <button data-select="surveyor" class="selected">01 SURVEYOR</button>
+        <button data-select="interceptor">02 INTERCEPTOR</button>
+        <button data-select="darkroom">03 DARKROOM</button>
+        <button data-select="anatomical">04 ANATOMICAL</button>
+      </nav>
+      <div class="ship-clock">
+        <span>VOYAGE 07</span>
+        <time id="clock">00:00:00</time>
+      </div>
+    </header>
+
+    <section class="relay-gantry" aria-label="Relay array">
+      <span class="gantry-label">RELAY ARRAY</span>
+      <button class="relay online"><i></i>NOS.LOL<small>107 PKT</small></button>
+      <button class="relay online"><i></i>PRIMAL<small>193 PKT</small></button>
+      <button class="relay weak"><i></i>SNORT<small>0 PKT</small></button>
+      <div class="buffer-gauge">
+        <label>FIELD HOLD</label>
+        <span><b id="buffer-fill"></b></span>
+        <output>300 / 1000</output>
+      </div>
+    </section>
+
+    <section class="viewport-frame">
+      <div class="viewport-label top-left">LOCAL FIELD // BOUNDED</div>
+      <div class="viewport-label top-right" id="range-label">RANGE 300 EVENTS</div>
+      <div class="viewport-label bottom-left">HOME VECTOR <b>LOCKED</b></div>
+      <div class="viewport-label bottom-right" id="contact-count">57 CONTACT CLASSES</div>
+      <canvas id="space"></canvas>
+      <div class="reticle" aria-hidden="true">
+        <i></i><i></i><i></i><i></i>
+        <span id="reticle-label">KIND 22668 // 107 SIGNALS</span>
+      </div>
+      <div class="home-beacon"><span>HOME</span></div>
+      <div class="probe-path" id="probe-path">
+        <i class="joint j1"></i><i class="joint j2"></i><i class="joint j3"></i>
+        <span class="probe-tip">TIP</span>
+      </div>
+      <div class="comparison-plane">
+        <div class="exposure a"><span>A</span><b>107</b><small>KIND 22668</small></div>
+        <div class="optical-axis"></div>
+        <div class="exposure b"><span>B</span><b>5</b><small>KIND 1</small></div>
+      </div>
+      <div class="anatomy">
+        <div class="ball left"><span>GRAVITY</span><b>107</b></div>
+        <div class="shaft"><i></i><i></i><i></i><i></i></div>
+        <div class="ball right"><span>ANOMALY</span><b>3</b></div>
+      </div>
+    </section>
+
+    <aside class="sensor-rack">
+      <div class="rack-title">SENSOR BUS</div>
+      <button class="sensor active" data-sensor="echo">
+        <i class="scope echo-scope"></i><span>ECHO</span><output>0.71</output>
+      </button>
+      <button class="sensor active" data-sensor="kind">
+        <i class="scope kind-scope"></i><span>SPECTRAL</span><output>50 K</output>
+      </button>
+      <button class="sensor" data-sensor="media">
+        <i class="scope media-scope"></i><span>MEDIA</span><output>18%</output>
+      </button>
+      <button class="sensor" data-sensor="relay">
+        <i class="scope relay-scope"></i><span>PARALLAX</span><output>2/3</output>
+      </button>
+      <button class="sensor" data-sensor="time">
+        <i class="scope time-scope"></i><span>CHRONO</span><output>12m</output>
+      </button>
+    </aside>
+
+    <aside class="question-bay">
+      <div class="bay-title">OPEN QUESTIONS</div>
+      <ol id="questions">
+        <li class="hot"><b>01</b><span>WHAT IS GENERATING THE DOMINANT PULSE?</span></li>
+        <li><b>02</b><span>WHERE DOES HUMAN CONVERSATION SURVIVE?</span></li>
+        <li><b>03</b><span>IS RARITY AN EXIT OR THE SAME MACHINE AT LOWER VOLUME?</span></li>
+      </ol>
+      <button id="new-question">+ OPEN CHANNEL</button>
+    </aside>
+
+    <section class="flight-console">
+      <div class="throttle-bank">
+        <label>ACQUISITION RANGE</label>
+        <input id="range" type="range" min="50" max="1000" value="300" step="50">
+        <output id="range-output">300</output>
+      </div>
+      <div class="primary-controls">
+        <button id="retract" class="metal"><kbd>R</kbd><span>RETRACT</span></button>
+        <button id="pulse" class="pulse"><i></i><span>PULSE FIELD</span></button>
+        <button id="thrust" class="guarded"><i></i><span>THRUST PROBE</span></button>
+        <button id="pull-left" class="metal"><kbd>L</kbd><span>PULL LEFT</span></button>
+        <button id="pull-right" class="metal"><kbd>⇥</kbd><span>PULL RIGHT</span></button>
+      </div>
+      <div class="terminal">
+        <div class="terminal-head"><span>FLIGHT COMPUTER</span><i></i><i></i><i></i></div>
+        <div id="terminal-lines">
+          <p><b>SYS</b> HOME established at acquisition/hybrid-home</p>
+          <p><b>NAV</b> probe aligned with kind gravity relation</p>
+          <p><b>WARN</b> field bounded by distinct-event-budget</p>
+        </div>
+        <form id="command-form">
+          <label for="command">&gt;</label>
+          <input id="command" autocomplete="off" value="scan current field">
+          <button>EXEC</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="reservoir-deck">
+      <div class="reservoir left-reservoir">
+        <span class="port"></span>
+        <label id="left-label">LEFT RESERVOIR // GRAVITY</label>
+        <div class="specimens" id="left-specimens"><i></i><i></i><i></i><i></i></div>
+        <output id="left-count">107</output>
+      </div>
+      <div class="recorder">
+        <div class="tape"><span></span></div>
+        <p>FLIGHT RECORDER</p>
+        <output id="command-count">10 COMMANDS</output>
+      </div>
+      <div class="reservoir right-reservoir">
+        <span class="port"></span>
+        <label id="right-label">RIGHT RESERVOIR // ANOMALY</label>
+        <div class="specimens" id="right-specimens"><i></i></div>
+        <output id="right-count">3</output>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

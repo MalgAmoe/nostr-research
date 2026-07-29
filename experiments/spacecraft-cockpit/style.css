@@ -1,0 +1,552 @@
+:root {
+  color-scheme: dark;
+  --void: #020605;
+  --hull: #0a0f0d;
+  --metal: #141a17;
+  --line: #35433b;
+  --phosphor: #baf7bf;
+  --green: #53e68a;
+  --amber: #ffb642;
+  --red: #ff4e3b;
+  --cyan: #63d8df;
+  --dim: #718078;
+  --glow: 0 0 16px currentColor;
+  font-family: "SFMono-Regular", "Roboto Mono", "Courier New", monospace;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-width: 1100px;
+  min-height: 100vh;
+  overflow: auto;
+  background:
+    radial-gradient(circle at 50% 20%, #17201c 0, #050907 38%, #010202 75%);
+  color: var(--phosphor);
+}
+button, input { font: inherit; }
+button { color: inherit; }
+
+#cockpit {
+  position: relative;
+  display: grid;
+  grid-template-columns: 224px minmax(620px, 1fr) 210px;
+  grid-template-rows: 64px 46px minmax(330px, 1fr) 154px 78px;
+  grid-template-areas:
+    "overhead overhead overhead"
+    "relay relay relay"
+    "questions viewport sensors"
+    "console console console"
+    "reservoir reservoir reservoir";
+  width: 100%;
+  height: 100vh;
+  min-height: 680px;
+  isolation: isolate;
+  border: 8px solid #090d0b;
+  box-shadow: inset 0 0 100px #000;
+}
+
+.hull-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  opacity: .18;
+  mix-blend-mode: overlay;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 3px, #fff 4px, transparent 5px),
+    radial-gradient(circle at 30% 20%, #fff 0 1px, transparent 1px);
+  background-size: auto, 47px 53px;
+}
+
+.overhead {
+  grid-area: overhead;
+  display: grid;
+  grid-template-columns: 300px 1fr 180px;
+  align-items: center;
+  padding: 0 20px;
+  background: linear-gradient(#1a211e, #080c0a);
+  border-bottom: 2px solid #303c35;
+  box-shadow: 0 8px 20px #000;
+  z-index: 5;
+}
+.craft-id { display: flex; flex-direction: column; }
+.eyebrow { color: var(--dim); font-size: 9px; letter-spacing: .16em; }
+.craft-id strong { color: var(--amber); font-size: 19px; letter-spacing: .12em; }
+.craft-selector { display: flex; justify-content: center; gap: 5px; }
+.craft-selector button {
+  border: 1px solid #344039;
+  background: #090d0b;
+  padding: 8px 12px;
+  color: #77867d;
+  font-size: 10px;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+.craft-selector button:hover,
+.craft-selector button.selected {
+  color: var(--phosphor);
+  border-color: var(--green);
+  box-shadow: inset 0 -2px var(--green), 0 0 10px #53e68a33;
+}
+.ship-clock { text-align: right; font-size: 11px; color: var(--dim); }
+.ship-clock time { display: block; color: var(--green); font-size: 17px; }
+
+.relay-gantry {
+  grid-area: relay;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  background: #050806;
+  border-bottom: 1px solid #29322d;
+}
+.gantry-label { margin-right: 10px; color: #65736b; font-size: 10px; }
+.relay {
+  display: grid;
+  grid-template-columns: 12px auto;
+  column-gap: 5px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 10px;
+}
+.relay i {
+  grid-row: 1 / span 2;
+  width: 7px; height: 7px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: var(--glow);
+}
+.relay.weak i { color: var(--amber); background: var(--amber); }
+.relay small { color: var(--dim); font-size: 8px; }
+.buffer-gauge {
+  margin-left: auto;
+  display: grid;
+  grid-template-columns: auto 170px auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 9px;
+}
+.buffer-gauge span {
+  height: 8px;
+  border: 1px solid #3a463f;
+  padding: 1px;
+}
+.buffer-gauge b {
+  display: block;
+  width: 30%;
+  height: 100%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+}
+
+.viewport-frame {
+  grid-area: viewport;
+  position: relative;
+  overflow: hidden;
+  margin: 12px;
+  border: 2px solid #46534c;
+  border-radius: 48% 48% 10px 10px / 12% 12% 10px 10px;
+  background:
+    radial-gradient(circle at center, #0a1712 0, #020403 58%, #000 100%);
+  box-shadow:
+    inset 0 0 80px #000,
+    inset 0 0 10px #75ffad33,
+    0 0 0 7px #111815,
+    0 0 0 9px #2b352f;
+}
+#space { position: absolute; width: 100%; height: 100%; inset: 0; }
+.viewport-frame::before,
+.viewport-frame::after {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  border-top: 1px solid #72e59b18;
+}
+.viewport-frame::after {
+  inset: 0 auto 0 50%;
+  border: 0;
+  border-left: 1px solid #72e59b18;
+}
+.viewport-label {
+  position: absolute;
+  z-index: 3;
+  padding: 10px 15px;
+  color: #70897a;
+  font-size: 9px;
+  letter-spacing: .08em;
+}
+.top-left { top: 0; left: 0; }
+.top-right { top: 0; right: 0; }
+.bottom-left { bottom: 0; left: 0; }
+.bottom-right { bottom: 0; right: 0; }
+.viewport-label b { color: var(--green); }
+
+.reticle {
+  position: absolute;
+  z-index: 4;
+  left: 50%; top: 46%;
+  width: 102px; height: 102px;
+  transform: translate(-50%, -50%);
+  border: 1px solid #ffb64266;
+  border-radius: 50%;
+  box-shadow: 0 0 30px #ffb64222;
+  transition: .5s;
+}
+.reticle::before, .reticle::after {
+  content: "";
+  position: absolute;
+  background: var(--amber);
+}
+.reticle::before { width: 24px; height: 1px; top: 50%; left: 39px; }
+.reticle::after { width: 1px; height: 24px; left: 50%; top: 39px; }
+.reticle i {
+  position: absolute;
+  width: 18px; height: 18px;
+  border-color: var(--amber);
+}
+.reticle i:nth-child(1) { top: -5px; left: -5px; border-top: 2px solid; border-left: 2px solid; }
+.reticle i:nth-child(2) { top: -5px; right: -5px; border-top: 2px solid; border-right: 2px solid; }
+.reticle i:nth-child(3) { bottom: -5px; left: -5px; border-bottom: 2px solid; border-left: 2px solid; }
+.reticle i:nth-child(4) { bottom: -5px; right: -5px; border-bottom: 2px solid; border-right: 2px solid; }
+.reticle span {
+  position: absolute;
+  top: 112px; left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  color: var(--amber);
+  font-size: 9px;
+}
+
+.home-beacon {
+  position: absolute;
+  left: 13%; bottom: 17%;
+  width: 15px; height: 15px;
+  transform: rotate(45deg);
+  border: 2px solid var(--green);
+  box-shadow: 0 0 14px var(--green);
+}
+.home-beacon span {
+  position: absolute;
+  transform: rotate(-45deg);
+  left: 17px; top: 5px;
+  font-size: 8px;
+}
+.probe-path, .comparison-plane, .anatomy { display: none; }
+
+.sensor-rack, .question-bay {
+  margin: 12px 6px;
+  border: 1px solid #303a35;
+  background: linear-gradient(100deg, #0d1210, #050806);
+  box-shadow: inset 0 0 24px #000;
+}
+.sensor-rack { grid-area: sensors; padding: 11px; }
+.question-bay { grid-area: questions; padding: 11px; }
+.rack-title, .bay-title {
+  border-bottom: 1px solid #3a463f;
+  padding-bottom: 8px;
+  color: var(--amber);
+  font-size: 10px;
+  letter-spacing: .12em;
+}
+.sensor {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  align-items: center;
+  width: 100%;
+  min-height: 56px;
+  padding: 7px;
+  border: 0;
+  border-bottom: 1px solid #222b26;
+  background: transparent;
+  color: #68766e;
+  cursor: pointer;
+}
+.sensor:hover { background: #101713; }
+.sensor.active { color: var(--green); }
+.sensor output { color: var(--amber); font-size: 10px; }
+.scope {
+  width: 34px; height: 34px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  box-shadow: inset 0 0 12px currentColor;
+  opacity: .65;
+}
+.sensor.active .scope { box-shadow: inset 0 0 12px currentColor, 0 0 8px currentColor; }
+.echo-scope { background: repeating-radial-gradient(circle, transparent 0 5px, currentColor 6px, transparent 7px); }
+.kind-scope { background: conic-gradient(transparent, currentColor, transparent 30%, currentColor 32%, transparent 50%); }
+.media-scope { background: linear-gradient(135deg, transparent 45%, currentColor 46% 54%, transparent 55%); }
+.relay-scope { background: radial-gradient(circle at 30% 40%, currentColor 0 2px, transparent 3px), radial-gradient(circle at 70% 60%, currentColor 0 2px, transparent 3px); }
+.time-scope { background: conic-gradient(currentColor 0 8%, transparent 8%); }
+
+#questions { list-style: none; padding: 0; margin: 10px 0; }
+#questions li {
+  display: grid;
+  grid-template-columns: 25px 1fr;
+  gap: 7px;
+  padding: 11px 3px;
+  border-bottom: 1px solid #232d28;
+  color: #76837c;
+  font-size: 9px;
+  line-height: 1.4;
+}
+#questions li.hot { color: var(--phosphor); }
+#questions b { color: var(--amber); }
+#new-question {
+  width: 100%;
+  border: 1px dashed #3e4c44;
+  padding: 8px;
+  background: transparent;
+  color: #6d7c73;
+  font-size: 9px;
+}
+
+.flight-console {
+  grid-area: console;
+  display: grid;
+  grid-template-columns: 190px minmax(500px, 1fr) 380px;
+  gap: 16px;
+  align-items: stretch;
+  padding: 10px 24px;
+  background:
+    linear-gradient(170deg, #1a211e 0 12%, #090d0b 12% 100%);
+  border-top: 3px solid #3a453f;
+  border-bottom: 2px solid #252e29;
+}
+.throttle-bank {
+  display: grid;
+  grid-template-columns: 1fr 45px;
+  align-content: center;
+  gap: 8px;
+  color: var(--dim);
+  font-size: 9px;
+}
+.throttle-bank label { grid-column: 1 / -1; }
+.throttle-bank input { accent-color: var(--amber); }
+.throttle-bank output { color: var(--amber); }
+.primary-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
+.primary-controls button {
+  min-width: 92px;
+  height: 62px;
+  border: 1px solid #3b4740;
+  background: linear-gradient(#202822, #080b09);
+  box-shadow: inset 0 0 10px #000, 0 4px 0 #030403;
+  cursor: pointer;
+}
+.primary-controls button:active { transform: translateY(3px); box-shadow: inset 0 0 10px #000, 0 1px 0 #030403; }
+.primary-controls kbd { display: block; color: var(--amber); font-size: 16px; }
+.primary-controls span { display: block; margin-top: 7px; font-size: 8px; }
+.primary-controls .pulse {
+  color: var(--green);
+  border-radius: 50%;
+  min-width: 78px; width: 78px;
+  border-color: var(--green);
+  box-shadow: inset 0 0 15px #000, 0 0 12px #53e68a55;
+}
+.pulse i {
+  display: block;
+  margin: auto;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 13px var(--green);
+}
+.guarded { color: var(--red); border: 3px double #7d382f !important; }
+.guarded i {
+  display: block;
+  width: 26px; height: 12px;
+  margin: auto;
+  border: 2px solid var(--red);
+  transform: skew(-20deg);
+}
+.terminal {
+  border: 2px solid #2f3d35;
+  padding: 8px;
+  background: #020503;
+  box-shadow: inset 0 0 25px #000, 0 0 0 4px #111814;
+  font-size: 9px;
+}
+.terminal-head {
+  display: flex;
+  gap: 5px;
+  color: var(--dim);
+  border-bottom: 1px solid #233029;
+  padding-bottom: 5px;
+}
+.terminal-head span { margin-right: auto; color: var(--green); }
+.terminal-head i { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+#terminal-lines { height: 66px; overflow: hidden; }
+#terminal-lines p { margin: 7px 0; color: #829388; }
+#terminal-lines b { color: var(--amber); }
+#command-form { display: grid; grid-template-columns: 15px 1fr 45px; border-top: 1px solid #253029; padding-top: 5px; }
+#command-form input { border: 0; outline: 0; background: transparent; color: var(--phosphor); }
+#command-form button { border: 0; background: #17221c; color: var(--green); font-size: 8px; }
+
+.reservoir-deck {
+  grid-area: reservoir;
+  display: grid;
+  grid-template-columns: 1fr 160px 1fr;
+  gap: 25px;
+  padding: 7px 30px;
+  background: #050806;
+}
+.reservoir {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 18px;
+  border: 1px solid #3c4942;
+  border-radius: 40% 8px 8px 40%;
+  background: radial-gradient(circle at left, #17231d, #070a08 65%);
+  box-shadow: inset 0 0 24px #000;
+}
+.right-reservoir {
+  direction: rtl;
+  border-radius: 8px 40% 40% 8px;
+  background: radial-gradient(circle at right, #1d1c13, #070a08 65%);
+}
+.reservoir .port {
+  width: 28px; height: 28px;
+  border: 5px double var(--green);
+  border-radius: 50%;
+  box-shadow: 0 0 10px #53e68a55;
+}
+.right-reservoir .port { border-color: var(--amber); box-shadow: 0 0 10px #ffb64255; }
+.reservoir label { font-size: 9px; color: var(--dim); }
+.reservoir output { font-size: 18px; color: var(--green); }
+.right-reservoir output { color: var(--amber); }
+.specimens { display: flex; gap: 4px; direction: ltr; }
+.specimens i { width: 7px; height: 18px; border: 1px solid currentColor; background: currentColor; opacity: .5; }
+.recorder { text-align: center; color: var(--dim); font-size: 8px; }
+.tape {
+  width: 55px; height: 27px;
+  margin: 0 auto 3px;
+  border: 3px double #4a554f;
+  border-radius: 8px;
+  background: repeating-linear-gradient(90deg, #111 0 4px, #2c362f 5px 6px);
+}
+
+/* Interceptor: the field pushes forward, questions disappear, impacts dominate. */
+#cockpit[data-craft="interceptor"] {
+  --green: #ffb642;
+  --phosphor: #ffe0a3;
+  grid-template-columns: 150px minmax(700px, 1fr) 250px;
+}
+[data-craft="interceptor"] .question-bay { opacity: .28; }
+[data-craft="interceptor"] .viewport-frame {
+  border-radius: 50% 50% 30% 30%;
+  transform: perspective(900px) rotateX(2deg);
+}
+[data-craft="interceptor"] .reticle { width: 72px; height: 72px; animation: hunt 2s ease-in-out infinite alternate; }
+[data-craft="interceptor"] .reticle::before { left: 24px; }
+[data-craft="interceptor"] .reticle::after { top: 24px; }
+[data-craft="interceptor"] .probe-path {
+  display: block;
+  position: absolute;
+  width: 55%; height: 35%;
+  left: 9%; top: 52%;
+  border-top: 2px solid var(--amber);
+  transform: rotate(-13deg);
+  filter: drop-shadow(0 0 5px var(--amber));
+}
+[data-craft="interceptor"] .probe-path .joint {
+  position: absolute; top: -5px;
+  width: 9px; height: 9px;
+  border-radius: 50%; background: var(--amber);
+}
+.j1 { left: 20%; }.j2 { left: 49%; }.j3 { left: 76%; }
+.probe-tip { position: absolute; right: -25px; top: -7px; font-size: 8px; }
+
+/* Darkroom: space becomes an optical instrument. */
+#cockpit[data-craft="darkroom"] { --green: #63d8df; --phosphor: #b8f7ff; }
+[data-craft="darkroom"] .reticle,
+[data-craft="darkroom"] .home-beacon { opacity: .25; }
+[data-craft="darkroom"] .comparison-plane {
+  display: grid;
+  position: absolute;
+  inset: 17% 10%;
+  grid-template-columns: 1fr 60px 1fr;
+  align-items: center;
+}
+.exposure {
+  height: 72%;
+  border: 1px solid var(--cyan);
+  background: radial-gradient(circle, #63d8df33, transparent 65%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  box-shadow: inset 0 0 60px #63d8df22;
+}
+.exposure.b { color: var(--amber); border-color: var(--amber); background: radial-gradient(circle, #ffb6422a, transparent 65%); }
+.exposure span { font-size: 30px; opacity: .4; }
+.exposure b { font-size: 52px; font-weight: 300; }
+.exposure small { margin-top: 20px; }
+.optical-axis { height: 1px; background: white; box-shadow: 0 0 10px white; }
+
+/* Anatomical craft: reservoirs move into the viewport and the probe dominates. */
+#cockpit[data-craft="anatomical"] { --green: #ef476f; --phosphor: #ffd0dc; }
+[data-craft="anatomical"] .reticle { top: 28%; border-color: var(--phosphor); }
+[data-craft="anatomical"] .anatomy {
+  display: grid;
+  position: absolute;
+  left: 50%; bottom: 8%;
+  width: 58%; height: 48%;
+  transform: translateX(-50%);
+  grid-template-columns: 1fr 38% 1fr;
+  align-items: end;
+}
+.anatomy .ball {
+  height: 48%;
+  min-height: 90px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--phosphor);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ef476f55, #16050a 70%);
+  box-shadow: inset -14px -10px 28px #000, 0 0 20px #ef476f44;
+}
+.anatomy .ball b { font-size: 25px; }
+.anatomy .ball span { font-size: 8px; }
+.anatomy .shaft {
+  align-self: start;
+  height: 75%;
+  border: 2px solid var(--phosphor);
+  border-bottom: 0;
+  border-radius: 45% 45% 0 0;
+  background: linear-gradient(90deg, #16050a, #ef476f44, #16050a);
+  display: flex;
+  justify-content: space-around;
+  padding-top: 12px;
+}
+.anatomy .shaft i { width: 6px; height: 6px; border-radius: 50%; background: var(--phosphor); box-shadow: var(--glow); }
+[data-craft="anatomical"] .reservoir-deck { opacity: .25; }
+
+@keyframes hunt {
+  to { transform: translate(-25%, -70%) rotate(7deg); }
+}
+@keyframes alarm {
+  50% { opacity: .35; }
+}
+
+@media (max-height: 760px) {
+  #cockpit { grid-template-rows: 58px 42px minmax(310px, 1fr) 145px 70px; }
+  .overhead { padding: 0 14px; }
+  .sensor { min-height: 49px; }
+  .scope { width: 30px; height: 30px; }
+  .viewport-frame { margin: 8px 12px; }
+  .flight-console { padding-block: 7px; }
+  .primary-controls button { height: 56px; }
+  #terminal-lines { height: 57px; }
+}
