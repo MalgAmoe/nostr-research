@@ -199,7 +199,7 @@ export function transformOutputKind(inputKind, itemKind, operation) {
   return { kind, itemKind: kind };
 }
 
-function refinedSubjectKind(predicate) {
+export function refinedSubjectKind(predicate) {
   if (predicate?.field === 'subject.type') {
     const value = predicate.equals
       ?? (Array.isArray(predicate.in) && predicate.in.length === 1 ? predicate.in[0] : undefined);

@@ -85,6 +85,27 @@ test('collection accounting separates rejected identities from bounded omissions
   const memory = createInMemoryResearchMemory({ capacity: 4 });
   for (const event of events) memory.ingest(event, { relay: 'wss://fixture.example/' });
   const source = memory.select({ ids: events.map(({ id }) => id), order: 'oldest' });
+  const subjects = memory.collection([
+    ...source.items,
+    { subject: { type: 'account', id: events[0].pubkey } },
+  ]);
+  const equalsEvents = memory.transform(subjects, {
+    operation: 'filter',
+    where: { field: 'subject.type', equals: 'event' },
+    limit: 10,
+  });
+  const inEvents = memory.transform(subjects, {
+    operation: 'filter',
+    where: { field: 'subject.type', in: ['event'] },
+    limit: 10,
+  });
+  assert.equal(equalsEvents.kind, 'events');
+  assert.equal(inEvents.kind, 'events');
+  assert.deepEqual(inEvents.items.map(({ subject }) => subject),
+    equalsEvents.items.map(({ subject }) => subject));
+  assert.doesNotThrow(() => memory.transform(inEvents, {
+    operation: 'move', to: 'authors', limit: 10,
+  }));
 
   const exactFilter = memory.transform(source, {
     operation: 'filter',

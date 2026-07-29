@@ -831,7 +831,10 @@ function evaluate(expression, values) {
   if (expression.operation === 'subtract') return args.slice(1).reduce(
     (total, value) => total - value, args[0],
   );
-  return args.slice(1).reduce((total, value) => value === 0 ? null : total / value, args[0]);
+  return args.slice(1).reduce(
+    (total, value) => total === null || value === 0 ? null : total / value,
+    args[0],
+  );
 }
 
 function matches(values, predicate) {

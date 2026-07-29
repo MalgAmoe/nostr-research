@@ -526,7 +526,8 @@ function showCollection(memory, collection, settings) {
     };
   } else if (settings.mode === 'coverage') {
     result.preview = [];
-    const provenance = provenanceSummary(collection.items);
+    const resolvedCollection = memory.asCollection(collection);
+    const provenance = provenanceSummary(resolvedCollection.items);
     const evidenceResolution = resolutionCounts(memory, collection.items);
     result.coverage = {
       sources: provenance,
@@ -929,6 +930,7 @@ function evidenceDetail(item, excerptLimit) {
           omittedTags: Math.max(0, record.metadataEvent.tags.length - 20),
         },
         observationCount: record.observations?.length ?? 0,
+        omittedObservationCount: record.omittedObservationCount ?? 0,
       },
     };
   }
@@ -943,6 +945,7 @@ function evidenceDetail(item, excerptLimit) {
         omittedTags: Math.max(0, record.event.tags.length - 20),
       },
       observationCount: record.observations?.length ?? 0,
+      omittedObservationCount: record.omittedObservationCount ?? 0,
     },
   };
 }
@@ -966,13 +969,15 @@ function compactResult(item) {
 function provenanceSummary(items) {
   const relays = new Set();
   let observations = 0;
+  let omittedObservationCount = 0;
   for (const item of items) {
+    omittedObservationCount += item.record?.omittedObservationCount ?? 0;
     for (const source of item.provenance ?? item.record?.observations ?? []) {
       observations += 1;
       if (source.relay) relays.add(source.relay);
     }
   }
-  return { observations, relays: [...relays].sort() };
+  return { observations, omittedObservationCount, relays: [...relays].sort() };
 }
 
 function compactContext(context) {
@@ -1236,9 +1241,11 @@ function compactStage(stage) {
 
 function evidenceFreshness(memory, items) {
   const observations = [];
+  let omittedObservationCount = 0;
   const evidenceResolution = resolutionCounts(memory, items);
   for (const item of items) {
     const inspected = memory.inspect(item.subject);
+    omittedObservationCount += inspected.evidence?.omittedObservationCount ?? 0;
     const provenance = uniqueObjects([
       ...(item.provenance ?? []),
       ...(inspected.provenance ?? []),
@@ -1252,6 +1259,7 @@ function evidenceFreshness(memory, items) {
     basis: 'collection provenance plus current canonical evidence observations',
     evidenceResolution,
     observationCount: observations.length,
+    omittedObservationCount,
     oldestObservedAt: observations[0] ?? null,
     newestObservedAt: observations.at(-1) ?? null,
   };
@@ -1299,6 +1307,8 @@ function corpusState(memory) {
     remainingCapacity: corpus.remainingCapacity,
     pressure: corpus.capacity === 0 ? 0 : corpus.eventCount / corpus.capacity,
     evictions: corpus.evictions,
+    retainedObservationCount: corpus.retainedObservationCount,
+    omittedObservationCount: corpus.omittedObservationCount,
   };
 }
 
@@ -1311,6 +1321,8 @@ function corpusSnapshot(corpus) {
     remainingCapacity: buffer.remainingCapacity,
     pressure: buffer.capacity === 0 ? 0 : buffer.eventCount / buffer.capacity,
     evictions: buffer.evictions,
+    retainedObservationCount: buffer.retainedObservationCount,
+    omittedObservationCount: buffer.omittedObservationCount,
   };
 }
 
@@ -1702,6 +1714,7 @@ function compactEvidenceForSize(evidence) {
       },
     } : {}),
     observationCount: evidence.observationCount ?? evidence.provenance?.length ?? 0,
+    omittedObservationCount: evidence.omittedObservationCount ?? 0,
   };
 }
 

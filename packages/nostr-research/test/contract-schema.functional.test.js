@@ -21,6 +21,7 @@ test('factual schemas construct commands accepted through the public session sea
     commandId: 'global-schema', command: 'schema', parameters: { detail: 'full' },
   });
   const contracts = global.result.research.parameterContracts;
+  assert.equal(global.result.constraints.memory.observationsPerEvent.maximum, 100);
   assert.deepEqual(contracts.filter.limit, {
     type: 'integer', minimum: 1, maximum: 1000, default: 100,
   });
@@ -154,6 +155,29 @@ test('factual schemas construct commands accepted through the public session sea
     resultId: 'derived-authors',
   });
   assert.equal(derivedAuthors.ok, true);
+  const nullDivision = await session.execute({
+    commandId: 'null-division', command: 'derive', input: 'author-counts',
+    parameters: {
+      fields: [{
+        name: 'ratio',
+        expression: {
+          operation: 'divide',
+          args: [
+            { constant: 12 },
+            { constant: 0 },
+            { constant: 3 },
+          ],
+        },
+      }],
+    },
+    resultId: 'null-division',
+  });
+  assert.equal(nullDivision.ok, true);
+  const shownNullDivision = await session.execute({
+    commandId: 'show-null-division', command: 'show', input: 'null-division',
+    parameters: { mode: 'preview', previewLimit: 10 },
+  });
+  assert.equal(shownNullDivision.result.preview[0].values.ratio, null);
   const derivedAuthorStructure = await session.execute({
     commandId: 'derived-author-schema', command: 'schema', input: 'derived-authors',
   });

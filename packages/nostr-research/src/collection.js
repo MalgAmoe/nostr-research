@@ -4,6 +4,7 @@ import {
   MOVE_ROUTES,
   SUBJECT_COLLECTION_KINDS,
   operationSchema,
+  refinedSubjectKind,
   transformOutputKind,
 } from './operations.js';
 import {
@@ -185,11 +186,7 @@ function apply(memory, collection, operation) {
       || choices?.includes(field === 'subject.type' ? subject.type : subject.id)
     ));
     const items = matched.slice(0, operation.limit);
-    const refined = field === 'subject.type' && choices === undefined
-      ? {
-        event: 'events', account: 'accounts', address: 'addresses', relationship: 'relationships',
-      }[equals]
-      : undefined;
+    const refined = refinedSubjectKind(operation.where);
     output = result(items, refined ?? collection.kind);
     output.bounds = {
       inputCount: collection.items.length,

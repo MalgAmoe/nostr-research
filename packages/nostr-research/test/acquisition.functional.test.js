@@ -67,6 +67,7 @@ class RelayFixtureWebSocket {
   }
 
   send(serialized) {
+    if (this.url.includes('send-failure')) throw new Error('fixture synchronous send failure');
     const packet = JSON.parse(serialized);
     if (packet[0] !== 'REQ') return;
     RelayFixtureWebSocket.requests.push(packet);
@@ -119,6 +120,28 @@ class RelayFixtureWebSocket {
     for (const listener of this.listeners.get(name) ?? []) listener(event);
   }
 }
+
+test('synchronous relay request send failure is an attributed terminal peer outcome', async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  globalThis.WebSocket = RelayFixtureWebSocket;
+  const memory = createInMemoryResearchMemory({ capacity: 1 });
+  try {
+    const report = await acquireRelayEvents(memory, {
+      relays: ['wss://send-failure.example'],
+      filter: { kinds: [1] },
+      timeoutMs: 1000,
+      observationLimit: 1,
+      distinctEventLimit: 1,
+    });
+    assert.equal(report.relays[0].socketOpened, true);
+    assert.equal(report.relays[0].subscriptionSent, false);
+    assert.equal(report.relays[0].outcome, 'peer-error');
+    assert.match(report.relays[0].diagnostic, /fixture synchronous send failure/);
+  } finally {
+    memory.close();
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
 
 test('relation fetch binds deduplicated values into an ordinary acquisition', async () => {
   const originalWebSocket = globalThis.WebSocket;

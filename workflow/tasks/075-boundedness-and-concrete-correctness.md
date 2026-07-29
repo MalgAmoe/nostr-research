@@ -1,6 +1,6 @@
 ---
 id: 075-boundedness-and-concrete-correctness
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/075-boundedness-and-concrete-correctness.validate.sh
 depends_on:
@@ -39,11 +39,16 @@ semantics.
 1. Add an engine-owned maximum of 100 retained observations per canonical event.
    Publish it as a factual memory constraint through the existing global
    constraint/schema surface.
-2. Deduplicate only genuinely identical observations. Observations from the
-   same relay at different observed times remain distinct facts.
-3. Once the per-event bound is reached, retain a count of omitted observations.
-   Surface that omission wherever event provenance or memory/corpus facts make
-   it relevant. Do not imply that the retained observations are exhaustive.
+2. Deduplicate genuinely identical observations while they are retained.
+   Observations from the same relay at different observed times remain distinct
+   facts.
+3. Once the per-event bound is reached, discard further observation objects and
+   increment a count of discarded observation attempts. The count is not a
+   count of distinct unseen facts: exact deduplication of an unbounded discarded
+   stream would itself require unbounded memory. Do not retain a second cache,
+   rolling identity set, or probabilistic structure for omitted observations.
+   Surface the boundedness and omission semantics wherever event provenance or
+   memory/corpus facts make them relevant.
 4. Preserve the observation omission fact through buffer snapshots,
    transactions, canonical archive preservation, resolution, and presentation.
 5. Use one authoritative collection-kind refinement rule for both validation/
@@ -63,9 +68,9 @@ semantics.
 - At most 100 observation objects are retained for one event regardless of how
   many times it is ingested.
 - Repeated but distinct observations remain provenance until the bound is
-  reached; identical observations do not consume additional retained slots.
-- Omitted observation count is machine-readable and survives transaction and
-  archive paths.
+  reached; identical retained observations do not consume additional slots.
+- Omitted observation-attempt count is machine-readable, is not described as
+  distinct omitted evidence, and survives transaction and archive paths.
 - `subject.type equals "event"` and `subject.type in ["event"]` produce the same
   typed collection and compatible movement routes.
 - Divide-by-zero remains null through subsequent divide operands.
@@ -77,6 +82,8 @@ semantics.
 ## Non-goals
 
 - Retaining an unbounded observation timeline.
+- Exact deduplication or approximate membership tracking for discarded
+  observations.
 - Per-relay observation quotas, sampling policies, persistence, or byte-weighted
   memory accounting.
 - Changing the distinct-event buffer capacity or acquisition budgets.

@@ -152,7 +152,12 @@ export async function acquireRelayEvents(memory, options) {
         if (finishing || stopReason) return finish(stopReason ?? relayResult.outcome);
         opened = true;
         relayResult.socketOpened = true;
-        socket.send(JSON.stringify(['REQ', subscriptionId, normalized.filter]));
+        try {
+          socket.send(JSON.stringify(['REQ', subscriptionId, normalized.filter]));
+        } catch (error) {
+          finish('peer-error', describeWebSocketError(error));
+          return;
+        }
         relayResult.subscriptionSent = true;
       });
       socket.addEventListener('message', (message) => {

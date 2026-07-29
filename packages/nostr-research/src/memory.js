@@ -24,6 +24,8 @@ const HEX_PREFIX = /^[a-f0-9]{4,64}$/;
 const DEFAULT_QUERY_LIMIT = QUERY_LIMIT.default;
 const MAX_QUERY_LIMIT = QUERY_LIMIT.maximum;
 const MEMORY_CAPACITY = RESEARCH_CONSTRAINTS.memory.capacity;
+const MAX_OBSERVATIONS_PER_EVENT =
+  RESEARCH_CONSTRAINTS.memory.observationsPerEvent.maximum;
 const NOTEBOOK_CAPACITY = RESEARCH_CONSTRAINTS.notebook.capacity;
 const SUBJECT_TYPES = new Set(['event', 'account', 'address', 'tag']);
 const NOTEBOOK_SUBJECT_TYPES = new Set(['event', 'account', 'address', 'tag']);
@@ -134,11 +136,17 @@ class IndexedObservationBuffer {
   }
 
   describe(capacity, evictions) {
+    const retainedObservationCount = [...this.records.values()]
+      .reduce((total, record) => total + record.observations.length, 0);
+    const omittedObservationCount = [...this.records.values()]
+      .reduce((total, record) => total + (record.omittedObservationCount ?? 0), 0);
     return {
       capacity,
       eventCount: this.records.size,
       remainingCapacity: capacity - this.records.size,
       evictions,
+      retainedObservationCount,
+      omittedObservationCount,
       authors: this.authors.size,
       kinds: this.kinds.size,
       tags: this.tags.size,
@@ -238,15 +246,46 @@ export class InMemoryResearchMemory {
     // partial mutation. IndexedObservationBuffer derives again from the owned clone.
     deriveEventRelationships(canonical);
     const stored = this.#buffer.records.has(canonical.id);
-    if (!stored) this.#buffer.insert({ event: canonical, observations: [] });
-    const recorded = { id: this.#nextObservationId++, ...normalized };
-    this.#buffer.records.get(canonical.id).observations.push(recorded);
+    if (!stored) {
+      this.#buffer.insert({
+        event: canonical,
+        observations: [],
+        omittedObservationCount:
+          this.#archivedCanonical.records.get(canonical.id)?.omittedObservationCount ?? 0,
+      });
+    }
     const evicted = [];
     if (this.#buffer.records.size > this.#capacity) {
       const oldest = this.#buffer.records.keys().next().value;
       this.#buffer.remove(oldest);
       this.#evictions += 1;
       evicted.push(oldest);
+    }
+    const record = this.#buffer.records.get(canonical.id);
+    const knownObservation = findIdenticalObservation(
+      [
+        ...(this.#archivedCanonical.records.get(canonical.id)?.observations ?? []),
+        ...record.observations,
+      ],
+      normalized,
+    );
+    if (knownObservation) {
+      return {
+        eventId: canonical.id,
+        eventStored: !stored,
+        observation: cloneJson(knownObservation),
+        ...(evicted.length ? { evicted } : {}),
+      };
+    }
+    const recorded = { id: this.#nextObservationId++, ...normalized };
+    const retainedCount = uniqueObservationFacts([
+      ...(this.#archivedCanonical.records.get(canonical.id)?.observations ?? []),
+      ...record.observations,
+    ]).length;
+    if (retainedCount < MAX_OBSERVATIONS_PER_EVENT) {
+      record.observations.push(recorded);
+    } else {
+      record.omittedObservationCount = (record.omittedObservationCount ?? 0) + 1;
     }
     return {
       eventId: canonical.id,
@@ -261,7 +300,7 @@ export class InMemoryResearchMemory {
     if (typeof eventId !== 'string' || !EVENT_ID.test(eventId)) {
       throw new ResearchMemoryError('Event ID must be a 64-character lowercase hexadecimal string.');
     }
-    return this.#resolveEventRecord(eventId).record;
+    return publicCanonicalRecord(this.#resolveEventRecord(eventId).record);
   }
 
   select(query = {}) {
@@ -274,19 +313,19 @@ export class InMemoryResearchMemory {
       normalized.authors, events.map(({ pubkey }) => pubkey), 'author public key',
     );
     const results = [];
-    for (const [eventId, { event, observations }] of records) {
+    for (const [eventId, { event, observations, omittedObservationCount }] of records) {
       const matchReasons = matchEvent(event, normalized, ids, authors);
       if (matchReasons) {
         results.push({
-          event, observations, matchReasons,
+          event, observations, omittedObservationCount, matchReasons,
         });
       }
     }
     results.sort((left, right) => compareEvents(left.event, right.event, normalized.order));
     return resultCollection(results.slice(0, normalized.limit)
-      .map(({ event, observations, matchReasons }) => ({
+      .map(({ event, observations, omittedObservationCount, matchReasons }) => ({
       subject: subject('event', event.id),
-      record: { event, observations },
+      record: { event, observations, omittedObservationCount: omittedObservationCount ?? 0 },
       reasons: matchReasons,
       provenance: observations,
     })), { operation: 'selection', query: publicEventQuery(normalized) }, 'events');
@@ -450,6 +489,7 @@ export class InMemoryResearchMemory {
           ? resolution.record : {
               event: resolution.record.metadataEvent,
               observations: resolution.record.observations,
+              omittedObservationCount: resolution.record.omittedObservationCount ?? 0,
             };
         entry.canonical = cloneJson(canonical);
       }
@@ -531,11 +571,19 @@ export class InMemoryResearchMemory {
     if (!archived && !buffered) return { source: 'unresolved', record: null };
     const primary = archived ?? buffered;
     const observations = [];
-    mergeUniqueJson(observations, archived?.observations ?? []);
-    mergeUniqueJson(observations, buffered?.observations ?? []);
+    mergeUniqueObservations(observations, archived?.observations ?? []);
+    mergeUniqueObservations(observations, buffered?.observations ?? []);
+    const retained = observations.slice(0, MAX_OBSERVATIONS_PER_EVENT);
     return {
       source: archived ? 'archive' : 'buffer',
-      record: cloneJson({ event: primary.event, observations }),
+      record: cloneJson({
+        event: primary.event,
+        observations: retained,
+        omittedObservationCount: Math.max(
+          archived?.omittedObservationCount ?? 0,
+          buffered?.omittedObservationCount ?? 0,
+        ) + Math.max(0, observations.length - retained.length),
+      }),
     };
   }
 
@@ -549,6 +597,7 @@ export class InMemoryResearchMemory {
         profile: parseProfile(metadata.event),
         metadataEvent: metadata.event,
         observations: metadata.observations,
+        omittedObservationCount: metadata.omittedObservationCount ?? 0,
       },
     };
   }
@@ -582,14 +631,7 @@ export class InMemoryResearchMemory {
     if (reference.type === 'event') {
       record = this.getEvent(reference.id);
     } else if (reference.type === 'account') {
-      const metadata = this.#currentByKey(reference.id, 0);
-      if (metadata) {
-        record = {
-          profile: parseProfile(metadata.event),
-          metadataEvent: metadata.event,
-          observations: metadata.observations,
-        };
-      }
+      record = this.#resolveAccountEvidence(reference.id).record;
     } else if (reference.type === 'address') {
       record = this.#resolveAddressEvidence(reference.id).record;
     }
@@ -1152,6 +1194,7 @@ export class InMemoryResearchMemory {
               ),
               relayCount: distinctRelays(record.observations).length,
               relays: distinctRelays(record.observations),
+              omittedObservationCount: record.omittedObservationCount ?? 0,
             }) : { type: 'event', id: reference.id, resolved: false };
       } else if (reference.type === 'account') {
         const summary = this.#accountSummary(
@@ -1165,6 +1208,7 @@ export class InMemoryResearchMemory {
           ...(mode === 'full' && metadata ? {
             profile: parseProfile(metadata.event),
             metadataEvent: metadata.event, observations: metadata.observations,
+            omittedObservationCount: metadata.omittedObservationCount ?? 0,
           } : {}),
         };
       } else if (reference.type === 'address') {
@@ -1267,6 +1311,7 @@ function evidenceExcerpt(item, record, limit) {
       content: excerpt(record.event.content, limit),
       tags: cloneJson(record.event.tags.slice(0, 20)),
       provenance: cloneJson(record.observations),
+      omittedObservationCount: record.omittedObservationCount ?? 0,
     };
   }
   if (item.type === 'account') {
@@ -1281,6 +1326,7 @@ function evidenceExcerpt(item, record, limit) {
           ? excerpt(record.profile.about, limit) : undefined,
       },
       provenance: cloneJson(record.observations),
+      omittedObservationCount: record.omittedObservationCount ?? 0,
     };
   }
   throw new ResearchMemoryError('Excerpt preservation supports event and account subjects.');
@@ -1293,8 +1339,17 @@ function publicArchiveEntry(entry) {
     reason: entry.reason,
     preservedAt: entry.preservedAt,
     ...(entry.excerpt ? { excerpt: entry.excerpt } : {}),
-    ...(entry.canonical ? { canonical: entry.canonical } : {}),
+    ...(entry.canonical ? { canonical: publicCanonicalRecord(entry.canonical) } : {}),
   });
+}
+
+function publicCanonicalRecord(record) {
+  if (!record) return record;
+  return {
+    event: record.event,
+    observations: record.observations,
+    omittedObservationCount: record.omittedObservationCount ?? 0,
+  };
 }
 
 function publicArchiveSummary(entry) {
@@ -1922,6 +1977,30 @@ function mergeUniqueJson(target, additions) {
       target.push(cloneJson(addition));
     }
   }
+}
+
+function observationFact(observation) {
+  const { id: ignored, ...fact } = observation;
+  return fact;
+}
+
+function findIdenticalObservation(observations, candidate) {
+  const key = stableJson(candidate);
+  return observations.find((item) => stableJson(observationFact(item)) === key);
+}
+
+function mergeUniqueObservations(target, additions) {
+  for (const addition of additions ?? []) {
+    if (!findIdenticalObservation(target, observationFact(addition))) {
+      target.push(cloneJson(addition));
+    }
+  }
+}
+
+function uniqueObservationFacts(observations) {
+  const unique = [];
+  mergeUniqueObservations(unique, observations);
+  return unique;
 }
 
 function stableJson(value) {

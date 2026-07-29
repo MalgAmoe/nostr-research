@@ -1125,6 +1125,8 @@ function corpusStatus(value) {
     remainingCapacity: buffer.remainingCapacity,
     pressure: buffer.capacity === 0 ? 0 : buffer.eventCount / buffer.capacity,
     evictions: buffer.evictions,
+    retainedObservationCount: buffer.retainedObservationCount,
+    omittedObservationCount: buffer.omittedObservationCount,
   };
 }
 

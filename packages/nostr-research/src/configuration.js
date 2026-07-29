@@ -4,6 +4,7 @@ import { normalizeRelayUrl } from './relay-url.js';
 export const RESEARCH_CONSTRAINTS = deepFreeze({
   memory: {
     capacity: { minimum: 1, maximum: 1000 },
+    observationsPerEvent: { maximum: 100 },
     traversalDepth: { minimum: 1, maximum: 100 },
     archiveExcerptLimit: { minimum: 1, maximum: 2000 },
   },

@@ -1,0 +1,3 @@
+CHANGES_REQUIRED
+
+1. Omission facts are lost or misreported in collection presentation. `memory.select()` and account resolution in `#resolveCollectionItem()` omit `omittedObservationCount`, while `showCollection()` coverage summarizes the original unresolved items. Consequently, preview/coverage output can report zero omitted observations despite recorded discarded attempts. Preserve the count through these result paths and expose it explicitly as discarded observation attempts—not distinct omitted evidence.
