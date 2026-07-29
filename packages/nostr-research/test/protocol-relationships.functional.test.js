@@ -7,6 +7,18 @@ import {
   executeResearchOperation,
   subject,
 } from '@nostr-research/memory';
+import { EmptyRelayWebSocket } from '../test-support/fixtures.js';
+
+const runtimeWebSocket = globalThis.WebSocket;
+
+test.before(() => {
+  globalThis.WebSocket = EmptyRelayWebSocket;
+});
+
+test.after(() => {
+  if (runtimeWebSocket === undefined) delete globalThis.WebSocket;
+  else globalThis.WebSocket = runtimeWebSocket;
+});
 
 const ALICE_KEY = Uint8Array.from(Buffer.from('1'.repeat(64), 'hex'));
 const BOB_KEY = Uint8Array.from(Buffer.from('2'.repeat(64), 'hex'));

@@ -2,6 +2,7 @@ import { isCanonicalNostrEvent, ResearchMemoryError } from './protocol.js';
 import { ACQUISITION } from './contract-facts.js';
 import { normalizeRelayUrl } from './relay-url.js';
 import { hasSelfDeclaredContentWarning } from './event-content.js';
+import { compareCodePoints } from './deterministic-text.js';
 import { matchFilter } from 'nostr-tools';
 
 const WEBSOCKET_CONNECTING = 0;
@@ -322,7 +323,7 @@ export async function acquireRelayEvents(memory, options) {
   result.coverage = {
     requested: {
       filter: result.requested.filter,
-      relays: [...result.requested.relays].sort(),
+      relays: [...result.requested.relays].sort(compareCodePoints),
       excludeContentWarnings: result.requested.excludeContentWarnings,
     },
     budget: result.budget,
@@ -331,7 +332,7 @@ export async function acquireRelayEvents(memory, options) {
     completionReason: result.completionReason,
     exhaustive: false,
     uncertainty: 'A bounded attempt was made; relay completeness is not implied.',
-    relays: [...result.relays].sort((a, b) => a.relay.localeCompare(b.relay)),
+    relays: [...result.relays].sort((a, b) => compareCodePoints(a.relay, b.relay)),
     observedEvents: result.acquiredObservations.flatMap(({ eventId, observations }) => (
       observations.map((item) => ({
         eventId, observationId: item.id, relay: item.relay, observedAt: item.observedAt,

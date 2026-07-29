@@ -1,4 +1,9 @@
 import { ResearchMemoryError } from './protocol.js';
+import {
+  compareCodePoints,
+  foldCase,
+  foldCaseWithOffsets,
+} from './deterministic-text.js';
 import { RESEARCH_CONSTRAINTS } from './configuration.js';
 import {
   AGGREGATIONS,
@@ -163,7 +168,7 @@ export function executeRelationOperation(memory, name, parameters, inputs) {
 
 export function relationFieldCatalog(relation) {
   const names = new Set(relation.rows.flatMap(({ values }) => Object.keys(values)));
-  return [...names].sort().map((name) => {
+  return [...names].sort(compareCodePoints).map((name) => {
     const values = relation.rows.map(({ values: rowValues }) => rowValues[name]);
     const withValue = values.filter((value) => value !== null && value !== undefined);
     const definition = relation.fieldDefinitions?.[name] ?? {};
@@ -174,7 +179,7 @@ export function relationFieldCatalog(relation) {
       name,
       rowsWithValue: withValue.length,
       nullRows: values.length - withValue.length,
-      types: [...new Set(withValue.map(valueType))].sort(),
+      types: [...new Set(withValue.map(valueType))].sort(compareCodePoints),
       ...(definition.role ? { role: definition.role } : {}),
       ...(definition.lineage ? { lineage: clone(definition.lineage) } : {}),
       ...(definition.subjectType ? { subjectType: definition.subjectType } : {}),
@@ -395,7 +400,7 @@ function normalizeRelationParameters(name, value) {
     const deduplicatedTerms = [];
     const seenTerms = new Set();
     for (const term of value.terms) {
-      const key = caseSensitive ? term : term.toLocaleLowerCase();
+      const key = caseSensitive ? term : foldCase(term);
       if (seenTerms.has(key)) continue;
       seenTerms.add(key);
       deduplicatedTerms.push(term);
@@ -693,16 +698,19 @@ function applyScan(relation, operation) {
     const matchedTerms = new Set();
     for (const fieldName of operation.fields) {
       const value = row.values[fieldName];
-      const text = scanText(value, operation.caseSensitive);
+      const scan = scanText(value, operation.caseSensitive);
       for (const term of operation.terms) {
-        const needle = operation.caseSensitive ? term : term.toLocaleLowerCase();
-        const start = scanMatchStart(text, needle, operation.matchMode, operation.caseSensitive);
+        const needle = operation.caseSensitive ? term : foldCase(term);
+        const start = scanMatchStart(scan.text, needle, operation.matchMode);
         if (start < 0) continue;
+        const originalStart = operation.caseSensitive ? start : scan.starts[start];
+        const foldedEnd = start + needle.length;
+        const originalEnd = operation.caseSensitive ? foldedEnd : scan.ends[foldedEnd - 1];
         matchedTerms.add(term);
         matches.push({
           field: fieldName,
           term,
-          ...scanMatch(value, needle, operation.caseSensitive, start),
+          ...scanMatch(value, originalStart, originalEnd),
         });
       }
     }
@@ -768,7 +776,7 @@ function relationWithAccounting(rows, cardinality, context = {}) {
 
 function scanText(value, caseSensitive) {
   const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
-  return caseSensitive ? text : text.toLocaleLowerCase();
+  return caseSensitive ? { text } : foldCaseWithOffsets(text);
 }
 
 function aggregate(rows, operation) {
@@ -845,8 +853,7 @@ function matches(values, predicate) {
   if ('equals' in predicate) return stable(actual) === stable(predicate.equals);
   if ('in' in predicate) return predicate.in.some((item) => stable(actual) === stable(item));
   if ('contains' in predicate) {
-    return String(actual ?? '').toLocaleLowerCase()
-      .includes(predicate.contains.toLocaleLowerCase());
+    return foldCase(String(actual ?? '')).includes(foldCase(predicate.contains));
   }
   if ('gte' in predicate) return typeof actual === 'number' && actual >= predicate.gte;
   return typeof actual === 'number' && actual <= predicate.lte;
@@ -967,23 +974,23 @@ function provenanceReferences(item) {
   return uniqueJson(item.provenance ?? []);
 }
 
-function scanMatch(value, needle, caseSensitive, start) {
-  const raw = scanText(value, true);
+function scanMatch(value, start, end) {
+  const raw = scanText(value, true).text;
   const excerptStart = Math.max(0, start - 80);
-  const excerptEnd = Math.min(raw.length, start + needle.length + 80);
+  const excerptEnd = Math.min(raw.length, end + 80);
   return {
     excerpt: `${excerptStart > 0 ? '…' : ''}${raw.slice(excerptStart, excerptEnd)}${excerptEnd < raw.length ? '…' : ''}`,
     start,
-    end: start + needle.length,
+    end,
   };
 }
 
-function scanMatchStart(text, needle, matchMode, caseSensitive) {
+function scanMatchStart(text, needle, matchMode) {
   if (matchMode === 'substring') return text.indexOf(needle);
   const escaped = needle.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   const expression = new RegExp(
     `(^|[^\\p{L}\\p{N}_])(${escaped})(?=$|[^\\p{L}\\p{N}_])`,
-    caseSensitive ? 'u' : 'iu',
+    'u',
   );
   const match = expression.exec(text);
   return match ? match.index + match[1].length : -1;
@@ -1137,8 +1144,8 @@ function limit(value) {
 
 function exactInputs(inputs, names, operation) {
   plainObject(inputs, `${operation} inputs`);
-  const actual = Object.keys(inputs).sort();
-  const expected = [...names].sort();
+  const actual = Object.keys(inputs).sort(compareCodePoints);
+  const expected = [...names].sort(compareCodePoints);
   if (stable(actual) !== stable(expected)) {
     throw new ResearchMemoryError(`${operation} inputs must be ${expected.join(', ')}.`);
   }
@@ -1165,7 +1172,7 @@ function compare(left, right) {
   if (left == null) return 1;
   if (right == null) return -1;
   if (typeof left === 'number' && typeof right === 'number') return left - right;
-  return stable(left).localeCompare(stable(right));
+  return compareCodePoints(stable(left), stable(right));
 }
 
 function uniqueJson(values) {
@@ -1185,7 +1192,9 @@ function stable(value) {
 function sort(value) {
   if (Array.isArray(value)) return value.map(sort);
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sort(value[key])]));
+    return Object.fromEntries(
+      Object.keys(value).sort(compareCodePoints).map((key) => [key, sort(value[key])]),
+    );
   }
   return value;
 }

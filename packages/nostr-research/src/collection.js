@@ -1,4 +1,5 @@
 import { ResearchMemoryError } from './protocol.js';
+import { compareCodePoints } from './deterministic-text.js';
 import { RESULT_LIMIT } from './contract-facts.js';
 import {
   MOVE_ROUTES,
@@ -295,7 +296,7 @@ function move(memory, collection, operation) {
     }
   }
   const discovered = [...found.values()]
-    .sort((a, b) => itemKey(a).localeCompare(itemKey(b)));
+    .sort((a, b) => compareCodePoints(itemKey(a), itemKey(b)));
   const items = discovered.slice(0, operation.limit);
   const output = result(items, MOVE_ROUTES[`${collection.kind}:${operation.to}`]);
   output.bounds = {
@@ -341,7 +342,7 @@ function setOperation(collection, operation) {
       },
     };
   }
-  const items = selected.sort().slice(0, operation.limit).map((key) => {
+  const items = selected.sort(compareCodePoints).slice(0, operation.limit).map((key) => {
     const first = left.get(key);
     const second = right.get(key);
     return {
@@ -387,7 +388,9 @@ function merge(target, values = []) {
 
 function unique(values) {
   const found = new Map(values.map((value) => [stable(value), copy(value)]));
-  return [...found.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, value]) => value);
+  return [...found.entries()]
+    .sort(([a], [b]) => compareCodePoints(a, b))
+    .map(([, value]) => value);
 }
 
 function bound(value) {
@@ -421,7 +424,7 @@ function itemKey(item) {
 function stable(value) {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
   if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}`;
+    return `{${Object.keys(value).sort(compareCodePoints).map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}`;
   }
   return JSON.stringify(value);
 }

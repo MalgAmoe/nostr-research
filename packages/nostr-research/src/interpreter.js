@@ -1,4 +1,5 @@
 import { ResearchMemoryError } from './protocol.js';
+import { compareCodePoints } from './deterministic-text.js';
 import {
   RESEARCH_CONSTRAINTS,
   normalizeSessionConfiguration,
@@ -745,7 +746,7 @@ function countedValues(values) {
     if (value !== undefined) counts.set(value, (counts.get(value) ?? 0) + 1);
     return counts;
   }, new Map())]
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .sort((left, right) => right[1] - left[1] || compareCodePoints(left[0], right[0]))
     .map(([value, count]) => ({ value, count }));
 }
 
@@ -1031,7 +1032,7 @@ function externalStatus(result, operation, memory) {
     relayOutcomeCounts.set(outcome, (relayOutcomeCounts.get(outcome) ?? 0) + 1);
   }
   const allRelayOutcomes = [...relayOutcomeCounts]
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .sort((left, right) => right[1] - left[1] || compareCodePoints(left[0], right[0]))
     .map(([outcome, count]) => ({ outcome, count }));
   const relayOutcomes = allRelayOutcomes.slice(0, 5);
   const completeRelays = relayOutcomeCounts.get('eose') ?? 0;

@@ -1,6 +1,6 @@
 ---
 id: 077-deterministic-views-and-isolated-boundaries
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/077-deterministic-views-and-isolated-boundaries.validate.sh
 depends_on: 076-truthful-contracts-and-evidence-state

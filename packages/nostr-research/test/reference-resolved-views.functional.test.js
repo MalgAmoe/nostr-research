@@ -19,6 +19,88 @@ function observation(index) {
   };
 }
 
+test('relation ordering and case-folded scan offsets are deterministic public results', async () => {
+  const memory = createInMemoryResearchMemory({ capacity: 4 });
+  const session = createDeclarativeResearchSession(memory);
+  const privateUse = note(1, '\uE000');
+  const astral = note(2, '😀');
+  const expandingCase = note(3, 'before İ after');
+  const contextualCase = note(4, 'before ΟΣ after');
+  for (const [index, event] of [
+    privateUse, astral, expandingCase, contextualCase,
+  ].entries()) {
+    memory.ingest(event, observation(index));
+  }
+
+  await session.execute({
+    commandId: 'select', command: 'select',
+    parameters: { scope: 'corpus', kinds: [1] }, resultId: 'events',
+  });
+  await session.execute({
+    commandId: 'relate', command: 'relate', input: 'events', resultId: 'rows',
+  });
+  await session.execute({
+    commandId: 'sort', command: 'sort', input: 'rows',
+    parameters: {
+      by: [{ field: 'event.text', direction: 'ascending' }],
+    },
+    resultId: 'sorted',
+  });
+  const sorted = await session.execute({
+    commandId: 'show-sort', command: 'show', input: 'sorted',
+    parameters: { previewLimit: 4 },
+  });
+  assert.deepEqual(
+    sorted.result.preview.map(({ values }) => values['event.text']),
+    ['before İ after', 'before ΟΣ after', '\uE000', '😀'],
+  );
+
+  await session.execute({
+    commandId: 'scan', command: 'scan', input: 'rows',
+    parameters: {
+      fields: ['event.text'],
+      terms: ['İ'],
+      caseSensitive: false,
+      matchMode: 'word',
+      limit: 4,
+    },
+    resultId: 'matches',
+  });
+  const scanned = await session.execute({
+    commandId: 'show-scan', command: 'show', input: 'matches',
+    parameters: { previewLimit: 4 },
+  });
+  assert.deepEqual(scanned.result.preview.map(({ values }) => ({
+    excerpt: values['match.excerpt'],
+    start: values['match.start'],
+    end: values['match.end'],
+  })), [{ excerpt: 'before İ after', start: 7, end: 8 }]);
+
+  await session.execute({
+    commandId: 'contextual-scan', command: 'scan', input: 'rows',
+    parameters: {
+      fields: ['event.text'],
+      terms: ['ΟΣ'],
+      caseSensitive: false,
+      matchMode: 'word',
+      limit: 4,
+    },
+    resultId: 'contextual-matches',
+  });
+  const contextualScan = await session.execute({
+    commandId: 'show-contextual-scan', command: 'show',
+    input: 'contextual-matches',
+    parameters: { previewLimit: 4 },
+  });
+  assert.deepEqual(contextualScan.result.preview.map(({ values }) => ({
+    excerpt: values['match.excerpt'],
+    start: values['match.start'],
+    end: values['match.end'],
+  })), [{ excerpt: 'before ΟΣ after', start: 7, end: 9 }]);
+
+  await session.close();
+});
+
 test('relation handles resolve references across evidence lifetime and keep bounded views composable', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 2, archiveCapacity: 2 });
   const session = createDeclarativeResearchSession(memory, {

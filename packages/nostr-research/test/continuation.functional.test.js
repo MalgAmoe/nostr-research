@@ -8,6 +8,7 @@ import {
   executeResearchPlan,
   preflightResearchOperation,
 } from '@nostr-research/memory';
+import { EmptyRelayWebSocket } from '../test-support/fixtures.js';
 
 const ALICE_SECRET = Uint8Array.from(Buffer.from('7'.repeat(64), 'hex'));
 const BOB_SECRET = Uint8Array.from(Buffer.from('8'.repeat(64), 'hex'));
@@ -15,53 +16,20 @@ const CAROL_SECRET = Uint8Array.from(Buffer.from('9'.repeat(64), 'hex'));
 const DAVE_SECRET = Uint8Array.from(Buffer.from('5'.repeat(64), 'hex'));
 const alice = getPublicKey(ALICE_SECRET);
 const carol = getPublicKey(CAROL_SECRET);
+const runtimeWebSocket = globalThis.WebSocket;
 
-class PartialContinuationWebSocket {
-  static CONNECTING = 0;
-  static OPEN = 1;
-  static CLOSED = 3;
+test.before(() => {
+  globalThis.WebSocket = EmptyRelayWebSocket;
+});
 
-  constructor(url) {
-    this.url = url;
-    this.readyState = PartialContinuationWebSocket.CONNECTING;
-    this.listeners = new Map();
-    queueMicrotask(() => {
-      if (url.includes('failing')) {
-        this.readyState = PartialContinuationWebSocket.CLOSED;
-        this.emit('close', { code: 1006 });
-      } else {
-        this.readyState = PartialContinuationWebSocket.OPEN;
-        this.emit('open', {});
-      }
-    });
-  }
-
-  addEventListener(name, listener) {
-    if (!this.listeners.has(name)) this.listeners.set(name, []);
-    this.listeners.get(name).push(listener);
-  }
-
-  send(serialized) {
-    const packet = JSON.parse(serialized);
-    if (packet[0] === 'REQ') {
-      queueMicrotask(() => this.emit('message', {
-        data: JSON.stringify(['EOSE', packet[1]]),
-      }));
-    }
-  }
-
-  close() {
-    this.readyState = PartialContinuationWebSocket.CLOSED;
-  }
-
-  emit(name, event) {
-    for (const listener of this.listeners.get(name) ?? []) listener(event);
-  }
-}
+test.after(() => {
+  if (runtimeWebSocket === undefined) delete globalThis.WebSocket;
+  else globalThis.WebSocket = runtimeWebSocket;
+});
 
 test('relay continuation does not claim a valid empty result when one relay fails', async () => {
   const originalWebSocket = globalThis.WebSocket;
-  globalThis.WebSocket = PartialContinuationWebSocket;
+  globalThis.WebSocket = EmptyRelayWebSocket;
   const memory = createInMemoryResearchMemory({ capacity: 10 });
   const session = createDeclarativeResearchSession(memory);
   const profile = sign(0, 1, [], '{"name":"alice"}', ALICE_SECRET);

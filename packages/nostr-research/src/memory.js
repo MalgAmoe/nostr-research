@@ -1,6 +1,7 @@
 import { SUBJECT_COLLECTION_KINDS } from './operations.js';
 import { RESEARCH_CONSTRAINTS } from './configuration.js';
 import { NOTEBOOK_JUDGMENTS, QUERY_LIMIT } from './contract-facts.js';
+import { compareCodePoints, foldCase } from './deterministic-text.js';
 import {
   collectionPipelineSchema as engineCollectionPipelineSchema,
   executeCollectionOperation,
@@ -533,7 +534,9 @@ export class InMemoryResearchMemory {
     const entries = [...this.#archive.values()]
       .filter((entry) => !wanted || memberKey(entry.subject) === memberKey(wanted))
       .filter((entry) => options.level === undefined || entry.level === options.level)
-      .sort((left, right) => memberKey(left.subject).localeCompare(memberKey(right.subject)));
+      .sort((left, right) => compareCodePoints(
+        memberKey(left.subject), memberKey(right.subject),
+      ));
     return {
       type: 'evidence-archive',
       count: entries.length,
@@ -703,7 +706,7 @@ export class InMemoryResearchMemory {
     ]) {
       for (const relation of relations) if (relation.target.type === 'account') keys.add(relation.target.id);
     }
-    return [...keys].sort();
+    return [...keys].sort(compareCodePoints);
   }
 
   #resolveAccountSubject(identifier) {
@@ -711,14 +714,14 @@ export class InMemoryResearchMemory {
     if (HEX_PREFIX.test(identifier)) {
       return subject('account', resolveOnePrefix(identifier, keys, 'account public key'));
     }
-    const wanted = identifier.toLocaleLowerCase();
+    const wanted = foldCase(identifier);
     const matches = keys.filter((key) => {
       const metadata = this.#currentByKey(key, 0);
       if (!metadata) return false;
       const profile = parseProfile(metadata.event);
       return ['name', 'display_name', 'nip05'].some(
         (field) => typeof profile[field] === 'string'
-          && profile[field].toLocaleLowerCase() === wanted,
+          && foldCase(profile[field]) === wanted,
       );
     });
     if (!matches.length) throw new ResearchMemoryError(`No stored account matches ${identifier}.`);
@@ -736,7 +739,7 @@ export class InMemoryResearchMemory {
         && event.pubkey === publicKey
         && (kind < 30000 || (event.tags.find((tag) => tag[0] === 'd')?.[1] ?? '') === d))
       .sort((left, right) => right.event.created_at - left.event.created_at
-        || left.event.id.localeCompare(right.event.id));
+        || compareCodePoints(left.event.id, right.event.id));
     return candidates[0] ? cloneJson(candidates[0]) : null;
   }
 
@@ -827,7 +830,7 @@ export class InMemoryResearchMemory {
       .filter(({ sources }) => sources.size >= normalized.minimumSources)
       .sort((left, right) => (
         right.sources.size - left.sources.size
-        || memberKey(left.subject).localeCompare(memberKey(right.subject))
+        || compareCodePoints(memberKey(left.subject), memberKey(right.subject))
       ))
       .slice(0, normalized.limit)
       .map((candidate) => ({
@@ -870,10 +873,10 @@ export class InMemoryResearchMemory {
         ...(normalized.direction !== 'outbound'
           ? this.#relationships('inbound', memberKey(current.subject)) : []),
       ].sort((left, right) => (
-        left.direction.localeCompare(right.direction)
-        || left.sourceEventId.localeCompare(right.sourceEventId)
-        || left.type.localeCompare(right.type)
-        || left.target.id.localeCompare(right.target.id)
+        compareCodePoints(left.direction, right.direction)
+        || compareCodePoints(left.sourceEventId, right.sourceEventId)
+        || compareCodePoints(left.type, right.type)
+        || compareCodePoints(left.target.id, right.target.id)
       ));
       for (const relation of relations) {
         if (!normalized.relationshipTypes.includes(relation.type)) continue;
@@ -1030,8 +1033,8 @@ export class InMemoryResearchMemory {
       .filter((entry) => normalized.judgments.length === 0
         || normalized.judgments.includes(entry.judgment))
       .sort((left, right) => (
-        right.updatedAt.localeCompare(left.updatedAt)
-        || memberKey(left.subject).localeCompare(memberKey(right.subject))
+        compareCodePoints(right.updatedAt, left.updatedAt)
+        || compareCodePoints(memberKey(left.subject), memberKey(right.subject))
       ))
       .slice(0, normalized.limit)
       .map((entry) => ({
@@ -1082,7 +1085,8 @@ export class InMemoryResearchMemory {
     }
     const record = {
       id: normalizedName, name: normalizedName, createdAt: new Date().toISOString(),
-      members: [...members.values()].sort((a, b) => memberKey(a).localeCompare(memberKey(b))),
+      members: [...members.values()]
+        .sort((a, b) => compareCodePoints(memberKey(a), memberKey(b))),
     };
     this.#notebookMemberships.set(record.name, cloneJson(record));
     const summary = this.#membershipSummary(record, 10);
@@ -1124,7 +1128,7 @@ export class InMemoryResearchMemory {
   listMemberships() {
     this.#assertOpen();
     return [...this.#notebookMemberships.values()]
-      .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+      .sort((a, b) => compareCodePoints(a.name, b.name) || compareCodePoints(a.id, b.id))
       .map((set) => this.#membershipSummary(set));
   }
 
@@ -1165,7 +1169,8 @@ export class InMemoryResearchMemory {
       name: previous.name,
       createdAt: previous.createdAt,
       updatedAt: new Date().toISOString(),
-      members: [...members.values()].sort((a, b) => memberKey(a).localeCompare(memberKey(b))),
+      members: [...members.values()]
+        .sort((a, b) => compareCodePoints(memberKey(a), memberKey(b))),
     };
     this.#notebookMemberships.set(previous.name, cloneJson(replacement));
     return this.#membershipSummary(replacement, 10);
@@ -1648,7 +1653,7 @@ function matchEvent(event, query, ids, authors) {
     reasons.push({ type: 'tag', tag: `#${name}`, values: matchedValues });
   }
   for (const term of query.terms) {
-    if (!event.content.toLocaleLowerCase().includes(term.toLocaleLowerCase())) return null;
+    if (!foldCase(event.content).includes(foldCase(term))) return null;
     reasons.push({ type: 'text', term });
   }
   return reasons;
@@ -1658,7 +1663,7 @@ function compareEvents(left, right, order) {
   const time = order === 'newest'
     ? right.created_at - left.created_at
     : left.created_at - right.created_at;
-  return time || left.id.localeCompare(right.id);
+  return time || compareCodePoints(left.id, right.id);
 }
 
 function publicEventQuery(query) {
@@ -1780,11 +1785,11 @@ function normalizeStartingSubjects(starting) {
 
 function compareTraversalEdges(left, right) {
   return left.depth - right.depth
-    || memberKey(left.source).localeCompare(memberKey(right.source))
-    || left.direction.localeCompare(right.direction)
-    || left.type.localeCompare(right.type)
-    || memberKey(left.target).localeCompare(memberKey(right.target))
-    || left.sourceEventId.localeCompare(right.sourceEventId);
+    || compareCodePoints(memberKey(left.source), memberKey(right.source))
+    || compareCodePoints(left.direction, right.direction)
+    || compareCodePoints(left.type, right.type)
+    || compareCodePoints(memberKey(left.target), memberKey(right.target))
+    || compareCodePoints(left.sourceEventId, right.sourceEventId);
 }
 
 function uniqueSubjects(items) {
@@ -1798,7 +1803,7 @@ function uniqueSubjects(items) {
 }
 
 function distinctRelays(observations) {
-  return [...new Set(observations.map(({ relay }) => relay))].sort();
+  return [...new Set(observations.map(({ relay }) => relay))].sort(compareCodePoints);
 }
 
 function excerpt(content, maximum) {
@@ -1824,7 +1829,7 @@ function typedCollection(kind, items, context, itemKind = kind) {
 function uniqueJson(values) {
   const found = new Map();
   for (const value of values) found.set(stableJson(value), cloneJson(value));
-  return [...found.entries()].sort(([left], [right]) => left.localeCompare(right))
+  return [...found.entries()].sort(([left], [right]) => compareCodePoints(left, right))
     .map(([, value]) => value);
 }
 
@@ -1916,7 +1921,8 @@ function normalizeNotebookEntry(value) {
     );
   }
   const labels = value.labels === undefined ? [] : normalizeStringList(value.labels, 'labels', false);
-  const uniqueLabels = [...new Set((labels ?? []).map((label) => label.trim()))].sort();
+  const uniqueLabels = [...new Set((labels ?? []).map((label) => label.trim()))]
+    .sort(compareCodePoints);
   if (uniqueLabels.some((label) => label.length === 0)) {
     throw new ResearchMemoryError('Notebook labels must be non-empty strings.');
   }
@@ -1971,8 +1977,8 @@ function normalizeNotebookQuery(query) {
     );
   }
   return {
-    labels: [...new Set((labels ?? []).map((label) => label.trim()))].sort(),
-    judgments: [...new Set(judgments ?? [])].sort(),
+    labels: [...new Set((labels ?? []).map((label) => label.trim()))].sort(compareCodePoints),
+    judgments: [...new Set(judgments ?? [])].sort(compareCodePoints),
     limit: normalizeLimit(query.limit),
   };
 }
@@ -2046,7 +2052,7 @@ function sortJson(value) {
   if (Array.isArray(value)) return value.map(sortJson);
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.keys(value).sort().map((key) => [key, sortJson(value[key])]),
+      Object.keys(value).sort(compareCodePoints).map((key) => [key, sortJson(value[key])]),
     );
   }
   return value;

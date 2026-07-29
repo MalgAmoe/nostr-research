@@ -1,6 +1,7 @@
 import { resolveRelationForPresentation } from './relation.js';
 import { RESEARCH_CONSTRAINTS } from './configuration.js';
 import { UNSUCCESSFUL_RELAY_OUTCOMES } from './contract-facts.js';
+import { compareCodePoints } from './deterministic-text.js';
 
 const DEFAULT_PREVIEW_LIMIT = RESEARCH_CONSTRAINTS.presentation.previewLimit.default;
 const MAX_PREVIEW_LIMIT = RESEARCH_CONSTRAINTS.presentation.previewLimit.maximum;
@@ -392,7 +393,7 @@ export function explainResearchMembership(memory, collectionValue, subjectValue,
 
 export function presentHandleList(handles, options = {}) {
   const settings = listOptions(options);
-  const all = [...handles].sort((left, right) => left.id.localeCompare(right.id));
+  const all = [...handles].sort((left, right) => compareCodePoints(left.id, right.id));
   return enforceSize({
     type: 'result-handle-list',
     count: all.length,
@@ -564,7 +565,7 @@ function archiveCollectionSummary(items, canonicalEvidenceResolution) {
   return {
     archiveEntries: {
       total: items.length,
-      byLevel: [...new Set(levels)].sort().map((level) => ({
+      byLevel: [...new Set(levels)].sort(compareCodePoints).map((level) => ({
         level,
         count: levels.filter((value) => value === level).length,
       })),
@@ -955,7 +956,7 @@ function compactResult(item) {
   const relationships = reasons.filter(({ type }) => type === 'relationship');
   const relationshipTypes = [...new Set(
     relationships.map(({ relationshipType }) => relationshipType).filter(Boolean),
-  )].sort();
+  )].sort(compareCodePoints);
   return {
     ...result,
     reasonSummary: {
@@ -977,7 +978,7 @@ function provenanceSummary(items) {
       if (source.relay) relays.add(source.relay);
     }
   }
-  return { observations, omittedObservationCount, relays: [...relays].sort() };
+  return { observations, omittedObservationCount, relays: [...relays].sort(compareCodePoints) };
 }
 
 function compactContext(context) {
@@ -1054,7 +1055,7 @@ function compactSelectionQuery(query = {}) {
     ...(authors?.length ? { authorCount: authors.length } : {}),
     ...(text?.length ? { textTermCount: text.length } : {}),
     ...(tagEntries.length ? {
-      tagKeys: tagEntries.map(([key]) => key).sort(),
+      tagKeys: tagEntries.map(([key]) => key).sort(compareCodePoints),
       tagValueCount: tagEntries.reduce((count, [, values]) => count + values.length, 0),
     } : {}),
     ...structuredClone(scalars),
@@ -1254,7 +1255,7 @@ function evidenceFreshness(memory, items) {
       if (typeof observation.observedAt === 'string') observations.push(observation.observedAt);
     }
   }
-  observations.sort();
+  observations.sort(compareCodePoints);
   return {
     basis: 'collection provenance plus current canonical evidence observations',
     evidenceResolution,
