@@ -32,7 +32,10 @@ Current experiments:
 - [`cock-and-balls-composer/`](./cock-and-balls-composer/): two bounded
   reservoirs and one retractable active probe;
 - [`spacecraft-cockpit/`](./spacecraft-cockpit/): a literal interactive flight
-  deck exploring how these instruments could inhabit one spacecraft.
+  deck exploring how these instruments could inhabit one spacecraft;
+- [`spacecraft-organs/`](./spacecraft-organs/): tiny independent Navigator,
+  Questions, Reservoirs, and Comparison organs sharing ordinary handles and
+  the complete controller command surface.
 
 The `*-live.mjs` files at this directory's root are reproducible live-voyage
 harnesses. They are evidence tools, not product entry points.
