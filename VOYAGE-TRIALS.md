@@ -391,3 +391,121 @@ or judgments.
 One small state defect was discovered and corrected: before a first successful
 `synchronize`, a `null` handle catalog must be reported as stale. A missing
 catalog is not an authoritative empty catalog.
+
+## Two further controller voyages
+
+Two additional voyages tested whether the first success generalized beyond one
+broad keyword path. No code changed during either voyage.
+
+### Account-depth voyage
+
+A 350-event random field contained 182 authors. A deterministic 24-account
+sample was hydrated:
+
+- 15 accounts resolved;
+- 9 remained unresolved;
+- 15 immutable metadata events were acquired;
+- all three relays completed conclusively.
+
+The immutable metadata handle was explicitly moved back to 15 current account
+subjects and related into current profile rows. A broad profile-description
+scan found two candidates. One, Derek Ross, was selected for depth navigation.
+
+Forty-five authored notes exposed 46 referenced accounts. A deterministic
+12-account sample from that second ring hydrated completely and included
+`jb55`, `amethyst`, `bitcoin.rocks`, and several other Nostr-core identities.
+The navigator recorded the starting account as an `anchor` with an explicit
+qualification: it was a productive entry into a coherent cluster, but that
+cluster was strongly central and self-referential.
+
+This voyage demonstrates that rejecting published curated lists does not remove
+echo-chamber gravity. Organic authored-note and reference traversal can also
+enter the incumbent center quickly. The difference remains important: the
+route was explicit, evidence-bearing, and chosen step by step rather than
+silently imported as relevance.
+
+The controller session accumulated 15 handles. Explicit synchronization showed
+6 and reported 9 omitted. After deliberate `release-all` and synchronization,
+the catalog reported zero. The transcript retained all 28 entries in 74,007
+bytes with no omissions.
+
+### Media-oriented voyage
+
+A 400-event random field contained 49 media-bearing events. Mechanical analysis
+found:
+
+- 42 image-family observations;
+- 8 video-family observations;
+- 5 unknown-family observations.
+
+Eight video-bearing events represented six authors. Exploded attachment
+evidence distinguished:
+
+- declared MP4 and QuickTime files;
+- inferred YouTube links;
+- declared mixed image/video attachment sets;
+- machine-like JSON content that happened to contain media links.
+
+Five of six video authors resolved. A profile-description scan identified
+`BitcoinForTheArts`; its 35-note authored history coherently supported an arts
+organization rather than an individual person. The navigator recorded it as
+`interested` and explicitly labeled it an organization and media anchor. The
+engine supplied the evidence but did not classify the account as a person or
+project.
+
+This session also accumulated 15 handles, with 9 omitted from the bounded
+catalog preview. All 28 transcript entries fit in 64,096 bytes. The child
+process closed with exit code 0 and no stderr, malformed line, pending request,
+or transport failure.
+
+## What now appears stable
+
+Across all three controller voyages:
+
+- compact receipts made external status, bounds, warnings, handles, and
+  revisions immediately legible;
+- the navigator chose every `show` mode explicitly;
+- `synchronize` was useful at decision pauses and would have been noisy after
+  every command;
+- the stale catalog signal correctly indicated when another synchronization
+  might matter;
+- 15 handles accumulated naturally during both sustained paths, confirming
+  that lifecycle visibility is necessary;
+- bounded transcripts were valuable but nowhere near their configured
+  one-megabyte ceiling;
+- the persistent Node transport added no research or diagnostic noise.
+
+No additional controller feature is justified by these trials.
+
+The remaining friction sits above the controller:
+
+- the navigator still expresses ordinary operations as raw structured command
+  objects;
+- contextual schema is available but is not yet arranged as controls;
+- useful evidence fields vary by research moment—for example compact account
+  previews omit long descriptions, while profile scanning deliberately exposes
+  them;
+- repeated visible pivots are mechanically clear but verbose:
+
+  ```text
+  acquire field
+  → move authors
+  → sample
+  → hydrate metadata
+  → move metadata authors
+  → relate current profiles
+  ```
+
+  and:
+
+  ```text
+  select candidate rows
+  → extract subject
+  → continue authored evidence
+  → preview
+  → judge
+  ```
+
+These are evidence for experimenting with a navigator-facing control and
+observation arrangement over the controller. They are not evidence for hidden
+engine commands, automatic recipes, or more controller semantics.

@@ -112,6 +112,20 @@ mechanical session friction without selecting research actions or observation
 modes. The next decision should be based on using this controller boundary,
 not on adding more engine or transport behavior speculatively.
 
+Two further controller voyages—one account-depth path and one media-oriented
+path—reproduced that result. Neither exposed another controller defect or a
+missing engine primitive. They located the remaining friction above the
+controller: raw structured commands, unarranged contextual controls, and the
+choice of evidence projection at each research moment.
+
+The next experiment should therefore be a navigator-facing control and
+observation arrangement over the existing controller. It should begin with the
+repeated visible pivots and sensing moments recorded in the voyage document,
+without compiling them into hidden procedures or defining a vessel framework
+in advance. The concurrent persistent-process harness work may provide the
+right environment for this experiment; do not add another repository transport
+merely to anticipate it.
+
 Do not build a general vessel framework or visual UI yet. The controller should
 remove only the mechanical friction recorded by the trials. Vessel conventions
 should be extracted only after the controller itself has been used.
