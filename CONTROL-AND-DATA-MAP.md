@@ -87,6 +87,11 @@ Buffer eviction follows first insertion order. Observing an existing event
 again adds provenance but does not refresh its position in the eviction order.
 Recently observed and recently inserted are therefore different properties.
 
+Each canonical event retains at most 100 observation records across current
+memory resolution. Identical retained observations are deduplicated. Additional
+observation attempts are discarded and counted explicitly; that count measures
+discarded attempts, not distinct unseen evidence.
+
 ### Mutable session defaults
 
 `configure` can change:
@@ -430,6 +435,12 @@ configured response-size bound.
 Resolves what is currently known about one exact Nostr subject: event, account,
 address, or tag. It can show compact projection, resolution source, freshness,
 corpus effects, and bounded evidence.
+
+Residency has subject-specific factual meaning: an event is resident when that
+exact event is buffered; an account is resident when its current kind-0
+metadata is buffered; an address is resident when a matching replaceable or
+addressable event is buffered. Unrelated events by an account do not make the
+account or one of its addresses resident.
 
 ### `explain`
 

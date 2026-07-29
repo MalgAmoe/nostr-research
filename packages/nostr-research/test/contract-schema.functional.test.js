@@ -11,7 +11,10 @@ import { loadFixtureEvents } from '../test-support/fixtures.js';
 
 test('factual schemas construct commands accepted through the public session seam', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 10 });
-  const session = createDeclarativeResearchSession(memory);
+  const session = createDeclarativeResearchSession(memory, {
+    relays: ['wss://fixture.example'],
+    acquisition: { timeoutMs: 1234, concurrency: 2 },
+  });
   const events = loadFixtureEvents().slice(0, 2);
   for (const event of events) {
     memory.ingest(event, {
@@ -89,6 +92,34 @@ test('factual schemas construct commands accepted through the public session sea
   assert.equal(summary.result.detail, 'summary');
   assert.equal('parameterContracts' in summary.result.research, false);
   assert.match(summary.result.research.contractAccess, /detail "full"/);
+
+  for (const operation of ['acquire', 'relay-info', 'relay-count']) {
+    const focused = await session.execute({
+      commandId: `schema-${operation}`,
+      command: 'schema',
+      parameters: { operation },
+    });
+    assert.equal(focused.ok, true);
+    assert.equal(focused.result.type, 'input-free-operation-schema');
+    assert.equal(focused.result.operation.name, operation);
+    assert.equal(focused.result.operation.input, 'forbidden');
+    assert.equal(focused.result.operation.locality, 'external');
+    assert.equal(focused.result.operation.effectiveDefaults.relays[0],
+      'wss://fixture.example/');
+    assert.equal(focused.result.operation.effectiveDefaults.timeoutMs, 1234);
+    assert.equal(focused.result.operation.effectiveDefaults.concurrency, 2);
+    assert.ok(focused.result.operation.parameters);
+    assert.ok(focused.result.operation.resultFacts);
+  }
+
+  const inputRequiredSchema = await session.execute({
+    commandId: 'schema-scan-without-input',
+    command: 'schema',
+    parameters: { operation: 'scan' },
+  });
+  assert.equal(inputRequiredSchema.ok, false);
+  assert.equal(inputRequiredSchema.error.code, 'INVALID_OPERATION');
+  assert.equal(inputRequiredSchema.error.details.inputRequired, true);
 
   const selected = await session.execute({
     commandId: 'select', command: 'select',

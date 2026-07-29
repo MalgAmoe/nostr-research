@@ -213,11 +213,6 @@ export function normalizeContinuation(memory, input, options) {
   return result;
 }
 
-function boolean(value, name) {
-  if (typeof value !== 'boolean') throw new ResearchMemoryError(`${name} must be a boolean.`);
-  return value;
-}
-
 function localContinuation(memory, starts, options) {
   const accounts = starts.items.filter(({ subject: item }) => item.type === 'account')
     .map(({ subject: item }) => item);
@@ -484,13 +479,6 @@ function mergeCollections(memory, collections) {
     }
   }
   return memory.collection([...items.values()], { operation: 'continuation-projection' });
-}
-
-function positiveInteger(value, name) {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new ResearchMemoryError(`Continuation ${name} must be a positive integer.`);
-  }
-  return value;
 }
 
 function boundedInteger(value, name, minimum, maximum = Number.MAX_SAFE_INTEGER) {

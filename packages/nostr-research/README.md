@@ -49,14 +49,22 @@ const notes = memory.select({ kinds: [1], text: ['nostr'] });
 await session.close(); // clears all resident state
 ```
 
-`ingest` stores immutable canonical evidence and records each observation in
-the observation buffer. Buffer capacity uses deterministic FIFO eviction.
+`ingest` stores immutable canonical evidence and retains at most 100
+observations per event in the observation buffer. Identical retained
+observations are deduplicated. Further observation attempts are not retained;
+their count remains visible as discarded attempts, not as a count of distinct
+unseen evidence. Buffer capacity uses deterministic FIFO eviction.
 `describe()` reports separate observation-buffer, archive, and notebook
 capacity and counts; it does not duplicate buffer state under a legacy corpus
 shape. Eviction removes buffer evidence and its derived indexes, while notebook
 entries and named membership keep stable subject references.
 `inspect(subject)` reports `resolutionSource` as
 `"archive"`, `"buffer"`, or `"unresolved"`.
+For an event, `resident` means that exact event is in the observation buffer.
+For an account, it means current kind-0 metadata from that account is in the
+buffer. For an address, it means a matching replaceable or addressable event is
+in the buffer; unrelated events by the same account do not establish
+residency.
 
 `decodeNostrReference(reference)` accepts public `npub`, `nprofile`, `note`,
 `nevent`, and `naddr` NIP-19 values, bare or in a `nostr:` NIP-21 URI. It

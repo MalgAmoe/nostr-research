@@ -226,9 +226,14 @@ export class DeclarativeResearchSession {
           this.#memory, command.input, entry, operation, this.#configuration,
         ));
       }
-      const detail = globalSchemaDetail(parameters);
+      const selection = globalSchemaSelection(parameters);
+      if (selection.operation !== undefined) {
+        return readOnly(() => inputFreeOperationSchema(
+          selection.operation, this.#configuration,
+        ));
+      }
       return readOnly(() => globalSessionSchema(
-        this.#memory, this.#configuration, detail,
+        this.#memory, this.#configuration, selection.detail,
       ));
     }
     if (command.input !== undefined) {
@@ -838,34 +843,78 @@ function contextualSchemaOperation(parameters) {
     throw protocolError('INVALID_COMMAND', `Unknown contextual schema parameter: ${unknown}.`);
   }
   if (parameters.operation === undefined) return undefined;
-  if (typeof parameters.operation !== 'string'
-      || parameters.operation.trim().length === 0
-      || parameters.operation !== parameters.operation.trim()) {
-    throw protocolError(
-      'INVALID_COMMAND',
-      'Contextual schema operation must be a non-empty trimmed string.',
-    );
-  }
-  if (!operationSchema().operations.includes(parameters.operation)) {
-    throw protocolError(
-      'INVALID_OPERATION',
-      `Unknown research operation: ${parameters.operation}.`,
-      { operation: parameters.operation },
-    );
-  }
-  return parameters.operation;
+  return schemaOperationName(parameters.operation);
 }
 
-function globalSchemaDetail(parameters) {
-  const unknown = Object.keys(parameters).find((name) => name !== 'detail');
+function schemaOperationName(operation) {
+  if (typeof operation !== 'string'
+      || operation.trim().length === 0
+      || operation !== operation.trim()) {
+    throw protocolError(
+      'INVALID_COMMAND',
+      'Schema operation must be a non-empty trimmed string.',
+    );
+  }
+  if (!operationSchema().operations.includes(operation)) {
+    throw protocolError(
+      'INVALID_OPERATION',
+      `Unknown research operation: ${operation}.`,
+      { operation },
+    );
+  }
+  return operation;
+}
+
+function globalSchemaSelection(parameters) {
+  const unknown = Object.keys(parameters)
+    .find((name) => !['detail', 'operation'].includes(name));
   if (unknown) {
     throw protocolError('INVALID_COMMAND', `Unknown global schema parameter: ${unknown}.`);
+  }
+  if (parameters.operation !== undefined) {
+    if (parameters.detail !== undefined) {
+      throw protocolError(
+        'INVALID_COMMAND',
+        'Global schema accepts either operation or detail, not both.',
+      );
+    }
+    const operation = schemaOperationName(parameters.operation);
+    if (!['acquire', 'relay-info', 'relay-count'].includes(operation)) {
+      throw protocolError(
+        'INVALID_OPERATION',
+        `${operation} requires an input handle for focused schema.`,
+        { operation, inputRequired: true },
+      );
+    }
+    return { operation };
   }
   const detail = parameters.detail ?? 'summary';
   if (!['summary', 'full'].includes(detail)) {
     throw protocolError('INVALID_COMMAND', 'Global schema detail must be summary or full.');
   }
-  return detail;
+  return { detail };
+}
+
+function inputFreeOperationSchema(operation, configuration) {
+  const schema = operationSchema();
+  const definition = schema.definitions[operation];
+  return {
+    type: 'input-free-operation-schema',
+    operation: {
+      name: operation,
+      parameters: schema.parameterContracts[operation] ?? {},
+      effectiveDefaults: operationParametersWithSessionDefaults(
+        operation, {}, configuration,
+      ),
+      input: definition.input,
+      outputKind: definition.outputKind,
+      resultKind: definition.resultKind,
+      locality: definition.locality,
+      mutation: definition.mutation,
+      completeness: definition.completeness,
+      ...(schema.operationFacts[operation] ?? {}),
+    },
+  };
 }
 
 function globalSessionSchema(memory, configuration, detail) {
@@ -889,7 +938,8 @@ function globalSessionSchema(memory, configuration, detail) {
           locality: value.locality,
         },
       ])),
-      contractAccess: 'Use schema with an input handle and parameters.operation, or request global detail "full".',
+      contractAccess:
+        'Use parameters.operation for an input-free operation, use an input handle plus parameters.operation for a contextual operation, or request global detail "full".',
     };
   }
   return {

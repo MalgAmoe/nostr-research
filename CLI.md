@@ -90,6 +90,17 @@ Start with the compact global schema:
 {"commandId":"schema-1","command":"schema"}
 ```
 
+Input-free external operations can be inspected before any result handle
+exists:
+
+```jsonl
+{"commandId":"schema-acquire-1","command":"schema","parameters":{"operation":"acquire"}}
+```
+
+The focused result reports the operation contract, effective session defaults,
+bounds, locality, mutation, result kind, and completeness semantics. The same
+form supports `relay-info` and `relay-count`.
+
 Request all global contracts only when needed:
 
 ```jsonl
