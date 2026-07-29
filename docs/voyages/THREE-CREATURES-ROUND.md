@@ -60,7 +60,7 @@ it does not travel; it changes the framing while preserving the source.
 Darkroom is the strongest of the three for questions of difference. It is a
 poor general navigator because every movement has to be formulated as a pair.
 
-## Conclusions
+## First conclusions
 
 The experiment supports the user's claim that this layer admits infinite
 variation. The same engine and controller supported three genuinely different
@@ -70,7 +70,8 @@ cognitive rhythms:
 - Pinball asks, “What did that collision make interesting?”
 - Darkroom asks, “What changes when the same ground is exposed two ways?”
 
-Useful pieces do not need to be consolidated into one composer:
+Useful pieces can be recombined without pretending they are one universal
+interface:
 
 - protected safe context is valuable in both Airlock and Pinball;
 - multiple live questions or curiosities are better than one fixed goal;
@@ -80,10 +81,30 @@ Useful pieces do not need to be consolidated into one composer:
 - bounded local memory should match the character: routes, collisions, or
   negatives are not interchangeable histories.
 
-The main negative finding is equally useful: a universal composer made by
-combining all three would erase their character and recreate the full engine
-surface in a more complicated form. These experiments should stay disposable.
+The initial conclusion that combination would necessarily create a bloated
+universal composer was premature. A follow-up hybrid voyage used all three
+over one controller without merging their controls:
+
+1. Airlock acquired and protected a 300-event Home.
+2. Pinball received that handle as its Table and exposed event-kind gravity.
+3. Darkroom held Pinball's row-space as Ground and contrasted the dominant
+   machine kind against kind 1.
+4. Both Darkroom exposures returned to Airlock as references while Home
+   remained unchanged.
+
+This took ten visible commands and felt coherent. The combination lived in
+handle exchange and changes of working mode, not in a master control surface.
+It also found two integration defects in Airlock: bounded histogram facts had
+been overclaimed as global dominance, and adding a reference overwrote Home's
+reason. Both were corrected.
+
+The new hypothesis is deliberately weaker: combining characters may be useful
+when their boundaries remain visible. We do not yet know whether repeated
+hybrid voyages will reveal a stable combined system, many useful combinations,
+or eventual confusion.
 
 The reproducible live harness is
 `experiments/three-creatures-live.mjs`. It uses three separate sessions and
 prints bounded summaries; it is evidence tooling, not a product entry point.
+The first shared-session combination is reproducible through
+`experiments/hybrid-creature-live.mjs`.

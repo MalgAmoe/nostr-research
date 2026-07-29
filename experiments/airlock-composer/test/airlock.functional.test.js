@@ -45,6 +45,7 @@ test('Home is protected while routes pause and alternatives accumulate', async (
   composer.adopt(sampled, 'reference', 'comparison');
   assert.equal(composer.sensors().home.primary.id, 'home');
   assert.equal(composer.sensors().home.references[0].id, 'entrance');
+  assert.equal(composer.sensors().home.reason, 'safe place');
 
   const observed = await composer.observeWeather();
   assert.equal(observed.sensors.weather.facts[0].type, 'home-shape');

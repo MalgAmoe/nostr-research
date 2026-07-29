@@ -125,8 +125,8 @@ export function createAirlockComposer({ controller, limits: suppliedLimits } = {
       home = {
         ...home,
         [key]: uniqueHandles([...home[key], handle]),
-        reason: nonEmptyString(reason, 'reason'),
       };
+      nonEmptyString(reason, 'reason');
     } else {
       throw new TypeError('role must be primary, reference, or evidence.');
     }
@@ -204,7 +204,7 @@ function weatherFrom(panels, lastOutcome) {
       .sort((left, right) => right.count - left.count)[0];
     if (leadingKind) {
       language.push(
-        `The most visible event kind is ${leadingKind.kind} (${leadingKind.count} events).`,
+        `The largest entry in the bounded kind histogram is ${leadingKind.kind} (${leadingKind.count} events).`,
       );
     }
     if (Number.isSafeInteger(evidence.eventFacts.distinctAuthorCount)) {
