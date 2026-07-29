@@ -1,3 +1,4 @@
+// One disposable schema-backed interpretation over the neutral controller.
 const CONTROL_GROUPS = Object.freeze([
   {
     id: 'contact',

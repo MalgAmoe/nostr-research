@@ -1,11 +1,11 @@
 # Project next steps
 
-Status: current direction after naming Nostrarium and defining the caller-side
-vessel on 2026-07-29.
+Status: current direction after the first vessel and playful-voyage rounds on
+2026-07-29.
 
 ## Current position
 
-The project has a usable core:
+Nostrarium has a usable, runtime-neutral research foundation:
 
 ```text
 canonical Nostr evidence
@@ -15,191 +15,157 @@ canonical Nostr evidence
 → one normalized executor
 → persistent declarative session
 → JSONL and browser Worker adapters
+→ neutral controller
+→ contextual arrangement and command composition
 ```
 
-Completed work includes kind-aware relationships; event, account, and address
-navigation; Nostr reference decoding; the runtime-neutral core and Worker
-adapter; relay diagnostics, NIP-11 inspection, and NIP-45 counts; event role,
-format, media, attachment, and warning facts; and sustained sequential research
-without arbitrary JavaScript. Relation stages now report truthful
-operation-specific cardinality and proven truncation, summaries share explicit
-count units across handle kinds, and relay coverage distinguishes unstarted,
-pre-open, subscribed-zero-packet, and contributing attempts without guessing a
-cause.
+The engine supports sustained sequential research without arbitrary
+JavaScript. It exposes bounds, relay participation, partiality, provenance,
+content and media facts, relationship evidence, archive state, notebook state,
+and handle lifecycle.
 
-The practical CLI is now documented in [CLI.md](./CLI.md), separately from the
-detailed library reference.
+The controller removes process and correlation friction without selecting
+research actions. Composers and systems above it are disposable
+interpretations rather than a canonical next layer.
 
-Independent agent trials have confirmed that the documented algebra supports
-substantial research without arbitrary JavaScript: acquiring a field,
-identifying accounts, hydrating profiles, scanning and aggregating evidence,
-making an external judgment, and returning selected identities to navigable
-collections. Those trials also confirmed that bounds, partiality, relay
-participation, and response-size limits are exposed honestly when the operator
-reads the complete response.
+No current voyage has identified a correctness defect or missing generic
+engine primitive that justifies another engine milestone.
 
-## Product direction
+The first systems hypothesis was:
 
-Nostrarium's caller-side vessel is a coherent research posture for moving
-through an effectively unbounded, noisy Nostr field. Its durable definition
-and ownership model live in [CONTEXT.md](./CONTEXT.md); its unresolved details
-are to be discovered through use rather than specified in advance.
+```text
+Field → Navigate → Analyze → Collect
+```
 
-The system does not ingest the whole network. It acquires bounded windows,
-exposes what is present, lets the researcher navigate or acquire in a chosen
-direction, and makes explicit what should be retained before renewable
-evidence is lost.
+Only a deliberately small Field interpretation was implemented. Its first real
+research task immediately crossed the proposed boundaries: finding
+cryptographers required field acquisition, relation views, scanning,
+aggregation, account movement, hydration, and authored-evidence inspection.
+That was a useful result, not an architectural violation.
 
-The researcher supplies judgment. The engine supplies canonical and attributed
-evidence, bounded working sets, mechanical transformations, protocol
-navigation, explicit external operations, honest partiality, and deliberate
-archive and notebook actions.
+The stable commitment is that independently disposable systems may interpret
+the same controller, handles, schemas, and evidence differently. Operations do
+not belong exclusively to Field, Navigate, Analyze, or Collect.
 
-It must not silently select a direction, import popularity as relevance, or
-classify accounts as good, human, credible, or interesting.
+## Product conclusion
 
-## What to do next
+The current vessel synthesis is in [`VESSELS.md`](./VESSELS.md).
 
-The neutral controller and Node JSONL transport are implemented. Three
-controller-operated voyages, recorded in
-[VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md), confirmed that this boundary removes
-process, correlation, transcript, and handle-orientation friction without
-selecting research actions. They did not expose another controller defect or a
-missing engine primitive.
+The important distinction is:
 
-The remaining friction sits above the controller: raw structured commands,
-unarranged contextual controls, and choosing an evidence projection at each
-research moment.
+- a **vessel posture** coherently arranges movement, senses, judgment
+  conditions, and collection;
+- a **research instrument** exposes recurrence, rarity, locality, time,
+  conversation, or another mechanical property;
+- a **voyage brief** gives one session its bounds and intent.
 
-The first navigator-facing arrangement now exists as two pure projections over
-the controller: contextual schema becomes complete control groups, and
-ordinary `show` responses become orientation, evidence, paging, and context
-panels. A live account-discovery voyage confirmed that this improves visibility
-without constructing commands, choosing routes, or hiding operations. The
-trial is recorded in [VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md).
+Not every instrument is a vessel. Not every successful voyage needs a
+permanent name.
 
-All six experiments in
-[NAVIGATOR-VOYAGE-SUITE.md](./NAVIGATOR-VOYAGE-SUITE.md) are complete. Thread,
-media, weak-signal, contradiction, account-depth, and collection postures
-produced measurably different journeys over the same operation vocabulary.
-This is the first practical evidence that vessels can remain caller-side
-research postures rather than engine features.
+Depth, Breadth, Skeptic, and Archivist remain strong provisional postures.
+Correspondent is inconclusive. Keyhole revealed useful locality but imposed
+artificial blindness. Recurrence, rarity, temporal difference, and
+conversation traversal are useful instruments that may serve many vessels.
 
-The arrangement's observation side held up across the suite. Cardinality,
-partiality, evidence, details, and lifecycle pressure remained legible. The
-control side is factual but still passive: contextual schema repairs wrong
-field names, relationships, and nested parameter shapes after a failed command,
-while a fluent navigator often bypasses it entirely.
+The rule-driven Drift was captured by a distributed recurrence. The looser
+playful voyage succeeded: random entrances, navigator curiosity, explicit
+evidence-bearing doors, a small invalidation check, and another random airlock
+led from a zucchini joke to an ActivityPub-bridged gardening and solarpunk
+neighborhood.
 
-The minimal schema-backed command composer now exists over the neutral
-controller. It:
+## Immediate work
 
-- focuses one contextual operation contract;
-- exposes the contract's actual required, optional, and nested choices;
-- accepts only navigator-supplied values;
-- emits a complete visible command draft for review; and
-- leaves execution as a separate explicit action.
+Use the repository as an experimental workbench:
 
-It does not recommend routes, choose defaults that express research intent,
-execute automatically, chain hidden operations, or introduce a second command
-language. The output remains an ordinary controller command and therefore
-remains visible in the transcript.
+1. revise the Field interpretation from the cryptographer trial so a field can
+   be reshaped with any compatible engine operation;
+2. keep its field-centered character without claiming exclusive ownership of
+   acquisition, analysis, or movement;
+3. build at least one substantially different interpretation over the same
+   controller;
+4. use both on real voyages and retain the useful combinations;
+5. freely revise, fork, combine, or delete experiments that do not help.
 
-Two follow-up voyages used the composer for ten unfamiliar or nested commands
-without a construction failure. The media voyage exercised field selection,
-explode, aggregate, and preservation. The mixed collection voyage exercised
-profile and authored-evidence scans, continuation, judgment, preservation, and
-membership. Fluent commands remained direct. Results and bounds are recorded
-in [NAVIGATOR-VOYAGE-SUITE.md](./NAVIGATOR-VOYAGE-SUITE.md).
+The current Field experiment still provides only one-command-visible
+configuration, acquisition, sampling, set comparison, observation, and
+factual handle handoff. Its live trial proved that this surface is too narrow
+for sustained research. That limitation is now an experiment finding rather
+than a proposed permanent boundary.
 
-Lifecycle orientation should remain visible beside composition. The collection
-voyage ended with 31 handles, 87% buffer pressure, and 280 of 300 archive
-entries occupied. A composer that hides this state would make the arrangement
-worse even if it made commands easier to write.
+The goal is not to find the perfect layer above the controller. It is to make
+different good-faith interpretations cheap to build and safe to fail.
 
-Two deliberately small provisional postures—Depth and Breadth—have now been
-defined and flown through independently reproduced copies of the same random
-300-event field. Their complete instructions, measurements, and evidence are
-recorded in [PROVISIONAL-VESSELS.md](./PROVISIONAL-VESSELS.md).
+## Promotion rule
 
-The journeys diverged for posture reasons rather than starting data or command
-friction. Depth followed one note through an author, 30 authored notes, exact
-relationship explanation, and a second ring; it produced one uncertain
-judgment and 30 preserved excerpts. Breadth compared three signals, sampled
-their authors, resolved six profiles, and retained three lightly qualified
-candidates without opening authored histories or a second ring.
+After several voyages, compare them before writing code.
 
-The reversal replication is also complete. A second shared 300-event field ran
-Breadth first and Depth second. Breadth again produced three qualified
-candidates, no authored descent, no archive, and 19 handles. Depth again
-produced one deeply investigated subject and 30 preserved excerpts, this time
-ending in a qualified anchor. Neither voyage had a construction failure.
+Promote an arrangement into caller-side controls or templates only when:
 
-The two cards can now be treated as genuinely distinct provisional vessels
-rather than an order effect. Keep them as plain caller-side instructions.
+- it recurs across different fields and questions;
+- it is mechanical rather than interpretive;
+- it removes measurable construction or observation friction;
+- every compiled command remains visible;
+- the navigator still chooses direction and conclusion.
 
-The next test is collection-to-artifact export. Take the strongest existing
-collection evidence and produce one bounded human-readable artifact containing
-selected profiles, explicit navigator reasons, qualifications, and stable
-evidence references. This should be a caller-side projection over notebook,
-membership, archive, and current evidence—not a new engine command or
-persistence mechanism.
+Do not build a vessel registry, autonomous workflow, hidden ranking system, or
+visual interface merely to formalize the metaphor.
 
-Do not build a general vessel framework or visual UI. Vessel conventions remain
-caller-side and compile to visible controller commands.
+Engine work resumes only for:
 
-Engine work resumes only for a verified correctness problem or a generic
-operation repeatedly reconstructed outside the library. Difficulty caused by
-noisy, malformed, incomplete, or socially concentrated Nostr data is research
-reality, not automatically an engine defect.
+- a verified correctness problem;
+- a protocol capability repeatedly blocking real voyages; or
+- a generic operation repeatedly and awkwardly reconstructed outside the
+  library.
 
 ## Parked capabilities and triggers
 
-- Multi-filter `REQ`: reconsider when repeated acquisitions need the same
+- **Multi-filter `REQ`**: reconsider when repeated acquisitions need the same
   combined request and round trips become material.
-- NIP-50 remote search: reconsider only if directed anchoring becomes more
-  important than the random-field constraint and a reliable search relay is
-  in the test set.
-- NIP-42 authentication: reconsider only when a relay needed for research
+- **NIP-50 remote search**: reconsider only if directed anchoring becomes more
+  important than random-field navigation and a reliable search relay joins
+  the test set.
+- **NIP-42 authentication**: reconsider only when a relay needed for research
   requires authenticated reads.
-- Retry or relay-routing policy: reconsider when explicit diagnostics and
-  sequential retry information prove insufficient.
-- Buffer capacity above 1,000: measure selection, relation resolution,
-  inspection, cloning, and browser memory before changing it.
-- Persistence: reconsider only when process-local loss blocks real use.
-- Rust or another lower-level implementation: reconsider only when measured
-  constraints justify it.
+- **Retry or relay-routing policy**: reconsider when explicit diagnostics and
+  sequential navigator choices prove insufficient.
+- **Capacity above 1,000 events**: measure selection, relation resolution,
+  inspection, cloning, and browser memory first.
+- **Persistence or cross-session voyages**: reconsider only when process-local
+  loss blocks real use.
+- **Rust or another lower-level implementation**: reconsider only when
+  measured constraints justify it.
 
 ## Deliberately declined
 
 Typed NIP-51 list navigation is not a product direction. Published account
-lists import the network's incumbent, overlapping topology and can pull
-research toward its loudest echo chamber. Raw list events remain ordinary
-evidence and may be mechanically inspected, but the engine will not silently
-turn their curation into navigation weight.
+lists import incumbent, overlapping topology and can pull research toward the
+network's loudest center. Raw list events remain inspectable evidence.
 
 Also avoid hidden next-operation recommendations, background acquisition,
-trust or popularity scores, speculative task-specific commands, a universal
-event-kind framework, and persistence merely because production systems
-conventionally have one.
+trust or popularity scores, speculative task-specific operations, automatic
+field admission, and persistence merely because conventional applications
+have it.
 
-## Reference material
+## Documentation map
 
-- [CLI.md](./CLI.md): operating guide.
-- [VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md): direct voyage evidence and control
-  implications.
-- [NAVIGATOR-VOYAGE-SUITE.md](./NAVIGATOR-VOYAGE-SUITE.md): completed
-  contrasting voyage protocol and composer follow-ups.
-- [PROVISIONAL-VESSELS.md](./PROVISIONAL-VESSELS.md): first same-field Depth
-  versus Breadth posture comparison.
-- [packages/nostrarium-controller/README.md](./packages/nostrarium-controller/README.md):
-  neutral controller and Node transport.
-- [packages/nostr-research/README.md](./packages/nostr-research/README.md):
-  detailed library and protocol reference.
-- [CONTEXT.md](./CONTEXT.md): durable principles and terminology.
-- [NOSTR-PROTOCOL-CAPABILITY-MAP.md](./NOSTR-PROTOCOL-CAPABILITY-MAP.md):
-  detailed protocol coverage and future possibilities.
-- [workflow/WORKFLOW.md](./workflow/WORKFLOW.md): worker/reviewer task runner.
+- [`README.md`](./README.md): project entry point.
+- [`CLI.md`](./CLI.md): practical operating guide.
+- [`CONTEXT.md`](./CONTEXT.md): durable principles and terminology.
+- [`VESSELS.md`](./VESSELS.md): current vessel conclusions.
+- [`CONTROL-AND-DATA-MAP.md`](./CONTROL-AND-DATA-MAP.md): engine controls and
+  evidence surfaces.
+- [`NOSTR-PROTOCOL-CAPABILITY-MAP.md`](./NOSTR-PROTOCOL-CAPABILITY-MAP.md):
+  protocol coverage and possible future capabilities.
+- [`docs/voyages/`](./docs/voyages/): historical voyage journals and artifacts.
+- [`packages/nostr-research/README.md`](./packages/nostr-research/README.md):
+  library and protocol reference.
+- [`packages/nostrarium-controller/README.md`](./packages/nostrarium-controller/README.md):
+  controller, transport, arrangement, and composer reference.
+- [`experiments/field-system/README.md`](./experiments/field-system/README.md):
+  first experimental caller-side system and its visible handoff boundary.
+- [`experiments/schema-composer/README.md`](./experiments/schema-composer/README.md):
+  one schema-backed composer, explicitly outside the neutral controller.
+- [`workflow/WORKFLOW.md`](./workflow/WORKFLOW.md): worker/reviewer task runner.
 
-Completed task definitions and run records remain under `workflow/`. They are
-historical execution evidence, not current product documentation.
+Completed workflow tasks and run records remain under `workflow/` as historical
+execution evidence, not current product documentation.

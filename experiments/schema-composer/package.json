@@ -1,0 +1,24 @@
+{
+  "name": "@nostrarium/schema-composer",
+  "version": "0.1.0",
+  "description": "One disposable schema-backed composer over the Nostrarium controller",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/index.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@nostr-research/memory": "0.1.0",
+    "@nostrarium/controller": "0.1.0"
+  }
+}

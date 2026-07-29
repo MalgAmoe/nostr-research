@@ -9,7 +9,7 @@ import {
   arrangeControls,
   arrangeObservation,
   composeCommand,
-} from '@nostrarium/controller/arrangement';
+} from '@nostrarium/schema-composer';
 import { createNavigatorController } from '@nostrarium/controller';
 
 const NOTE = {

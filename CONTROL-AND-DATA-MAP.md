@@ -642,9 +642,9 @@ Without inventing any new engine behavior, a vessel can choose:
 - how aggressively working handles are released;
 - what an eventual exportable artifact should contain.
 
-The vessel may make some routes attractive and others quiet. It should not make
-a route impossible unless that restriction is an explicit part of its
-character and can be bypassed by changing vessels.
+An interpretation may make some routes attractive and others quiet. It should
+not accidentally make a route impossible merely because an operation was
+assigned to another conceptual category.
 
 ## 14. What remains deliberately outside this map
 
@@ -658,11 +658,12 @@ This inventory does not decide:
 - whether a human interface presents rows, maps, cards, trails, or several
   synchronized views.
 
-Those decisions should follow experiments in which the same navigator takes
-different coherent postures through comparable fields and observes whether the
-journeys genuinely diverge.
+The first round of those experiments is complete. Its current conclusions are
+in [`VESSELS.md`](./VESSELS.md), while the detailed evidence is archived under
+[`docs/voyages/`](./docs/voyages/).
 
-The immediate design task is therefore not to reduce the API. It is to identify
-small, coherent arrangements of this existing control-and-data space, use them
-for real voyages, and learn which differences actually alter attention,
-movement, judgment, and collection.
+Those trials confirmed that coherent postures alter journeys, but also showed
+that not every useful arrangement deserves to become a named vessel. Current
+systems and composers live under [`experiments/`](./experiments/), where
+multiple overlapping interpretations can be tested without turning one into
+the canonical layer above the controller.

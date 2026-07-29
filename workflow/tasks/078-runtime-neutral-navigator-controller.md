@@ -16,11 +16,11 @@ usable but leave mechanical work to every caller: command IDs, response
 correlation, revision awareness, bounded transcripts, handle-catalog
 visibility, and compact command receipts.
 
-The inspected design is
-[NEUTRAL-CONTROLLER-PROPOSAL.md](../../NEUTRAL-CONTROLLER-PROPOSAL.md). The
-controller is caller-side infrastructure. It must consume the existing
+The controller is caller-side infrastructure. It must consume the existing
 structured session protocol without becoming another executor, validator,
-workflow language, vessel, or presentation engine.
+workflow language, vessel, or presentation engine. The completed public
+boundary is documented in
+[`packages/nostrarium-controller/README.md`](../../packages/nostrarium-controller/README.md).
 
 ## Goal
 
@@ -121,4 +121,3 @@ asynchronous request function.
 - Explicitly excluded test levels or mechanisms: private transcript-helper
   tests, WebSocket tests, live relays, exhaustive malformed-input matrices, and
   changes to research-engine tests merely to exercise the controller.
-
