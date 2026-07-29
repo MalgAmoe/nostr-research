@@ -1410,6 +1410,9 @@ function enforceSize(value, maximum) {
   if (copy.observation === 'summary' && copy.summary) {
     return boundedSummaryResponse(copy, maximum);
   }
+  if (copy.observation && !Array.isArray(copy.preview)) {
+    return boundedNonPreviewResponse(copy, maximum);
+  }
   if (Array.isArray(copy.preview) && copy.preview.length === 1) {
     const minimal = {
       type: copy.type,
@@ -1465,6 +1468,43 @@ function enforceSize(value, maximum) {
     context: { bounded: true, note: `Inspection exceeded the ${maximum}-byte approximate bound.` },
     provenance: [],
   };
+}
+
+function boundedNonPreviewResponse(value, maximum) {
+  const typedLists = [
+    ['relays', 'omittedRelaysBefore', 'omittedRelaysAfter'],
+    ['observedEvents', 'omittedObservedEventsBefore', 'omittedObservedEventsAfter'],
+    ['outcomes', 'omittedOutcomesBefore', 'omittedOutcomesAfter'],
+    ['stages', 'omittedStagesBefore', 'omittedStagesAfter'],
+  ];
+  const result = structuredClone(value);
+  for (const [field, before, after] of typedLists) {
+    if (!Array.isArray(result[field])) continue;
+    result[after] = (result[after] ?? 0) + result[field].length;
+    result[before] = result[before] ?? 0;
+    result[field] = [];
+  }
+  result.sizeBounded = true;
+  result.boundReason = 'response-size';
+  delete result.provenance;
+  delete result.context;
+  if (utf8ByteLength(JSON.stringify(result)) <= maximum) return result;
+
+  const essential = {
+    type: result.type,
+    observation: result.observation,
+    ...(result.count !== undefined ? { count: result.count } : {}),
+    ...Object.fromEntries(typedLists.flatMap(([field, before, after]) => (
+      field in result
+        ? [[field, []], [before, result[before]], [after, result[after]]]
+        : []
+    ))),
+    ...compactObservationForSize(result),
+    sizeBounded: true,
+    boundReason: 'response-size',
+  };
+  if (utf8ByteLength(JSON.stringify(essential)) <= maximum) return essential;
+  throw new RangeError(`The required observation core exceeds the ${maximum}-byte size limit.`);
 }
 
 function boundedSummaryResponse(value, maximum) {

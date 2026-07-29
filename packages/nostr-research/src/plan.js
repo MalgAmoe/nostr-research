@@ -42,6 +42,7 @@ import {
   countRelayEvents,
   normalizeRelayCountOptions,
 } from './relay-count.js';
+import { RESEARCH_CONSTRAINTS } from './configuration.js';
 
 const MEMORY_TRANSACTION = Symbol.for('nostr-research.memory-plan-attempt');
 
@@ -121,6 +122,11 @@ export function normalizeResearchPlan(plan) {
   assertJsonData(plan, 'Research plan');
   if (!Array.isArray(plan) || plan.length === 0) {
     throw new ResearchMemoryError('Research plan must be a non-empty array of stages.');
+  }
+  if (plan.length > RESEARCH_CONSTRAINTS.plan.stages.maximum) {
+    throw new ResearchMemoryError(
+      `Research plan must contain at most ${RESEARCH_CONSTRAINTS.plan.stages.maximum} stages.`,
+    );
   }
   const ids = new Set();
   return plan.map((stage, index) => {
@@ -535,6 +541,7 @@ export async function executeResearchOperation(memory, operation, input = undefi
     if (notebook.entryCount + additions > notebook.capacity) {
       throw new ResearchMemoryError(
         `Research notebook entry capacity ${notebook.capacity} has been reached.`,
+        'CAPACITY_EXCEEDED',
       );
     }
     for (const item of collection.items) memory.remember(item.subject, parameters);

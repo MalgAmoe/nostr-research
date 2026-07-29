@@ -1,6 +1,6 @@
 ---
 id: 076-truthful-contracts-and-evidence-state
-status: ready
+status: done
 max_attempts: 4
 validation: workflow/tasks/076-truthful-contracts-and-evidence-state.validate.sh
 depends_on: 075-boundedness-and-concrete-correctness

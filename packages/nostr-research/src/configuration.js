@@ -13,6 +13,9 @@ export const RESEARCH_CONSTRAINTS = deepFreeze({
     maximumLimit: 1000,
     defaultQueryLimit: 50,
   },
+  plan: {
+    stages: { minimum: 1, maximum: 100 },
+  },
   presentation: {
     previewLimit: { default: 5, minimum: 1, maximum: 20 },
     excerptLimit: { default: 160, minimum: 1, maximum: 1000 },

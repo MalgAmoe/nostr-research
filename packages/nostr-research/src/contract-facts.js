@@ -30,6 +30,7 @@ export const ACQUISITION = deepFreeze({
   timeoutMs: {
     type: 'integer',
     minimum: RESEARCH_CONSTRAINTS.acquisition.timeoutMs.minimum,
+    maximum: RESEARCH_CONSTRAINTS.acquisition.timeoutMs.maximum,
     default: RESEARCH_CONSTRAINTS.acquisition.timeoutMs.default,
   },
   observationLimit: {
@@ -47,6 +48,7 @@ export const ACQUISITION = deepFreeze({
   concurrency: {
     type: 'integer',
     minimum: RESEARCH_CONSTRAINTS.acquisition.concurrency.minimum,
+    maximum: RESEARCH_CONSTRAINTS.acquisition.concurrency.maximum,
     default: RESEARCH_CONSTRAINTS.acquisition.concurrency.default,
   },
 });

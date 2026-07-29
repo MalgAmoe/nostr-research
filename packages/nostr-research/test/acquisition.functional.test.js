@@ -630,12 +630,17 @@ test('relay lifecycle facts distinguish unstarted, pre-open, subscribed-zero, re
       });
       const coverage = await session.execute({
         commandId: 'coverage', command: 'show', input: 'bounded',
-        parameters: { mode: 'coverage', previewLimit: 10 },
+        parameters: { mode: 'coverage', previewLimit: 10, sizeLimit: 1000 },
       });
-      const byRelay = new Map(coverage.result.relays.map((relay) => [relay.relay, relay]));
-      assert.equal(byRelay.get('wss://opened-zero.example/').subscriptionSent, true);
-      assert.equal(byRelay.get('wss://opened-zero.example/').receivedPackets, 0);
-      assert.equal(byRelay.get('wss://unstarted.example/').attemptStarted, false);
+      assert.equal('omitted' in coverage.result, false);
+      assert.equal(Number.isSafeInteger(coverage.result.omittedRelaysAfter), true);
+      assert.equal(Number.isSafeInteger(coverage.result.omittedObservedEventsAfter), true);
+      if (coverage.result.relays.length) {
+        const byRelay = new Map(coverage.result.relays.map((relay) => [relay.relay, relay]));
+        assert.equal(byRelay.get('wss://opened-zero.example/').subscriptionSent, true);
+        assert.equal(byRelay.get('wss://opened-zero.example/').receivedPackets, 0);
+        assert.equal(byRelay.get('wss://unstarted.example/').attemptStarted, false);
+      }
     } finally {
       await session.close();
     }

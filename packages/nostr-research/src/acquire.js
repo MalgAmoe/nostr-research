@@ -446,7 +446,11 @@ export function normalizeAcquisitionOptions(options) {
     throw new ResearchMemoryError('Relay URLs must not be repeated.');
   }
   const filter = normalizeFilter(options.filter);
-  const timeoutMs = positiveInteger(options.timeoutMs ?? DEFAULT_ACQUISITION_TIMEOUT_MS, 'timeoutMs');
+  const timeoutMs = contractInteger(
+    options.timeoutMs ?? DEFAULT_ACQUISITION_TIMEOUT_MS,
+    ACQUISITION.timeoutMs,
+    'timeoutMs',
+  );
   const observationLimit = positiveInteger(
     options.observationLimit ?? DEFAULT_ACQUISITION_OBSERVATION_LIMIT,
     'observationLimit',
@@ -455,7 +459,11 @@ export function normalizeAcquisitionOptions(options) {
     options.distinctEventLimit ?? DEFAULT_ACQUISITION_DISTINCT_EVENT_LIMIT,
     'distinctEventLimit',
   );
-  const concurrency = positiveInteger(options.concurrency ?? DEFAULT_RELAY_CONCURRENCY, 'concurrency');
+  const concurrency = contractInteger(
+    options.concurrency ?? DEFAULT_RELAY_CONCURRENCY,
+    ACQUISITION.concurrency,
+    'concurrency',
+  );
   const excludeContentWarnings =
     options.excludeContentWarnings ?? ACQUISITION.excludeContentWarnings.default;
   if (typeof excludeContentWarnings !== 'boolean') {
@@ -468,6 +476,17 @@ export function normalizeAcquisitionOptions(options) {
     relays, filter, timeoutMs, observationLimit, distinctEventLimit,
     concurrency, excludeContentWarnings, signal: options.signal,
   };
+}
+
+function contractInteger(value, contract, name) {
+  if (!Number.isSafeInteger(value) || value < contract.minimum
+      || (contract.maximum !== undefined && value > contract.maximum)) {
+    const range = contract.maximum === undefined
+      ? `at least ${contract.minimum}`
+      : `from ${contract.minimum} to ${contract.maximum}`;
+    throw new ResearchMemoryError(`${name} must be an integer ${range}.`);
+  }
+  return value;
 }
 
 export function normalizeHydrationOptions(options) {

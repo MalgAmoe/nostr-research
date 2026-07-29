@@ -14,6 +14,40 @@ const observation = {
   observedAt: '2026-07-27T10:00:00.000Z',
 };
 
+test('canonical archive aliases merge observations while buffer residency stays independent', () => {
+  const memory = createInMemoryResearchMemory({ capacity: 2, archiveCapacity: 2 });
+  const event = finalizeEvent({
+    kind: 30000,
+    created_at: 90,
+    tags: [['d', 'topic']],
+    content: 'addressable evidence',
+  }, KEY);
+  const coordinate = `30000:${event.pubkey}:topic`;
+  const first = { ...observation, relay: 'wss://first.example/' };
+  const second = {
+    ...observation,
+    relay: 'wss://second.example/',
+    observedAt: '2026-07-27T10:01:00.000Z',
+  };
+
+  memory.ingest(event, first);
+  memory.preserve(memory.lookup(subject('event', event.id)), {
+    level: 'canonical', reason: { type: 'event-alias' },
+  });
+  memory.ingest(event, second);
+  memory.preserve(memory.lookup(subject('address', coordinate)), {
+    level: 'canonical', reason: { type: 'address-alias' },
+  });
+
+  const inspected = memory.inspect(subject('event', event.id));
+  assert.equal(inspected.resident, true);
+  assert.equal(inspected.resolutionSource, 'archive');
+  assert.deepEqual(
+    inspected.evidence.observations.map(({ relay }) => relay).sort(),
+    ['wss://first.example/', 'wss://second.example/'],
+  );
+});
+
 test('explicit archive preservation survives complete buffer turnover and releases atomically', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 2, archiveCapacity: 3 });
   const session = createDeclarativeResearchSession(memory);
@@ -25,6 +59,14 @@ test('explicit archive preservation survives complete buffer turnover and releas
         : `note ${index}`,
   ));
   try {
+    const unknownMembership = await session.execute({
+      commandId: 'unknown-membership',
+      command: 'membership',
+      parameters: { name: 'missing' },
+    });
+    assert.equal(unknownMembership.ok, false);
+    assert.equal(unknownMembership.error.code, 'UNKNOWN_MEMBERSHIP');
+
     memory.ingest(events[0], observation);
     memory.ingest(events[1], observation);
 
@@ -104,6 +146,11 @@ test('explicit archive preservation survives complete buffer turnover and releas
       parameters: { scope: 'corpus', ids: [events[2].id] },
       resultId: 'reference',
     });
+    await command(session, 'reference-author', 'move', {
+      input: 'reference',
+      parameters: { to: 'authors' },
+      resultId: 'reference-author',
+    });
 
     const beforeFailure = structuredClone(memory.describe());
     const archiveBeforeFailure = structuredClone(memory.archived());
@@ -127,7 +174,7 @@ test('explicit archive preservation survives complete buffer turnover and releas
           id: 'author',
           operation: 'move',
           input: 'new-event',
-          parameters: { route: 'authors' },
+          parameters: { to: 'authors' },
         },
         {
           id: 'fail-at-runtime',
@@ -152,6 +199,17 @@ test('explicit archive preservation survives complete buffer turnover and releas
     });
     const fullArchiveState = structuredClone(memory.describe());
     const fullArchiveEntries = structuredClone(memory.archived());
+    const capacityFailure = await session.execute({
+      commandId: 'preserve-over-capacity',
+      command: 'preserve',
+      input: 'reference-author',
+      parameters: {
+        level: 'reference',
+        reason: { type: 'over-capacity' },
+      },
+    });
+    assert.equal(capacityFailure.ok, false);
+    assert.equal(capacityFailure.error.code, 'CAPACITY_EXCEEDED');
 
     assert.throws(() => memory.preserve(memory.collection([{
       subject: subject('event', events[3].id),
@@ -181,6 +239,17 @@ test('explicit archive preservation survives complete buffer turnover and releas
     assert.equal(memory.currentEvent(events[0].pubkey, 0).event.id, events[0].id);
     assert.equal(memory.inspect(subject('event', events[1].id)).resolutionSource, 'unresolved');
     assert.equal(memory.inspect(subject('event', events[2].id)).resolutionSource, 'unresolved');
+    const unresolvedPreservation = await session.execute({
+      commandId: 'preserve-unresolved',
+      command: 'preserve',
+      input: 'reference',
+      parameters: {
+        level: 'excerpt',
+        reason: { type: 'unresolved-after-turnover' },
+      },
+    });
+    assert.equal(unresolvedPreservation.ok, false);
+    assert.equal(unresolvedPreservation.error.code, 'UNRESOLVED_EVIDENCE');
 
     const archive = memory.archived();
     assert.deepEqual(archive.entries.map(({ level }) => level).sort(), [

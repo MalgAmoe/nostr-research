@@ -64,6 +64,7 @@ export async function executePipelineFetch(memory, parameters, input) {
   if (empty.length) {
     throw new ResearchMemoryError(
       `fetch could not resolve values for bindings: ${empty.join(', ')}.`,
+      'UNRESOLVED_EVIDENCE',
     );
   }
   const result = await acquireRelayEvents(memory, {
@@ -101,6 +102,14 @@ export function validatePipelineExtract(parameters, input) {
 export function executePipelineExtract(memory, parameters, input) {
   validatePipelineExtract(parameters, { kind: 'relation' });
   if (!isResearchRelation(input)) throw new ResearchMemoryError('extract requires a research relation.');
+  const knownSubjectType = input.fieldDefinitions?.[parameters.field]?.subjectType;
+  if (knownSubjectType !== undefined && knownSubjectType !== parameters.subjectType) {
+    throw new ResearchMemoryError(
+      `extract field ${parameters.field} has known ${knownSubjectType} subject lineage `
+      + `and cannot be extracted as ${parameters.subjectType}.`,
+      'TYPE_MISMATCH',
+    );
+  }
   const resolvedInput = resolveRelationForPresentation(memory, input);
   requireAvailableRelationFields(resolvedInput, [parameters.field], 'extract');
   const limit = resultLimit(parameters.limit);

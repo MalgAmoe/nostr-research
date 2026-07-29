@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  acquireRelayEvents,
   createDeclarativeResearchSession,
   createInMemoryResearchMemory,
+  executeResearchPlan,
+  hydrateAccounts,
 } from '@nostr-research/memory';
 import { loadFixtureEvents } from '../test-support/fixtures.js';
 
@@ -22,6 +25,14 @@ test('factual schemas construct commands accepted through the public session sea
   });
   const contracts = global.result.research.parameterContracts;
   assert.equal(global.result.constraints.memory.observationsPerEvent.maximum, 100);
+  assert.equal(contracts.acquire.timeoutMs.maximum, 60000);
+  assert.equal(contracts.acquire.concurrency.maximum, 10);
+  assert.equal(contracts.hydrate.timeoutMs.maximum, 60000);
+  assert.equal(contracts.fetch.concurrency.maximum, 10);
+  assert.equal(contracts.continue.timeoutMs.maximum, 60000);
+  assert.equal(contracts.continue.concurrency.maximum, 10);
+  assert.equal(global.result.constraints.plan.stages.maximum, 100);
+  assert.equal(global.result.research.plan.stageCount.maximum, 100);
   assert.deepEqual(contracts.filter.limit, {
     type: 'integer', minimum: 1, maximum: 1000, default: 100,
   });
@@ -41,7 +52,33 @@ test('factual schemas construct commands accepted through the public session sea
   assert.equal(contracts.continue.depth.default, 3);
   assert.equal(contracts.remember.reason.startsWith('required'), true);
   assert.equal(global.result.session.commands.plan.required.command, '"plan"');
+  assert.match(global.result.session.commands.plan.failureSemantics, /cannot be undone/);
   assert.equal('research' in global.result.session, false);
+
+  for (const parameters of [{ timeoutMs: 60001 }, { concurrency: 11 }]) {
+    await assert.rejects(
+      acquireRelayEvents(memory, {
+        relays: ['wss://fixture.invalid/'], filter: {}, ...parameters,
+      }),
+      /must be an integer from/,
+    );
+    await assert.rejects(
+      hydrateAccounts(memory, memory.collection([{
+        subject: { type: 'account', id: events[0].pubkey },
+      }], {}, 'accounts'), {
+        relays: ['wss://fixture.invalid/'], ...parameters,
+      }),
+      /must be an integer from/,
+    );
+  }
+  await assert.rejects(
+    executeResearchPlan(memory, Array.from({ length: 101 }, (_, index) => ({
+      id: `stage-${index}`,
+      operation: 'select',
+      parameters: { scope: 'corpus' },
+    }))),
+    /at most 100 stages/,
+  );
   assert.equal(
     global.result.session.commands.observation.inspect.parameters.subject,
     'subject object or bare/NIP-21 nostr: npub, nprofile, note, nevent, or naddr reference; encoded author, kind, and relay hints are unverified and never followed automatically',
@@ -63,6 +100,31 @@ test('factual schemas construct commands accepted through the public session sea
     commandId: 'relate', command: 'relate', input: 'events', resultId: 'rows',
   });
   assert.equal(related.ok, true);
+  const renamed = await session.execute({
+    commandId: 'renamed-author', command: 'project', input: 'rows',
+    parameters: { fields: [{ field: 'event.author', name: 'candidate' }] },
+    resultId: 'renamed-author',
+  });
+  assert.equal(renamed.ok, true);
+  const contradictory = await session.execute({
+    commandId: 'contradictory-extract', command: 'extract', input: 'renamed-author',
+    parameters: { field: 'candidate', subjectType: 'event' },
+  });
+  assert.equal(contradictory.ok, false);
+  assert.equal(contradictory.error.code, 'TYPE_MISMATCH');
+  const generic = await session.execute({
+    commandId: 'generic-id', command: 'derive', input: 'rows',
+    parameters: {
+      fields: [{ name: 'generic', expression: { constant: events[0].id } }],
+    },
+    resultId: 'generic-id',
+  });
+  assert.equal(generic.ok, true);
+  const genericExtract = await session.execute({
+    commandId: 'generic-extract', command: 'extract', input: 'generic-id',
+    parameters: { field: 'generic', subjectType: 'event' },
+  });
+  assert.equal(genericExtract.ok, true);
 
   const scanSchema = await session.execute({
     commandId: 'scan-schema', command: 'schema', input: 'rows',

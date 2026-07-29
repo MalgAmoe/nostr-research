@@ -5,9 +5,10 @@ const SIGNATURE = /^[a-f0-9]{128}$/;
 const SUBJECT_TYPES = new Set(['event', 'account', 'address', 'tag']);
 
 export class ResearchMemoryError extends Error {
-  constructor(message) {
+  constructor(message, code = undefined) {
     super(message);
     this.name = 'ResearchMemoryError';
+    if (code !== undefined) this.semanticCode = code;
   }
 }
 

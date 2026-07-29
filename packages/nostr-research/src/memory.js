@@ -474,6 +474,7 @@ export class InMemoryResearchMemory {
       if (level !== 'reference' && !resolution.record) {
         throw new ResearchMemoryError(
           `Cannot preserve ${level} evidence for unresolved ${item.type}:${item.id}.`,
+          'UNRESOLVED_EVIDENCE',
         );
       }
       const entry = {
@@ -501,6 +502,7 @@ export class InMemoryResearchMemory {
       throw new ResearchMemoryError(
         `Evidence archive capacity ${this.#archiveCapacity} cannot accommodate `
         + `${additions} new entries.`,
+        'CAPACITY_EXCEEDED',
       );
     }
     for (const [key, entry] of uniquePrepared) {
@@ -560,8 +562,25 @@ export class InMemoryResearchMemory {
 
   #rebuildArchivedCanonical() {
     this.#archivedCanonical.clear();
+    const canonicalByEventId = new Map();
     for (const entry of this.#archive.values()) {
-      if (entry.level === 'canonical') this.#archivedCanonical.insert(entry.canonical);
+      if (entry.level !== 'canonical') continue;
+      const current = canonicalByEventId.get(entry.canonical.event.id);
+      if (!current) {
+        canonicalByEventId.set(entry.canonical.event.id, cloneJson(entry.canonical));
+        continue;
+      }
+      const observations = [...(current.observations ?? [])];
+      mergeUniqueObservations(observations, entry.canonical.observations ?? []);
+      const retained = observations.slice(0, MAX_OBSERVATIONS_PER_EVENT);
+      current.observations = retained;
+      current.omittedObservationCount = Math.max(
+        current.omittedObservationCount ?? 0,
+        entry.canonical.omittedObservationCount ?? 0,
+      ) + Math.max(0, observations.length - retained.length);
+    }
+    for (const canonical of canonicalByEventId.values()) {
+      this.#archivedCanonical.insert(canonical);
     }
   }
 
@@ -912,7 +931,7 @@ export class InMemoryResearchMemory {
       return {
         subject: item,
         resolved: Boolean(record),
-        resident: resolution.source === 'buffer',
+        resident: this.#buffer.records.has(item.id),
         resolutionSource: resolution.source,
         evidence: record,
         provenance: record?.observations ?? [],
@@ -926,7 +945,9 @@ export class InMemoryResearchMemory {
       return {
         subject: item,
         resolved: Boolean(evidence),
-        resident: resolution.source === 'buffer',
+        resident: [...(this.#buffer.authors.get(item.id) ?? [])].some(
+          (eventId) => this.#buffer.records.get(eventId)?.event.kind === 0,
+        ),
         resolutionSource: resolution.source,
         evidence,
         provenance: evidence?.observations ?? [],
@@ -939,7 +960,12 @@ export class InMemoryResearchMemory {
       return {
         subject: item,
         resolved: Boolean(evidence),
-        resident: resolution.source === 'buffer',
+        resident: [...this.#buffer.records.values()].some(({ event }) => {
+          const parsed = parseAddress(item.id);
+          return event.pubkey === parsed.pubkey && event.kind === parsed.kind
+            && (event.kind < 30000
+              || (event.tags.find((tag) => tag[0] === 'd')?.[1] ?? '') === parsed.d);
+        }),
         resolutionSource: resolution.source,
         evidence,
         provenance: evidence?.observations ?? [],
@@ -964,7 +990,10 @@ export class InMemoryResearchMemory {
     const key = memberKey(item);
     const existing = this.#notebookEntries.get(key);
     if (!existing && this.#notebookEntries.size >= this.#notebookCapacity) {
-      throw new ResearchMemoryError(`Research notebook entry capacity ${this.#notebookCapacity} has been reached.`);
+      throw new ResearchMemoryError(
+        `Research notebook entry capacity ${this.#notebookCapacity} has been reached.`,
+        'CAPACITY_EXCEEDED',
+      );
     }
     const now = new Date().toISOString();
     const stored = {
@@ -1046,7 +1075,10 @@ export class InMemoryResearchMemory {
     const normalizedName = normalizeMembershipName(name);
     if (!this.#notebookMemberships.has(normalizedName)
         && this.#notebookMemberships.size >= this.#notebookCapacity) {
-      throw new ResearchMemoryError(`Research notebook membership capacity ${this.#notebookCapacity} has been reached.`);
+      throw new ResearchMemoryError(
+        `Research notebook membership capacity ${this.#notebookCapacity} has been reached.`,
+        'CAPACITY_EXCEEDED',
+      );
     }
     const record = {
       id: normalizedName, name: normalizedName, createdAt: new Date().toISOString(),
@@ -1081,7 +1113,10 @@ export class InMemoryResearchMemory {
     const normalizedName = normalizeMembershipName(name);
     const set = this.#notebookMemberships.get(normalizedName);
     if (!set) {
-      throw new ResearchMemoryError(`No notebook membership found for name ${normalizedName}.`);
+      throw new ResearchMemoryError(
+        `No notebook membership found for name ${normalizedName}.`,
+        'UNKNOWN_MEMBERSHIP',
+      );
     }
     return cloneJson(set);
   }

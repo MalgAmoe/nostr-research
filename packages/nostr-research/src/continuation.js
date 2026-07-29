@@ -187,28 +187,12 @@ export function normalizeContinuation(memory, input, options) {
     const acquisition = normalizeAcquisitionOptions({
       relays: options.relays,
       filter: { limit: 1 },
-      timeoutMs: positiveInteger(
-        options.timeoutMs ?? ACQUISITION.timeoutMs.default,
-        'timeoutMs',
-      ),
-      observationLimit: positiveInteger(
-        options.observationLimit
-          ?? ACQUISITION.observationLimit.default,
-        'observationLimit',
-      ),
-      distinctEventLimit: positiveInteger(
-        options.distinctEventLimit
-          ?? ACQUISITION.distinctEventLimit.default,
-        'distinctEventLimit',
-      ),
-      concurrency: positiveInteger(
-        options.concurrency ?? ACQUISITION.concurrency.default,
-        'concurrency',
-      ),
-      excludeContentWarnings: boolean(
+      timeoutMs: options.timeoutMs ?? ACQUISITION.timeoutMs.default,
+      observationLimit: options.observationLimit ?? ACQUISITION.observationLimit.default,
+      distinctEventLimit: options.distinctEventLimit ?? ACQUISITION.distinctEventLimit.default,
+      concurrency: options.concurrency ?? ACQUISITION.concurrency.default,
+      excludeContentWarnings:
         options.excludeContentWarnings ?? ACQUISITION.excludeContentWarnings.default,
-        'excludeContentWarnings',
-      ),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     Object.assign(result, {

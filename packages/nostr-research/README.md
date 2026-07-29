@@ -377,7 +377,7 @@ archive release.
 
 ## Named research plans
 
-`executeResearchPlan(memory, plan)` runs a non-empty JSON-serializable array of
+`executeResearchPlan(memory, plan)` runs a JSON-serializable array of 1 to 100
 named stages. The complete plan is validated before any stage runs. Each stage
 has an `id`, one `operation`, plain `parameters`, and an `input` naming an
 earlier stage when it consumes or explicitly follows that result. `acquire`
@@ -390,6 +390,9 @@ commands and execute them through the same authoritative executor. Operations
 name one earlier `input` or, for operations such as `join`, a named `inputs`
 object. A set operation names its left input with `input` and an earlier
 compatible right-hand stage with `parameters.with`.
+Memory changes roll back if a plan fails. External requests already sent
+cannot be undone, and successful external stage reports are not returned from
+a failed plan.
 
 ```js
 const report = await executeResearchPlan(memory, [

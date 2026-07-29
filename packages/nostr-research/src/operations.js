@@ -221,6 +221,11 @@ export function refinedSubjectKind(predicate) {
 export function operationSchema() {
   return {
     constraints: researchConstraints(),
+    plan: {
+      stageCount: RESEARCH_CONSTRAINTS.plan.stages,
+      failureSemantics:
+        'Memory changes roll back when a plan fails. External requests already sent cannot be undone, and successful stage reports are not returned from a failed plan.',
+    },
     operations: researchOperationNames(),
     definitions: Object.fromEntries(Object.entries(RESEARCH_OPERATIONS).map(([name, value]) => [
       name,
@@ -379,11 +384,17 @@ export function operationSchema() {
           effect: 'global result bound; multi-input projections are balanced by input',
         },
         depth: CONTINUATION.depth,
-        timeoutMs: 'relay source only',
-        observationLimit: 'relay source only',
-        distinctEventLimit: 'relay source only',
-        concurrency: 'relay source only',
-        excludeContentWarnings: 'relay source only',
+        timeoutMs: { ...ACQUISITION.timeoutMs, applicableTo: 'relay source only' },
+        observationLimit: {
+          ...ACQUISITION.observationLimit, applicableTo: 'relay source only',
+        },
+        distinctEventLimit: {
+          ...ACQUISITION.distinctEventLimit, applicableTo: 'relay source only',
+        },
+        concurrency: { ...ACQUISITION.concurrency, applicableTo: 'relay source only' },
+        excludeContentWarnings: {
+          ...ACQUISITION.excludeContentWarnings, applicableTo: 'relay source only',
+        },
       },
       'remember-membership': {
         name: 'required membership name',

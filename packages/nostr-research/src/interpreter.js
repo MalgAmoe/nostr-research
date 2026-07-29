@@ -1197,13 +1197,16 @@ function sessionSchema(configuration) {
         required: {
           commandId: 'non-empty string',
           command: '"plan"',
-          plan: 'non-empty research stage array',
+          plan: `research stage array from ${RESEARCH_CONSTRAINTS.plan.stages.minimum} `
+            + `to ${RESEARCH_CONSTRAINTS.plan.stages.maximum} stages`,
         },
         optional: {
           ifRevision: 'non-negative integer',
           outputs: 'map of stage IDs to new named result handle IDs',
           replace: 'boolean; true is required to overwrite a handle',
         },
+        failureSemantics:
+          'Memory changes roll back on failure; external requests already sent cannot be undone, and successful stage reports are not returned from a failed plan.',
         stage: {
           required: {
             id: 'non-empty unique string',
@@ -1285,10 +1288,10 @@ function sessionSchema(configuration) {
       mutable: {
         relays: 'default wss:// relay URL array for future external operations',
         acquisition: {
-          timeoutMs: 'positive integer',
-          observationLimit: 'positive integer',
-          distinctEventLimit: 'positive integer',
-          concurrency: 'positive integer',
+          timeoutMs: RESEARCH_CONSTRAINTS.acquisition.timeoutMs,
+          observationLimit: RESEARCH_CONSTRAINTS.acquisition.observationLimit,
+          distinctEventLimit: RESEARCH_CONSTRAINTS.acquisition.distinctEventLimit,
+          concurrency: RESEARCH_CONSTRAINTS.acquisition.concurrency,
         },
         presentation: {
           previewLimit: 'bounded integer',
@@ -1333,10 +1336,11 @@ function semanticError(error) {
   if (!(error instanceof ResearchMemoryError)) {
     return { code: 'INTERNAL_ERROR', message: 'The command could not be completed.', details: {} };
   }
+  if (error.semanticCode) {
+    return { code: error.semanticCode, message: error.message, details: {} };
+  }
   let code = 'INVALID_OPERATION';
-  if (/could not resolve values|unresolved evidence/i.test(error.message)) {
-    code = 'UNRESOLVED_EVIDENCE';
-  } else if (/requires an? (accounts|subject) collection|not supported|contain no stable subjects/.test(error.message)) {
+  if (/requires an? (accounts|subject) collection|not supported|contain no stable subjects/.test(error.message)) {
     code = 'TYPE_MISMATCH';
   } else if (/(?:invalid|unknown) subject|subject (?:must|requires)|public key|Event ID/i
     .test(error.message)) {
