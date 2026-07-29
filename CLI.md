@@ -12,6 +12,19 @@ From the repository root:
 npm run research-session -- --capacity 1000
 ```
 
+The three independent session stores can be bounded at construction:
+
+```sh
+npm run research-session -- \
+  --capacity 1000 \
+  --archive-capacity 250 \
+  --notebook-capacity 250
+```
+
+Each capacity must be an integer from 1 to 1,000. `--capacity` bounds the
+renewable observation buffer, `--archive-capacity` bounds deliberately
+preserved evidence, and `--notebook-capacity` bounds researcher knowledge.
+
 The process reads one JSON object per line from stdin and writes one JSON
 response per line to stdout. Keep it running while researching: named results
 and acquired evidence exist only inside that process.
@@ -55,6 +68,19 @@ acquire a bounded field
 
 There is no implicit active result. Every consuming command names its `input`;
 every reusable output gets a `resultId`.
+
+The complete command envelope can contain:
+
+- `commandId` — caller-owned response correlation;
+- `ifRevision` — execute only against the session revision the caller observed;
+- `command`;
+- `input` or operation-specific named `inputs`;
+- `parameters`;
+- `resultId`;
+- `replace` — explicitly permit replacement of an existing result handle.
+
+Use `ifRevision` when concurrent or scripted callers must not silently apply a
+mutation to newer session state.
 
 ## Discover commands without guessing
 
@@ -280,6 +306,11 @@ relationship. Ask its contextual schema for valid relationships and sources:
 {"commandId":"authored-1","command":"continue","input":"accounts","parameters":{"relationship":"authored-notes","source":"relays","eventLimit":100},"resultId":"authoredNotes"}
 ```
 
+A zero-input result is `empty-valid-result` only when every requested relay
+reached a conclusive terminal state for that attempt. If any requested relay
+remains inconclusive, the result remains externally partial and the absence is
+unverifiable.
+
 `fetch` uses relation fields to build a bounded relay filter. Ask its
 contextual schema before choosing `bindings`; valid binding keys include
 `ids`, `authors`, `#e`, `#p`, and `#t`.
@@ -315,6 +346,16 @@ These actions are independent:
 - `forget` removes notebook judgments;
 - `reset` clears the entire session.
 
+Notebook observation is also explicit:
+
+- `notebook` queries remembered subject judgments;
+- `memberships` lists named memberships;
+- `membership` reads one named membership;
+- `remember-membership` changes membership state.
+
+The fixed judgment vocabulary is `interested`, `uninterested`, `uncertain`, and
+`anchor`.
+
 The `anchor` judgment means only that the researcher considers a subject a
 useful place from which to continue. It triggers no acquisition, traversal,
 preservation, or other automatic behavior.
@@ -344,6 +385,12 @@ Failed commands leave session state unchanged. Observation commands do not
 advance `sessionRevision`. External commands can succeed with a
 machine-readable `partial` status; inspect coverage rather than treating
 partiality as failure.
+
+Item limits and the response-size limit are independent. A page can therefore
+return fewer items than requested. Read `sizeBounded`, `requestedItems`,
+`returnedItems`, `omitted`, and `nextOffset` before interpreting the page.
+Preview rows may list large fields under `omittedValueFields`; request
+`details` with a smaller page when canonical evidence is needed.
 
 For the in-process API, browser Worker adapter, exact contracts, and protocol
 semantics, see the [package reference](./packages/nostr-research/README.md).
