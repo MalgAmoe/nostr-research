@@ -223,6 +223,11 @@ test('factual schemas construct commands accepted through the public session sea
   assert.deepEqual(extractSchema.result.operation.recognizedTransitions, [{
     field: 'author', subjectType: 'account', lineage: ['event.author'],
   }]);
+  assert.deepEqual(extractSchema.result.operation.parameters.subjectType, {
+    type: 'string',
+    values: ['account', 'event', 'address'],
+    required: true,
+  });
   const authors = await session.execute({
     commandId: 'authors', command: 'extract', input: 'author-counts',
     parameters: { field: 'author', subjectType: 'account' },

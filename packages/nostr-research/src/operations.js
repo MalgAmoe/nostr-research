@@ -336,7 +336,11 @@ export function operationSchema() {
       },
       extract: {
         field: 'relation field containing stable subject IDs',
-        subjectType: ['account', 'event', 'address'],
+        subjectType: {
+          type: 'string',
+          values: ['account', 'event', 'address'],
+          required: true,
+        },
         limit: RESULT_LIMIT,
       },
       acquire: {

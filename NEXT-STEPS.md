@@ -60,10 +60,10 @@ classify accounts as good, human, credible, or interesting.
 
 ## What to do next
 
-The next milestone is not another engine feature. It is the first vessel
-discovery round, conducted interactively by us through one persistent CLI
-session. The aim is to behave as a vessel before deciding what software a
-vessel requires.
+The first direct vessel-discovery round is recorded in
+[VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md). Three sequential voyages tested broad
+field orientation, media evidence, and account discovery through the persistent
+CLI without arbitrary JavaScript or engine changes.
 
 For each sustained trial:
 
@@ -85,23 +85,23 @@ record explicit interest or exclusion, and collect explainable profiles with
 supporting evidence. This is a starting posture to inhabit and revise, not a
 formal vessel specification.
 
-Only after repeated use should we extract two possible caller-side layers:
+Those voyages now justify extracting the first of two caller-side layers:
 
 - a neutral session driver that owns process lifetime, command IDs, response
-  correlation, and transcripts without adding research semantics; and
+  correlation, transcripts, contextual controls, visible handle lifecycle, and
+  compact post-operation orientation without adding research semantics; and
 - vessel conventions that arrange movement, senses, explicit judgment, and
   collection over visible engine operations.
 
-Do not build a general vessel framework or visual UI yet. The first wrapper
-should remove only observed mechanical friction, and the first presentation
-should follow the vessel's discovered senses rather than precede them.
+The next work is to define and build the smallest neutral controller around the
+existing session protocol, then repeat the voyages through it. It must compile
+to the same visible commands, derive controls from schema, keep the navigator
+responsible for every next action, and make immutable evidence, current subject
+resolution, bounds, and handle lifecycle understandable.
 
-Kimi remains useful as an independent evaluator and navigator for bounded
-research tasks. Its current OpenCode environment cannot conveniently retain
-and drive an interactive subprocess, so its timed pipelines and temporary
-files are valid protocol tests but should not define the primary interaction
-model. We will conduct the formative interactive trials ourselves; later
-wrappers can be tested again by constrained external agents.
+Do not build a general vessel framework or visual UI yet. The controller should
+remove only the mechanical friction recorded by the trials. Vessel conventions
+should be extracted only after the controller itself has been used.
 
 Engine work resumes only for a verified correctness problem or a generic
 operation repeatedly reconstructed outside the library. Difficulty caused by
@@ -141,6 +141,8 @@ conventionally have one.
 ## Reference material
 
 - [CLI.md](./CLI.md): operating guide.
+- [VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md): direct voyage evidence and control
+  implications.
 - [packages/nostr-research/README.md](./packages/nostr-research/README.md):
   detailed library and protocol reference.
 - [CONTEXT.md](./CONTEXT.md): durable principles and terminology.
