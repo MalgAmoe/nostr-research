@@ -105,6 +105,13 @@ implementation order is a runtime-neutral controller core first, followed by a
 Node JSONL transport and one repeated voyage. Browser transport and
 presentation remain later decisions informed by that use.
 
+The controller core and Node JSONL transport have now been implemented and
+independently reviewed. The repeated live voyage is recorded in
+[VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md); it confirmed that the controller removes
+mechanical session friction without selecting research actions or observation
+modes. The next decision should be based on using this controller boundary,
+not on adding more engine or transport behavior speculatively.
+
 Do not build a general vessel framework or visual UI yet. The controller should
 remove only the mechanical friction recorded by the trials. Vessel conventions
 should be extracted only after the controller itself has been used.

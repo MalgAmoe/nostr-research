@@ -339,3 +339,55 @@ operations. They are not evidence for named procedures inside the engine.
 
 These questions should be answered by building the smallest neutral controller
 and using it, not by adding speculative engine behavior.
+
+## Controller-operated voyage
+
+After the first neutral controller and Node JSONL transport passed their
+worker/reviewer tasks, one further random-field voyage tested the new boundary
+against live relays.
+
+The controller:
+
+- started one persistent JSONL child process directly;
+- generated and correlated 25 command IDs;
+- retained all 25 command/response entries in a bounded transcript;
+- exposed compact response receipts without issuing observations;
+- synchronized handle and status state only when explicitly requested;
+- closed the session and child process cleanly with exit code 0;
+- used no shell pipeline, sleep, FIFO, or temporary response file.
+
+A 300-event field reached the distinct-event bound. Its compact receipt kept
+the facts needed before deciding whether to continue:
+
+- handle `field`, kind `events`, count 300;
+- external status `partial`;
+- bound `distinct-event-budget`;
+- the warning text explaining that bounded completion.
+
+The navigator then explicitly requested summary and preview. A broad subject
+scan produced 63 match rows over 27 events but only four authors. Aggregation
+showed that one author supplied 60 of those matches. The other three accounts
+were extracted and hydrated, resolving `blockstr`, `animalstr`, and
+`naturestr`. Their authored-note continuation returned repetitive automated
+block-art or stock-media output, so the navigator marked the three accounts
+`uninterested` for this voyage while retaining the evidence that led to the
+judgment.
+
+Handle lifecycle was materially easier to reason about:
+
+- the first explicit synchronization reported 8 handles, 6 shown, and 2
+  omitted;
+- later synchronization reported 9 handles, 6 shown, and 3 omitted;
+- a subsequent mutation visibly made the cached catalog stale;
+- `release-all` followed by explicit synchronization reported zero handles;
+- the final transcript contained 25 entries and 56,472 retained serialized
+  bytes with no omissions.
+
+The trial confirmed the intended boundary. The controller removed process,
+correlation, revision, transcript, and catalog bookkeeping. It did not remove
+the navigator's need to choose operations, observation modes, interpretations,
+or judgments.
+
+One small state defect was discovered and corrected: before a first successful
+`synchronize`, a `null` handle catalog must be reported as stale. A missing
+catalog is not an authoritative empty catalog.

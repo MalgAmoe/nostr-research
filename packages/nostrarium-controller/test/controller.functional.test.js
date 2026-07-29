@@ -52,6 +52,7 @@ test('public session commands are sequential, correlated, unchanged, and explici
   });
 
   assert.equal(controller.state().handleCatalog, null);
+  assert.equal(controller.state().catalogStale, true);
   const synchronized = await controller.synchronize();
   assert.equal(synchronized.list.response.ok, true);
   assert.equal(synchronized.status.response.ok, true);

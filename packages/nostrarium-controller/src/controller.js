@@ -122,7 +122,9 @@ export function createNavigatorController({
       latestTransportFailure,
       handleCatalog: catalog,
       catalogRevision,
-      catalogStale: lifecycle !== 'open' || catalogRevision !== observedRevision,
+      catalogStale: catalog === null
+        || lifecycle !== 'open'
+        || catalogRevision !== observedRevision,
     });
   }
 
