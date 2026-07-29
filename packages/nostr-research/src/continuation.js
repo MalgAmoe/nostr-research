@@ -239,7 +239,7 @@ function localContinuation(memory, starts, options) {
   }
   if (options.relationship === 'followers') {
     const contactLists = memory.select({
-      ...query, kinds: [3], '#p': accounts.map(({ id }) => id),
+      ...query, kinds: [3], tags: { p: accounts.map(({ id }) => id) },
     });
     return memory.collection(contactLists.items.map((item) => ({
       subject: subject('account', item.record.event.pubkey),
@@ -449,7 +449,7 @@ function sharedTags(memory, events, query) {
   }
   const tags = [...counts].filter(([, count]) => count >= Math.min(2, events.length))
     .map(([value]) => value);
-  return tags.length ? memory.select({ ...query, '#t': tags })
+  return tags.length ? memory.select({ ...query, tags: { t: tags } })
     : memory.collection([], { operation: 'continuation-projection' });
 }
 

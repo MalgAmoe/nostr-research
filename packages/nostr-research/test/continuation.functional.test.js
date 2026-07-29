@@ -70,8 +70,10 @@ test('relay continuation does not claim a valid empty result when one relay fail
 test('named account and note handles continue with bounded relationship provenance', async () => {
   const memory = createInMemoryResearchMemory({ capacity: 20 });
   const session = createDeclarativeResearchSession(memory);
-  const root = sign(1, 100, [['p', getPublicKey(BOB_SECRET)]], 'root', ALICE_SECRET);
-  const other = sign(1, 110, [], 'another authored note', ALICE_SECRET);
+  const root = sign(
+    1, 100, [['p', getPublicKey(BOB_SECRET)], ['t', 'Research']], 'root', ALICE_SECRET,
+  );
+  const other = sign(1, 110, [['t', 'Research']], 'another authored note', ALICE_SECRET);
   const reply = sign(
     1, 120, [['e', root.id, '', 'reply']], 'reply', BOB_SECRET,
   );
@@ -563,7 +565,7 @@ test('named account and note handles continue with bounded relationship provenan
     resultId: 'local-shared-tags',
   });
   assert.equal(localSharedTags.ok, true);
-  assert.equal(localSharedTags.result.handle.count, 0);
+  assert.equal(localSharedTags.result.handle.count, 2);
 
   const originalWebSocket = globalThis.WebSocket;
   let constructedWebSockets = 0;
