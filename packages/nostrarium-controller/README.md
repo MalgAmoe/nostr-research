@@ -92,3 +92,51 @@ strict one-request/one-response stream can no longer be trusted after transport
 failure. Start a new session to continue. The bounded controller transcript and
 transport diagnostics remain available for diagnosis or caller-directed
 replay; neither layer retries or replays commands automatically.
+
+## Experimental navigator arrangement
+
+The optional `@nostrarium/controller/arrangement` entry point reorganizes
+already-requested schema and observation responses for a navigator:
+
+```js
+import {
+  arrangeControls,
+  arrangeObservation,
+} from '@nostrarium/controller/arrangement';
+
+const broad = await controller.execute({
+  command: 'schema',
+  input: 'authors',
+  parameters: {},
+});
+const move = await controller.execute({
+  command: 'schema',
+  input: 'authors',
+  parameters: { operation: 'move' },
+});
+
+const controls = arrangeControls(
+  broad.response,
+  [move.response],
+);
+
+const shown = await controller.execute({
+  command: 'show',
+  input: 'authors',
+  parameters: { mode: 'summary' },
+});
+const observation = arrangeObservation(shown.response);
+```
+
+Handle-compatible controls are grouped as contact, movement, analysis,
+judgment, and collection. Session-wide observation and lifecycle commands
+remain visible through the controller and global schema rather than being
+misrepresented as handle controls. Every compatible operation remains present.
+A focused contract is included only when the caller explicitly requested it;
+the arrangement does not fetch schemas, recommend a control, construct
+commands, or execute a sequence.
+
+Observation panels expose only response-declared orientation, evidence,
+paging, and context. They do not summarize content, infer domain facts, or
+choose what the navigator should inspect next. This entry point is an
+experiment over the controller, not engine or vessel semantics.

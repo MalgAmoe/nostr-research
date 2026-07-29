@@ -509,3 +509,44 @@ The remaining friction sits above the controller:
 These are evidence for experimenting with a navigator-facing control and
 observation arrangement over the controller. They are not evidence for hidden
 engine commands, automatic recipes, or more controller semantics.
+
+## First navigator-arrangement voyage
+
+The first experiment above the controller added two pure caller-side
+projections:
+
+- contextual schema responses become complete control groups for contact,
+  movement, analysis, judgment, and collection; and
+- `show` responses become orientation, evidence, paging, and context panels.
+
+Neither projection sends a command, recommends an operation, constructs
+parameters, or interprets evidence. Focused operation contracts appear only
+after the navigator explicitly requests them.
+
+A live random-field voyage then acquired 250 kind-1 events before reaching the
+distinct-event budget.
+The arranged summary kept the event count, acquisition lineage, bounds, and
+partial completeness together. The arranged controls exposed every compatible
+operation while the focused `move` contract made all four event routes and
+their output kinds visible.
+
+The navigator moved to authors, deterministically sampled 30, hydrated 23
+profiles, returned to current account subjects, and related those profiles.
+At that point the arrangement separated one contact control, one movement
+control, and eleven analysis controls. The explicitly requested `scan`
+contract exposed populated text fields and their row coverage. A broad
+caller-chosen term scan returned one candidate, whose exact profile evidence
+remained available through the ordinary preview response.
+
+The voyage used 15 visible commands and retained all transcript entries in
+29,613 bytes. One operator mistake—supplying an unsupported `limit` to
+`relate`—was rejected before the relation handle existed. The corrected voyage
+used the factual contract unchanged. This confirms that the arrangement should
+make contracts easier to attend to, not construct commands on the navigator's
+behalf.
+
+The experiment improved control and evidence visibility without changing the
+journey or hiding its steps. It did not remove raw structured command
+authoring. More abstraction is not yet justified: the next useful evidence is
+whether the same arrangement remains helpful in a contrasting voyage and
+which command-construction friction actually repeats.

@@ -71,13 +71,18 @@ The remaining friction sits above the controller: raw structured commands,
 unarranged contextual controls, and choosing an evidence projection at each
 research moment.
 
-The next experiment should therefore be a navigator-facing control and
-observation arrangement over the existing controller. It should begin with the
-repeated visible pivots and sensing moments recorded in the voyage document,
-without compiling them into hidden procedures or defining a vessel framework
-in advance. The concurrent persistent-process harness work may provide the
-right environment for this experiment; do not add another repository transport
-merely to anticipate it.
+The first navigator-facing arrangement now exists as two pure projections over
+the controller: contextual schema becomes complete control groups, and
+ordinary `show` responses become orientation, evidence, paging, and context
+panels. A live account-discovery voyage confirmed that this improves visibility
+without constructing commands, choosing routes, or hiding operations. The
+trial is recorded in [VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md).
+
+The next experiment is a contrasting voyage through the same arrangement,
+preferably media- or thread-oriented. It should test whether the grouping and
+panels remain useful when the research posture changes, and record which
+command-construction friction actually repeats. Do not add convenience
+commands merely because raw JSON remains verbose.
 
 The experiment should compare the voyages to identify:
 
