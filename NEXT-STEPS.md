@@ -99,6 +99,12 @@ to the same visible commands, derive controls from schema, keep the navigator
 responsible for every next action, and make immutable evidence, current subject
 resolution, bounds, and handle lifecycle understandable.
 
+The code-boundary review and proposed minimal interface are recorded in
+[NEUTRAL-CONTROLLER-PROPOSAL.md](./NEUTRAL-CONTROLLER-PROPOSAL.md). The proposed
+implementation order is a runtime-neutral controller core first, followed by a
+Node JSONL transport and one repeated voyage. Browser transport and
+presentation remain later decisions informed by that use.
+
 Do not build a general vessel framework or visual UI yet. The controller should
 remove only the mechanical friction recorded by the trials. Vessel conventions
 should be extracted only after the controller itself has been used.
@@ -143,6 +149,8 @@ conventionally have one.
 - [CLI.md](./CLI.md): operating guide.
 - [VOYAGE-TRIALS.md](./VOYAGE-TRIALS.md): direct voyage evidence and control
   implications.
+- [NEUTRAL-CONTROLLER-PROPOSAL.md](./NEUTRAL-CONTROLLER-PROPOSAL.md): inspected
+  controller boundary, minimal interface, and first implementation milestone.
 - [packages/nostr-research/README.md](./packages/nostr-research/README.md):
   detailed library and protocol reference.
 - [CONTEXT.md](./CONTEXT.md): durable principles and terminology.
