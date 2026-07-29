@@ -86,11 +86,15 @@ Use the repository as an experimental workbench:
 4. use both on real voyages and retain the useful combinations;
 5. freely revise, fork, combine, or delete experiments that do not help.
 
-The current Field experiment still provides only one-command-visible
-configuration, acquisition, sampling, set comparison, observation, and
-factual handle handoff. Its live trial proved that this surface is too narrow
-for sustained research. That limitation is now an experiment finding rather
-than a proposed permanent boundary.
+The Field experiment now has a second workbench entry point. It lets the
+navigator designate a current field, prepare any compatible operation through
+factual schema, retain derived handles as alternatives, explicitly adopt one,
+and return to an earlier field. Live targeted and open-ended voyages used this
+loop without changing the engine or controller.
+
+The workbench remains deliberately questionable: it may be a useful
+field-centered interpretation, or merely a generic composer plus handle
+history. More varied voyages—not abstraction work—should decide.
 
 The goal is not to find the perfect layer above the controller. It is to make
 different good-faith interpretations cheap to build and safe to fail.

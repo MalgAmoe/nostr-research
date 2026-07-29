@@ -69,3 +69,72 @@ const handoff = await field.handoff(entrances.receipt.handle.id);
 three-way relay comparison remains an explicit sequence of separately visible
 acquisitions and set operations; the Field system does not hide it behind one
 procedure.
+
+## Field workbench mutation
+
+The `@nostrarium/field-system/workbench` entry point tests a broader idea:
+Field is a changing center of attention, not a restricted operation subset.
+
+```js
+import { createFieldWorkbench } from '@nostrarium/field-system/workbench';
+
+const workbench = createFieldWorkbench({ controller });
+await workbench.open('field');
+
+const prepared = await workbench.prepare('relate');
+await workbench.execute(prepared.composition, {
+  parameters: {},
+  resultId: 'fieldRows',
+}, { adopt: true });
+
+const scan = await workbench.prepare('scan');
+await workbench.execute(scan.composition, {
+  parameters: {
+    fields: ['event.text'],
+    terms: ['cryptography'],
+  },
+  resultId: 'signals',
+}, { adopt: true });
+
+workbench.returnTo('field');
+```
+
+`prepare` sends an ordinary focused `schema` command. `execute` sends the
+ordinary command created by the schema-composer experiment. Successful results
+remain alternatives until the navigator explicitly passes `{ adopt: true }`
+or calls `adopt`. `returnTo` changes only local attention; it neither
+re-executes nor recreates a handle.
+
+The workbench does not recommend operations, infer a workflow, or prevent an
+operation because another conceptual system might also use it.
+
+### First live findings
+
+Two live voyages exercised the mutation:
+
+- A targeted cryptographer voyage encountered a random 900-note field with
+  zero matching signals. This exposed and removed automatic result adoption:
+  successful derived handles now remain alternatives until the navigator
+  explicitly changes fields.
+- An open 500-event voyage used only workbench-mediated research operations to
+  build a 64-kind map, choose rare kind 22816, isolate a peer-ID event, inspect
+  its canonical tags, extract its author, and attempt profile hydration. The
+  author remained unresolved.
+
+The second path was:
+
+```text
+random field
+→ relation
+→ kind aggregation
+→ rarity ordering
+→ navigator-chosen kind
+→ exact event
+→ exact author
+→ unresolved profile
+```
+
+This is enough to retain the workbench as a useful experiment. It is still
+close to a generic composer with field history; further voyages must determine
+whether field designation, alternatives, and return provide enough character
+to justify the interpretation.
