@@ -951,6 +951,13 @@ function globalSessionSchema(memory, configuration, detail) {
 }
 
 function collectionStructure(collection) {
+  if (collection.kind === 'summaries') {
+    return {
+      kind: collection.kind,
+      count: collection.items.length,
+      subjectTypes: [],
+    };
+  }
   const subjectTypes = [...collection.items.reduce((counts, { subject }) => {
     counts.set(subject.type, (counts.get(subject.type) ?? 0) + 1);
     return counts;

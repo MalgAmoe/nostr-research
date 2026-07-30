@@ -352,6 +352,15 @@ test('declarative named results compose compatible sets and expose their schema'
   });
   assert.equal(compared.ok, true);
   assert.equal(compared.result.handle.kind, 'summaries');
+  const comparisonSchema = await session.execute({
+    commandId: 'comparison-schema', command: 'schema',
+    input: 'comparison', parameters: {},
+  });
+  assert.equal(comparisonSchema.ok, true);
+  assert.equal(comparisonSchema.result.structure.kind, 'summaries');
+  assert.equal(comparisonSchema.result.structure.count, 1);
+  assert.deepEqual(comparisonSchema.result.structure.subjectTypes, []);
+  assert.deepEqual(comparisonSchema.result.compatibleOperations, []);
   const shown = await session.execute({
     commandId: 'show', command: 'show', input: 'comparison', parameters: {},
   });

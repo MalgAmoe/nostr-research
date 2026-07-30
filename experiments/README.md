@@ -34,7 +34,10 @@ Current experiments:
 - [`overlap-cockpits/`](./overlap-cockpits/): Bridge, Parallax, and Expedition;
 - [`spacecraft-organs/`](./spacecraft-organs/): tiny independent Navigator,
   Questions, Reservoirs, and Comparison organs sharing ordinary handles and
-  the complete controller command surface.
+  the complete controller command surface;
+- [`voyage-system-slice/`](./voyage-system-slice/): provisional executable
+  first slice with one field/focus, loose questions, already-observed lenses,
+  explicit action gating, and pending-result placement.
 
 Superseded experimental implementations are removed once their findings are
 distilled. Historical voyage evidence belongs under
