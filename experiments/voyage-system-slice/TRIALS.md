@@ -893,3 +893,121 @@ execution is less costly than adding another lifecycle path.
 
 Retain the simplified experiment without code changes. Use the hybrid rhythm in
 future voyages and keep counting unexpected promotions.
+
+---
+
+## Relay Confessional
+
+Date: 2026-07-31.
+
+Research question:
+
+> How different is the bounded kind-1 universe depending on which relay we dock
+> at?
+
+The voyage acquired the exact same filter separately from nos.lol, Primal, and
+Snort:
+
+```text
+kinds: [1]
+until: 1785450490
+limit: 180
+```
+
+Every acquisition explicitly named one relay. Ground and the other two relay
+fields were durable voyage positions. Pairwise comparisons, temporary unions,
+intermediate intersections, relation entry, and author aggregation remained raw
+transient operations. The all-relay intersection and the three bounded
+relay-exclusive fields became explicit branches.
+
+### Acquisition facts
+
+| Relay | Accepted distinct events | Terminal outcome | Content-warning exclusions |
+|---|---:|---|---:|
+| nos.lol | 180 | distinct-event budget | 0 |
+| Primal | 179 | EOSE | 1 |
+| Snort | 178 | EOSE | 2 |
+
+Every acquisition reported `exhaustive: false` and the same uncertainty: a
+bounded attempt was made; relay completeness is not implied.
+
+### Identity overlap
+
+Pairwise comparisons:
+
+| Pair | Left | Right | Shared | Left only | Right only |
+|---|---:|---:|---:|---:|---:|
+| nos.lol / Primal | 180 | 179 | 45 | 135 | 134 |
+| nos.lol / Snort | 180 | 178 | 36 | 144 | 142 |
+| Primal / Snort | 179 | 178 | 61 | 118 | 117 |
+
+Only 12 event identities appeared in all three bounded fields.
+
+After subtracting the union of the other two fields:
+
+| Bounded exclusive field | Events |
+|---|---:|
+| nos.lol observations only | 111 |
+| Primal observations only | 85 |
+| Snort observations only | 93 |
+
+These are **sample-relative differences**, not claims that an event is absent
+from a relay's corpus. Each relay may select or order the same limited filter
+differently, and later or broader acquisition could resolve more overlap.
+
+### Concentration differed visibly
+
+The most prolific author inside each bounded exclusive field contributed:
+
+| Field | Top-author events | Field size |
+|---|---:|---:|
+| nos.lol only | 4 | 111 |
+| Primal only | 30 | 85 |
+| Snort only | 52 | 93 |
+
+The next visible Primal concentrations were 10 and 7 events; the next visible
+Snort concentrations were 6 and 5. The nos.lol preview was much more diffuse,
+with several authors at three events.
+
+This is a mechanical author-concentration observation. It does not establish
+bot status, relay policy, quality, or intent. The note previews did, however,
+make the different bounded rooms tangible: ordinary prose, automated weather,
+game-state JSON, crypto promotion, news automation, repeated search-link
+templates, media posts, and genuine conversation were distributed differently.
+
+### Voyage-system assessment
+
+Command distribution:
+
+| Category | Count |
+|---|---:|
+| Candidate | 8 |
+| Transient | 16 |
+| Observation | 14 |
+
+The hybrid rhythm worked especially well:
+
+- all three docking fields, the common set, the three exclusive sets, and one
+  exact specimen were durable positions;
+- 16 intermediate set and relation transformations did not clutter voyage
+  state;
+- questions retained the distinction between overlap, exclusive character, and
+  epistemic caution;
+- seven of eight branch slots were used, but the field remained recoverable;
+- 407 canonical events represented 537 accepted observations at exit, with no
+  buffer eviction.
+
+No transient result unexpectedly required promotion. No engine or experiment
+defect appeared.
+
+### Conclusion
+
+The bounded universe visibly changed with the docking point. The strongest
+finding is not that one relay "has" particular content, but that a small recent
+window from one relay is a poor proxy for the Nostr field. Multi-relay contact
+is therefore epistemically useful even when research deliberately remains
+small and sequential.
+
+Relay Confessional is also a natural use of the simplified voyage system:
+parallel durable fields, explicit set differences, and raw transient analysis
+fit together without requiring a new relay-specific interface.
