@@ -92,10 +92,27 @@ Ground
 ```
 
 That boundary should not be repaired by expanding the desk indiscriminately.
-The next distinct systems hypothesis is a disposable multi-frame field board,
-comparison table, or branch map that keeps Ground, contrasts, and finalists
-visible together. It should share only ordinary controller handles and commands
-with Evidence Desk, not import the desk as an experimental dependency.
+An independent Field Board experiment has tested the complementary multi-frame
+shape. Reconstruction of the three-branch Breadth field, a stranger mixed-kind
+structural field, and a prospective evolving field passed: Ground, branch
+reasons, stage-aware bound contrasts, resolution profiles, lineage, neutral
+count contrasts, local addition/replacement, focus, and exit handles remained
+visible without subject previews or external structure notes.
+
+Field Board imports no experiment and executes nothing. It accepts ordinary
+handles plus already-requested summaries, then returns unchanged handles to any
+single-frame surface, relation tool, or raw command path. Membership overlap
+remains explicitly unavailable unless separately observed. This is evidence for
+a narrow complementary surface, not a reason to combine the experiments or
+promote a general cockpit.
+
+Three subsequent real-relay composition voyages completed 57 controller
+commands while moving between Field Board, Evidence Desk, relation tools,
+Schema Composer, and raw known commands. The repeated useful interchange was a
+named ordinary handle, its already-requested summary, and a caller-defined
+reason entering the board; every surface returned an unchanged ordinary handle.
+This supports experimental composition above the controller without making the
+experiments depend on one another.
 
 Repeated voyage evidence also distinguishes the desk's parts:
 
@@ -200,6 +217,10 @@ have it.
   controller, transport, arrangement, and composer reference.
 - [`experiments/schema-composer/README.md`](./experiments/schema-composer/README.md):
   one schema-backed composer, explicitly outside the neutral controller.
+- [`experiments/evidence-desk/README.md`](./experiments/evidence-desk/README.md):
+  the voyage-tested single-frame note/account decision surface.
+- [`experiments/field-board/README.md`](./experiments/field-board/README.md):
+  the pure multi-frame Ground and branch position experiment.
 - [`experiments/flight-console/README.md`](./experiments/flight-console/README.md):
   research sensors, explicit movements, and full-engine escape.
 - [`experiments/overlap-cockpits/README.md`](./experiments/overlap-cockpits/README.md):

@@ -25,6 +25,8 @@ Current experiments:
   exposures;
 - [`evidence-desk/`](./evidence-desk/): a voyage-tested single-frame note/account
   decision surface with separate schema-backed visible controls;
+- [`field-board/`](./field-board/): a pure multi-frame Ground and branch position
+  experiment over ordinary handles and already-requested summaries;
 - [`flight-console/`](./flight-console/): research sensors, transparent
   movements, position, and complete-engine escape;
 - [`local-interfaces/`](./local-interfaces/): local control support currently
