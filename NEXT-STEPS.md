@@ -77,24 +77,22 @@ neighborhood.
 
 Use the repository as an experimental workbench:
 
-1. revise the Field interpretation from the cryptographer trial so a field can
-   be reshaped with any compatible engine operation;
-2. keep its field-centered character without claiming exclusive ownership of
-   acquisition, analysis, or movement;
-3. build at least one substantially different interpretation over the same
-   controller;
-4. use both on real voyages and retain the useful combinations;
+1. start human-facing experiments from notes and accounts rather than engine
+   handles or command construction;
+2. keep evidence visualizers separate from controls that create actions;
+3. let explicit human actions compile down through the neutral controller to
+   ordinary visible engine commands;
+4. expose lower-level handles, schema, provenance, and commands when they help
+   investigation without making them the primary interface;
 5. freely revise, fork, combine, or delete experiments that do not help.
 
-The Field experiment now has a second workbench entry point. It lets the
-navigator designate a current field, prepare any compatible operation through
-factual schema, retain derived handles as alternatives, explicitly adopt one,
-and return to an earlier field. Live targeted and open-ended voyages used this
-loop without changing the engine or controller.
-
-The workbench remains deliberately questionable: it may be a useful
-field-centered interpretation, or merely a generic composer plus handle
-history. More varied voyages—not abstraction work—should decide.
+Two browser UI experiments tested a generic workbench and a note-first field
+deck. Both proved that the same controller and browser Worker can support a
+fully local browser client, but neither was usable enough to retain. They were
+removed. Their useful result is the boundary above: notes and accounts are the
+navigator's primary objects; visualizers explain the current evidence; action
+controls deliberately move or reshape it; the complete engine remains
+available underneath.
 
 The goal is not to find the perfect layer above the controller. It is to make
 different good-faith interpretations cheap to build and safe to fail.

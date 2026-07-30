@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/controller.js",
-    "./node": "./src/node.js"
+    "./node": "./src/node.js",
+    "./worker": "./src/worker.js"
   },
   "files": [
     "src",
@@ -13,7 +14,7 @@
   ],
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/controller.js && node --check src/node.js"
+    "check": "node --check src/controller.js && node --check src/node.js && node --check src/worker.js"
   },
   "engines": {
     "node": ">=22.5.0"

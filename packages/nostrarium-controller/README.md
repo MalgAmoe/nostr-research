@@ -97,3 +97,33 @@ Interpretations over the controller deliberately live outside this package.
 The current schema-backed example is
 [`@nostrarium/schema-composer`](../../experiments/schema-composer/README.md).
 It is one disposable composer among potentially many.
+
+## Browser Worker transport
+
+The browser-specific transport connects the same neutral controller to the
+research engine's module Worker:
+
+```js
+import { createNavigatorController } from '@nostrarium/controller';
+import { createBrowserWorkerTransport } from '@nostrarium/controller/worker';
+
+const worker = new Worker(new URL('./research-worker.js', import.meta.url), {
+  type: 'module',
+});
+const transport = await createBrowserWorkerTransport({
+  worker,
+  memory: { capacity: 1_000, archiveCapacity: 300, notebookCapacity: 300 },
+  configuration: { presentation: { previewLimit: 8 } },
+  responseTimeoutMs: 45_000,
+});
+const controller = createNavigatorController({
+  request: transport.request,
+  closeTransport: transport.close,
+  transcript: { maxEntries: 500, maxBytes: 2_000_000 },
+});
+```
+
+The transport performs the Worker lifecycle initialization and then passes
+ordinary correlated session commands and responses unchanged. Closing the
+controller sends the normal session `close` command before terminating the
+Worker. It adds no research operations or browser-specific command semantics.

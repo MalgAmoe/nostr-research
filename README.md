@@ -7,7 +7,7 @@ composing, and experiencing the same evidence.
 
 ```text
 packages/nostr-research/    UI-independent research library and JSONL session
-packages/nostrarium-controller/  Neutral caller-side controller and Node transport
+packages/nostrarium-controller/  Neutral controller with Node and browser transports
 experiments/schema-composer/  Schema-backed command and observation composer
 experiments/flight-console/   Research sensors, movements, and engine escape
 experiments/overlap-cockpits/ Bridge, Parallax, and Expedition experiments
@@ -33,8 +33,8 @@ protocol semantics. [CONTEXT.md](./CONTEXT.md) contains durable product and
 engineering decisions.
 
 The [controller reference](./packages/nostrarium-controller/README.md)
-documents the neutral caller-side session controller and its Node JSONL
-transport.
+documents the neutral caller-side session controller and its Node JSONL and
+browser Worker transports.
 
 Disposable interpretations live under [`experiments/`](./experiments/).
 Stable engine and controller packages do not depend on them.

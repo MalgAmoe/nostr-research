@@ -361,7 +361,13 @@ function projectSensor(sensor, result = {}) {
 function sensorItem(sensor, item) {
   const values = item.values ?? {};
   const common = {
-    subject: item.subject ?? (item.id ? { id: item.id } : null),
+    subject: item.subject
+      ?? values.subject
+      ?? (values['subject.id']
+        ? { type: values['subject.type'] ?? null, id: values['subject.id'] }
+        : item.id
+          ? { id: item.id }
+          : null),
     resolved: item.resolved ?? null,
   };
   if (sensor === 'identities') {
