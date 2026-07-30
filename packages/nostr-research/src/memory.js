@@ -1,6 +1,6 @@
 import { SUBJECT_COLLECTION_KINDS } from './operations.js';
 import { RESEARCH_CONSTRAINTS } from './configuration.js';
-import { NOTEBOOK_JUDGMENTS, QUERY_LIMIT } from './contract-facts.js';
+import { NOTEBOOK_JUDGMENTS, NOTEBOOK_KINDS, QUERY_LIMIT } from './contract-facts.js';
 import { compareCodePoints, foldCase } from './deterministic-text.js';
 import {
   collectionPipelineSchema as engineCollectionPipelineSchema,
@@ -1893,7 +1893,7 @@ function normalizeNotebookEntry(value) {
     'notebook entry',
   );
   const kind = value.kind ?? (value.judgment === undefined ? 'note' : 'judgment');
-  if (!['judgment', 'note', 'derived-observation', 'summary'].includes(kind)) {
+  if (!NOTEBOOK_KINDS.includes(kind)) {
     throw new ResearchMemoryError('Notebook entry kind is invalid.');
   }
   if (typeof value.reason !== 'string' || value.reason.trim().length === 0) {

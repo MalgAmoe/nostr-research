@@ -23,6 +23,8 @@ Current experiments:
   and observation composer;
 - [`darkroom-composer/`](./darkroom-composer/): fixed Ground and paired A/B
   exposures;
+- [`evidence-desk/`](./evidence-desk/): a voyage-tested single-frame note/account
+  decision surface with separate schema-backed visible controls;
 - [`flight-console/`](./flight-console/): research sensors, transparent
   movements, position, and complete-engine escape;
 - [`local-interfaces/`](./local-interfaces/): local control support currently

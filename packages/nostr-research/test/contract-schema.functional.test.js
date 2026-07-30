@@ -53,6 +53,10 @@ test('factual schemas construct commands accepted through the public session sea
   );
   assert.deepEqual(contracts.fetch.bindings.keys, ['ids', 'authors', '#e', '#p', '#t']);
   assert.equal(contracts.continue.depth.default, 3);
+  assert.deepEqual(contracts.remember.kind, {
+    required: false,
+    values: ['judgment', 'note', 'derived-observation', 'summary'],
+  });
   assert.equal(contracts.remember.reason.startsWith('required'), true);
   assert.equal(global.result.session.commands.plan.required.command, '"plan"');
   assert.match(global.result.session.commands.plan.failureSemantics, /cannot be undone/);
@@ -127,6 +131,36 @@ test('factual schemas construct commands accepted through the public session sea
     resultId: 'events',
   });
   assert.equal(selected.ok, true);
+
+  const rememberSchema = await session.execute({
+    commandId: 'remember-schema', command: 'schema', input: 'events',
+    parameters: { operation: 'remember' },
+  });
+  assert.deepEqual(
+    rememberSchema.result.operation.parameters.kind,
+    contracts.remember.kind,
+  );
+  const rememberContent = {
+    judgment: { judgment: 'uncertain' },
+    note: { note: 'schema-constructed note' },
+    'derived-observation': { summary: { observation: 'schema-constructed' } },
+    summary: { summary: { finding: 'schema-constructed' } },
+  };
+  for (const kind of rememberSchema.result.operation.parameters.kind.values) {
+    const remembered = await session.execute({
+      commandId: `remember-${kind}`,
+      command: 'remember',
+      input: 'events',
+      parameters: {
+        kind,
+        ...rememberContent[kind],
+        reason: 'Constructed from the focused schema.',
+        attribution: 'contract test',
+      },
+    });
+    assert.equal(remembered.ok, true);
+  }
+
   const related = await session.execute({
     commandId: 'relate', command: 'relate', input: 'events', resultId: 'rows',
   });

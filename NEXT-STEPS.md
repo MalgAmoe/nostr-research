@@ -1,7 +1,7 @@
 # Project next steps
 
-Status: current direction after the first vessel and playful-voyage rounds on
-2026-07-29.
+Status: current direction after the first vessel, playful-voyage, and three
+Evidence Desk voyage rounds through 2026-07-30.
 
 ## Current position
 
@@ -28,8 +28,12 @@ The controller removes process and correlation friction without selecting
 research actions. Composers and systems above it are disposable
 interpretations rather than a canonical next layer.
 
-No current voyage has identified a correctness defect or missing generic
-engine primitive that justifies another engine milestone.
+No current voyage has identified a missing generic engine primitive that
+justifies another engine milestone. One narrow contextual-schema completeness
+problem found by the Breadth voyage has been corrected: full and focused
+`remember` contracts now enumerate accepted notebook `kind` values from the
+same contract fact used by validation. This was a factual correction, not a new
+engine capability.
 
 The first systems hypothesis was:
 
@@ -72,6 +76,37 @@ playful voyage succeeded: random entrances, navigator curiosity, explicit
 evidence-bearing doors, a small invalidation check, and another random airlock
 led from a zucchini joke to an ActivityPub-bridged gardening and solarpunk
 neighborhood.
+
+## Current interaction finding
+
+Three sustained voyages establish Evidence Desk as a **single-frame
+note/account decision surface**. It naturally houses Depth and Skeptic work
+around one current subject or evidence frame. It also serves each individual
+Breadth stop, but does not keep this larger field visible together:
+
+```text
+Ground
+├── branch A
+├── branch B
+└── branch C
+```
+
+That boundary should not be repaired by expanding the desk indiscriminately.
+The next distinct systems hypothesis is a disposable multi-frame field board,
+comparison table, or branch map that keeps Ground, contrasts, and finalists
+visible together. It should share only ordinary controller handles and commands
+with Evidence Desk, not import the desk as an experimental dependency.
+
+Repeated voyage evidence also distinguishes the desk's parts:
+
+- note/account cards and the separate summary, preview, details, explain, and
+  coverage senses are strongly supported;
+- relation exit and subject-handle return are strongly supported;
+- unresolved-account hydration is the clearest candidate for a situational
+  control;
+- complete action enumeration is truthful but has not earned permanence.
+
+No immediate Evidence Desk feature work is required.
 
 ## Immediate work
 

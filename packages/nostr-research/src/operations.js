@@ -8,6 +8,7 @@ import {
   FETCH_BINDING_KEYS,
   FIELD_MAPPINGS,
   NOTEBOOK_JUDGMENTS,
+  NOTEBOOK_KINDS,
   QUERY_LIMIT,
   RELATION_FIELDS,
   RELATION_PREDICATE,
@@ -406,7 +407,7 @@ export function operationSchema() {
         attribution: 'optional non-empty caller attribution',
       },
       remember: {
-        kind: 'optional notebook classification',
+        kind: { required: false, values: NOTEBOOK_KINDS },
         labels: 'optional string labels',
         note: 'optional caller note',
         judgment: { required: false, values: NOTEBOOK_JUDGMENTS },

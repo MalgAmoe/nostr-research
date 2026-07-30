@@ -7,6 +7,18 @@ For the current conclusions, read [`VESSELS.md`](../../VESSELS.md). For the
 engine and controller, start with the repository
 [`README.md`](../../README.md) and [`CLI.md`](../../CLI.md).
 
+## Current experimental voyages
+
+- [`EVIDENCE-DESK-VOYAGE-1.md`](./EVIDENCE-DESK-VOYAGE-1.md): random live note
+  through conversation provenance, profile hydration, authored evidence,
+  relation analysis, and return to note cards.
+- [`EVIDENCE-DESK-VOYAGE-2.md`](./EVIDENCE-DESK-VOYAGE-2.md): Breadth posture
+  over one Ground, three relation-derived signals, shared profile hydration,
+  parallel candidate comparison, and qualified notebook judgments.
+- [`EVIDENCE-DESK-VOYAGE-3.md`](./EVIDENCE-DESK-VOYAGE-3.md): Skeptic posture
+  testing a nature-photography selection reason against bounded authored
+  recurrence, relation evidence, and a qualified notebook revision.
+
 ## Historical trial journals
 
 - [`TWENTY-OVERLAP-EXPERIMENTS.md`](./TWENTY-OVERLAP-EXPERIMENTS.md):
