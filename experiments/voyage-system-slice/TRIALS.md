@@ -787,3 +787,109 @@ placement. A public-boundary voyage test preserves evidence without a
 
 These are current boundaries to test through further use, not reasons to expand
 the experiment now.
+
+---
+
+## Hybrid raw/gate rhythm trials
+
+Date: 2026-07-31.
+
+These trials tested a caller convention without changing the experiment:
+
+- **transient** result-producing transformations execute through the raw
+  controller;
+- **candidate** results that may become Ground, a branch, or focus execute
+  through the action gate;
+- **observations** such as `show`, `schema`, and `status` remain raw.
+
+The question was whether this division removes temporary-placement ceremony
+without losing voyage orientation.
+
+### Voyage 1 — relation-heavy domain room
+
+A 240-note random field was transformed through seven raw transient stages:
+`relate`, domain expansion, aggregation, sorting, filtering, another relation,
+and author aggregation. Only two results used the gate:
+
+- Ground; and
+- the extracted concrete domain room.
+
+Four raw observations supported decisions. The navigator selected
+`assets.twitch.tv` from the bounded recurrence table: 14 domain rows distributed
+evenly across two visible authors, seven each.
+
+Ground and the concrete room remained legible while every intermediate relation
+was allowed to disappear from voyage state. No transient result later needed
+placement. This is the strongest evidence for the hybrid convention.
+
+One first attempt used `event.id` instead of the schema-exposed `subject.id` for
+extraction. The engine rejected it with the available fields. This was a
+recoverable operator error, not an engine or voyage defect; raw speed does not
+remove the need for contextual schema when a field is unfamiliar.
+
+Command distribution:
+
+| Category | Count |
+|---|---:|
+| Candidate | 2 |
+| Transient | 7 |
+| Observation | 4 |
+
+### Voyage 2 — evidence descent
+
+A 180-note Ground led through a chosen note, its author, and hydrated profile
+evidence. All four result-producing commands used the gate because each result
+was expected to remain part of the evidence path. Four observations remained
+raw.
+
+The airlock selection initially looked conversational, but hydration identified
+the author as a tracking-token removal bot. The second question therefore
+complicated the first impression rather than confirming it. Ground, note,
+author, and profile were appropriate durable positions; no transient pipeline
+was present, so the hybrid convention naturally reduced to ordinary gated
+descent.
+
+Command distribution:
+
+| Category | Count |
+|---|---:|
+| Candidate | 4 |
+| Transient | 0 |
+| Observation | 4 |
+
+### Voyage 3 — speculative sensory-life probe
+
+A 220-note Ground was scanned for ordinary sensory-life language. `relate` and
+the first scan were classified as transient. The scan returned five matching
+rows, so the supposedly disposable result unexpectedly became a branch
+candidate.
+
+Because the current experiment only places pending gated results, the identical
+scan had to be executed a second time through the gate. This was the one
+unexpected promotion across the three voyages.
+
+Command distribution:
+
+| Category | Count |
+|---|---:|
+| Candidate | 2 |
+| Transient | 2 |
+| Observation | 3 |
+| Unexpected promotions | 1 |
+
+### Conclusion
+
+The hybrid rhythm is useful as a caller convention:
+
+- transient relation pipelines no longer require repeated focus placement;
+- durable evidence descents still receive explicit execution and placement;
+- observations remain cheap and direct;
+- Ground, questions, branches, and shared focus retain their navigational role.
+
+One unexpected promotion is real friction but does not yet justify a new
+operation. A local `adoptNamedHandle`-style action would be warranted only if
+repeated voyages show this pattern recurring. Until then, the visible duplicate
+execution is less costly than adding another lifecycle path.
+
+Retain the simplified experiment without code changes. Use the hybrid rhythm in
+future voyages and keep counting unexpected promotions.
