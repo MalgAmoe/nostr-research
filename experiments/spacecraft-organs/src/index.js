@@ -67,8 +67,9 @@ export function createNavigator({ controller, trailLimit = 20 } = {}) {
   return Object.freeze({ attach, execute, returnTo, state });
 }
 
-export function createQuestions({ limit = 8 } = {}) {
+export function createQuestions({ limit = 8, evidenceLimit = 20 } = {}) {
   integerLimit(limit, 'limit');
+  integerLimit(evidenceLimit, 'evidenceLimit');
   let nextQuestion = 0;
   const questions = [];
 
@@ -78,6 +79,7 @@ export function createQuestions({ limit = 8 } = {}) {
       text: nonEmptyString(text, 'question'),
       status: 'open',
       evidence: [],
+      omittedEvidence: 0,
     };
     questions.push(question);
     while (questions.length > limit) questions.shift();
@@ -91,6 +93,10 @@ export function createQuestions({ limit = 8 } = {}) {
       handle,
       reason: nonEmptyString(reason, 'reason'),
     });
+    while (question.evidence.length > evidenceLimit) {
+      question.evidence.shift();
+      question.omittedEvidence += 1;
+    }
     return structuredClone(question);
   }
 

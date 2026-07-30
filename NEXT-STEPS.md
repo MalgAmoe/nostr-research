@@ -165,10 +165,12 @@ have it.
   library and protocol reference.
 - [`packages/nostrarium-controller/README.md`](./packages/nostrarium-controller/README.md):
   controller, transport, arrangement, and composer reference.
-- [`experiments/field-system/README.md`](./experiments/field-system/README.md):
-  first experimental caller-side system and its visible handoff boundary.
 - [`experiments/schema-composer/README.md`](./experiments/schema-composer/README.md):
   one schema-backed composer, explicitly outside the neutral controller.
+- [`experiments/flight-console/README.md`](./experiments/flight-console/README.md):
+  research sensors, explicit movements, and full-engine escape.
+- [`experiments/overlap-cockpits/README.md`](./experiments/overlap-cockpits/README.md):
+  the surviving Bridge, Parallax, and Expedition arrangements.
 - [`workflow/WORKFLOW.md`](./workflow/WORKFLOW.md): worker/reviewer task runner.
 
 Completed workflow tasks and run records remain under `workflow/` as historical

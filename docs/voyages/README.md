@@ -9,6 +9,10 @@ engine and controller, start with the repository
 
 ## Historical trial journals
 
+- [`TWENTY-OVERLAP-EXPERIMENTS.md`](./TWENTY-OVERLAP-EXPERIMENTS.md):
+  comparative live trial of twenty capability mixtures, including the overlap
+  patterns worth carrying into a spatial cockpit experiment.
+
 - [`history/VOYAGE-TRIALS.md`](./history/VOYAGE-TRIALS.md): direct CLI,
   controller, and first arrangement trials.
 - [`history/NAVIGATOR-VOYAGE-SUITE.md`](./history/NAVIGATOR-VOYAGE-SUITE.md):

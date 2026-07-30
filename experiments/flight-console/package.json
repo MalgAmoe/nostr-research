@@ -1,0 +1,27 @@
+{
+  "name": "@nostrarium/flight-console",
+  "version": "0.1.0",
+  "description": "An interactive research console of sensors, transparent movements, and full engine escape",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node --check src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@nostrarium/controller": "0.1.0",
+    "@nostrarium/spacecraft-organs": "0.1.0"
+  },
+  "devDependencies": {
+    "nostr-tools": "2.23.12"
+  }
+}

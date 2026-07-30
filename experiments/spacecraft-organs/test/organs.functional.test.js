@@ -44,12 +44,17 @@ test('independent organs share ordinary handles without reducing commands', asyn
   comparison.attach('A', root, 'whole');
   comparison.attach('B', sample, 'sample');
   questions.attach(question.id, sample, 'candidate evidence');
+  for (let index = 0; index < 20; index += 1) {
+    questions.attach(question.id, sample, `additional evidence ${index}`);
+  }
 
   assert.equal(navigator.state().home.id, 'root');
   assert.equal(navigator.state().current.id, 'sample');
   assert.equal(reservoirs.state()[0].entries[0].handle.id, 'sample');
   assert.equal(comparison.state().B.handle.id, 'sample');
   assert.equal(questions.state()[0].evidence[0].handle.id, 'sample');
+  assert.equal(questions.state()[0].evidence.length, 20);
+  assert.equal(questions.state()[0].omittedEvidence, 1);
   assert.deepEqual(
     controller.transcript().entries.map(({ command }) => command.command),
     ['select', 'sample'],

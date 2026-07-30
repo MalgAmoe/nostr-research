@@ -8,8 +8,9 @@ composing, and experiencing the same evidence.
 ```text
 packages/nostr-research/    UI-independent research library and JSONL session
 packages/nostrarium-controller/  Neutral caller-side controller and Node transport
-experiments/schema-composer/  One schema-backed composer
-experiments/field-system/     One field-oriented system
+experiments/schema-composer/  Schema-backed command and observation composer
+experiments/flight-console/   Research sensors, movements, and engine escape
+experiments/overlap-cockpits/ Bridge, Parallax, and Expedition experiments
 workflow/                   Worker/reviewer task generator
 ```
 
@@ -34,11 +35,6 @@ engineering decisions.
 The [controller reference](./packages/nostrarium-controller/README.md)
 documents the neutral caller-side session controller and its Node JSONL
 transport.
-
-The [Field system](./experiments/field-system/README.md) is the first
-experimental interpretation built over that shared foundation. It arranges
-bounded field contact, sampling, observation, comparison, and handle handoff.
-It is not a permanent product hierarchy.
 
 Disposable interpretations live under [`experiments/`](./experiments/).
 Stable engine and controller packages do not depend on them.
