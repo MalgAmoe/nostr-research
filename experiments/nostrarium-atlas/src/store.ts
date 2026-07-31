@@ -37,6 +37,9 @@ export type AcquisitionUiState = {
 /** The one research-state boundary. These are aliases to the existing owned maps, never copies. */
 export const atlasResearch = { places: fields, notes, accounts };
 
+export type WorkspaceSurface = 'context' | 'field' | 'inspector';
+export type InspectorDraft = { placeId: string; subjectId: string; kind: 'profile' | 'authored' | 'relationship' } | null;
+
 export type AtlasData = {
   history: string[];
   historyIndex: number;
@@ -50,12 +53,16 @@ export type AtlasData = {
   acquisition: AcquisitionUiState;
   navigatorOperations: Record<string, NavigatorOperation>;
   latestExternal: ExternalStatus;
+  workspaceSurface: WorkspaceSurface;
+  inspectorDraft: InspectorDraft;
   research: typeof atlasResearch;
 };
 
 export type AtlasStore = AtlasData & {
   // Named tracer commits. Only the stateless action facade invokes these from migrated components.
   setAcquisitionPanel: (open: boolean) => void;
+  setWorkspaceSurface: (surface: WorkspaceSurface) => void;
+  setInspectorDraft: (draft: InspectorDraft) => void;
   setAcquisitionRelaySearch: (value: string) => void;
   setAcquisitionCustomRelay: (value: string) => void;
   addAcquisitionRelay: () => void;
@@ -127,6 +134,7 @@ export const initialAtlasState: AtlasData = {
   },
   navigatorOperations: {},
   latestExternal: { label: 'No external request yet', status: 'IDLE', warningCount: 0 },
+  workspaceSurface: 'field', inspectorDraft: null,
   research: atlasResearch,
 };
 
@@ -166,6 +174,8 @@ let nextTracerSnapshot = 0;
 export const useAtlasStore = create<AtlasStore>((set) => ({
   ...initialAtlasState,
   setAcquisitionPanel: (open) => set((state) => ({ acquisition: { ...state.acquisition, panelOpen: open } })),
+  setWorkspaceSurface: (workspaceSurface) => set({ workspaceSurface }),
+  setInspectorDraft: (inspectorDraft) => set({ inspectorDraft }),
   setAcquisitionRelaySearch: (value) => set((state) => ({ acquisition: { ...state.acquisition, relaySearch: value } })),
   setAcquisitionCustomRelay: (value) => set((state) => ({ acquisition: { ...state.acquisition, customRelay: value, customRelayError: null } })),
   addAcquisitionRelay: () => set((state) => {

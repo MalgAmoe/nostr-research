@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AccountProfileHeader, AttachmentResource, RichText } from './App';
+import { AccountFacets, AccountProfileHeader, AttachmentResource, RichText } from './App';
 import { createNavigatorActions } from './actions';
 import { accounts, fields, notes, type Field } from './data';
 import { DEFAULT_DRAFT } from './live-types';
@@ -48,6 +48,15 @@ describe('Atlas retained product boundaries', () => {
     expect(profile).toContain('Relay-observed claim');
     expect(profile).toContain('Load claimed profile picture');
     expect(profile).not.toContain('<img');
+  });
+
+  it('renders the bounded account lens as selectable identities without repeated row actions', () => {
+    const html = renderToStaticMarkup(createElement(AccountFacets, { placeId: 'ground' }));
+    expect(html).toContain('Accounts in Ground');
+    expect(html).toContain('1 notes');
+    expect(html).not.toContain('Local · Notes here');
+    expect(html).not.toContain('Research this account on relays');
+    expect(html).toContain('Facet commands, handles, lineage, bounds, and omissions');
   });
 
   it('isolates fresh account research and prepares relationship/author drafts without executing commands', () => {

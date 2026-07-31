@@ -1,6 +1,6 @@
 # Nostrarium Atlas
 
-Status: **disposable browser interaction experiment implementing the first two Place/Ground/Branch slices through a typed action/resolver boundary**.
+Status: **disposable browser interaction experiment implementing three Place/Ground/Branch product slices through a typed action/resolver boundary**.
 
 Atlas proves bounded navigator-controlled reading and traversal above the neutral controller:
 
@@ -32,6 +32,22 @@ commands. Resolvers alone construct and execute command sequences; the Atlas
 store remains the single owner of current UI and research state while its
 `research` view aliases the existing field, note, and account maps rather than
 copying them. The former direct execution store has been removed.
+
+## Navigation workspace
+
+The third slice rearranges the same capabilities into a denser workspace. The
+left Context rail contains retained Places and bounded lenses without a duplicate
+persistent History list or repeated per-account action buttons. The Field is the
+dominant reading surface. The Inspector presents one selected subject, compact
+evidence and doors, and at most one prepared external draft at a time; successful
+attempts collapse to retained factual summaries with disclosures for commands,
+bounds, receipts, responses, and provenance.
+
+At narrow widths persistent Context, Field, and Inspector controls switch among
+full-height surfaces. Switching surfaces does not reset place, projection,
+filter, paging, selection, drafts, or authorized media. The acquisition draft is
+an explicit overlay opened from the global header. No action, resolver command,
+or engine contract changed for this arrangement.
 
 ## Run
 

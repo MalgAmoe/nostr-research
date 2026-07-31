@@ -12,6 +12,7 @@ import {
   type NoteRelationshipIntent, type NoteRelationshipResolution, type PlacePageIntent, type PlacePageResolution,
   type ProfileHydrationIntent, type ProfileHydrationResolution, type SubjectObservationIntent, type SubjectObservationResolution,
 } from './resolvers';
+import type { WorkspaceSurface } from './store';
 import {
   authoredOperationKey, authorsOperationKey, currentPlaceId, placeOperationKey, profileOperationKey,
   relationshipOperationKey, subjectOperationKey, useAtlasStore,
@@ -19,6 +20,9 @@ import {
 
 export type NavigatorActions = {
   setAcquisitionPanel(open: boolean): void;
+  setWorkspaceSurface(surface: WorkspaceSurface): void;
+  openAccountDraft(placeId: string, accountId: string, kind: 'profile' | 'authored'): void;
+  openRelationshipDraft(placeId: string, noteId: string, relationship: NoteRelationship): void;
   setRelaySearch(value: string): void;
   setCustomRelay(value: string): void;
   addRelay(): void;
@@ -50,6 +54,10 @@ export type NavigatorActions = {
   selectExactSubject(placeId: string, target: Extract<InspectorTarget, { type: 'note' | 'account' | 'address' }>): void;
   observeSubject(placeId: string, type: 'note' | 'account', id: string): Promise<void>;
   activatePlace(placeId: string): void;
+  removePlace(placeId: string): void;
+  toggleNotePin(noteId: string): void;
+  toggleAccountPin(accountId: string): void;
+  dismissGuide(): void;
   navigateBack(): void;
   navigateForward(): void;
   jumpToHistory(index: number): void;
@@ -130,6 +138,18 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
 
   return {
     setAcquisitionPanel: (open) => useAtlasStore.getState().setAcquisitionPanel(open),
+    setWorkspaceSurface: (surface) => useAtlasStore.getState().setWorkspaceSurface(surface),
+    openAccountDraft: (placeId, accountId, kind) => {
+      if (!fields[placeId]?.accountResearch[accountId]?.engineHandleId) return;
+      useAtlasStore.getState().setInspectorDraft({ placeId, subjectId: accountId, kind });
+    },
+    openRelationshipDraft: (placeId, noteId, relationship) => {
+      const place = fields[placeId]; if (!place || !noteEventHandle(place, noteId)) return;
+      const research = place.noteResearch?.[noteId];
+      const draft = sanitizeRelationshipDraft({ ...(research?.relationshipDraft ?? defaultRelationshipDraft(place)), relationship });
+      useAtlasStore.getState().prepareNoteRelationship(placeId, noteId, relationship, relationshipDraftCommand(noteEventHandle(place, noteId), draft));
+      useAtlasStore.getState().setInspectorDraft({ placeId, subjectId: noteId, kind: 'relationship' });
+    },
     setRelaySearch: (value) => useAtlasStore.getState().setAcquisitionRelaySearch(value),
     setCustomRelay: (value) => useAtlasStore.getState().setAcquisitionCustomRelay(value),
     addRelay: () => useAtlasStore.getState().addAcquisitionRelay(),
@@ -325,13 +345,17 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
       } catch (error) { settleUnexpectedExternalFailure(key, 'authors', error, { placeId, installRevision: place.installRevision }); }
     },
     selectNote: (placeId, noteId) => {
-      if (fields[placeId]?.noteIds.includes(noteId)) selectAndObserve(placeId, { type: 'note', id: noteId });
+      if (fields[placeId]?.noteIds.includes(noteId)) { selectAndObserve(placeId, { type: 'note', id: noteId }); useAtlasStore.getState().setWorkspaceSurface('inspector'); }
     },
-    selectAccount: (placeId, accountId) => selectAndObserve(placeId, { type: 'account', id: accountId }),
-    selectAccountFacet: (placeId, accountId) => selectAndObserve(placeId, { type: 'account', id: accountId }, true),
+    selectAccount: (placeId, accountId) => { selectAndObserve(placeId, { type: 'account', id: accountId }); useAtlasStore.getState().setWorkspaceSurface('inspector'); },
+    selectAccountFacet: (placeId, accountId) => { selectAndObserve(placeId, { type: 'account', id: accountId }, true); useAtlasStore.getState().setWorkspaceSurface('inspector'); },
     selectExactSubject: (placeId, target) => selectAndObserve(placeId, target),
     observeSubject: (placeId, type, id) => observe(placeId, type, id, true),
     activatePlace: (placeId) => useAtlasStore.getState().activatePlace(placeId),
+    removePlace: (placeId) => useAtlasStore.getState().removePlace(placeId),
+    toggleNotePin: (noteId) => useAtlasStore.getState().toggleNotePin(noteId),
+    toggleAccountPin: (accountId) => useAtlasStore.getState().toggleAccountPin(accountId),
+    dismissGuide: () => useAtlasStore.getState().dismissGuide(),
     navigateBack: () => useAtlasStore.getState().back(),
     navigateForward: () => useAtlasStore.getState().forward(),
     jumpToHistory: (index) => useAtlasStore.getState().jump(index),

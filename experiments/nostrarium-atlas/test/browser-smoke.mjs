@@ -17,8 +17,8 @@ try {
 
   const queryPanel = page.getByRole('region', { name: 'Acquire Ground' });
   await queryPanel.waitFor();
-  assert.equal(await page.locator('.sidebar > .query-panel').count(), 1);
-  assert.equal(await page.locator('.field-content > .query-panel').count(), 0);
+  assert.equal(await page.locator('.acquisition-overlay > .query-panel').count(), 1);
+  assert.equal(await page.locator('.sidebar > .query-panel').count(), 0);
   await queryPanel.getByPlaceholder('Filter your relay list').fill('primal');
   await queryPanel.getByText('Primal', { exact: true }).waitFor();
   await queryPanel.getByText('nos.lol', { exact: true }).waitFor(); // selected targets stay visible
@@ -42,10 +42,23 @@ try {
   assert.equal(await page.locator('img[src^="/media/"]').count(), 0);
   await page.getByRole('button', { name: /Open acquisition draft/ }).first().click();
   await queryPanel.waitFor();
-  assert.equal(await page.locator('.sidebar > .query-panel').count(), 1);
+  assert.equal(await page.locator('.acquisition-overlay > .query-panel').count(), 1);
   assert.equal(await page.getByRole('button', { name: /SOURCE.*DRAFT/ }).count(), 1);
+
+  await page.setViewportSize({ width: 640, height: 800 });
+  await queryPanel.getByRole('button', { name: 'Close acquisition draft' }).click();
+  await page.getByRole('button', { name: 'Context', exact: true }).click();
+  assert.equal(await page.locator('.sidebar').isVisible(), true);
+  assert.equal(await page.getByText('PLACES', { exact: true }).isVisible(), true);
+  assert.equal(await page.getByText('LENSES', { exact: true }).isVisible(), true);
+  assert.equal(await page.locator('.field-content').isVisible(), false);
+  await page.getByRole('button', { name: 'Field', exact: true }).click();
+  assert.equal(await page.locator('.field-content').isVisible(), true);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
+  assert.equal(await page.locator('.inspector').isVisible(), true);
+  assert.equal(await page.getByText('No subject selected').isVisible(), true);
   assert.deepEqual(errors, []);
-  console.log('atlas browser smoke passed: explicit Ground draft, live-only start, no bundled content or hidden place');
+  console.log('atlas browser smoke passed: explicit draft overlay, desktop workspace, and narrow Context/Field/Inspector modes');
 } finally {
   await browser?.close();
   await server.close();

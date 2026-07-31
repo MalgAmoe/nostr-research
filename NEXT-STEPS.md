@@ -182,6 +182,16 @@ resolvers to the single Atlas store. Resolvers alone execute ordinary controller
 commands, and the former direct execution store has been removed. This is an
 architecture change only; it adds no user-facing capability or feature slice.
 
+The third Atlas product slice in
+[`NAVIGATION-WORKSPACE-SPEC.md`](./experiments/nostrarium-atlas/NAVIGATION-WORKSPACE-SPEC.md)
+rearranges those completed capabilities into a navigation workspace: compact
+Places and bounded lenses, a dominant reading Field, a subject-centered
+Inspector with one contextual draft, collapsed successful attempts, and
+explicit full-height Context/Field/Inspector modes at narrow widths. Persistent
+duplicate History and repeated facet-row actions are removed. The slice changes
+only caller-side arrangement and UI state; engine/controller behavior, explicit
+request semantics, immutable handles, and evidence disclosure remain unchanged.
+
 ## Promotion rule
 
 After several voyages, compare them before writing code.
