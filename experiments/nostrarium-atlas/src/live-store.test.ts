@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AccountProfileHeader, AttachmentResource, RichText } from './App';
+import { LiveQueryPanelContent } from './LiveQuery';
 import { accountProfilePresentation, accounts, fields, notes, observedProfiles, retainObservedProfile, type Field } from './data';
 import { DEFAULT_DRAFT, freshAccountResearchDraft, useLiveStore, validateSearchRelayCount } from './live-store';
 import { initialAtlasState, useAtlasStore } from './store';
@@ -37,11 +38,16 @@ beforeEach(() => {
   accounts[author] = { id: author, name: 'author', handle: '@author', publicKey: author, about: 'unrequested', color: '#456', live: true };
   notes.event = { id: 'event', authorId: author, content: 'note', createdAt: 'now', timestamp: 1, relayCount: 1, live: true };
   fields.ground = groundPlace();
-  useAtlasStore.setState({ ...initialAtlasState, history: ['ground'], historyIndex: 0, groundPlaceId: 'ground' });
-  useLiveStore.setState({
-    panelOpen: false, phase: { type: 'idle' },
-    draft: { ...DEFAULT_DRAFT, search: 'old hidden search', hashtag: 'old-tag', eventId: 'f'.repeat(64) },
+  useAtlasStore.setState({
+    ...initialAtlasState, history: ['ground'], historyIndex: 0, groundPlaceId: 'ground',
+    acquisition: {
+      ...initialAtlasState.acquisition, panelOpen: false,
+      relays: initialAtlasState.acquisition.relays.map((relay) => ({ ...relay })),
+      draft: { ...DEFAULT_DRAFT, search: 'old hidden search', hashtag: 'old-tag', eventId: 'f'.repeat(64) },
+    },
+    navigatorOperations: {},
   });
+  useLiveStore.setState({ phase: { type: 'idle' } });
 });
 
 describe('Atlas second-slice presentation boundaries', () => {
@@ -99,6 +105,24 @@ describe('Atlas second-slice presentation boundaries', () => {
 });
 
 describe('Atlas acquisition draft boundaries', () => {
+  it('renders the open acquisition panel safely while an unrelated legacy operation is working', () => {
+    useAtlasStore.setState((state) => ({
+      acquisition: { ...state.acquisition, panelOpen: true },
+      navigatorOperations: {},
+    }));
+    useLiveStore.setState({ phase: { type: 'working', stage: 'facet', command: { command: 'aggregate' } } });
+    const html = renderToStaticMarkup(createElement(LiveQueryPanelContent, {
+      acquisition: useAtlasStore.getState().acquisition,
+      operation: undefined,
+      navigatorBusy: false,
+      legacyPhase: useLiveStore.getState().phase,
+      groundPlaceId: useAtlasStore.getState().groundPlaceId,
+    }));
+    expect(html).toContain('Working: facet');
+    expect(html).toContain('Replace Ground with this acquisition');
+    expect(html).not.toContain('Acquiring…');
+  });
+
   it('requires one exact relay for experimental NIP-50 text search', () => {
     expect(validateSearchRelayCount({ ...DEFAULT_DRAFT, search: 'nostr' }, [])).toMatch(/exactly one selected relay/i);
     expect(validateSearchRelayCount({ ...DEFAULT_DRAFT, search: 'nostr' }, ['wss://one', 'wss://two'])).toMatch(/exactly one selected relay/i);
@@ -109,8 +133,8 @@ describe('Atlas acquisition draft boundaries', () => {
   it('creates a fresh account draft without hidden constraints from the older draft', () => {
     expect(freshAccountResearchDraft(author)).toEqual({ ...DEFAULT_DRAFT, author, hours: 0, includeFilterLimit: false });
     useLiveStore.getState().prepareAccountResearch('ground', author);
-    expect(useLiveStore.getState().draft).toEqual({ ...DEFAULT_DRAFT, author, hours: 0, includeFilterLimit: false });
-    expect(useLiveStore.getState().panelOpen).toBe(true);
+    expect(useAtlasStore.getState().acquisition.draft).toEqual({ ...DEFAULT_DRAFT, author, hours: 0, includeFilterLimit: false });
+    expect(useAtlasStore.getState().acquisition.panelOpen).toBe(true);
     expect(fields.ground.handleId).toBe('ground-handle');
     expect(fields.ground.role).toBe('ground');
   });
@@ -131,10 +155,10 @@ describe('Atlas acquisition draft boundaries', () => {
   });
 
   it('does not alter the main acquisition draft when selecting a note or account', () => {
-    const before = { ...useLiveStore.getState().draft };
-    useAtlasStore.getState().selectNote('event');
-    useAtlasStore.getState().inspectAccount(author);
-    expect(useLiveStore.getState().draft).toEqual(before);
+    const before = { ...useAtlasStore.getState().acquisition.draft };
+    useAtlasStore.getState().commitSelection('ground', { type: 'note', id: 'event' });
+    useAtlasStore.getState().commitSelection('ground', { type: 'account', id: author });
+    expect(useAtlasStore.getState().acquisition.draft).toEqual(before);
     expect(fields.ground.localPageOffset).toBe(1);
     expect(fields.ground.accountFacet?.records).toHaveLength(1);
   });

@@ -26,7 +26,8 @@ Current experiments:
 - [`nostrarium-atlas/`](./nostrarium-atlas/): a live-only content-first
   exploration browser with operational engine-backed fields, local exact-note
   observation, explicit profile/authored-note requests, ordinary history, and
-  Stream and Gallery views;
+  Stream and Gallery views, now testing a typed action/resolver boundary without
+  adding another state owner;
 - [`nostrarium-cockpit/`](./nostrarium-cockpit/): a fixture-driven spaceship cockpit
   combining one bounded universe viewport, readable evidence, explicit voyage
   placement, factual instruments, and a flat shared-focus navigator;

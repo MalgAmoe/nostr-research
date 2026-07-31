@@ -43,8 +43,8 @@ describe('Atlas place boundary', () => {
   it('keeps selection inside the place instead of adding navigation history', () => {
     useAtlasStore.getState().installGround('ground');
     const history = [...useAtlasStore.getState().history];
-    useAtlasStore.getState().selectNote('event');
-    useAtlasStore.getState().inspectAccount('author');
+    useAtlasStore.getState().commitSelection('ground', { type: 'note', id: 'event' });
+    useAtlasStore.getState().commitSelection('ground', { type: 'account', id: 'author' });
     expect(useAtlasStore.getState().history).toEqual(history);
     expect(currentLocation(useAtlasStore.getState()).target).toEqual({ type: 'account', id: 'author' });
     expect(currentPlaceId(useAtlasStore.getState())).toBe('ground');
@@ -54,7 +54,7 @@ describe('Atlas place boundary', () => {
     useAtlasStore.getState().installGround('ground');
     const history = [...useAtlasStore.getState().history];
     const handle = fields.ground.handleId;
-    useAtlasStore.getState().selectExactSubject('address', '30023:pubkey:slug');
+    useAtlasStore.getState().commitSelection('ground', { type: 'address', id: '30023:pubkey:slug' });
     expect(fields.ground.selected).toEqual({ type: 'address', id: '30023:pubkey:slug' });
     expect(useAtlasStore.getState().history).toEqual(history);
     expect(fields.ground.handleId).toBe(handle);
@@ -82,7 +82,7 @@ describe('Atlas place boundary', () => {
     };
     useAtlasStore.getState().setView('accounts');
     useAtlasStore.getState().setQuery('ground-only');
-    useAtlasStore.getState().selectNote('event');
+    useAtlasStore.getState().commitSelection('ground', { type: 'note', id: 'event' });
     fields.ground.localPageOffset = 9;
     fields.ground.observationSnapshots.push({
       id: 'ground-observation', target: { type: 'note', id: 'event' }, sourceHandleId: 'handle-ground',
@@ -91,7 +91,7 @@ describe('Atlas place boundary', () => {
 
     useAtlasStore.getState().installBranch('branch');
     useAtlasStore.getState().setQuery('branch-only');
-    useAtlasStore.getState().selectNote('other');
+    useAtlasStore.getState().commitSelection('branch', { type: 'note', id: 'other' });
     useAtlasStore.getState().back();
 
     expect(currentPlaceId(useAtlasStore.getState())).toBe('ground');

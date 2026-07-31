@@ -1,6 +1,6 @@
 # Nostrarium Atlas
 
-Status: **disposable browser interaction experiment implementing the first two Place/Ground/Branch slices**.
+Status: **disposable browser interaction experiment implementing the first two Place/Ground/Branch slices and a provisional action/resolver boundary**.
 
 Atlas proves bounded navigator-controlled reading and traversal above the neutral controller:
 
@@ -12,6 +12,29 @@ explicit relay acquisition → rich readable Ground notes → exact subject sele
 ```
 
 It contains no bundled field, universal command surface, notebook/archive model, relay scoring, persistence, or Atlas-specific engine operation.
+
+## Provisional action boundary
+
+Atlas is incrementally testing one predictable UI path:
+
+```text
+component gesture → typed stateless navigator action → narrow resolver intent
+→ ordinary controller commands → one explicit store commit
+```
+
+Initial acquisition, place navigation and view state, media authorization, and
+local note/account observation use this path. The actions do not own research
+state, recommend a route, dispatch by generic event name, or hide the emitted
+engine commands. Resolvers alone construct and execute the migrated command
+sequences; the Atlas store remains the single owner of current UI and research
+state while its `research` view aliases the existing field, note, and account
+maps rather than copying them.
+
+Paging, facets and account projection, profile/authored-note work, relay
+continuations, and author resolution remain on the older direct path. They are
+kept visibly transitional rather than wrapped behind a second abstraction.
+Further migration should happen one coherent action family at a time only when
+the boundary continues to make the interface easier to reason about.
 
 ## Run
 

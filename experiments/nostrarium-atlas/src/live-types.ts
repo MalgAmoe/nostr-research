@@ -1,5 +1,12 @@
 export type RelaySource = { url: string; label: string; selected: boolean; custom?: boolean };
 
+export const DEFAULT_RELAYS: RelaySource[] = [
+  { url: 'wss://nos.lol', label: 'nos.lol', selected: true },
+  { url: 'wss://relay.primal.net', label: 'Primal', selected: false },
+  { url: 'wss://relay.snort.social', label: 'Snort', selected: false },
+  { url: 'wss://search.nos.today', label: 'Searchnos · NIP-50', selected: false },
+];
+
 export type QueryDraft = {
   limit: number;
   hours: number;
@@ -13,6 +20,21 @@ export type QueryDraft = {
   observationLimit: number;
   distinctEventLimit: number;
   concurrency: number;
+};
+
+export const DEFAULT_DRAFT: QueryDraft = {
+  limit: 20,
+  hours: 24,
+  search: '',
+  eventId: '',
+  author: '',
+  hashtag: '',
+  excludeContentWarnings: true,
+  includeFilterLimit: true,
+  timeoutMs: 10000,
+  observationLimit: 100,
+  distinctEventLimit: 100,
+  concurrency: 4,
 };
 
 export type ExternalActionDraft = {

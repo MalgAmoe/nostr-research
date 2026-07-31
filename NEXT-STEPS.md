@@ -171,9 +171,15 @@ the generic control surface. It adds:
 
 The slice remains entirely caller-side: it reuses ordinary controller commands,
 retains exact evidence and bounds, and creates no engine milestone, automatic
-background request, recommendation, or canonical identity claim. No third
-Atlas slice is agreed yet. The next decision should follow navigator use of the
-first two slices rather than another speculative expansion.
+background request, recommendation, or canonical identity claim.
+
+A subsequent architectural tracer now gives initial acquisition, navigation,
+view state, media authorization, and local subject observation one explicit
+path from typed navigator action through a narrow resolver to a single Atlas
+store commit. It adds no user-facing capability and is not a third feature
+slice. Unmigrated action families remain explicit in the older path; they should
+move only in coherent families after the tracer is proven by continued use.
+No third Atlas feature slice is agreed yet.
 
 ## Promotion rule
 
