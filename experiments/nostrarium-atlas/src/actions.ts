@@ -149,11 +149,17 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
       if (!place || !runtime || runtime.nextOffset >= runtime.total || researchBusy(state)) return;
       const context = presentationContext(place);
       state.commitOperationStarted(key, { status: 'working', stage: 'page' });
-      const resolution = await (dependencies.resolvePlacePage ?? resolvePlacePage)({
-        place: { id: place.id, handleId: place.handleId, pageHandleId: runtime.pageHandleId, total: runtime.total, offset: runtime.nextOffset },
-        ...context,
-      });
-      useAtlasStore.getState().commitPlacePage(resolution);
+      try {
+        const resolution = await (dependencies.resolvePlacePage ?? resolvePlacePage)({
+          place: { id: place.id, handleId: place.handleId, pageHandleId: runtime.pageHandleId, total: runtime.total, offset: runtime.nextOffset },
+          ...context,
+        });
+        const next = useAtlasStore.getState(); next.commitPlacePage(resolution);
+        if (resolution.status === 'available') next.clearOperation(key);
+        else settleOperationFailure(key, 'page', resolution.error ?? 'Local paging failed.', resolution.command, resolution.exchanges);
+      } catch (error) {
+        settleUnexpectedOperationFailure(key, 'page', error);
+      }
     },
     openAccountProjection: async (placeId) => {
       const state = useAtlasStore.getState(); const place = fields[placeId]; const key = placeOperationKey(placeId, 'projection');
@@ -166,20 +172,30 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
       } : undefined;
       state.commitAccountProjectionStarted(placeId);
       state.commitOperationStarted(key, { status: 'working', stage: 'projection' });
-      const resolution = await (dependencies.resolveAccountProjection ?? resolveAccountProjection)({ place: { id: place.id, handleId: place.handleId }, ...(retained ? { retained } : {}) });
-      const next = useAtlasStore.getState(); next.commitAccountProjection(resolution);
-      if (resolution.status === 'available') next.clearOperation(key);
-      else next.commitOperationFailure(key, { status: 'failure', stage: 'projection', message: resolution.error, command: resolution.commands, exchanges: resolution.exchanges });
+      try {
+        const resolution = await (dependencies.resolveAccountProjection ?? resolveAccountProjection)({ place: { id: place.id, handleId: place.handleId }, ...(retained ? { retained } : {}) });
+        const next = useAtlasStore.getState(); next.commitAccountProjection(resolution);
+        if (resolution.status === 'available') next.clearOperation(key);
+        else settleOperationFailure(key, 'projection', resolution.error ?? 'Account projection failed.', resolution.commands, resolution.exchanges);
+      } catch (error) {
+        const message = errorMessage(error); useAtlasStore.getState().failAccountProjection(placeId, message);
+        settleUnexpectedOperationFailure(key, 'projection', error);
+      }
     },
     deriveAccountFacet: async (placeId) => {
       const state = useAtlasStore.getState(); const place = fields[placeId]; const key = placeOperationKey(placeId, 'facet');
       if (!place || place.role !== 'ground' || place.accountFacet?.status === 'loading' || researchBusy(state)) return;
       state.commitAccountFacetStarted(placeId);
       state.commitOperationStarted(key, { status: 'working', stage: 'facet' });
-      const resolution = await (dependencies.resolveAccountFacet ?? resolveAccountFacet)({ place: { id: place.id, handleId: place.handleId } });
-      const next = useAtlasStore.getState(); next.commitAccountFacet(resolution);
-      if (resolution.status === 'available') next.clearOperation(key);
-      else next.commitOperationFailure(key, { status: 'failure', stage: 'facet', message: resolution.error, command: resolution.commands, exchanges: resolution.exchanges });
+      try {
+        const resolution = await (dependencies.resolveAccountFacet ?? resolveAccountFacet)({ place: { id: place.id, handleId: place.handleId } });
+        const next = useAtlasStore.getState(); next.commitAccountFacet(resolution);
+        if (resolution.status === 'available') next.clearOperation(key);
+        else settleOperationFailure(key, 'facet', resolution.error ?? 'Account facet derivation failed.', resolution.commands, resolution.exchanges);
+      } catch (error) {
+        const message = errorMessage(error); useAtlasStore.getState().failAccountFacet(placeId, message);
+        settleUnexpectedOperationFailure(key, 'facet', error);
+      }
     },
     openAccountNotes: async (placeId, accountId) => {
       const state = useAtlasStore.getState(); const place = fields[placeId]; const rowsHandleId = place?.accountFacet?.handles?.rows;
@@ -187,13 +203,17 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
       if (!place || !rowsHandleId || place.accountFacet?.status !== 'available' || researchBusy(state)) return;
       const context = presentationContext(place);
       state.commitOperationStarted(key, { status: 'working', stage: 'branch' });
-      const resolution = await (dependencies.resolveAccountNotes ?? resolveAccountNotes)({
-        place: { id: place.id, label: place.label, handleId: place.handleId, installRevision: place.installRevision, relays: [...(place.runtime?.relays ?? [])], excludeContentWarnings: place.runtime?.draft.excludeContentWarnings ?? true },
-        accountId, rowsHandleId, ...context,
-      });
-      const next = useAtlasStore.getState(); next.commitAccountNotes(resolution);
-      if (resolution.status === 'available' && !resolution.observationFailure) next.clearOperation(key);
-      else next.commitOperationFailure(key, { status: 'failure', stage: 'branch', message: resolution.error ?? 'Branch installed, but its first bounded preview is unavailable.', command: resolution.commands, exchanges: resolution.exchanges });
+      try {
+        const resolution = await (dependencies.resolveAccountNotes ?? resolveAccountNotes)({
+          place: { id: place.id, label: place.label, handleId: place.handleId, installRevision: place.installRevision, relays: [...(place.runtime?.relays ?? [])], excludeContentWarnings: place.runtime?.draft.excludeContentWarnings ?? true },
+          accountId, rowsHandleId, ...context,
+        });
+        const next = useAtlasStore.getState(); next.commitAccountNotes(resolution);
+        if (resolution.status === 'available' && !resolution.observationFailure) next.clearOperation(key);
+        else settleOperationFailure(key, 'branch', resolution.error ?? 'Branch installed, but its first bounded preview is unavailable.', resolution.commands, resolution.exchanges);
+      } catch (error) {
+        settleUnexpectedOperationFailure(key, 'branch', error);
+      }
     },
     selectNote: (placeId, noteId) => {
       if (fields[placeId]?.noteIds.includes(noteId)) selectAndObserve(placeId, { type: 'note', id: noteId });
@@ -274,6 +294,26 @@ function presentationContext(place: Field) {
 
 function researchBusy(state: ReturnType<typeof useAtlasStore.getState>) {
   return Object.values(state.navigatorOperations).some((operation) => operation.status === 'working') || useLiveStore.getState().phase.type === 'working';
+}
+
+type LocalOperationStage = 'page' | 'projection' | 'facet' | 'branch';
+
+function settleOperationFailure(
+  key: string,
+  stage: LocalOperationStage,
+  message: string,
+  command?: Record<string, unknown> | Record<string, unknown>[],
+  exchanges?: SubjectObservationResolution['exchanges'],
+) {
+  useAtlasStore.getState().commitOperationFailure(key, { status: 'failure', stage, message, command, exchanges });
+}
+
+function settleUnexpectedOperationFailure(key: string, stage: LocalOperationStage, error: unknown) {
+  settleOperationFailure(
+    key, stage, errorMessage(error),
+    error instanceof ResolverFailure ? (error.commands.length === 1 ? error.commands[0] : error.commands) : undefined,
+    error instanceof ResolverFailure ? error.exchanges : undefined,
+  );
 }
 
 function errorMessage(error: unknown) {

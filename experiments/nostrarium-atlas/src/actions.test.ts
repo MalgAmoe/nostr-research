@@ -7,7 +7,7 @@ import {
   resolveAccountFacet, resolveAccountNotes, resolveAccountProjection, resolveAcquisition, resolvePlacePage,
   resolveSubjectObservation, type ControllerFactory, type SubjectObservationIntent,
 } from './resolvers';
-import { currentPlaceId, initialAtlasState, useAtlasStore } from './store';
+import { currentPlaceId, initialAtlasState, placeOperationKey, useAtlasStore } from './store';
 
 const author = 'a'.repeat(64);
 
@@ -148,6 +148,7 @@ describe('typed Atlas navigator boundary', () => {
       else if (command.command === 'show' && input.includes('ranked-account-facets') && mode === 'preview') result = { preview: [{ values: { account: author, noteCount: 1 } }], countUnit: 'rows' };
       else if (command.command === 'show' && input.includes('account-notes-here')) result = {
         count: 1, countUnit: 'subjects', offset: 0, nextOffset: 1,
+        context: { budget: { requested: 1 }, cardinality: { truncated: false } },
         preview: [{ id: 'event', preview: { author: { publicKey: author }, contentExcerpt: 'preview', createdAt: 1, relays: ['wss://relay.test'] } }],
       };
       else if (command.command === 'show' && mode === 'summary') result = { summary: { countUnit: input.includes('accounts') ? 'subjects' : 'rows' }, context: { cardinality: { truncated: false } } };
@@ -169,7 +170,9 @@ describe('typed Atlas navigator boundary', () => {
     await actions.deriveAccountFacet('ground');
     expect(fields.ground.accountFacet).toMatchObject({ status: 'available', records: [{ account: author, noteCount: 1 }] });
     await actions.openAccountNotes('ground', author);
-    expect(currentPlaceId(useAtlasStore.getState())).toMatch(/^branch:atlas-account-notes-here-/u);
+    const branchId = currentPlaceId(useAtlasStore.getState());
+    expect(branchId).toMatch(/^branch:atlas-account-notes-here-/u);
+    expect(fields[branchId].declaredBounds.requestBudget).toEqual({ requested: 1 });
     actions.navigateBack();
     await actions.showMore('ground');
 
@@ -181,6 +184,94 @@ describe('typed Atlas navigator boundary', () => {
       'filter', 'extract', 'show', 'show',
     ]);
     expect(JSON.stringify(commands)).not.toContain('relays');
+  });
+
+  it('does not reuse a projection handle when its creating move failed', async () => {
+    fields.ground = place('ground', 'ground-handle'); fields.ground.role = 'ground';
+    useAtlasStore.setState({ history: ['ground'], historyIndex: 0, groundPlaceId: 'ground' });
+    const commands: Record<string, unknown>[] = [];
+    let failed = false;
+    const factory = controllerFactory(async (command) => {
+      commands.push(command);
+      if (!failed && command.command === 'move') {
+        failed = true;
+        return { response: { ok: false, sessionRevision: 3, error: { message: 'move failed' } }, receipt: { commandId: 'failed-move', revisionAfter: 3 } };
+      }
+      const mode = String((command.parameters as Record<string, unknown> | undefined)?.mode ?? '');
+      const result = command.command === 'move' ? { handle: { count: 1, revision: 4 } }
+        : mode === 'preview' ? { preview: [{ id: author }] }
+          : { summary: { countUnit: 'subjects' }, context: { cardinality: {} } };
+      return { response: { ok: true, sessionRevision: 4, result }, receipt: { commandId: String(command.command), revisionAfter: 4 } };
+    });
+    const actions = createNavigatorActions({
+      resolveAcquisition: vi.fn(), resolveSubjectObservation: vi.fn(),
+      resolveAccountProjection: (intent) => resolveAccountProjection(intent, factory),
+    });
+
+    await actions.openAccountProjection('ground');
+    expect(fields.ground.accountProjection?.receipt).toBeUndefined();
+    await actions.openAccountProjection('ground');
+
+    expect(commands.map((command) => command.command)).toEqual(['move', 'move', 'show', 'show']);
+    expect(fields.ground.accountProjection?.status).toBe('available');
+  });
+
+  it('settles every migrated local operation after an unexpected resolver rejection', async () => {
+    const cases: Array<{ stage: 'page' | 'projection' | 'facet' | 'branch'; invoke(actions: ReturnType<typeof createNavigatorActions>): Promise<void> }> = [
+      { stage: 'page', invoke: (actions) => actions.showMore('ground') },
+      { stage: 'projection', invoke: (actions) => actions.openAccountProjection('ground') },
+      { stage: 'facet', invoke: (actions) => actions.deriveAccountFacet('ground') },
+      { stage: 'branch', invoke: (actions) => actions.openAccountNotes('ground', author) },
+    ];
+    for (const item of cases) {
+      resetAtlas(); fields.ground = place('ground', 'ground-handle'); fields.ground.role = 'ground';
+      fields.ground.runtime!.total = 2;
+      fields.ground.accountFacet = {
+        status: 'available', sourcePlaceId: 'ground', sourceHandleId: 'ground-handle', commands: [],
+        handles: { rows: 'rows-handle', aggregate: 'aggregate-handle', ranked: 'ranked-handle' }, records: [],
+      };
+      useAtlasStore.setState({ history: ['ground'], historyIndex: 0, groundPlaceId: 'ground' });
+      const reject = async () => { throw new Error(`${item.stage} exploded`); };
+      const actions = createNavigatorActions({
+        resolveAcquisition: vi.fn(), resolveSubjectObservation: vi.fn(), resolvePlacePage: reject,
+        resolveAccountProjection: reject, resolveAccountFacet: reject, resolveAccountNotes: reject,
+      });
+      await item.invoke(actions).catch(() => undefined);
+      expect(useAtlasStore.getState().navigatorOperations[placeOperationKey('ground', item.stage)]).toMatchObject({ status: 'failure' });
+    }
+  });
+
+  it('settles paging when its source branch is removed during resolution', async () => {
+    fields.ground = place('ground', 'ground-handle'); fields.ground.role = 'ground';
+    fields.branch = place('branch', 'branch-handle'); fields.branch.runtime!.total = 2;
+    useAtlasStore.setState({ history: ['ground', 'branch'], historyIndex: 1, groundPlaceId: 'ground' });
+    let release!: (value: Awaited<ReturnType<typeof resolvePlacePage>>) => void;
+    const pending = new Promise<Awaited<ReturnType<typeof resolvePlacePage>>>((resolve) => { release = resolve; });
+    const actions = createNavigatorActions({ resolveAcquisition: vi.fn(), resolveSubjectObservation: vi.fn(), resolvePlacePage: () => pending });
+
+    const paging = actions.showMore('branch');
+    useAtlasStore.getState().removePlace('branch');
+    release({ kind: 'place-page', status: 'available', placeId: 'branch', command: { command: 'show' }, exchanges: [], nextOffset: 2, notes: {}, baseNotes: {}, accounts: {} });
+    await paging;
+
+    expect(useAtlasStore.getState().navigatorOperations[placeOperationKey('branch', 'page')]).toBeUndefined();
+  });
+
+  it('attributes account-note derivation failures to the account and rows handle', async () => {
+    fields.ground = place('ground', 'ground-handle'); fields.ground.role = 'ground';
+    fields.ground.accountFacet = {
+      status: 'available', sourcePlaceId: 'ground', sourceHandleId: 'ground-handle', commands: [],
+      handles: { rows: 'rows-handle', aggregate: 'aggregate-handle', ranked: 'ranked-handle' }, records: [],
+    };
+    useAtlasStore.setState({ history: ['ground'], historyIndex: 0, groundPlaceId: 'ground' });
+    const factory = controllerFactory(async () => ({ response: { ok: false, sessionRevision: 3, error: { message: 'filter failed' } }, receipt: { commandId: 'filter', revisionAfter: 3 } }));
+    const actions = createNavigatorActions({ resolveAcquisition: vi.fn(), resolveSubjectObservation: vi.fn(), resolveAccountNotes: (intent) => resolveAccountNotes(intent, factory) });
+
+    await actions.openAccountNotes('ground', author);
+
+    const snapshot = fields.ground.observationSnapshots.at(-1)!;
+    expect(snapshot.target).toEqual({ type: 'facet', id: `account-notes:${author}` });
+    expect(snapshot.sourceHandleId).toBe('rows-handle');
   });
 
   it('selects and observes exact note evidence through the disclosed bounded local recipe', async () => {

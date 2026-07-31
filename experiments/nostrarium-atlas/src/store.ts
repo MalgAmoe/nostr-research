@@ -65,6 +65,8 @@ export type AtlasStore = AtlasData & {
   commitAcquisition: (resolution: AcquisitionResolution) => void;
   commitAccountProjectionStarted: (placeId: string) => void;
   commitAccountFacetStarted: (placeId: string) => void;
+  failAccountProjection: (placeId: string, error: string) => void;
+  failAccountFacet: (placeId: string, error: string) => void;
   commitPlacePage: (resolution: PlacePageResolution) => void;
   commitAccountProjection: (resolution: AccountProjectionResolution) => void;
   commitAccountFacet: (resolution: AccountFacetResolution) => void;
@@ -204,13 +206,29 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
     const place = fields[placeId];
     if (!place) return state;
     place.projection = 'accounts';
-    place.accountProjection = { status: 'loading', handleId: '', command: {}, accountIds: [] };
+    place.accountProjection = place.accountProjection
+      ? { ...place.accountProjection, status: 'loading', error: undefined }
+      : { status: 'loading', handleId: '', command: {}, accountIds: [] };
     return { fieldRevision: state.fieldRevision + 1 };
   }),
   commitAccountFacetStarted: (placeId) => set((state) => {
     const place = fields[placeId];
     if (!place) return state;
-    place.accountFacet = { status: 'loading', sourcePlaceId: place.id, sourceHandleId: place.handleId, commands: [], records: [] };
+    place.accountFacet = place.accountFacet
+      ? { ...place.accountFacet, status: 'loading', error: undefined }
+      : { status: 'loading', sourcePlaceId: place.id, sourceHandleId: place.handleId, commands: [], records: [] };
+    return { fieldRevision: state.fieldRevision + 1 };
+  }),
+  failAccountProjection: (placeId, error) => set((state) => {
+    const projection = fields[placeId]?.accountProjection;
+    if (!projection) return state;
+    projection.status = 'failure'; projection.error = error;
+    return { fieldRevision: state.fieldRevision + 1 };
+  }),
+  failAccountFacet: (placeId, error) => set((state) => {
+    const facet = fields[placeId]?.accountFacet;
+    if (!facet) return state;
+    facet.status = 'failure'; facet.error = error;
     return { fieldRevision: state.fieldRevision + 1 };
   }),
   commitPlacePage: (resolution) => set((state) => {
@@ -295,7 +313,7 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
     if (!source) return state;
     if (resolution.status === 'failure' || !resolution.place) {
       source.observationSnapshots.push({
-        id: `atlas-tracer-observation-${++nextTracerSnapshot}`, target: { type: 'facet', id: 'account-notes' }, sourceHandleId: source.handleId,
+        id: `atlas-tracer-observation-${++nextTracerSnapshot}`, target: { type: 'facet', id: `account-notes:${resolution.accountId}` }, sourceHandleId: resolution.rowsHandleId,
         observedRevision: lastExchangeRevision(resolution.exchanges, source.installRevision), locality: 'local', exchanges: resolution.exchanges,
         facts: { status: 'failure', error: resolution.error },
       });

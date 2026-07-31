@@ -150,6 +150,7 @@ export type AccountNotesIntent = {
 
 export type AccountNotesResolution = {
   kind: 'account-notes'; status: 'available' | 'failure'; sourcePlaceId: string;
+  accountId: string; rowsHandleId: string;
   commands: Record<string, unknown>[]; exchanges: ObservationExchange[];
   place?: Field; notes: Record<string, Note>; baseNotes: Record<string, Note>; accounts: Record<string, Account>;
   observationFailure?: ObservationExchange; error?: string;
@@ -337,7 +338,7 @@ export async function resolveAccountProjection(
     const previewExchange = failure.exchanges[intent.retained ? 0 : 1];
     const accountIds = previewExchange?.response.ok === true ? subjectIds(object(previewExchange.response.result)) : intent.retained?.accountIds ?? [];
     const installRevision = intent.retained?.installRevision ?? (number(partialHandle.revision) || number(moveExchange?.response.sessionRevision) || undefined);
-    const receipt = intent.retained?.receipt ?? (moveExchange?.receipt.unavailable ? undefined : moveExchange?.receipt);
+    const receipt = intent.retained?.receipt ?? (moveExchange?.response.ok === true ? moveExchange.receipt : undefined);
     return {
       kind: 'account-projection', status: 'failure', placeId: intent.place.id, handleId, command: move, commands,
       exchanges: failure.exchanges, accountIds, accounts: Object.fromEntries(accountIds.map((id) => [id, liveAccount(id)])),
@@ -418,7 +419,7 @@ export async function resolveAccountNotes(
     derived = await executeSequence(commands, controllerFactory);
   } catch (error) {
     const failure = error instanceof ResolverFailure ? error : localFailure(errorMessage(error), commands[0]);
-    return { kind: 'account-notes', status: 'failure', sourcePlaceId: intent.place.id, commands, exchanges: failure.exchanges, notes: {}, baseNotes: {}, accounts: {}, error: errorMessage(error) };
+    return { kind: 'account-notes', status: 'failure', sourcePlaceId: intent.place.id, accountId: intent.accountId, rowsHandleId: intent.rowsHandleId, commands, exchanges: failure.exchanges, notes: {}, baseNotes: {}, accounts: {}, error: errorMessage(error) };
   }
   const extracted = derived[1]; const handle = object(extracted.result.handle); const count = number(handle.count);
   const showCommand = boundedShowCommand(eventsId, 0, count);
@@ -438,7 +439,7 @@ export async function resolveAccountNotes(
     countingUnit: string(shownResult.countUnit) || 'subjects', originCommand: commands.slice(0, 2), originReceipt: derived.map((item) => item.receipt),
     navigatorReason: `Notes in Ground authored by ${shortKey(intent.accountId)}.`, projection: 'stream', localPageOffset: nextOffset,
     selected: { type: 'none', id: '' }, selectedFacet: null, localConstraints: { text: '' }, observationSnapshots: [],
-    declaredBounds: presentObject({ response: shown ? responseBounds(shownResult) : undefined }) ?? {},
+    declaredBounds: presentObject({ requestBudget: object(shownResult.context).budget, response: shown ? responseBounds(shownResult) : undefined }) ?? {},
     declaredOmissions: presentObject({ omitted: shownResult.omitted, omittedBefore: shownResult.omittedBefore, omittedAfter: shownResult.omittedAfter, observationUnavailable: observationFailure ? true : undefined }) ?? {},
     evidenceResolution: object(object(shownResult.summary).evidenceResolution), accountResearch: {}, noteResearch: {}, mediaLoads: {},
     authorResolution: { draftOpen: false, draft: { relays: [...intent.place.relays], authorLimit: 20, timeoutMs: 10000, observationLimit: 80, distinctEventLimit: 60, concurrency: 2, excludeContentWarnings: intent.place.excludeContentWarnings } },
@@ -452,7 +453,7 @@ export async function resolveAccountNotes(
     facts: shown ? shown.result : { status: 'failure', unavailable: true, error: observationFailure ? errorMessageFromExchange(observationFailure) : 'Observation unavailable.' },
   });
   return {
-    kind: 'account-notes', status: 'available', sourcePlaceId: intent.place.id, commands,
+    kind: 'account-notes', status: 'available', sourcePlaceId: intent.place.id, accountId: intent.accountId, rowsHandleId: intent.rowsHandleId, commands,
     exchanges: [...derived.map((item, index) => exchange(commands[index], item)), ...(shown ? [exchange(showCommand, shown)] : observationFailure ? [observationFailure] : [])],
     place, notes: presentation.notes, baseNotes: presentation.baseNotes, accounts: presentation.accounts, observationFailure,
   };
