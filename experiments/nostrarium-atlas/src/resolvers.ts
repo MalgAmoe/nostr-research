@@ -1,8 +1,8 @@
 import {
-  type Account, type AttachmentFact, type Field, type Note, type NoteObservation, type ObservationExchange,
+  type Account, type AccountFacetRecord, type AttachmentFact, type Field, type Note, type NoteObservation, type ObservationExchange,
 } from './data';
 import { liveController } from './live-session';
-import type { QueryDraft } from './live-types';
+import { DEFAULT_DRAFT, type QueryDraft } from './live-types';
 
 export type ExecutedCommand = {
   result: Record<string, unknown>;
@@ -104,6 +104,56 @@ export type AccountObservationResolution = {
 };
 
 export type SubjectObservationResolution = NoteObservationResolution | AccountObservationResolution;
+
+export type PlacePageIntent = {
+  place: { id: string; handleId: string; pageHandleId: string; total: number; offset: number };
+  knownNotes: Record<string, Note>;
+  knownAccounts: Record<string, Account>;
+};
+
+export type PlacePageResolution = {
+  kind: 'place-page'; status: 'available' | 'failure'; placeId: string;
+  command: Record<string, unknown>; exchanges: ObservationExchange[];
+  nextOffset: number; notes: Record<string, Note>; baseNotes: Record<string, Note>; accounts: Record<string, Account>;
+  error?: string;
+};
+
+export type AccountProjectionIntent = {
+  place: { id: string; handleId: string };
+  retained?: { handleId: string; command: Record<string, unknown>; installRevision?: number; receipt: Record<string, unknown>; accountIds: string[] };
+};
+
+export type AccountProjectionResolution = {
+  kind: 'account-projection'; status: 'available' | 'failure'; placeId: string;
+  handleId: string; command: Record<string, unknown>; commands: Record<string, unknown>[];
+  exchanges: ObservationExchange[]; accountIds: string[]; installRevision?: number;
+  receipt?: Record<string, unknown>; countUnit?: string; bounds?: Record<string, unknown>;
+  omissions?: Record<string, unknown>; accounts: Record<string, Account>; error?: string;
+};
+
+export type AccountFacetIntent = { place: { id: string; handleId: string } };
+
+export type AccountFacetResolution = {
+  kind: 'account-facet'; status: 'available' | 'failure'; placeId: string;
+  sourceHandleId: string; commands: Record<string, unknown>[];
+  handles: { rows: string; aggregate: string; ranked: string };
+  exchanges: ObservationExchange[]; records: AccountFacetRecord[];
+  countUnit?: string; bounds?: Record<string, unknown>; truncated?: boolean;
+  omissions?: Record<string, unknown>; accounts: Record<string, Account>; error?: string;
+};
+
+export type AccountNotesIntent = {
+  place: { id: string; label: string; handleId: string; installRevision: number; relays: string[]; excludeContentWarnings: boolean };
+  accountId: string; rowsHandleId: string;
+  knownNotes: Record<string, Note>; knownAccounts: Record<string, Account>;
+};
+
+export type AccountNotesResolution = {
+  kind: 'account-notes'; status: 'available' | 'failure'; sourcePlaceId: string;
+  commands: Record<string, unknown>[]; exchanges: ObservationExchange[];
+  place?: Field; notes: Record<string, Note>; baseNotes: Record<string, Note>; accounts: Record<string, Account>;
+  observationFailure?: ObservationExchange; error?: string;
+};
 
 export type ControllerFactory = typeof liveController;
 
@@ -229,6 +279,183 @@ export async function resolveSubjectObservation(
   return intent.subject.type === 'note'
     ? resolveNoteObservation(intent, controllerFactory)
     : resolveAccountObservation(intent, controllerFactory);
+}
+
+export async function resolvePlacePage(
+  intent: PlacePageIntent,
+  controllerFactory: ControllerFactory = liveController,
+): Promise<PlacePageResolution> {
+  const command = boundedShowCommand(intent.place.pageHandleId, intent.place.offset, intent.place.total - intent.place.offset);
+  try {
+    const shown = await execute(command, controllerFactory);
+    const presentation = presentNotes(objectArray(shown.result.preview), intent.knownNotes, intent.knownAccounts);
+    return {
+      kind: 'place-page', status: 'available', placeId: intent.place.id, command,
+      exchanges: [exchange(command, shown)],
+      nextOffset: number(shown.result.nextOffset) || number(shown.result.offset) + presentation.noteIds.length,
+      notes: presentation.notes, baseNotes: presentation.baseNotes, accounts: presentation.accounts,
+    };
+  } catch (error) {
+    return {
+      kind: 'place-page', status: 'failure', placeId: intent.place.id, command,
+      exchanges: error instanceof ResolverFailure ? error.exchanges : [failureExchange(command, error)],
+      nextOffset: intent.place.offset, notes: {}, baseNotes: {}, accounts: {}, error: errorMessage(error),
+    };
+  }
+}
+
+export async function resolveAccountProjection(
+  intent: AccountProjectionIntent,
+  controllerFactory: ControllerFactory = liveController,
+): Promise<AccountProjectionResolution> {
+  const handleId = intent.retained?.handleId ?? uniqueHandle('atlas-place-accounts');
+  const move = intent.retained?.command ?? { command: 'move', input: intent.place.handleId, parameters: { to: 'authors', limit: 1000 }, resultId: handleId };
+  const preview = { command: 'show', input: handleId, parameters: { mode: 'preview', previewLimit: 20, excerptLimit: 1000, sizeLimit: 50000 } };
+  const summary = { command: 'show', input: handleId, parameters: { mode: 'summary', previewLimit: 1, excerptLimit: 1000, sizeLimit: 50000 } };
+  const commands = intent.retained ? [preview, summary] : [move, preview, summary];
+  try {
+    const outcomes = await executeSequence(commands, controllerFactory);
+    const moved = intent.retained ? undefined : outcomes[0];
+    const shown = outcomes[intent.retained ? 0 : 1]; const summarized = outcomes[intent.retained ? 1 : 2];
+    const accountIds = subjectIds(shown.result);
+    const projectedAccounts = Object.fromEntries(accountIds.map((id) => [id, liveAccount(id)]));
+    const handle = object(moved?.result.handle);
+    return {
+      kind: 'account-projection', status: 'available', placeId: intent.place.id, handleId, command: move, commands,
+      exchanges: outcomes.map((outcome, index) => exchange(commands[index], outcome)), accountIds,
+      installRevision: intent.retained?.installRevision ?? (number(handle.revision) || number(moved?.response.sessionRevision)), receipt: intent.retained?.receipt ?? moved?.receipt,
+      countUnit: string(object(summarized.result.summary).countUnit) || 'subjects',
+      bounds: presentObject({ cardinality: object(summarized.result.context).cardinality, response: responseBounds(shown.result) }) ?? {},
+      omissions: presentObject({ omitted: shown.result.omitted, omittedBefore: shown.result.omittedBefore, omittedAfter: shown.result.omittedAfter }) ?? {},
+      accounts: projectedAccounts,
+    };
+  } catch (error) {
+    const failure = error instanceof ResolverFailure ? error : localFailure(errorMessage(error), move);
+    const moveExchange = intent.retained ? undefined : failure.exchanges[0];
+    const moveResult = object(moveExchange?.response.result);
+    const partialHandle = object(moveResult.handle);
+    const previewExchange = failure.exchanges[intent.retained ? 0 : 1];
+    const accountIds = previewExchange?.response.ok === true ? subjectIds(object(previewExchange.response.result)) : intent.retained?.accountIds ?? [];
+    const installRevision = intent.retained?.installRevision ?? (number(partialHandle.revision) || number(moveExchange?.response.sessionRevision) || undefined);
+    const receipt = intent.retained?.receipt ?? (moveExchange?.receipt.unavailable ? undefined : moveExchange?.receipt);
+    return {
+      kind: 'account-projection', status: 'failure', placeId: intent.place.id, handleId, command: move, commands,
+      exchanges: failure.exchanges, accountIds, accounts: Object.fromEntries(accountIds.map((id) => [id, liveAccount(id)])),
+      ...(installRevision === undefined ? {} : { installRevision }), ...(receipt ? { receipt } : {}), error: errorMessage(error),
+    };
+  }
+}
+
+export async function resolveAccountFacet(
+  intent: AccountFacetIntent,
+  controllerFactory: ControllerFactory = liveController,
+): Promise<AccountFacetResolution> {
+  const handles = {
+    rows: uniqueHandle('atlas-ground-rows'), aggregate: uniqueHandle('atlas-account-facets'), ranked: uniqueHandle('atlas-ranked-account-facets'),
+  };
+  const commands: Record<string, unknown>[] = [
+    { command: 'relate', input: intent.place.handleId, resultId: handles.rows },
+    { command: 'aggregate', input: handles.rows, parameters: { by: [{ field: 'event.author', name: 'account' }], aggregations: [{ name: 'noteCount', operation: 'count' }], limit: 1000 }, resultId: handles.aggregate },
+    { command: 'sort', input: handles.aggregate, parameters: { by: [{ field: 'noteCount', direction: 'descending' }] }, resultId: handles.ranked },
+    { command: 'show', input: handles.aggregate, parameters: { mode: 'summary', previewLimit: 1, excerptLimit: 1000, sizeLimit: 50000 } },
+    { command: 'show', input: handles.ranked, parameters: { mode: 'preview', previewLimit: 20, excerptLimit: 1000, sizeLimit: 50000 } },
+    { command: 'show', input: handles.ranked, parameters: { mode: 'summary', previewLimit: 1, excerptLimit: 1000, sizeLimit: 50000 } },
+    { command: 'schema', input: handles.ranked, parameters: {} },
+  ];
+  try {
+    const outcomes = await executeSequence(commands, controllerFactory);
+    const aggregateSummary = outcomes[3].result; const rankedPreview = outcomes[4].result;
+    const rankedSummary = outcomes[5].result; const schema = outcomes[6].result;
+    const aggregateCardinality = object(object(aggregateSummary.context).cardinality);
+    const rankedCardinality = object(object(rankedSummary.context).cardinality);
+    const bounds = presentObject({ aggregate: aggregateCardinality, ranked: rankedCardinality, preview: responseBounds(rankedPreview) }) ?? {};
+    const omissions = presentObject({
+      omitted: rankedPreview.omitted, omittedBefore: rankedPreview.omittedBefore, omittedAfter: rankedPreview.omittedAfter,
+      aggregateOmittedCount: aggregateCardinality.omittedCount, rankedOmittedCount: rankedCardinality.omittedCount,
+    }) ?? {};
+    const truncated = boolean(aggregateCardinality.truncated) || boolean(rankedCardinality.truncated)
+      || number(aggregateCardinality.omittedCount) > 0 || number(rankedCardinality.omittedCount) > 0 || number(rankedPreview.omitted) > 0;
+    const structure = object(schema.structure);
+    const lineage = { fields: Array.isArray(structure.fields) ? structure.fields : [] };
+    const countUnit = string(object(rankedSummary.summary).countUnit) || 'rows';
+    const derivationCommands = commands.slice(0, 3);
+    const projectedAccounts: Record<string, Account> = {};
+    const records = objectArray(rankedPreview.preview).map((row) => object(row.values)).map((values) => ({
+      account: string(values.account), noteCount: number(values.noteCount),
+    })).filter((row) => row.account).map((row): AccountFacetRecord => {
+      projectedAccounts[row.account] = liveAccount(row.account);
+      return {
+        ...row, sourcePlaceId: intent.place.id, sourceHandleId: intent.place.handleId,
+        derivationHandles: handles, derivationCommands, countUnit, lineage, bounds, truncated, omissions,
+      };
+    });
+    return {
+      kind: 'account-facet', status: 'available', placeId: intent.place.id, sourceHandleId: intent.place.handleId,
+      commands, handles, exchanges: outcomes.map((outcome, index) => exchange(commands[index], outcome)), records,
+      countUnit, bounds, truncated, omissions, accounts: projectedAccounts,
+    };
+  } catch (error) {
+    const failure = error instanceof ResolverFailure ? error : localFailure(errorMessage(error), commands[0]);
+    return {
+      kind: 'account-facet', status: 'failure', placeId: intent.place.id, sourceHandleId: intent.place.handleId,
+      commands, handles, exchanges: failure.exchanges, records: [], accounts: {}, error: errorMessage(error),
+    };
+  }
+}
+
+export async function resolveAccountNotes(
+  intent: AccountNotesIntent,
+  controllerFactory: ControllerFactory = liveController,
+): Promise<AccountNotesResolution> {
+  const filteredId = uniqueHandle('atlas-account-note-rows');
+  const eventsId = uniqueHandle('atlas-account-notes-here');
+  const commands: Record<string, unknown>[] = [
+    { command: 'filter', input: intent.rowsHandleId, parameters: { where: { field: 'event.author', equals: intent.accountId }, limit: 1000 }, resultId: filteredId },
+    { command: 'extract', input: filteredId, parameters: { field: 'subject.id', subjectType: 'event', limit: 1000 }, resultId: eventsId },
+  ];
+  let derived: ExecutedCommand[];
+  try {
+    derived = await executeSequence(commands, controllerFactory);
+  } catch (error) {
+    const failure = error instanceof ResolverFailure ? error : localFailure(errorMessage(error), commands[0]);
+    return { kind: 'account-notes', status: 'failure', sourcePlaceId: intent.place.id, commands, exchanges: failure.exchanges, notes: {}, baseNotes: {}, accounts: {}, error: errorMessage(error) };
+  }
+  const extracted = derived[1]; const handle = object(extracted.result.handle); const count = number(handle.count);
+  const showCommand = boundedShowCommand(eventsId, 0, count);
+  commands.push(showCommand);
+  let shown: ExecutedCommand | undefined; let observationFailure: ObservationExchange | undefined;
+  try { shown = await execute(showCommand, controllerFactory); } catch (error) { observationFailure = failureExchange(showCommand, error); }
+  const presentation = presentNotes(objectArray(shown?.result.preview), intent.knownNotes, intent.knownAccounts);
+  const shownResult = shown?.result ?? {};
+  const nextOffset = number(shownResult.nextOffset) || number(shownResult.offset) + presentation.noteIds.length;
+  const placeId = `branch:${eventsId}`;
+  const timestamps = Object.values(presentation.notes).map((note) => note.timestamp).filter((value) => value > 0);
+  const draft: QueryDraft = { ...DEFAULT_DRAFT, author: intent.accountId, limit: Math.min(100, Math.max(5, count || 20)), excludeContentWarnings: intent.place.excludeContentWarnings };
+  const place: Field = {
+    id: placeId, label: `${intent.knownAccounts[intent.accountId]?.name ?? shortKey(intent.accountId)} · notes here`,
+    description: `${presentation.noteIds.length} displayed of ${count} locally derived event subjects.`, noteIds: presentation.noteIds,
+    handleId: eventsId, installRevision: number(handle.revision) || number(extracted.response.sessionRevision), role: 'branch', resultKind: 'events',
+    countingUnit: string(shownResult.countUnit) || 'subjects', originCommand: commands.slice(0, 2), originReceipt: derived.map((item) => item.receipt),
+    navigatorReason: `Notes in Ground authored by ${shortKey(intent.accountId)}.`, projection: 'stream', localPageOffset: nextOffset,
+    selected: { type: 'none', id: '' }, selectedFacet: null, localConstraints: { text: '' }, observationSnapshots: [],
+    declaredBounds: presentObject({ response: shown ? responseBounds(shownResult) : undefined }) ?? {},
+    declaredOmissions: presentObject({ omitted: shownResult.omitted, omittedBefore: shownResult.omittedBefore, omittedAfter: shownResult.omittedAfter, observationUnavailable: observationFailure ? true : undefined }) ?? {},
+    evidenceResolution: object(object(shownResult.summary).evidenceResolution), accountResearch: {}, noteResearch: {}, mediaLoads: {},
+    authorResolution: { draftOpen: false, draft: { relays: [...intent.place.relays], authorLimit: 20, timeoutMs: 10000, observationLimit: 80, distinctEventLimit: 60, concurrency: 2, excludeContentWarnings: intent.place.excludeContentWarnings } },
+    runtime: { fieldId: placeId, sourceKind: 'local-account-notes', handleId: eventsId, pageHandleId: eventsId, total: count, nextOffset, handleAddedCount: presentation.noteIds.length, relays: [...intent.place.relays], draft, newestTimestamp: timestamps.length ? Math.max(...timestamps) : 0, oldestTimestamp: timestamps.length ? Math.min(...timestamps) : 0 },
+    conditions: { source: `Local memory · ${intent.place.label}`, terminal: 'LOCAL', excludedWarnings: 0, uncertainty: observationFailure ? 'The local branch handle was installed, but its first bounded preview is unavailable.' : 'A bounded subset of Ground rows; no relay was contacted.', partial: Boolean(observationFailure) || boolean(object(object(shownResult.context).cardinality).truncated) },
+  };
+  place.observationSnapshots.push({
+    id: `atlas-resolver-observation-${++nextResolverHandle}`, target: { type: 'place', id: place.id }, sourceHandleId: place.handleId,
+    observedRevision: shown ? number(shown.response.sessionRevision) : place.installRevision, locality: 'local',
+    exchanges: shown ? [exchange(showCommand, shown)] : observationFailure ? [observationFailure] : [],
+    facts: shown ? shown.result : { status: 'failure', unavailable: true, error: observationFailure ? errorMessageFromExchange(observationFailure) : 'Observation unavailable.' },
+  });
+  return {
+    kind: 'account-notes', status: 'available', sourcePlaceId: intent.place.id, commands,
+    exchanges: [...derived.map((item, index) => exchange(commands[index], item)), ...(shown ? [exchange(showCommand, shown)] : observationFailure ? [observationFailure] : [])],
+    place, notes: presentation.notes, baseNotes: presentation.baseNotes, accounts: presentation.accounts, observationFailure,
+  };
 }
 
 async function resolveNoteObservation(intent: SubjectObservationIntent, controllerFactory: ControllerFactory): Promise<NoteObservationResolution> {
@@ -533,4 +760,5 @@ function number(value: unknown) { return Number.isSafeInteger(value) ? value as 
 function optionalNumber(value: unknown) { return typeof value === 'number' && Number.isFinite(value) ? value : undefined; }
 function boolean(value: unknown) { return value === true; }
 function responseError(response: Record<string, unknown>) { const error = object(response.error); return string(error.message) || string(error.code) || 'The research command failed.'; }
+function errorMessageFromExchange(item: ObservationExchange) { return string(object(item.response.error).message) || string(object(item.response.transportFailure).message) || 'Observation unavailable.'; }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }

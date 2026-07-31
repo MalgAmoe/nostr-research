@@ -3,9 +3,12 @@ import type { QueryDraft } from './live-types';
 import { useLiveStore } from './live-store';
 import {
   acquisitionDraftError, cleanAcquisitionDraft, ResolverFailure, resolveAcquisition, resolveSubjectObservation,
-  type AcquisitionIntent, type AcquisitionResolution, type SubjectObservationIntent, type SubjectObservationResolution,
+  resolveAccountFacet, resolveAccountNotes, resolveAccountProjection, resolvePlacePage,
+  type AccountFacetIntent, type AccountFacetResolution, type AccountNotesIntent, type AccountNotesResolution,
+  type AccountProjectionIntent, type AccountProjectionResolution, type AcquisitionIntent, type AcquisitionResolution,
+  type PlacePageIntent, type PlacePageResolution, type SubjectObservationIntent, type SubjectObservationResolution,
 } from './resolvers';
-import { currentPlaceId, subjectOperationKey, useAtlasStore } from './store';
+import { currentPlaceId, placeOperationKey, subjectOperationKey, useAtlasStore } from './store';
 
 export type NavigatorActions = {
   setAcquisitionPanel(open: boolean): void;
@@ -18,6 +21,10 @@ export type NavigatorActions = {
   replaceAcquisitionDraft(draft: QueryDraft, open?: boolean): void;
   resetAcquisitionFailure(): void;
   acquireGround(): Promise<void>;
+  showMore(placeId: string): Promise<void>;
+  openAccountProjection(placeId: string): Promise<void>;
+  deriveAccountFacet(placeId: string): Promise<void>;
+  openAccountNotes(placeId: string, accountId: string): Promise<void>;
   selectNote(placeId: string, noteId: string): void;
   selectAccount(placeId: string, accountId: string): void;
   selectAccountFacet(placeId: string, accountId: string): void;
@@ -35,6 +42,10 @@ export type NavigatorActions = {
 type ActionDependencies = {
   resolveAcquisition(intent: AcquisitionIntent, onCommand?: (command: Record<string, unknown>) => void): Promise<AcquisitionResolution>;
   resolveSubjectObservation(intent: SubjectObservationIntent): Promise<SubjectObservationResolution>;
+  resolvePlacePage?(intent: PlacePageIntent): Promise<PlacePageResolution>;
+  resolveAccountProjection?(intent: AccountProjectionIntent): Promise<AccountProjectionResolution>;
+  resolveAccountFacet?(intent: AccountFacetIntent): Promise<AccountFacetResolution>;
+  resolveAccountNotes?(intent: AccountNotesIntent): Promise<AccountNotesResolution>;
 };
 
 export function createNavigatorActions(dependencies: ActionDependencies): NavigatorActions {
@@ -132,6 +143,58 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
         useAtlasStore.getState().setAcquisitionPanel(true);
       }
     },
+    showMore: async (placeId) => {
+      const state = useAtlasStore.getState(); const place = fields[placeId]; const runtime = place?.runtime;
+      const key = placeOperationKey(placeId, 'page');
+      if (!place || !runtime || runtime.nextOffset >= runtime.total || researchBusy(state)) return;
+      const context = presentationContext(place);
+      state.commitOperationStarted(key, { status: 'working', stage: 'page' });
+      const resolution = await (dependencies.resolvePlacePage ?? resolvePlacePage)({
+        place: { id: place.id, handleId: place.handleId, pageHandleId: runtime.pageHandleId, total: runtime.total, offset: runtime.nextOffset },
+        ...context,
+      });
+      useAtlasStore.getState().commitPlacePage(resolution);
+    },
+    openAccountProjection: async (placeId) => {
+      const state = useAtlasStore.getState(); const place = fields[placeId]; const key = placeOperationKey(placeId, 'projection');
+      if (!place || place.role === 'start' || researchBusy(state)) return;
+      if (place.accountProjection?.status === 'available') { state.setView('accounts'); return; }
+      const retained = place.accountProjection?.receipt ? {
+        handleId: place.accountProjection.handleId, command: clone(place.accountProjection.command),
+        installRevision: place.accountProjection.installRevision, receipt: clone(place.accountProjection.receipt),
+        accountIds: [...place.accountProjection.accountIds],
+      } : undefined;
+      state.commitAccountProjectionStarted(placeId);
+      state.commitOperationStarted(key, { status: 'working', stage: 'projection' });
+      const resolution = await (dependencies.resolveAccountProjection ?? resolveAccountProjection)({ place: { id: place.id, handleId: place.handleId }, ...(retained ? { retained } : {}) });
+      const next = useAtlasStore.getState(); next.commitAccountProjection(resolution);
+      if (resolution.status === 'available') next.clearOperation(key);
+      else next.commitOperationFailure(key, { status: 'failure', stage: 'projection', message: resolution.error, command: resolution.commands, exchanges: resolution.exchanges });
+    },
+    deriveAccountFacet: async (placeId) => {
+      const state = useAtlasStore.getState(); const place = fields[placeId]; const key = placeOperationKey(placeId, 'facet');
+      if (!place || place.role !== 'ground' || place.accountFacet?.status === 'loading' || researchBusy(state)) return;
+      state.commitAccountFacetStarted(placeId);
+      state.commitOperationStarted(key, { status: 'working', stage: 'facet' });
+      const resolution = await (dependencies.resolveAccountFacet ?? resolveAccountFacet)({ place: { id: place.id, handleId: place.handleId } });
+      const next = useAtlasStore.getState(); next.commitAccountFacet(resolution);
+      if (resolution.status === 'available') next.clearOperation(key);
+      else next.commitOperationFailure(key, { status: 'failure', stage: 'facet', message: resolution.error, command: resolution.commands, exchanges: resolution.exchanges });
+    },
+    openAccountNotes: async (placeId, accountId) => {
+      const state = useAtlasStore.getState(); const place = fields[placeId]; const rowsHandleId = place?.accountFacet?.handles?.rows;
+      const key = placeOperationKey(placeId, 'branch');
+      if (!place || !rowsHandleId || place.accountFacet?.status !== 'available' || researchBusy(state)) return;
+      const context = presentationContext(place);
+      state.commitOperationStarted(key, { status: 'working', stage: 'branch' });
+      const resolution = await (dependencies.resolveAccountNotes ?? resolveAccountNotes)({
+        place: { id: place.id, label: place.label, handleId: place.handleId, installRevision: place.installRevision, relays: [...(place.runtime?.relays ?? [])], excludeContentWarnings: place.runtime?.draft.excludeContentWarnings ?? true },
+        accountId, rowsHandleId, ...context,
+      });
+      const next = useAtlasStore.getState(); next.commitAccountNotes(resolution);
+      if (resolution.status === 'available' && !resolution.observationFailure) next.clearOperation(key);
+      else next.commitOperationFailure(key, { status: 'failure', stage: 'branch', message: resolution.error ?? 'Branch installed, but its first bounded preview is unavailable.', command: resolution.commands, exchanges: resolution.exchanges });
+    },
     selectNote: (placeId, noteId) => {
       if (fields[placeId]?.noteIds.includes(noteId)) selectAndObserve(placeId, { type: 'note', id: noteId });
     },
@@ -152,6 +215,10 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
 export const navigatorActions = createNavigatorActions({
   resolveAcquisition: (intent, onCommand) => resolveAcquisition(intent, undefined, onCommand),
   resolveSubjectObservation,
+  resolvePlacePage,
+  resolveAccountProjection,
+  resolveAccountFacet,
+  resolveAccountNotes,
 });
 
 export function visibleAcquisitionError(draft: QueryDraft, relays: string[]) {
@@ -196,6 +263,17 @@ function accountObservationIntent(place: Field, accountId: string): SubjectObser
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function presentationContext(place: Field) {
+  const knownNotes = Object.fromEntries(place.noteIds.filter((id) => Boolean(notes[id])).map((id) => [id, clone(notes[id])])) as typeof notes;
+  const authorIds = new Set(Object.values(knownNotes).map((note) => note.authorId));
+  const knownAccounts = Object.fromEntries([...authorIds].filter((id) => Boolean(accounts[id])).map((id) => [id, clone(accounts[id])])) as typeof accounts;
+  return { knownNotes, knownAccounts };
+}
+
+function researchBusy(state: ReturnType<typeof useAtlasStore.getState>) {
+  return Object.values(state.navigatorOperations).some((operation) => operation.status === 'working') || useLiveStore.getState().phase.type === 'working';
 }
 
 function errorMessage(error: unknown) {

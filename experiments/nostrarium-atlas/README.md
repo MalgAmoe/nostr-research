@@ -22,19 +22,21 @@ component gesture → typed stateless navigator action → narrow resolver inten
 → ordinary controller commands → one explicit store commit
 ```
 
-Initial acquisition, place navigation and view state, media authorization, and
-local note/account observation use this path. The actions do not own research
+Initial acquisition, place navigation and view state, media authorization,
+local note/account observation, local handle paging, account projection,
+account-frequency derivation, and local account-note branching use this path.
+The actions do not own research
 state, recommend a route, dispatch by generic event name, or hide the emitted
 engine commands. Resolvers alone construct and execute the migrated command
 sequences; the Atlas store remains the single owner of current UI and research
 state while its `research` view aliases the existing field, note, and account
 maps rather than copying them.
 
-Paging, facets and account projection, profile/authored-note work, relay
-continuations, and author resolution remain on the older direct path. They are
-kept visibly transitional rather than wrapped behind a second abstraction.
-Further migration should happen one coherent action family at a time only when
-the boundary continues to make the interface easier to reason about.
+Profile/authored-note work, relay continuations, and author resolution remain
+on the older direct path. They are kept visibly transitional rather than
+wrapped behind a second abstraction. Further migration should happen one
+coherent action family at a time only when the boundary continues to make the
+interface easier to reason about.
 
 ## Run
 

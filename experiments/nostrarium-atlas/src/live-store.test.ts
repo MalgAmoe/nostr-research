@@ -110,7 +110,7 @@ describe('Atlas acquisition draft boundaries', () => {
       acquisition: { ...state.acquisition, panelOpen: true },
       navigatorOperations: {},
     }));
-    useLiveStore.setState({ phase: { type: 'working', stage: 'facet', command: { command: 'aggregate' } } });
+    useLiveStore.setState({ phase: { type: 'working', stage: 'authors', command: { command: 'move' } } });
     const html = renderToStaticMarkup(createElement(LiveQueryPanelContent, {
       acquisition: useAtlasStore.getState().acquisition,
       operation: undefined,
@@ -118,7 +118,7 @@ describe('Atlas acquisition draft boundaries', () => {
       legacyPhase: useLiveStore.getState().phase,
       groundPlaceId: useAtlasStore.getState().groundPlaceId,
     }));
-    expect(html).toContain('Working: facet');
+    expect(html).toContain('Working: authors');
     expect(html).toContain('Replace Ground with this acquisition');
     expect(html).not.toContain('Acquiring…');
   });

@@ -3,7 +3,10 @@ import { createNavigatorActions } from './actions';
 import { accounts, fields, notes, type Field } from './data';
 import { DEFAULT_DRAFT } from './live-types';
 import { useLiveStore } from './live-store';
-import { resolveAcquisition, resolveSubjectObservation, type ControllerFactory, type SubjectObservationIntent } from './resolvers';
+import {
+  resolveAccountFacet, resolveAccountNotes, resolveAccountProjection, resolveAcquisition, resolvePlacePage,
+  resolveSubjectObservation, type ControllerFactory, type SubjectObservationIntent,
+} from './resolvers';
 import { currentPlaceId, initialAtlasState, useAtlasStore } from './store';
 
 const author = 'a'.repeat(64);
@@ -126,6 +129,60 @@ describe('typed Atlas navigator boundary', () => {
     expect(commands.map((command) => command.command)).toEqual(['acquire', 'show']);
   });
 
+  it('composes the current-place transformation family through one action and resolver boundary', async () => {
+    fields.ground = place('ground', 'ground-handle');
+    fields.ground.role = 'ground';
+    fields.ground.runtime!.total = 2;
+    useAtlasStore.setState({ history: ['ground'], historyIndex: 0, groundPlaceId: 'ground' });
+    const commands: Record<string, unknown>[] = [];
+    const factory = controllerFactory(async (command) => {
+      commands.push(command);
+      const input = String(command.input ?? '');
+      const mode = String((command.parameters as Record<string, unknown> | undefined)?.mode ?? '');
+      let result: Record<string, unknown> = { handle: { count: 1, revision: 4 } };
+      if (command.command === 'show' && input === 'ground-handle') result = {
+        count: 2, countUnit: 'subjects', offset: 1, nextOffset: 2,
+        preview: [{ id: 'page-event', preview: { author: { publicKey: author }, contentExcerpt: 'second page', createdAt: 2, relays: ['wss://relay.test'] } }],
+      };
+      else if (command.command === 'show' && input.includes('place-accounts') && mode === 'preview') result = { preview: [{ id: author }], countUnit: 'subjects' };
+      else if (command.command === 'show' && input.includes('ranked-account-facets') && mode === 'preview') result = { preview: [{ values: { account: author, noteCount: 1 } }], countUnit: 'rows' };
+      else if (command.command === 'show' && input.includes('account-notes-here')) result = {
+        count: 1, countUnit: 'subjects', offset: 0, nextOffset: 1,
+        preview: [{ id: 'event', preview: { author: { publicKey: author }, contentExcerpt: 'preview', createdAt: 1, relays: ['wss://relay.test'] } }],
+      };
+      else if (command.command === 'show' && mode === 'summary') result = { summary: { countUnit: input.includes('accounts') ? 'subjects' : 'rows' }, context: { cardinality: { truncated: false } } };
+      else if (command.command === 'schema') result = { structure: { fields: [{ name: 'account', subjectType: 'account' }] } };
+      return { response: { ok: true, sessionRevision: 4, result }, receipt: { commandId: String(command.command), revisionAfter: 4 } };
+    });
+    const actions = createNavigatorActions({
+      resolveAcquisition: (intent, onCommand) => resolveAcquisition(intent, factory, onCommand),
+      resolveSubjectObservation: (intent) => resolveSubjectObservation(intent, factory),
+      resolvePlacePage: (intent) => resolvePlacePage(intent, factory),
+      resolveAccountProjection: (intent) => resolveAccountProjection(intent, factory),
+      resolveAccountFacet: (intent) => resolveAccountFacet(intent, factory),
+      resolveAccountNotes: (intent) => resolveAccountNotes(intent, factory),
+    });
+
+    await actions.openAccountProjection('ground');
+    expect(fields.ground.accountProjection).toMatchObject({ status: 'available', accountIds: [author] });
+    actions.setPlaceProjection('stream');
+    await actions.deriveAccountFacet('ground');
+    expect(fields.ground.accountFacet).toMatchObject({ status: 'available', records: [{ account: author, noteCount: 1 }] });
+    await actions.openAccountNotes('ground', author);
+    expect(currentPlaceId(useAtlasStore.getState())).toMatch(/^branch:atlas-account-notes-here-/u);
+    actions.navigateBack();
+    await actions.showMore('ground');
+
+    expect(fields.ground.noteIds).toContain('page-event');
+    expect(fields.ground.runtime?.nextOffset).toBe(2);
+    expect(Object.values(useAtlasStore.getState().navigatorOperations).filter((item) => item.status === 'working')).toHaveLength(0);
+    expect(commands.map((command) => command.command)).toEqual([
+      'move', 'show', 'show', 'relate', 'aggregate', 'sort', 'show', 'show', 'show', 'schema',
+      'filter', 'extract', 'show', 'show',
+    ]);
+    expect(JSON.stringify(commands)).not.toContain('relays');
+  });
+
   it('selects and observes exact note evidence through the disclosed bounded local recipe', async () => {
     fields.ground = place('ground', 'ground-handle');
     fields.ground.role = 'ground';
@@ -192,7 +249,7 @@ describe('typed Atlas navigator boundary', () => {
     const resolveSubjectSpy = vi.fn();
     const actions = createNavigatorActions({ resolveAcquisition: resolveAcquisitionSpy, resolveSubjectObservation: resolveSubjectSpy });
 
-    useLiveStore.setState({ phase: { type: 'working', stage: 'facet', command: { command: 'aggregate' } } });
+    useLiveStore.setState({ phase: { type: 'working', stage: 'authors', command: { command: 'move' } } });
     actions.selectNote('ground', 'event');
     expect(fields.ground.selected).toEqual({ type: 'note', id: 'event' });
     expect(fields.ground.observationSnapshots.at(-1)?.facts).toMatchObject({ status: 'failure' });
@@ -202,7 +259,7 @@ describe('typed Atlas navigator boundary', () => {
     useAtlasStore.getState().commitOperationStarted('observe:other', { status: 'working', stage: 'note' });
     await actions.acquireGround();
     expect(resolveAcquisitionSpy).not.toHaveBeenCalled();
-    await useLiveStore.getState().deriveAccountFacet('ground');
+    await actions.deriveAccountFacet('ground');
     expect(fields.ground.accountFacet).toBeUndefined();
   });
 

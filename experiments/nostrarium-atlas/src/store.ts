@@ -4,14 +4,17 @@ import {
   type MediaLoadState, type NoteResearchState, type ObservationExchange, type PlaceProjection,
 } from './data';
 import { DEFAULT_DRAFT, DEFAULT_RELAYS, type QueryDraft, type RelaySource } from './live-types';
-import type { AcquisitionResolution, SubjectObservationResolution } from './resolvers';
+import type {
+  AccountFacetResolution, AccountNotesResolution, AccountProjectionResolution, AcquisitionResolution,
+  PlacePageResolution, SubjectObservationResolution,
+} from './resolvers';
 
 export type Location = { fieldId: string; target: InspectorTarget };
 export type Activity = { id: number; label: string; command: string; outcome: string };
 export type ExternalStatus = { label: string; status: string; warningCount: number };
 export type NavigatorOperation = {
   status: 'working' | 'failure';
-  stage: 'acquire' | 'page' | 'note' | 'account';
+  stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'note' | 'account';
   message?: string;
   command?: Record<string, unknown> | Record<string, unknown>[];
   exchanges?: ObservationExchange[];
@@ -60,6 +63,12 @@ export type AtlasStore = AtlasData & {
   commitOperationFailure: (key: string, operation: NavigatorOperation) => void;
   clearOperation: (key: string) => void;
   commitAcquisition: (resolution: AcquisitionResolution) => void;
+  commitAccountProjectionStarted: (placeId: string) => void;
+  commitAccountFacetStarted: (placeId: string) => void;
+  commitPlacePage: (resolution: PlacePageResolution) => void;
+  commitAccountProjection: (resolution: AccountProjectionResolution) => void;
+  commitAccountFacet: (resolution: AccountFacetResolution) => void;
+  commitAccountNotes: (resolution: AccountNotesResolution) => void;
   commitSelection: (placeId: string, target: InspectorTarget, facet?: boolean) => boolean;
   commitObservationStarted: (placeId: string, type: 'note' | 'account', id: string) => void;
   commitObservation: (resolution: SubjectObservationResolution) => void;
@@ -111,6 +120,7 @@ export function currentLocation(state: AtlasData): Location {
 export const selectAcquisition = (state: AtlasStore) => state.acquisition;
 export const selectAcquisitionOperation = (state: AtlasStore) => state.navigatorOperations.acquisition;
 export const subjectOperationKey = (placeId: string, type: 'note' | 'account', id: string) => `observe:${placeId}:${type}:${id}`;
+export const placeOperationKey = (placeId: string, stage: 'page' | 'projection' | 'facet' | 'branch') => `${stage}:${placeId}`;
 
 function visit(state: AtlasData, fieldId: string) {
   if (!fields[fieldId] || currentPlaceId(state) === fieldId) return {};
@@ -160,18 +170,7 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
     return { navigatorOperations };
   }),
   commitAcquisition: (resolution) => set((state) => {
-    Object.assign(accounts, resolution.accounts);
-    for (const [id, presented] of Object.entries(resolution.notes)) {
-      const current = notes[id];
-      const base = resolution.baseNotes[id];
-      if (current && (hasRetainedNoteObservation(id) || noteChangedSinceCapture(current, base))) {
-        notes[id] = {
-          ...presented, ...current,
-          relayCount: Math.max(presented.relayCount, current.relayCount),
-          relayUrls: [...new Set([...(current.relayUrls ?? []), ...(presented.relayUrls ?? [])])],
-        };
-      } else notes[id] = presented;
-    }
+    mergePresentedEvidence(resolution.notes, resolution.baseNotes, resolution.accounts);
     if (state.groundPlaceId && fields[state.groundPlaceId] && state.groundPlaceId !== resolution.place.id) fields[state.groundPlaceId].role = 'branch';
     fields[resolution.place.id] = resolution.place;
     const observation = resolution.observationFailure;
@@ -199,6 +198,116 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
           ? `${resolution.count} event subjects retained · Ground installed · first preview unavailable`
           : `${resolution.count} event subjects · handle ${resolution.handleId} installed once at revision ${resolution.installRevision}`,
       }, ...state.activities].slice(0, 20),
+    };
+  }),
+  commitAccountProjectionStarted: (placeId) => set((state) => {
+    const place = fields[placeId];
+    if (!place) return state;
+    place.projection = 'accounts';
+    place.accountProjection = { status: 'loading', handleId: '', command: {}, accountIds: [] };
+    return { fieldRevision: state.fieldRevision + 1 };
+  }),
+  commitAccountFacetStarted: (placeId) => set((state) => {
+    const place = fields[placeId];
+    if (!place) return state;
+    place.accountFacet = { status: 'loading', sourcePlaceId: place.id, sourceHandleId: place.handleId, commands: [], records: [] };
+    return { fieldRevision: state.fieldRevision + 1 };
+  }),
+  commitPlacePage: (resolution) => set((state) => {
+    const place = fields[resolution.placeId];
+    if (!place?.runtime) return state;
+    const operationKey = placeOperationKey(resolution.placeId, 'page');
+    const navigatorOperations = { ...state.navigatorOperations };
+    if (resolution.status === 'failure') {
+      navigatorOperations[operationKey] = { status: 'failure', stage: 'page', message: resolution.error, command: resolution.command, exchanges: resolution.exchanges };
+      place.observationSnapshots.push({
+        id: `atlas-tracer-observation-${++nextTracerSnapshot}`, target: { type: 'place', id: place.id }, sourceHandleId: place.handleId,
+        observedRevision: lastExchangeRevision(resolution.exchanges, place.installRevision), locality: 'local', exchanges: resolution.exchanges,
+        facts: { status: 'failure', error: resolution.error },
+      });
+      return { navigatorOperations, fieldRevision: state.fieldRevision + 1 };
+    }
+    mergePresentedEvidence(resolution.notes, resolution.baseNotes, resolution.accounts);
+    const newIds = Object.keys(resolution.notes).filter((id) => !place.noteIds.includes(id));
+    place.noteIds = [...place.noteIds, ...newIds];
+    place.runtime.nextOffset = resolution.nextOffset;
+    place.runtime.handleAddedCount += newIds.length;
+    place.localPageOffset = resolution.nextOffset;
+    place.observationSnapshots.push({
+      id: `atlas-tracer-observation-${++nextTracerSnapshot}`, target: { type: 'place', id: place.id }, sourceHandleId: place.handleId,
+      observedRevision: lastExchangeRevision(resolution.exchanges, place.installRevision), locality: 'local', exchanges: resolution.exchanges,
+      facts: resolution.exchanges.at(-1)?.response.result as Record<string, unknown> ?? {},
+    });
+    delete navigatorOperations[operationKey];
+    const nextActivity = state.nextActivity + 1;
+    return {
+      navigatorOperations, fieldRevision: state.fieldRevision + 1, nextActivity,
+      activities: [{ id: nextActivity, label: 'Loaded more from the current place handle', command: JSON.stringify(resolution.command), outcome: `${newIds.length} additional notes displayed · ${resolution.nextOffset} of ${place.runtime.total} observed locally` }, ...state.activities].slice(0, 20),
+    };
+  }),
+  commitAccountProjection: (resolution) => set((state) => {
+    const place = fields[resolution.placeId];
+    if (!place) return state;
+    for (const [id, account] of Object.entries(resolution.accounts)) accounts[id] ??= account;
+    place.projection = 'accounts';
+    place.accountProjection = {
+      status: resolution.status, handleId: resolution.handleId, command: resolution.command, accountIds: resolution.accountIds,
+      ...(resolution.installRevision === undefined ? {} : { installRevision: resolution.installRevision }),
+      ...(resolution.receipt ? { receipt: resolution.receipt } : {}), ...(resolution.countUnit ? { countUnit: resolution.countUnit } : {}),
+      ...(resolution.bounds ? { bounds: resolution.bounds } : {}), ...(resolution.omissions ? { omissions: resolution.omissions } : {}),
+      ...(resolution.error ? { error: resolution.error } : {}),
+    };
+    place.observationSnapshots.push({
+      id: `atlas-tracer-observation-${++nextTracerSnapshot}`, target: { type: 'place', id: `${place.id}:accounts` }, sourceHandleId: resolution.handleId,
+      observedRevision: lastExchangeRevision(resolution.exchanges, resolution.installRevision ?? place.installRevision), locality: 'local', exchanges: resolution.exchanges,
+      facts: place.accountProjection as unknown as Record<string, unknown>,
+    });
+    const nextActivity = resolution.status === 'available' ? state.nextActivity + 1 : state.nextActivity;
+    return {
+      fieldRevision: state.fieldRevision + 1, nextActivity,
+      ...(resolution.status === 'available' ? { activities: [{ id: nextActivity, label: 'Opened local account-list projection', command: JSON.stringify(resolution.commands), outcome: `${resolution.accountIds.length} displayed accounts · supporting handle ${resolution.handleId} · no relay contacted` }, ...state.activities].slice(0, 20) } : {}),
+    };
+  }),
+  commitAccountFacet: (resolution) => set((state) => {
+    const place = fields[resolution.placeId];
+    if (!place) return state;
+    for (const [id, account] of Object.entries(resolution.accounts)) accounts[id] ??= account;
+    place.accountFacet = {
+      status: resolution.status, sourcePlaceId: place.id, sourceHandleId: resolution.sourceHandleId,
+      commands: resolution.commands, handles: resolution.handles, records: resolution.records,
+      ...(resolution.countUnit ? { countUnit: resolution.countUnit } : {}), ...(resolution.bounds ? { bounds: resolution.bounds } : {}),
+      ...(resolution.truncated === undefined ? {} : { truncated: resolution.truncated }), ...(resolution.omissions ? { omissions: resolution.omissions } : {}),
+      ...(resolution.error ? { error: resolution.error } : {}),
+    };
+    place.observationSnapshots.push({
+      id: `atlas-tracer-observation-${++nextTracerSnapshot}`, target: { type: 'facet', id: 'account-frequency' }, sourceHandleId: place.handleId,
+      observedRevision: lastExchangeRevision(resolution.exchanges, place.installRevision), locality: 'local', exchanges: resolution.exchanges,
+      facts: resolution.status === 'available' ? { records: resolution.records, countUnit: resolution.countUnit, bounds: resolution.bounds, truncated: resolution.truncated, omissions: resolution.omissions, lineage: resolution.records[0]?.lineage } : { status: 'failure', error: resolution.error },
+    });
+    const nextActivity = resolution.status === 'available' ? state.nextActivity + 1 : state.nextActivity;
+    return {
+      fieldRevision: state.fieldRevision + 1, nextActivity,
+      ...(resolution.status === 'available' ? { activities: [{ id: nextActivity, label: 'Derived bounded account frequency locally', command: JSON.stringify(resolution.commands), outcome: `${resolution.records.length} account facet rows · count unit ${resolution.countUnit ?? 'rows'} · no relay contacted` }, ...state.activities].slice(0, 20) } : {}),
+    };
+  }),
+  commitAccountNotes: (resolution) => set((state) => {
+    const source = fields[resolution.sourcePlaceId];
+    if (!source) return state;
+    if (resolution.status === 'failure' || !resolution.place) {
+      source.observationSnapshots.push({
+        id: `atlas-tracer-observation-${++nextTracerSnapshot}`, target: { type: 'facet', id: 'account-notes' }, sourceHandleId: source.handleId,
+        observedRevision: lastExchangeRevision(resolution.exchanges, source.installRevision), locality: 'local', exchanges: resolution.exchanges,
+        facts: { status: 'failure', error: resolution.error },
+      });
+      return { fieldRevision: state.fieldRevision + 1 };
+    }
+    mergePresentedEvidence(resolution.notes, resolution.baseNotes, resolution.accounts);
+    fields[resolution.place.id] = resolution.place;
+    const moved = visit(state, resolution.place.id);
+    const nextActivity = state.nextActivity + 1;
+    return {
+      ...moved, fieldRevision: state.fieldRevision + 1, nextActivity,
+      activities: [{ id: nextActivity, label: 'Opened local account-note branch', command: JSON.stringify(resolution.commands), outcome: resolution.observationFailure ? 'Branch handle installed · first preview unavailable · Ground unchanged · no relay contacted' : `${resolution.place.noteIds.length} event subjects · Ground unchanged · no relay contacted` }, ...state.activities].slice(0, 20),
     };
   }),
   commitSelection: (placeId, target, facet = false) => {
@@ -379,6 +488,25 @@ function hasRetainedNoteObservation(noteId: string) {
 
 function noteChangedSinceCapture(current: typeof notes[string], base?: typeof notes[string]) {
   return !base || JSON.stringify(current) !== JSON.stringify(base);
+}
+
+function mergePresentedEvidence(
+  presentedNotes: typeof notes,
+  baseNotes: typeof notes,
+  presentedAccounts: typeof accounts,
+) {
+  for (const [id, account] of Object.entries(presentedAccounts)) accounts[id] ??= account;
+  for (const [id, presented] of Object.entries(presentedNotes)) {
+    const current = notes[id];
+    const base = baseNotes[id];
+    if (current && (hasRetainedNoteObservation(id) || noteChangedSinceCapture(current, base))) {
+      notes[id] = {
+        ...presented, ...current,
+        relayCount: Math.max(presented.relayCount, current.relayCount),
+        relayUrls: [...new Set([...(current.relayUrls ?? []), ...(presented.relayUrls ?? [])])],
+      };
+    } else notes[id] = presented;
+  }
 }
 
 function exchangeError(exchange: ObservationExchange) {

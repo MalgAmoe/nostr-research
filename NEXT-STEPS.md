@@ -174,12 +174,13 @@ retains exact evidence and bounds, and creates no engine milestone, automatic
 background request, recommendation, or canonical identity claim.
 
 A subsequent architectural tracer now gives initial acquisition, navigation,
-view state, media authorization, and local subject observation one explicit
-path from typed navigator action through a narrow resolver to a single Atlas
-store commit. It adds no user-facing capability and is not a third feature
-slice. Unmigrated action families remain explicit in the older path; they should
-move only in coherent families after the tracer is proven by continued use.
-No third Atlas feature slice is agreed yet.
+view state, media authorization, local subject observation, paging, account
+projection, account-frequency derivation, and local account-note branching one
+explicit path from typed navigator action through a narrow resolver to a single
+Atlas store commit. It adds no user-facing capability and is not a third
+feature slice. The remaining external subject-action families stay explicit in
+the older path; they should move together only after this broader local family
+continues to hold under use. No third Atlas feature slice is agreed yet.
 
 ## Promotion rule
 

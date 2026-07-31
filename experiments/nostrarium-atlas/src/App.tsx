@@ -7,7 +7,7 @@ import type { AuthorResolutionDraft, NoteRelationship, RelationshipActionDraft }
 import { navigatorActions } from './actions';
 import { LiveQueryButton, LiveQueryPanel } from './LiveQuery';
 import { useLiveStore } from './live-store';
-import { currentPlaceId, useAtlasStore } from './store';
+import { currentPlaceId, placeOperationKey, useAtlasStore } from './store';
 
 function Icon({ name, size = 18 }: { name: 'back' | 'forward' | 'search' | 'stream' | 'gallery' | 'pin' | 'reply' | 'account' | 'activity' | 'close'; size?: number }) {
   const paths: Record<string, React.ReactNode> = {
@@ -189,20 +189,18 @@ function AccountFacets({ placeId }: { placeId: string }) {
   useAtlasStore((state) => state.fieldRevision);
   const place = fieldFor(placeId);
   const busy = useResearchBusy();
-  const derive = useLiveStore((state) => state.deriveAccountFacet);
-  const openNotes = useLiveStore((state) => state.openAccountNotes);
   const prepare = useLiveStore((state) => state.prepareAccountResearch);
   const facet = place.accountFacet;
   if (place.role !== 'ground' && !facet) return null;
   return <section className="facet-panel" aria-label="Account frequency within retained source place">
-    <header><div><span>BOUNDED FACET · LOCAL</span><h2>Accounts in {place.role === 'ground' ? 'Ground' : 'retained source place'}</h2><p>Counts event rows in this immutable source handle only. No activity, importance, or quality claim.</p></div>{place.role === 'ground' && (!facet || facet.status === 'idle' || facet.status === 'failure') && <button disabled={busy} onClick={() => derive(placeId)}>{facet?.status === 'failure' ? 'Retry derivation' : 'Derive account frequency'}</button>}</header>
+    <header><div><span>BOUNDED FACET · LOCAL</span><h2>Accounts in {place.role === 'ground' ? 'Ground' : 'retained source place'}</h2><p>Counts event rows in this immutable source handle only. No activity, importance, or quality claim.</p></div>{place.role === 'ground' && (!facet || facet.status === 'idle' || facet.status === 'failure') && <button disabled={busy} onClick={() => navigatorActions.deriveAccountFacet(placeId)}>{facet?.status === 'failure' ? 'Retry derivation' : 'Derive account frequency'}</button>}</header>
     {facet?.status === 'loading' && <p className="facet-status">Running visible relate → aggregate → sort observations locally…</p>}
     {facet?.status === 'failure' && <p className="facet-status is-error">{facet.error}</p>}
     {facet?.status === 'available' && <>
       <div className="facet-meta"><span>{facet.records.length} displayed {facet.countUnit ?? 'rows'}</span><span>{facet.truncated ? 'TRUNCATED' : 'No declared truncation'}</span><span>Source {shortId(facet.sourceHandleId)}</span></div>
       <div className="facet-rows">{facet.records.map((record) => <article key={record.account} className={place.selectedFacet === record.account ? 'is-selected' : ''}>
         <button className="facet-subject" onClick={() => navigatorActions.selectAccountFacet(placeId, record.account)}><Avatar account={accounts[record.account]} size="small"/><span><strong>{accounts[record.account] ? presenceFor(accounts[record.account]).name : shortId(record.account)}</strong><small>{record.account}{accounts[record.account] && presenceFor(accounts[record.account]).state === 'observed' ? ' · relay-observed profile claim' : ''}</small></span><b>{record.noteCount} notes</b></button>
-        <div><button disabled={busy} onClick={() => openNotes(placeId, record.account)}>Local · Notes here by this account</button><button onClick={() => prepare(placeId, record.account)}>Draft · Research this account on relays</button></div>
+        <div><button disabled={busy} onClick={() => navigatorActions.openAccountNotes(placeId, record.account)}>Local · Notes here by this account</button><button onClick={() => prepare(placeId, record.account)}>Draft · Research this account on relays</button></div>
       </article>)}</div>
       <details className="command-disclosure"><summary>Facet commands, handles, lineage, bounds, and omissions</summary><pre>{JSON.stringify({commands: facet.commands, handles: facet.handles, countUnit: facet.countUnit, bounds: facet.bounds, truncated: facet.truncated, omissions: facet.omissions, lineage: facet.records[0]?.lineage}, null, 2)}</pre></details>
     </>}
@@ -239,10 +237,8 @@ function AuthorResolutionResult({ attempt }: { attempt: NonNullable<NonNullable<
 function FieldContent() {
   useAtlasStore((state) => state.fieldRevision);
   const placeId = useAtlasStore(currentPlaceId);
-  const livePhase = useLiveStore((state) => state.phase);
+  const pageOperation = useAtlasStore((state) => state.navigatorOperations[placeOperationKey(placeId, 'page')]);
   const busy = useResearchBusy();
-  const showMore = useLiveStore((state) => state.showMore);
-  const openAccountProjection = useLiveStore((state) => state.openAccountProjection);
   const field = fieldFor(placeId);
   const location = { fieldId: placeId, target: field.selected };
   const query = field.localConstraints.text.trim().toLowerCase();
@@ -252,12 +248,12 @@ function FieldContent() {
   const active = field.runtime;
   return <section className="field-content">
     <Guide/>
-    <div className="field-heading"><div><span>CURRENT PLACE · {field.role.toUpperCase()}</span><h1>{field.label}</h1><p>{field.description}</p></div><div className="view-tabs" role="group" aria-label="Place projection"><button aria-pressed={field.projection === 'stream'} className={field.projection === 'stream' ? 'is-active' : ''} onClick={() => navigatorActions.setPlaceProjection('stream')}><Icon name="stream"/> Stream</button><button aria-pressed={field.projection === 'gallery'} className={field.projection === 'gallery' ? 'is-active' : ''} onClick={() => navigatorActions.setPlaceProjection('gallery')}><Icon name="gallery"/> Gallery</button><button aria-pressed={field.projection === 'accounts'} className={field.projection === 'accounts' ? 'is-active' : ''} disabled={field.role === 'start' || busy} onClick={() => openAccountProjection(placeId)}><Icon name="account"/> Accounts</button></div></div>
+    <div className="field-heading"><div><span>CURRENT PLACE · {field.role.toUpperCase()}</span><h1>{field.label}</h1><p>{field.description}</p></div><div className="view-tabs" role="group" aria-label="Place projection"><button aria-pressed={field.projection === 'stream'} className={field.projection === 'stream' ? 'is-active' : ''} onClick={() => navigatorActions.setPlaceProjection('stream')}><Icon name="stream"/> Stream</button><button aria-pressed={field.projection === 'gallery'} className={field.projection === 'gallery' ? 'is-active' : ''} onClick={() => navigatorActions.setPlaceProjection('gallery')}><Icon name="gallery"/> Gallery</button><button aria-pressed={field.projection === 'accounts'} className={field.projection === 'accounts' ? 'is-active' : ''} disabled={field.role === 'start' || busy} onClick={() => navigatorActions.openAccountProjection(placeId)}><Icon name="account"/> Accounts</button></div></div>
     {field.role !== 'start' && <AuthorResolutionPanel placeId={placeId}/>}
     {field.role !== 'start' && <section className="place-orientation"><div><span>HANDLE</span><code>{field.handleId}</code></div><div><span>INSTALLED</span><strong>revision {field.installRevision} · never replaced</strong></div><div><span>REASON</span><strong>{field.navigatorReason}</strong></div><details><summary>Origin, bounds, omissions, and resolution</summary><pre>{JSON.stringify({command: field.originCommand, receipt: field.originReceipt, bounds: field.declaredBounds, omissions: field.declaredOmissions, evidenceResolution: field.evidenceResolution}, null, 2)}</pre></details></section>}
     <div className="result-line"><strong>{field.projection === 'accounts' ? field.accountProjection?.accountIds.length ?? 0 : visibleNotes.length}</strong> displayed {field.projection === 'accounts' ? field.accountProjection?.countUnit ?? 'accounts' : field.countingUnit}{query && field.projection !== 'accounts' && <span> · visible local constraint “{query}”</span>}</div>
     {field.projection === 'accounts' ? <AccountListView placeId={placeId}/> : !fieldNotes.length ? <div className="no-results live-start"><span className="live-start-mark">⌁</span><strong>{field.role === 'start' ? 'No Ground yet' : 'No displayed event subjects'}</strong><span>{field.role === 'start' ? 'Select relays and explicit request bounds to begin.' : 'The handle remains a valid bounded place even when its preview is empty.'}</span>{field.role === 'start' && <button onClick={() => navigatorActions.setAcquisitionPanel(true)}>Open acquisition draft</button>}</div> : visibleNotes.length ? <>{field.projection === 'stream' && <StreamView visibleNotes={visibleNotes} selectedId={selectedId} placeId={placeId}/>} {field.projection === 'gallery' && <GalleryView visibleNotes={visibleNotes} selectedId={selectedId} placeId={placeId}/>}</> : <div className="no-results"><Icon name="search" size={28}/><strong>No matching displayed notes</strong><span>This interface-only constraint did not alter the handle or contact a relay.</span></div>}
-    {active && <div className="field-live-actions"><div><span>LOCAL HANDLE PAGE</span><strong>{active.nextOffset} of {active.total} event identities observed</strong><small>Paging this immutable handle is local. It cannot broaden the relay request.</small></div><div><button disabled={busy || active.nextOffset >= active.total} onClick={showMore}>Load more from this handle</button></div>{livePhase.type === 'failure' && livePhase.stage === 'page' && <p className="is-error">{livePhase.message}</p>}</div>}
+    {active && <div className="field-live-actions"><div><span>LOCAL HANDLE PAGE</span><strong>{active.nextOffset} of {active.total} event identities observed</strong><small>Paging this immutable handle is local. It cannot broaden the relay request.</small></div><div><button disabled={busy || active.nextOffset >= active.total} onClick={() => navigatorActions.showMore(placeId)}>Load more from this handle</button></div>{pageOperation?.status === 'failure' && <p className="is-error">{pageOperation.message}</p>}</div>}
   </section>;
 }
 
@@ -425,10 +421,10 @@ function ConditionsBar() {
   const placeId = useAtlasStore(currentPlaceId);
   const activities = useAtlasStore((state) => state.activities);
   const phase = useLiveStore((state) => state.phase);
-  const acquisitionOperation = useAtlasStore((state) => state.navigatorOperations.acquisition);
+  const activeNavigatorOperation = useAtlasStore((state) => Object.values(state.navigatorOperations).find((operation) => operation.status === 'working'));
   const latestExternal = useAtlasStore((state) => state.latestExternal);
   const field = fieldFor(placeId);
-  return <footer className="conditions"><div><span>PLACE</span><strong>{field.role.toUpperCase()} · {field.countingUnit}</strong></div><div><span>RELAY TARGETS</span><strong>{field.runtime?.relays.length ?? 0} visible · cancel unavailable</strong></div><div><span>EXTERNAL STATUS</span><strong>{acquisitionOperation?.status === 'working' ? acquisitionOperation.stage.toUpperCase() : phase.type === 'working' ? phase.stage.toUpperCase() : `${latestExternal.label} · ${latestExternal.status}`}</strong></div><div><span>WARNINGS</span><strong>{field.conditions.excludedWarnings} excluded · {latestExternal.warningCount} latest</strong></div><div className="uncertainty"><span>PARTIALITY / BOUNDARY</span><strong>{field.conditions.partial ? 'PARTIAL · ' : ''}{field.conditions.uncertainty}</strong></div><details className="activity"><summary><Icon name="activity"/> Activity <b>{activities.length}</b></summary><div>{activities.map((entry) => <article key={entry.id}><strong>{entry.label}</strong><code>{entry.command}</code><span>{entry.outcome}</span></article>)}</div></details></footer>;
+  return <footer className="conditions"><div><span>PLACE</span><strong>{field.role.toUpperCase()} · {field.countingUnit}</strong></div><div><span>RELAY TARGETS</span><strong>{field.runtime?.relays.length ?? 0} visible · cancel unavailable</strong></div><div><span>EXTERNAL STATUS</span><strong>{activeNavigatorOperation ? activeNavigatorOperation.stage.toUpperCase() : phase.type === 'working' ? phase.stage.toUpperCase() : `${latestExternal.label} · ${latestExternal.status}`}</strong></div><div><span>WARNINGS</span><strong>{field.conditions.excludedWarnings} excluded · {latestExternal.warningCount} latest</strong></div><div className="uncertainty"><span>PARTIALITY / BOUNDARY</span><strong>{field.conditions.partial ? 'PARTIAL · ' : ''}{field.conditions.uncertainty}</strong></div><details className="activity"><summary><Icon name="activity"/> Activity <b>{activities.length}</b></summary><div>{activities.map((entry) => <article key={entry.id}><strong>{entry.label}</strong><code>{entry.command}</code><span>{entry.outcome}</span></article>)}</div></details></footer>;
 }
 
 function shortId(value: string) { return value.length > 20 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value; }

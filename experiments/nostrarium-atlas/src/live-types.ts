@@ -88,5 +88,5 @@ export type ActiveLiveField = {
 
 export type LivePhase =
   | { type: 'idle' }
-  | { type: 'working'; stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'profile' | 'authored' | 'relationship' | 'authors'; command: Record<string, unknown> | Record<string, unknown>[] }
-  | { type: 'failure'; stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'profile' | 'authored' | 'relationship' | 'authors'; message: string; command?: Record<string, unknown> | Record<string, unknown>[] };
+  | { type: 'working'; stage: 'profile' | 'authored' | 'relationship' | 'authors'; command: Record<string, unknown> | Record<string, unknown>[] }
+  | { type: 'failure'; stage: 'profile' | 'authored' | 'relationship' | 'authors'; message: string; command?: Record<string, unknown> | Record<string, unknown>[] };
