@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { accounts, fieldFor, fields, notes, notesFor, type InspectorTarget, type PlaceProjection } from './data';
+import { accounts, fieldFor, fields, notes, notesFor, type InspectorTarget, type MediaLoadState, type PlaceProjection } from './data';
 
 export type Location = { fieldId: string; target: InspectorTarget };
 export type Activity = { id: number; label: string; command: string; outcome: string };
@@ -19,6 +19,7 @@ type AtlasData = {
 export type AtlasStore = AtlasData & {
   selectNote: (id: string) => void;
   inspectAccount: (id: string) => void;
+  selectExactSubject: (type: 'note' | 'account' | 'address', id: string) => void;
   selectAccountFacet: (id: string) => void;
   installGround: (id: string) => void;
   installBranch: (id: string) => void;
@@ -33,6 +34,7 @@ export type AtlasStore = AtlasData & {
   setQuery: (query: string) => void;
   toggleNotePin: (id: string) => void;
   toggleAccountPin: (id: string) => void;
+  setMediaLoad: (placeId: string, noteId: string, url: string, status: MediaLoadState) => void;
   dismissGuide: () => void;
   recordActivity: (label: string, command: string, outcome: string) => void;
   fieldUpdated: () => void;
@@ -79,6 +81,9 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
   })),
   inspectAccount: (id) => set((state) => mutateCurrent(state, (fieldId) => {
     if (accounts[id]) fields[fieldId].selected = { type: 'account', id };
+  })),
+  selectExactSubject: (type, id) => set((state) => mutateCurrent(state, (fieldId) => {
+    if (id) fields[fieldId].selected = { type, id } as InspectorTarget;
   })),
   selectAccountFacet: (id) => set((state) => mutateCurrent(state, (fieldId) => {
     if (accounts[id] && fields[fieldId].accountFacet?.records.some((record) => record.account === id)) {
@@ -140,6 +145,14 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
   toggleAccountPin: (id) => set((state) => state.pinnedAccountIds.includes(id)
     ? { pinnedAccountIds: state.pinnedAccountIds.filter((item) => item !== id) }
     : accounts[id] ? { pinnedAccountIds: [...state.pinnedAccountIds, id] } : state),
+  setMediaLoad: (placeId, noteId, url, status) => set((state) => {
+    const place = fields[placeId];
+    if (!place || (!notes[noteId] && !noteId.startsWith('profile:')) || !url) return state;
+    place.mediaLoads ??= {};
+    place.mediaLoads[noteId] ??= {};
+    place.mediaLoads[noteId][url] = status;
+    return { fieldRevision: state.fieldRevision + 1 };
+  }),
   dismissGuide: () => set({ guideVisible: false }),
   recordActivity: (label, command, outcome) => set((state) => {
     const nextActivity = state.nextActivity + 1;

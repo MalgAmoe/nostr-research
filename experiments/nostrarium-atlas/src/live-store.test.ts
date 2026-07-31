@@ -1,8 +1,8 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { AccountProfileHeader } from './App';
-import { accountProfilePresentation, accounts, fields, notes, type Field } from './data';
+import { AccountProfileHeader, AttachmentResource, RichText } from './App';
+import { accountProfilePresentation, accounts, fields, notes, observedProfiles, retainObservedProfile, type Field } from './data';
 import { DEFAULT_DRAFT, freshAccountResearchDraft, useLiveStore, validateSearchRelayCount } from './live-store';
 import { initialAtlasState, useAtlasStore } from './store';
 
@@ -33,7 +33,7 @@ function groundPlace(): Field {
 }
 
 beforeEach(() => {
-  for (const record of [accounts, fields, notes]) for (const key of Object.keys(record)) delete record[key];
+  for (const record of [accounts, fields, notes, observedProfiles]) for (const key of Object.keys(record)) delete record[key];
   accounts[author] = { id: author, name: 'author', handle: '@author', publicKey: author, about: 'unrequested', color: '#456', live: true };
   notes.event = { id: 'event', authorId: author, content: 'note', createdAt: 'now', timestamp: 1, relayCount: 1, live: true };
   fields.ground = groundPlace();
@@ -44,7 +44,27 @@ beforeEach(() => {
   });
 });
 
-describe('Atlas interaction presentation boundaries', () => {
+describe('Atlas second-slice presentation boundaries', () => {
+  it('renders multiline text, safe web links, hashtags, and visible Nostr references', () => {
+    const html = renderToStaticMarkup(createElement(RichText, { text: 'first line\nhttps://example.com/path #nostr nostr:note1abc npub1visible' }));
+    expect(html).toContain('first line\n');
+    expect(html).toContain('href="https://example.com/path"');
+    expect(html).toContain('rel="noreferrer noopener"');
+    expect(html).toContain('class="rich-hashtag"');
+    expect(html.match(/class="rich-nostr-reference"/gu)).toHaveLength(2);
+  });
+
+  it('renders factual attachment metadata without inserting external media bytes', () => {
+    const html = renderToStaticMarkup(createElement(AttachmentResource, {
+      placeId: 'ground', noteId: 'event',
+      attachment: { url: 'https://media.example/picture.jpg', families: ['image'], mimeTypes: ['image/jpeg'], classification: 'declared', sources: ['imeta'], width: 640, height: 480, hashes: ['sha256:fact'], fallbackUrls: [] },
+    }));
+    expect(html).toContain('REMOTE IMAGE PLACEHOLDER');
+    expect(html).toContain('640×480');
+    expect(html).toContain('Load this image resource');
+    expect(html).not.toContain('<img');
+  });
+
   it('uses attributed observed profile claims in the selected-account header', () => {
     const html = renderToStaticMarkup(createElement(AccountProfileHeader, {
       account: accounts[author],
@@ -61,11 +81,20 @@ describe('Atlas interaction presentation boundaries', () => {
     expect(html).not.toContain('Profile metadata has not been requested.');
   });
 
+  it('reuses explicitly observed profile claims across places without changing account identity', () => {
+    retainObservedProfile(author, { status: 'available', relays: ['wss://nos.lol'], claims: { name: 'Shared relay name' } }, 'ground', 9);
+    expect(accountProfilePresentation(accounts[author]).name).toBe('Shared relay name');
+    expect(accountProfilePresentation(accounts[author]).attribution).toMatch(/relay-observed/i);
+    expect(accounts[author].publicKey).toBe(author);
+  });
+
   it('keeps not-requested, unresolved, and failed profile wording distinct', () => {
     const account = accounts[author];
     expect(accountProfilePresentation(account).state).toBe('not-requested');
     expect(accountProfilePresentation(account, { status: 'unresolved', relays: [] }).about).toMatch(/no resolvable profile claim/i);
+    retainObservedProfile(author, { status: 'available', relays: ['wss://nos.lol'], claims: { name: 'Older success' } }, 'ground', 3);
     expect(accountProfilePresentation(account, { status: 'failure', relays: [], error: 'relay unavailable' }).about).toMatch(/failed: relay unavailable/i);
+    expect(accountProfilePresentation(account, { status: 'available', relays: [], claims: { picture: 'javascript:alert(1)' } }).picture).toBeUndefined();
   });
 });
 
@@ -84,6 +113,21 @@ describe('Atlas acquisition draft boundaries', () => {
     expect(useLiveStore.getState().panelOpen).toBe(true);
     expect(fields.ground.handleId).toBe('ground-handle');
     expect(fields.ground.role).toBe('ground');
+  });
+
+  it('prepares relationship and author-resolution drafts without external execution', () => {
+    fields.ground.observationSnapshots.push({
+      id: 'note-facts', target: { type: 'note', id: 'event' }, sourceHandleId: 'ground-handle', observedRevision: 3,
+      locality: 'local', exchanges: [], facts: { status: 'available', eventHandleId: 'exact-event-handle' },
+    });
+    useLiveStore.getState().prepareNoteRelationship('ground', 'event', 'replies');
+    useLiveStore.getState().prepareAuthorResolution('ground');
+    expect(fields.ground.noteResearch?.event.relationshipDraft.relationship).toBe('replies');
+    expect(fields.ground.noteResearch?.event.draftOpen).toBe(true);
+    expect(fields.ground.authorResolution?.draftOpen).toBe(true);
+    expect(fields.ground.authorResolution?.draft.relays).toEqual(['wss://nos.lol']);
+    expect(useLiveStore.getState().phase).toEqual({ type: 'idle' });
+    expect(fields.ground.handleId).toBe('ground-handle');
   });
 
   it('does not alter the main acquisition draft when selecting a note or account', () => {

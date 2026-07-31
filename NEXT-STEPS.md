@@ -149,12 +149,31 @@ available underneath.
 The goal is not to find the perfect layer above the controller. It is to make
 different good-faith interpretations cheap to build and safe to fail.
 
-The first product-level interaction contract is now recorded in
-[`INTERACTION-SPEC.md`](./INTERACTION-SPEC.md). It extracts the useful working-
-field, facet, subject-inspector, and branching ideas from the old interface
-without reviving its state architecture. The next browser experiment should
-implement only the specification's first vertical slice, then be evaluated
-through real voyages before the interaction surface expands.
+The first product-level interaction contract is recorded in
+[`INTERACTION-SPEC.md`](./INTERACTION-SPEC.md). Its first Atlas vertical slice
+is complete and voyage-tested: explicit acquisition establishes immutable
+Ground, a bounded account-frequency facet overlaps local branching and relay-
+draft preparation, selected notes and accounts retain local observations,
+profile hydration enriches without moving, authored-note acquisition creates a
+branch, and place state survives backtracking. The slice required no Atlas-
+specific engine operation.
+
+The second Atlas slice is also complete and voyage-tested. It makes that proven
+navigation model useful for reading and traversing Nostr rather than widening
+the generic control surface. It adds:
+
+1. safe rich note rendering from already-exposed content and attachment facts;
+2. explicit author, reply, ancestor, quote, mention, and reference doors whose
+   local and relay-backed effects remain visibly distinct; and
+3. attributed account names and pictures wherever profile evidence has been
+   explicitly resolved, plus an explicit bounded way to resolve authors for a
+   current place without hidden hydration.
+
+The slice remains entirely caller-side: it reuses ordinary controller commands,
+retains exact evidence and bounds, and creates no engine milestone, automatic
+background request, recommendation, or canonical identity claim. No third
+Atlas slice is agreed yet. The next decision should follow navigator use of the
+first two slices rather than another speculative expansion.
 
 ## Promotion rule
 

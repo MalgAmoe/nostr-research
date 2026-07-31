@@ -1,14 +1,14 @@
 import { create } from 'zustand';
 import {
-  accounts, fields, notes,
-  type AccountFacetRecord, type AccountResearchState, type Field, type Note,
-  type NoteObservation, type ObservationExchange, type ObservationSnapshot,
+  accounts, fields, notes, retainObservedProfile,
+  type AccountFacetRecord, type AccountResearchState, type AttachmentFact, type Field, type Note,
+  type NoteObservation, type NoteResearchState, type ObservationExchange, type ObservationSnapshot,
 } from './data';
 import { liveController } from './live-session';
 import type {
-  AcquiredPhase, AuthoredActionDraft, ExternalActionDraft, LivePhase, QueryDraft, RelaySource,
+  AcquiredPhase, AuthorResolutionDraft, AuthoredActionDraft, ExternalActionDraft, LivePhase,
+  NoteRelationship, QueryDraft, RelationshipActionDraft, RelaySource,
 } from './live-types';
-import { mediaFromText } from './media';
 import { currentPlaceId, useAtlasStore } from './store';
 
 const DEFAULT_RELAYS: RelaySource[] = [
@@ -61,6 +61,13 @@ type LiveStore = {
   updateAuthoredDraft: (placeId: string, accountId: string, patch: Partial<AuthoredActionDraft>) => void;
   requestProfile: (placeId: string, accountId: string) => Promise<void>;
   requestAuthoredNotes: (placeId: string, accountId: string) => Promise<void>;
+  openLocalNoteRelationship: (placeId: string, noteId: string, relationship: NoteRelationship) => Promise<void>;
+  prepareNoteRelationship: (placeId: string, noteId: string, relationship: NoteRelationship) => void;
+  updateNoteRelationshipDraft: (placeId: string, noteId: string, patch: Partial<RelationshipActionDraft>) => void;
+  requestNoteRelationship: (placeId: string, noteId: string) => Promise<void>;
+  prepareAuthorResolution: (placeId: string) => void;
+  updateAuthorResolutionDraft: (placeId: string, patch: Partial<AuthorResolutionDraft>) => void;
+  resolveAuthors: (placeId: string) => Promise<void>;
   resetPhase: () => void;
 };
 
@@ -544,6 +551,14 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
         provenance: presentObject({ summary: inspected.provenance, evidence: evidence.provenance, observationCount: evidence.observationCount, omittedObservationCount: evidence.omittedObservationCount }),
         bounds: presentObject({ relation: object(facts.context).cardinality, relationships: { events: responseBounds(eventRefs), accounts: responseBounds(accountRefs), addresses: responseBounds(addressRefs) }, corpus: inspected.corpus, freshness: inspected.freshness }),
       };
+      if (content !== undefined) note.content = content;
+      note.attachments = normalizedAttachments(observation.attachments);
+      note.media = note.attachments[0] ? mediaFromAttachment(note.attachments[0]) : undefined;
+      note.contentRole = observation.role;
+      note.conversationRole = observation.conversationRole;
+      for (const accountId of observation.referencedAccounts ?? []) accounts[accountId] ??= liveAccount(accountId);
+      const noteResearch = ensureNoteResearch(place, noteId);
+      noteResearch.relationshipDraft = { ...noteResearch.relationshipDraft };
       addOrReplaceSubjectSnapshot(place, 'note', noteId, observation as unknown as Record<string, unknown>, commands.map((command, index) => exchange(command, outcomes[index])), 'local');
       if (observation.authorHandleId) {
         const state = ensureAccountResearch(place, note.authorId);
@@ -693,6 +708,7 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
         resolution: { resident: boolean(inspected.result.resident), resolved: boolean(inspected.result.resolved), source: string(inspected.result.resolutionSource) || undefined },
         provenance: presentObject({ summary: inspected.result.provenance, evidence: evidence.provenance, observationCount: evidence.observationCount, omittedObservationCount: evidence.omittedObservationCount }),
       };
+      retainObservedProfile(accountId, state.profile, placeId, number(inspected.response.sessionRevision));
       set({ latestExternal: {
         label: 'Profile hydration', status: (attemptStatus || 'BOUNDED').toUpperCase(),
         warningCount: Array.isArray(hydrated.response.warnings) ? hydrated.response.warnings.length : 0,
@@ -824,6 +840,241 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
     useAtlasStore.getState().fieldUpdated();
   },
 
+  openLocalNoteRelationship: async (placeId, noteId, relationship) => {
+    const sourcePlace = fields[placeId];
+    const eventHandleId = sourcePlace && noteEventHandle(sourcePlace, noteId);
+    if (!sourcePlace || !eventHandleId || get().phase.type === 'working') return;
+    const research = ensureNoteResearch(sourcePlace, noteId);
+    const handleId = uniqueHandle(`atlas-local-${relationship}`);
+    const eventLimit = research.relationshipDraft.eventLimit;
+    const command = { command: 'continue', input: eventHandleId, parameters: { relationship, source: 'local', eventLimit }, resultId: handleId };
+    setRelationshipAttempt(research, relationship, 'local', { status: 'loading', relationship, source: 'local', relays: [], command, handleId });
+    set({ phase: { type: 'working', stage: 'relationship', command } });
+    useAtlasStore.getState().fieldUpdated();
+    try {
+      const continued = await execute(command);
+      const handle = object(continued.result.handle);
+      const count = number(handle.count);
+      const completeness = object(continued.result.completeness);
+      const show = showCommand(handleId, 0, count);
+      let shown: Executed | undefined;
+      let observationFailure: ObservationExchange | undefined;
+      try { shown = await execute(show); } catch (error) { observationFailure = await failureExchange(show, error); }
+      setRelationshipAttempt(research, relationship, 'local', {
+        status: relationshipAttemptStatus(count, completeness, observationFailure), relationship, source: 'local', relays: [],
+        command, handleId, count, installRevision: number(handle.revision) || number(continued.response.sessionRevision), completeness,
+      });
+      const acquired: AcquiredPhase = {
+        type: 'acquired', sourceKind: 'local-note-relationship', handleId,
+        installRevision: number(handle.revision) || number(continued.response.sessionRevision), count,
+        command, receipt: continued.receipt, coverage: null, relays: [], draft: { ...DEFAULT_DRAFT, limit: eventLimit },
+      };
+      const branch = installPlace({
+        acquired, shown, observationFailure, role: 'branch', localSource: sourcePlace,
+        reason: `Local resident-memory ${relationship} from ${shortKey(noteId)}.`,
+        label: `${relationshipLabel(relationship)} · local`,
+      });
+      addSnapshot(sourcePlace, {
+        target: { type: 'place', id: `${noteId}:${relationship}:local` }, sourceHandleId: handleId,
+        observedRevision: number(continued.response.sessionRevision), locality: 'local',
+        exchanges: [exchange(command, continued), ...(shown ? [exchange(show, shown)] : observationFailure ? [observationFailure] : [])],
+        facts: research.attempts[relationship]!.local as unknown as Record<string, unknown>,
+      });
+      useAtlasStore.getState().installBranch(branch.id);
+      useAtlasStore.getState().recordActivity('Opened local note-relationship branch', JSON.stringify([command, show]), `${count} resident event subjects · Ground unchanged · no relay contacted`);
+      set(observationFailure
+        ? { phase: { type: 'failure', stage: 'relationship', message: 'Local branch opened, but its first bounded preview is unavailable.', command: show } }
+        : { phase: { type: 'idle' } });
+    } catch (error) {
+      setRelationshipAttempt(research, relationship, 'local', { status: 'failure', relationship, source: 'local', relays: [], command, handleId, error: errorMessage(error) });
+      set({ phase: { type: 'failure', stage: 'relationship', message: errorMessage(error), command } });
+      useAtlasStore.getState().fieldUpdated();
+    }
+  },
+
+  prepareNoteRelationship: (placeId, noteId, relationship) => {
+    const place = fields[placeId];
+    if (!place || !noteEventHandle(place, noteId)) return;
+    const research = ensureNoteResearch(place, noteId);
+    research.draftOpen = true;
+    research.relationshipDraft.relationship = relationship;
+    useAtlasStore.getState().recordActivity('Prepared note-relationship relay draft', JSON.stringify(relationshipRelayCommand(noteEventHandle(place, noteId)!, research.relationshipDraft, 'draft-result')), 'Draft only · no relay contacted');
+    useAtlasStore.getState().fieldUpdated();
+  },
+
+  updateNoteRelationshipDraft: (placeId, noteId, patch) => {
+    const place = fields[placeId];
+    if (!place) return;
+    const research = ensureNoteResearch(place, noteId);
+    research.relationshipDraft = sanitizeRelationshipDraft({ ...research.relationshipDraft, ...patch });
+    useAtlasStore.getState().fieldUpdated();
+  },
+
+  requestNoteRelationship: async (placeId, noteId) => {
+    const sourcePlace = fields[placeId];
+    const eventHandleId = sourcePlace && noteEventHandle(sourcePlace, noteId);
+    if (!sourcePlace || !eventHandleId || get().phase.type === 'working') return;
+    const research = ensureNoteResearch(sourcePlace, noteId);
+    const draft = research.relationshipDraft;
+    const relayError = validateRelayDraft(draft.relays);
+    if (relayError) {
+      setRelationshipAttempt(research, draft.relationship, 'relays', { status: 'failure', relationship: draft.relationship, source: 'relays', relays: draft.relays, error: relayError });
+      useAtlasStore.getState().fieldUpdated(); return;
+    }
+    const handleId = uniqueHandle(`atlas-relay-${draft.relationship}`);
+    const command = relationshipRelayCommand(eventHandleId, draft, handleId);
+    setRelationshipAttempt(research, draft.relationship, 'relays', { status: 'loading', relationship: draft.relationship, source: 'relays', relays: draft.relays, command, handleId });
+    set({ phase: { type: 'working', stage: 'relationship', command } });
+    useAtlasStore.getState().fieldUpdated();
+    try {
+      const continued = await execute(command);
+      const handle = object(continued.result.handle);
+      const count = number(handle.count);
+      const completeness = object(continued.result.completeness);
+      const show = showCommand(handleId, 0, count);
+      let shown: Executed | undefined;
+      let observationFailure: ObservationExchange | undefined;
+      try { shown = await execute(show); } catch (error) { observationFailure = await failureExchange(show, error); }
+      setRelationshipAttempt(research, draft.relationship, 'relays', {
+        status: relationshipAttemptStatus(count, completeness, observationFailure), relationship: draft.relationship, source: 'relays',
+        relays: draft.relays, command, handleId, count,
+        installRevision: number(handle.revision) || number(continued.response.sessionRevision), completeness,
+        external: presentObject({ coverage: continued.result.coverage, counts: continued.result.counts, completionReason: continued.result.completionReason }),
+      });
+      const acquired: AcquiredPhase = {
+        type: 'acquired', sourceKind: 'note-relationship', handleId,
+        installRevision: number(handle.revision) || number(continued.response.sessionRevision), count,
+        command, receipt: continued.receipt,
+        coverage: { external: { status: completeness.status, completeness } }, relays: draft.relays,
+        draft: { ...DEFAULT_DRAFT, limit: draft.eventLimit, excludeContentWarnings: draft.excludeContentWarnings },
+      };
+      const branch = installPlace({
+        acquired, shown, observationFailure, role: 'branch',
+        reason: `Explicit bounded relay ${draft.relationship} research from ${shortKey(noteId)}.`,
+        label: `${relationshipLabel(draft.relationship)} · relays`,
+      });
+      addSnapshot(sourcePlace, {
+        target: { type: 'place', id: `${noteId}:${draft.relationship}:relays` }, sourceHandleId: handleId,
+        observedRevision: number(continued.response.sessionRevision), locality: 'external',
+        exchanges: [exchange(command, continued), ...(shown ? [exchange(show, shown)] : observationFailure ? [observationFailure] : [])],
+        facts: research.attempts[draft.relationship]!.relays as unknown as Record<string, unknown>,
+      });
+      set({ latestExternal: { label: `Note ${draft.relationship}`, status: (string(completeness.status) || 'BOUNDED').toUpperCase(), warningCount: Array.isArray(continued.response.warnings) ? continued.response.warnings.length : 0 } });
+      useAtlasStore.getState().installBranch(branch.id);
+      useAtlasStore.getState().recordActivity('Executed note-relationship relay draft and opened branch', JSON.stringify([command, show]), `${count} event subjects · branch opened including bounded zero · Ground unchanged`);
+      set(observationFailure
+        ? { phase: { type: 'failure', stage: 'relationship', message: 'Relay relationship branch opened, but its first bounded preview is unavailable.', command: show } }
+        : { phase: { type: 'idle' } });
+    } catch (error) {
+      setRelationshipAttempt(research, draft.relationship, 'relays', { status: 'failure', relationship: draft.relationship, source: 'relays', relays: draft.relays, command, handleId, error: errorMessage(error) });
+      set({ phase: { type: 'failure', stage: 'relationship', message: errorMessage(error), command }, latestExternal: { label: `Note ${draft.relationship}`, status: 'FAILURE', warningCount: 0 } });
+      useAtlasStore.getState().fieldUpdated();
+    }
+  },
+
+  prepareAuthorResolution: (placeId) => {
+    const place = fields[placeId];
+    if (!place || place.role === 'start') return;
+    const state = ensureAuthorResolution(place);
+    state.draftOpen = true;
+    useAtlasStore.getState().recordActivity('Prepared Resolve authors draft', JSON.stringify(authorResolutionCommands(place, state.draft)), 'Draft only · no relay contacted');
+    useAtlasStore.getState().fieldUpdated();
+  },
+
+  updateAuthorResolutionDraft: (placeId, patch) => {
+    const place = fields[placeId];
+    if (!place) return;
+    const state = ensureAuthorResolution(place);
+    state.draft = sanitizeAuthorResolutionDraft({ ...state.draft, ...patch });
+    useAtlasStore.getState().fieldUpdated();
+  },
+
+  resolveAuthors: async (placeId) => {
+    const place = fields[placeId];
+    if (!place || get().phase.type === 'working') return;
+    const state = ensureAuthorResolution(place);
+    const draft = state.draft;
+    const relayError = validateRelayDraft(draft.relays);
+    if (relayError) {
+      state.attempt = { status: 'failure', relays: draft.relays, error: relayError };
+      useAtlasStore.getState().fieldUpdated(); return;
+    }
+    const [move, showAuthors, hydrate] = authorResolutionCommands(place, draft);
+    const commands: Record<string, unknown>[] = [move, showAuthors, hydrate];
+    const outcomes: Executed[] = [];
+    state.attempt = { status: 'loading', relays: draft.relays, commands, authorHandleId: String(move.resultId), supportingHandleId: String(hydrate.resultId) };
+    set({ phase: { type: 'working', stage: 'authors', command: commands } });
+    useAtlasStore.getState().fieldUpdated();
+    try {
+      const moved = await execute(move); outcomes.push(moved);
+      const shown = await execute(showAuthors); outcomes.push(shown);
+      const authorIds = subjectIds(shown.result);
+      const authorBounds = responseBounds(shown.result);
+      const authorOmissions = presentObject({ omitted: shown.result.omitted, omittedBefore: shown.result.omittedBefore, omittedAfter: shown.result.omittedAfter }) ?? {};
+      const authorBoundarySized = authorIds.length >= draft.authorLimit;
+      const authorSourcePartial = boolean(object(object(shown.result.context).cardinality).truncated)
+        || Object.values(authorOmissions).some((value) => number(value) > 0);
+      for (const accountId of authorIds) accounts[accountId] ??= liveAccount(accountId);
+      if (!authorIds.length) {
+        state.attempt = { status: authorSourcePartial ? 'partial' : 'empty', relays: draft.relays, commands: commands.slice(0, 2), authorHandleId: String(move.resultId), authorCount: 0, resolvedCount: 0, unresolvedCount: 0, failedCount: 0, completeness: { status: authorSourcePartial ? 'partial' : 'empty', scope: 'resident-place-authors', emptyValidResult: !authorSourcePartial }, authorBounds, authorOmissions, authorBoundarySized };
+        addSnapshot(place, { target: { type: 'place', id: `${placeId}:resolved-authors` }, sourceHandleId: String(move.resultId), observedRevision: number(shown.response.sessionRevision), locality: 'local', exchanges: [exchange(move, moved), exchange(showAuthors, shown)], facts: state.attempt as unknown as Record<string, unknown> });
+        set({ phase: { type: 'idle' } });
+        useAtlasStore.getState().fieldUpdated(); return;
+      }
+      const hydrated = await execute(hydrate); outcomes.push(hydrated);
+      const external = object(hydrated.result.external);
+      const completeness = object(external.completeness);
+      let resolvedCount = 0; let unresolvedCount = 0; let failedCount = 0;
+      const inspectCommands: Record<string, unknown>[] = [];
+      const inspectionExchanges: ObservationExchange[] = [];
+      for (const accountId of authorIds) {
+        const inspect = inspectCommand({ type: 'account', id: accountId });
+        inspectCommands.push(inspect);
+        try {
+          const inspected = await execute(inspect);
+          inspectionExchanges.push(exchange(inspect, inspected));
+          const evidence = object(inspected.result.evidence);
+          const claims = object(evidence.profile);
+          const resolved = boolean(inspected.result.resolved) && Object.keys(claims).length > 0;
+          const profile = {
+            status: resolved ? (isPartial(completeness) ? 'partial' as const : 'available' as const) : 'unresolved' as const,
+            relays: draft.relays, command: hydrate, supportingHandleId: String(hydrate.resultId), external, completeness, claims,
+            resolution: { resident: boolean(inspected.result.resident), resolved: boolean(inspected.result.resolved), source: string(inspected.result.resolutionSource) || undefined },
+            provenance: presentObject({ summary: inspected.result.provenance, evidence: evidence.provenance, observationCount: evidence.observationCount, omittedObservationCount: evidence.omittedObservationCount }),
+          };
+          const accountState = ensureAccountResearch(place, accountId);
+          accountState.profile = profile;
+          retainObservedProfile(accountId, profile, placeId, number(inspected.response.sessionRevision));
+          if (resolved) resolvedCount += 1; else unresolvedCount += 1;
+        } catch (error) {
+          failedCount += 1;
+          inspectionExchanges.push(await failureExchange(inspect, error));
+        }
+      }
+      commands.push(...inspectCommands);
+      const partial = authorSourcePartial || isPartial(completeness) || failedCount > 0;
+      state.attempt = {
+        status: partial ? 'partial' : resolvedCount ? 'available' : 'unresolved', relays: draft.relays,
+        commands, authorHandleId: String(move.resultId), supportingHandleId: String(hydrate.resultId),
+        authorCount: authorIds.length, resolvedCount, unresolvedCount, failedCount, external, completeness,
+        authorBounds, authorOmissions, authorBoundarySized,
+      };
+      addSnapshot(place, {
+        target: { type: 'place', id: `${placeId}:resolved-authors` }, sourceHandleId: String(hydrate.resultId),
+        observedRevision: lastExchangeRevision(inspectionExchanges, number(hydrated.response.sessionRevision)), locality: 'external',
+        exchanges: [exchange(move, moved), exchange(showAuthors, shown), exchange(hydrate, hydrated), ...inspectionExchanges], facts: state.attempt as unknown as Record<string, unknown>,
+      });
+      set({ phase: { type: 'idle' }, latestExternal: { label: 'Resolve authors in this place', status: (state.attempt.status === 'partial' ? 'PARTIAL' : string(completeness.attemptStatus) || string(external.status) || state.attempt.status).toUpperCase(), warningCount: Array.isArray(hydrated.response.warnings) ? hydrated.response.warnings.length : 0 } });
+      useAtlasStore.getState().recordActivity('Resolved authors in this place explicitly', JSON.stringify(commands), `${resolvedCount} resolved · ${unresolvedCount} unresolved · ${failedCount} failed · place unchanged`);
+    } catch (error) {
+      const failed = await failureExchange(commands[outcomes.length] ?? commands.at(-1)!, error);
+      state.attempt = { status: 'failure', relays: draft.relays, commands, authorHandleId: String(move.resultId), supportingHandleId: String(hydrate.resultId), error: errorMessage(error) };
+      addSnapshot(place, { target: { type: 'place', id: `${placeId}:resolved-authors` }, sourceHandleId: outcomes.length > 1 ? String(hydrate.resultId) : place.handleId, observedRevision: lastExchangeRevision([failed], place.installRevision), locality: 'external', exchanges: [...outcomes.map((outcome, index) => exchange(commands[index], outcome)), failed], facts: state.attempt as unknown as Record<string, unknown> });
+      set({ phase: { type: 'failure', stage: 'authors', message: errorMessage(error), command: commands }, latestExternal: { label: 'Resolve authors in this place', status: 'FAILURE', warningCount: 0 } });
+    }
+    useAtlasStore.getState().fieldUpdated();
+  },
+
   resetPhase: () => set({ phase: { type: 'idle' } }),
 }));
 
@@ -883,8 +1134,17 @@ function installPlace({
     }) ?? {},
     evidenceResolution: object(object(shownResult.summary).evidenceResolution),
     accountResearch: {},
+    noteResearch: {},
+    mediaLoads: {},
+    authorResolution: {
+      draftOpen: false,
+      draft: {
+        relays: [...acquired.relays], authorLimit: 20, timeoutMs: 10000, observationLimit: 80,
+        distinctEventLimit: 60, concurrency: 2, excludeContentWarnings: acquired.draft.excludeContentWarnings,
+      },
+    },
     runtime: {
-      fieldId: placeId, sourceKind: local ? 'local-account-notes' : acquired.sourceKind,
+      fieldId: placeId, sourceKind: local && acquired.sourceKind !== 'local-note-relationship' ? 'local-account-notes' : acquired.sourceKind,
       handleId: acquired.handleId, pageHandleId: acquired.handleId, total: acquired.count,
       nextOffset, handleAddedCount: incoming.length, relays: acquired.relays, draft: acquired.draft,
       newestTimestamp: timestamps.length ? Math.max(...timestamps) : 0,
@@ -938,6 +1198,109 @@ function ensureAccountResearch(place: Field, accountId: string): AccountResearch
   const state: AccountResearchState = { localStatus: 'idle', profileDraft, authoredDraft };
   place.accountResearch[accountId] = state;
   return state;
+}
+
+function ensureNoteResearch(place: Field, noteId: string): NoteResearchState {
+  place.noteResearch ??= {};
+  const existing = place.noteResearch[noteId];
+  if (existing) return existing;
+  const external = defaultExternalDraft(place);
+  const state: NoteResearchState = {
+    draftOpen: false,
+    relationshipDraft: { ...external, relationship: 'replies', eventLimit: 20 },
+    attempts: {},
+  };
+  place.noteResearch[noteId] = state;
+  return state;
+}
+
+function setRelationshipAttempt(
+  research: NoteResearchState,
+  relationship: NoteRelationship,
+  source: 'local' | 'relays',
+  attempt: NonNullable<NoteResearchState['attempts'][NoteRelationship]>['local'],
+) {
+  const retained = research.attempts[relationship] ?? {};
+  research.attempts[relationship] = { ...retained, [source]: attempt };
+}
+
+function ensureAuthorResolution(place: Field) {
+  if (place.authorResolution) return place.authorResolution;
+  place.authorResolution = { draftOpen: false, draft: { ...defaultExternalDraft(place), authorLimit: 20 } };
+  return place.authorResolution;
+}
+
+function defaultExternalDraft(place: Field): ExternalActionDraft {
+  return {
+    relays: [...(place.runtime?.relays ?? [])], timeoutMs: 10000, observationLimit: 80,
+    distinctEventLimit: 60, concurrency: 2,
+    excludeContentWarnings: place.runtime?.draft.excludeContentWarnings ?? true,
+  };
+}
+
+function noteEventHandle(place: Field, noteId: string) {
+  const snapshot = [...place.observationSnapshots].reverse().find((candidate) => candidate.target.type === 'note' && candidate.target.id === noteId);
+  return string(snapshot?.facts.eventHandleId);
+}
+
+function relationshipRelayCommand(input: string, draft: RelationshipActionDraft, resultId: string) {
+  const { relationship, eventLimit, relays, ...external } = draft;
+  return { command: 'continue', input, parameters: { relationship, source: 'relays', relays, eventLimit, ...external }, resultId };
+}
+
+function authorResolutionCommands(place: Field, draft: AuthorResolutionDraft): Record<string, unknown>[] {
+  const authorHandleId = uniqueHandle('atlas-place-authors');
+  const profileHandleId = uniqueHandle('atlas-place-profiles');
+  const { authorLimit, ...external } = draft;
+  return [
+    { command: 'move', input: place.handleId, parameters: { to: 'authors', limit: authorLimit }, resultId: authorHandleId },
+    { command: 'show', input: authorHandleId, parameters: { mode: 'preview', previewLimit: authorLimit, excerptLimit: 1000, sizeLimit: 50000 } },
+    { command: 'hydrate', input: authorHandleId, parameters: { ...external, kinds: [0] }, resultId: profileHandleId },
+  ];
+}
+
+function sanitizeRelationshipDraft(draft: RelationshipActionDraft): RelationshipActionDraft {
+  return {
+    ...sanitizeExternalDraft(draft), relationship: draft.relationship,
+    eventLimit: boundedInteger(draft.eventLimit, 1, 100),
+  };
+}
+
+function sanitizeAuthorResolutionDraft(draft: AuthorResolutionDraft): AuthorResolutionDraft {
+  return { ...sanitizeExternalDraft(draft), authorLimit: boundedInteger(draft.authorLimit, 1, 20) };
+}
+
+function relationshipAttemptStatus(count: number, completeness: Record<string, unknown>, observationFailure?: ObservationExchange) {
+  if (observationFailure || isPartial(completeness)) return 'partial' as const;
+  return count ? 'available' as const : 'empty' as const;
+}
+
+function isPartial(completeness: Record<string, unknown>) {
+  return string(completeness.status) === 'partial' || string(completeness.attemptStatus) === 'partial'
+    || (Array.isArray(completeness.boundsReached) && completeness.boundsReached.length > 0);
+}
+
+function relationshipLabel(value: NoteRelationship) {
+  return ({ ancestors: 'Parent / ancestors', replies: 'Replies', quotes: 'Quoted events', mentions: 'Mentioned events', 'referenced-events': 'Referenced events' })[value];
+}
+
+function normalizedAttachments(values?: Record<string, unknown>[]): AttachmentFact[] {
+  return (values ?? []).map((value) => {
+    const url = string(value.url);
+    return {
+      url,
+      families: stringArray(value.families)?.filter((family): family is AttachmentFact['families'][number] => ['image', 'video', 'audio', 'file', 'unknown'].includes(family)) ?? ['unknown'],
+      mimeTypes: stringArray(value.mimeTypes) ?? [], classification: string(value.classification) || 'unknown',
+      sources: stringArray(value.sources) ?? [], width: optionalNumber(value.width), height: optionalNumber(value.height),
+      durationSeconds: optionalNumber(value.durationSeconds), alt: string(value.alt) || undefined,
+      hashes: stringArray(value.hashes) ?? [], fallbackUrls: stringArray(value.fallbackUrls) ?? [],
+    };
+  }).filter((attachment) => attachment.url.startsWith('http://') || attachment.url.startsWith('https://'));
+}
+
+function mediaFromAttachment(attachment: AttachmentFact): NonNullable<Note['media']> {
+  const family = attachment.families.find((item) => ['image', 'video', 'audio'].includes(item)) ?? attachment.families[0] ?? 'unknown';
+  return { type: family, src: attachment.url, alt: attachment.alt ?? `Remote ${family} referenced by this note`, remote: true };
 }
 
 async function execute(command: Record<string, unknown>): Promise<Executed> {
@@ -1023,12 +1386,14 @@ function materializeNotes(rows: Record<string, unknown>[]) {
     const createdAt = number(preview.createdAt);
     const current = notes[id];
     const relayUrls = stringArray(preview.relays) ?? [];
+    const attachments = current?.attachments ?? [];
     notes[id] = {
       id, authorId, content,
       createdAt: createdAt ? relativeTime(createdAt) : 'time unavailable', timestamp: createdAt,
       relayCount: number(preview.relayCount) || relayUrls.length || current?.relayCount || 0,
       relayUrls: relayUrls.length ? relayUrls : current?.relayUrls,
-      media: mediaFromText(content), live: true,
+      attachments, media: attachments[0] ? mediaFromAttachment(attachments[0]) : current?.media,
+      contentRole: current?.contentRole, conversationRole: current?.conversationRole, live: true,
     } satisfies Note;
     noteIds.push(id);
   }
@@ -1113,6 +1478,7 @@ function objectArray(value: unknown) { return Array.isArray(value) ? value.map(o
 function string(value: unknown) { return typeof value === 'string' ? value : ''; }
 function stringArray(value: unknown) { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : undefined; }
 function number(value: unknown) { return Number.isSafeInteger(value) ? value as number : 0; }
+function optionalNumber(value: unknown) { return typeof value === 'number' && Number.isFinite(value) ? value : undefined; }
 function boolean(value: unknown) { return value === true; }
 function responseError(response: Record<string, unknown>) { const error = object(response.error); return string(error.message) || string(error.code) || 'The research command failed.'; }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }

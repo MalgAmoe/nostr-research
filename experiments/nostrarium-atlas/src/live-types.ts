@@ -26,7 +26,16 @@ export type ExternalActionDraft = {
 
 export type AuthoredActionDraft = ExternalActionDraft & { eventLimit: number };
 
-export type FieldSourceKind = 'query' | 'authored-notes' | 'local-account-notes';
+export type NoteRelationship = 'ancestors' | 'replies' | 'quotes' | 'mentions' | 'referenced-events';
+
+export type RelationshipActionDraft = ExternalActionDraft & {
+  relationship: NoteRelationship;
+  eventLimit: number;
+};
+
+export type AuthorResolutionDraft = ExternalActionDraft & { authorLimit: number };
+
+export type FieldSourceKind = 'query' | 'authored-notes' | 'local-account-notes' | 'local-note-relationship' | 'note-relationship';
 
 export type AcquiredPhase = {
   type: 'acquired';
@@ -57,5 +66,5 @@ export type ActiveLiveField = {
 
 export type LivePhase =
   | { type: 'idle' }
-  | { type: 'working'; stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'profile' | 'authored'; command: Record<string, unknown> | Record<string, unknown>[] }
-  | { type: 'failure'; stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'profile' | 'authored'; message: string; command?: Record<string, unknown> | Record<string, unknown>[] };
+  | { type: 'working'; stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'profile' | 'authored' | 'relationship' | 'authors'; command: Record<string, unknown> | Record<string, unknown>[] }
+  | { type: 'failure'; stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'profile' | 'authored' | 'relationship' | 'authors'; message: string; command?: Record<string, unknown> | Record<string, unknown>[] };

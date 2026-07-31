@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
-  accountProfilePresentation, accounts, fieldFor, fields, notes, notesFor, observationFor,
-  type Account, type AccountResearchState, type Media, type Note, type NoteObservation, type ProfileObservation,
+  accountProfilePresentation, accounts, fieldFor, fields, notes, notesFor, observationFor, profileForAccount,
+  type Account, type AccountResearchState, type AttachmentFact, type MediaLoadState, type Note, type NoteObservation, type ProfileObservation,
 } from './data';
+import type { AuthorResolutionDraft, NoteRelationship, RelationshipActionDraft } from './live-types';
 import { LiveQueryButton, LiveQueryPanel } from './LiveQuery';
 import { useLiveStore } from './live-store';
 import { currentPlaceId, useAtlasStore } from './store';
@@ -88,30 +89,89 @@ function Guide() {
   return <section className="guide" aria-label="Getting started"><span>START HERE</span><p><b>1.</b> Acquire Ground &nbsp;→&nbsp; <b>2.</b> Derive account frequency &nbsp;→&nbsp; <b>3.</b> Take a local or relay door</p><button onClick={dismiss} aria-label="Dismiss guide"><Icon name="close" size={16}/></button></section>;
 }
 
-function AuthorButton({ accountId }: { accountId: string }) {
-  const account = accounts[accountId];
-  const inspect = useAtlasStore((state) => state.inspectAccount);
-  return <button className="author-button" onClick={(event) => { event.stopPropagation(); inspect(accountId); }}><Avatar account={account} size="medium"/><span><strong>{account.name}</strong><small>{account.handle}</small></span></button>;
+function presenceFor(account: Account, local?: ProfileObservation) {
+  return accountProfilePresentation(account, profileForAccount(account.id, local));
 }
 
-function NoteCard({ note, selected }: { note: Note; selected: boolean }) {
+function ProfilePresenceAvatar({ account, placeId, size = 'medium' }: { account: Account; placeId: string; size?: 'small' | 'medium' | 'large' }) {
+  useAtlasStore((state) => state.fieldRevision);
+  const profile = profileForAccount(account.id);
+  const presentation = presenceFor(account, profile);
+  const url = presentation.picture;
+  const mediaKey = `profile:${account.id}`;
+  const status = url ? fieldFor(placeId).mediaLoads?.[mediaKey]?.[url] ?? 'placeholder' : 'placeholder';
+  const setMediaLoad = useAtlasStore((state) => state.setMediaLoad);
+  if (!url) return <Avatar account={account} size={size}/>;
+  if (status === 'loaded') return <span className={`presence-avatar avatar--${size}`}><img src={url} alt={`Relay-observed profile picture claimed for ${presentation.name}`} referrerPolicy="no-referrer" onError={() => setMediaLoad(placeId, mediaKey, url, 'failed')}/><small>relay-observed</small></span>;
+  if (status === 'failed') return <span className="presence-avatar is-failed"><Avatar account={account} size={size}/><small>picture failed</small><code>{url}</code></span>;
+  return <span className="presence-avatar"><Avatar account={account} size={size}/><button onClick={(event) => { event.stopPropagation(); setMediaLoad(placeId, mediaKey, url, 'loaded'); }}>Load relay-observed picture</button><code>{url}</code></span>;
+}
+
+function AuthorButton({ accountId, placeId }: { accountId: string; placeId: string }) {
+  const account = accounts[accountId];
+  const presentation = presenceFor(account);
+  const inspect = useAtlasStore((state) => state.inspectAccount);
+  return <div className="author-presence"><ProfilePresenceAvatar account={account} placeId={placeId} size="medium"/><button className="author-button" onClick={(event) => { event.stopPropagation(); inspect(accountId); }}><span><strong>{presentation.name}</strong><small>{account.handle} · public key available</small>{presentation.state === 'observed' && <em>{presentation.attribution}</em>}</span></button></div>;
+}
+
+const RICH_TOKEN = /(https?:\/\/[^\s<>"']+|nostr:[^\s<>"']+|(?:npub1|note1|nevent1|nprofile1|naddr1)[0-9a-z]+|#[\p{L}\p{N}_]+)/giu;
+export function RichText({ text }: { text: string }) {
+  return <p className="rich-note-text">{text.split(RICH_TOKEN).map((part, index) => {
+    if (/^https?:\/\//iu.test(part)) {
+      try { const url = new URL(part); return <a key={index} href={url.href} target="_blank" rel="noreferrer noopener" onClick={(event) => event.stopPropagation()}>{part}</a>; } catch { return part; }
+    }
+    if (/^#/u.test(part)) return <span className="rich-hashtag" key={index}>{part}</span>;
+    if (/^(?:nostr:|npub1|note1|nevent1|nprofile1|naddr1)/iu.test(part)) return <code className="rich-nostr-reference" key={index}>{part}</code>;
+    return part;
+  })}</p>;
+}
+
+function attachmentFamily(attachment: AttachmentFact) {
+  return attachment.families.find((family) => ['image', 'video', 'audio'].includes(family)) ?? attachment.families[0] ?? 'unknown';
+}
+
+export function AttachmentResource({ attachment, noteId, placeId }: { attachment: AttachmentFact; noteId: string; placeId: string }) {
+  useAtlasStore((state) => state.fieldRevision);
+  const setMediaLoad = useAtlasStore((state) => state.setMediaLoad);
+  const status: MediaLoadState = fieldFor(placeId).mediaLoads?.[noteId]?.[attachment.url] ?? 'placeholder';
+  const family = attachmentFamily(attachment);
+  const metadata = [attachment.classification, ...attachment.mimeTypes, attachment.width && attachment.height ? `${attachment.width}×${attachment.height}` : '', attachment.durationSeconds !== undefined ? `${attachment.durationSeconds}s` : '', ...attachment.sources.map((source) => `source:${source}`)].filter(Boolean);
+  if (status === 'failed') return <section className="attachment-resource is-failed"><strong>{family.toUpperCase()} LOAD FAILED</strong><code>{attachment.url}</code><small>{metadata.join(' · ') || 'No additional factual metadata'}</small></section>;
+  if (status !== 'loaded') return <section className="attachment-resource"><strong>REMOTE {family.toUpperCase()} PLACEHOLDER</strong><code>{attachment.url}</code><small>{metadata.join(' · ') || 'No additional factual metadata'}</small>{attachment.hashes.length > 0 && <small>Hashes: {attachment.hashes.join(' · ')}</small>}<button onClick={() => setMediaLoad(placeId, noteId, attachment.url, 'loaded')}>Load this {family} resource</button></section>;
+  const failed = () => setMediaLoad(placeId, noteId, attachment.url, 'failed');
+  return <figure className="attachment-loaded">
+    {family === 'image' ? <img src={attachment.url} alt={attachment.alt ?? 'External image referenced by this note'} referrerPolicy="no-referrer" onError={failed}/>
+      : family === 'video' ? <video src={attachment.url} controls preload="metadata" onError={failed}/>
+        : family === 'audio' ? <audio src={attachment.url} controls preload="metadata" onError={failed}/>
+          : <a href={attachment.url} target="_blank" rel="noreferrer noopener">Open explicitly loaded external file</a>}
+    <figcaption>Explicit external load · {metadata.join(' · ')}</figcaption>
+  </figure>;
+}
+
+function NoteAttachments({ note, placeId }: { note: Note; placeId: string }) {
+  if (!note.attachments?.length) return null;
+  return <div className="note-attachments">{note.attachments.map((attachment) => <AttachmentResource key={attachment.url} attachment={attachment} noteId={note.id} placeId={placeId}/>)}</div>;
+}
+
+function NoteCard({ note, selected, placeId }: { note: Note; selected: boolean; placeId: string }) {
   const select = useAtlasStore((state) => state.selectNote);
   return <article className={`note-card ${selected ? 'is-selected' : ''}`} data-note-id={note.id}>
-    <header><AuthorButton accountId={note.authorId}/><time>{note.createdAt}</time></header>
-    <button className="note-body" onClick={() => select(note.id)} aria-label={`Open note by ${accounts[note.authorId].name}`}><p>{note.content}</p>{note.media?.src && <figure className="remote-media-indicator"><span>{note.media.type === 'video' ? '▶' : '▧'}</span><div><strong>Remote {note.media.type} available</strong><small>Select this note to inspect its declared file.</small></div></figure>}</button>
+    <header><AuthorButton accountId={note.authorId} placeId={placeId}/><time>{note.createdAt}</time></header>
+    {(note.conversationRole || note.contentRole) && <div className="note-role-context">{note.conversationRole && <span>CONVERSATION · {note.conversationRole}</span>}{note.contentRole && <span>ROLE · {note.contentRole}</span>}</div>}
+    <div className="note-body"><RichText text={note.content}/><NoteAttachments note={note} placeId={placeId}/><button className="select-note-action" onClick={() => select(note.id)} aria-label={`Select note by ${presenceFor(accounts[note.authorId]).name}`}>Select exact note evidence</button></div>
     <footer><button onClick={() => select(note.id)}><span className="note-dot"/> {note.id}</button><span>kind 1</span><span>{note.relayCount} observed relay{note.relayCount === 1 ? '' : 's'}</span></footer>
   </article>;
 }
 
-function StreamView({ visibleNotes, selectedId }: { visibleNotes: Note[]; selectedId: string | null }) {
-  return <div className="stream-view">{visibleNotes.map((note) => <NoteCard key={note.id} note={note} selected={note.id === selectedId}/>)}</div>;
+function StreamView({ visibleNotes, selectedId, placeId }: { visibleNotes: Note[]; selectedId: string | null; placeId: string }) {
+  return <div className="stream-view">{visibleNotes.map((note) => <NoteCard key={note.id} note={note} selected={note.id === selectedId} placeId={placeId}/>)}</div>;
 }
 
-function GalleryView({ visibleNotes, selectedId }: { visibleNotes: Note[]; selectedId: string | null }) {
+function GalleryView({ visibleNotes, selectedId, placeId }: { visibleNotes: Note[]; selectedId: string | null; placeId: string }) {
   const select = useAtlasStore((state) => state.selectNote);
-  const media = visibleNotes.filter((note) => note.media);
-  if (!media.length) return <div className="no-results"><Icon name="gallery" size={28}/><strong>No media in this bounded place</strong><span>Stream still shows readable notes.</span></div>;
-  return <div className="gallery-view">{media.map((note) => <button key={note.id} className={note.id === selectedId ? 'is-selected' : ''} onClick={() => select(note.id)}><div className="gallery-remote"><span>{note.media!.type === 'video' ? '▶' : '▧'}</span><small>Remote {note.media!.type}<br/>Select to inspect</small></div><span className="gallery-type">{note.media!.type}</span><div><Avatar account={accounts[note.authorId]} size="small"/><span><strong>{accounts[note.authorId].name}</strong><small>{note.content}</small></span></div></button>)}</div>;
+  const media = visibleNotes.filter((note) => note.attachments?.length);
+  if (!media.length) return <div className="no-results"><Icon name="gallery" size={28}/><strong>No factual media references in this bounded place</strong><span>Stream still shows readable notes. Selecting a note may expose normalized attachment facts.</span></div>;
+  return <div className="gallery-view">{media.map((note) => <article key={note.id} className={note.id === selectedId ? 'is-selected' : ''}><span className="gallery-type">{note.attachments!.map(attachmentFamily).join(' · ')}</span><AuthorButton accountId={note.authorId} placeId={placeId}/><RichText text={note.content}/><NoteAttachments note={note} placeId={placeId}/><button onClick={() => select(note.id)}>Select exact note evidence</button></article>)}</div>;
 }
 
 function AccountListView({ placeId }: { placeId: string }) {
@@ -123,7 +183,7 @@ function AccountListView({ placeId }: { placeId: string }) {
   if (projection.status === 'failure') return <div className="no-results"><Icon name="account" size={28}/><strong>Account-list projection unavailable</strong><span>{projection.error}</span></div>;
   return <section className="account-list-projection">
     <header><span>ACCOUNT LIST · {projection.countUnit?.toUpperCase()}</span><strong>{projection.accountIds.length} displayed accounts</strong><small>Supporting handle {projection.handleId} · installed revision {projection.installRevision}</small></header>
-    <div>{projection.accountIds.map((id) => <button key={id} className={place.selected.type === 'account' && place.selected.id === id ? 'is-selected' : ''} onClick={() => select(id)}><Avatar account={accounts[id]} size="medium"/><span><strong>{accounts[id].name}</strong><small>{id}</small></span><b>{place.accountResearch[id]?.localStatus ?? 'unobserved'}</b></button>)}</div>
+    <div>{projection.accountIds.map((id) => <button key={id} className={place.selected.type === 'account' && place.selected.id === id ? 'is-selected' : ''} onClick={() => select(id)}><Avatar account={accounts[id]} size="medium"/><span><strong>{presenceFor(accounts[id]).name}</strong><small>{id} · {presenceFor(accounts[id]).state === 'observed' ? 'relay-observed profile claim' : 'public-key fallback'}</small></span><b>{place.accountResearch[id]?.localStatus ?? 'unobserved'}</b></button>)}</div>
     <details className="command-disclosure"><summary>Projection command, handle, bounds, and omissions</summary><pre>{JSON.stringify(projection, null, 2)}</pre></details>
   </section>;
 }
@@ -145,12 +205,39 @@ function AccountFacets({ placeId }: { placeId: string }) {
     {facet?.status === 'available' && <>
       <div className="facet-meta"><span>{facet.records.length} displayed {facet.countUnit ?? 'rows'}</span><span>{facet.truncated ? 'TRUNCATED' : 'No declared truncation'}</span><span>Source {shortId(facet.sourceHandleId)}</span></div>
       <div className="facet-rows">{facet.records.map((record) => <article key={record.account} className={place.selectedFacet === record.account ? 'is-selected' : ''}>
-        <button className="facet-subject" onClick={() => selectFacet(record.account)}><Avatar account={accounts[record.account]} size="small"/><span><strong>{accounts[record.account]?.name ?? shortId(record.account)}</strong><small>{record.account}</small></span><b>{record.noteCount} notes</b></button>
+        <button className="facet-subject" onClick={() => selectFacet(record.account)}><Avatar account={accounts[record.account]} size="small"/><span><strong>{accounts[record.account] ? presenceFor(accounts[record.account]).name : shortId(record.account)}</strong><small>{record.account}{accounts[record.account] && presenceFor(accounts[record.account]).state === 'observed' ? ' · relay-observed profile claim' : ''}</small></span><b>{record.noteCount} notes</b></button>
         <div><button disabled={phase.type === 'working'} onClick={() => openNotes(placeId, record.account)}>Local · Notes here by this account</button><button onClick={() => prepare(placeId, record.account)}>Draft · Research this account on relays</button></div>
       </article>)}</div>
       <details className="command-disclosure"><summary>Facet commands, handles, lineage, bounds, and omissions</summary><pre>{JSON.stringify({commands: facet.commands, handles: facet.handles, countUnit: facet.countUnit, bounds: facet.bounds, truncated: facet.truncated, omissions: facet.omissions, lineage: facet.records[0]?.lineage}, null, 2)}</pre></details>
     </>}
   </section>;
+}
+
+function AuthorResolutionPanel({ placeId }: { placeId: string }) {
+  useAtlasStore((state) => state.fieldRevision);
+  const place = fieldFor(placeId);
+  const prepare = useLiveStore((state) => state.prepareAuthorResolution);
+  const update = useLiveStore((state) => state.updateAuthorResolutionDraft);
+  const execute = useLiveStore((state) => state.resolveAuthors);
+  const phase = useLiveStore((state) => state.phase);
+  const state = place.authorResolution;
+  if (place.role === 'start') return null;
+  if (!state?.draftOpen) return <section className="author-resolution-panel"><span>ATTRIBUTED ACCOUNT PRESENCE · EXPLICIT</span><button onClick={() => prepare(placeId)}>Resolve authors in this place</button><small>Prepares move authors → hydrate kind 0. No request runs until confirmation.</small>{state?.attempt && <AuthorResolutionResult attempt={state.attempt}/>}</section>;
+  const draft = state.draft;
+  const patch = (value: Partial<AuthorResolutionDraft>) => update(placeId, value);
+  return <section className="author-resolution-panel is-open">
+    <header><div><span>RESOLVE AUTHORS IN THIS PLACE · DRAFT</span><strong>move authors → hydrate kind 0</strong></div><small>Editable bounded request</small></header>
+    <label>Relay targets<textarea aria-label="Author resolution relay targets" value={draft.relays.join('\n')} onChange={(event) => patch({ relays: event.target.value.split(/[\s,]+/u).filter(Boolean) })}/></label>
+    <div className="compact-draft-fields"><label>Author limit<input aria-label="Author resolution limit" type="number" min="1" max="20" value={draft.authorLimit} onChange={(event) => patch({ authorLimit: Number(event.target.value) })}/></label><label>Timeout ms<input type="number" min="100" max="60000" value={draft.timeoutMs} onChange={(event) => patch({ timeoutMs: Number(event.target.value) })}/></label><label>Observation bound<input type="number" min="1" value={draft.observationLimit} onChange={(event) => patch({ observationLimit: Number(event.target.value) })}/></label><label>Distinct-event bound<input type="number" min="1" value={draft.distinctEventLimit} onChange={(event) => patch({ distinctEventLimit: Number(event.target.value) })}/></label><label>Concurrency<input type="number" min="1" max="10" value={draft.concurrency} onChange={(event) => patch({ concurrency: Number(event.target.value) })}/></label></div>
+    <label className="draft-warning"><input type="checkbox" checked={draft.excludeContentWarnings} onChange={(event) => patch({ excludeContentWarnings: event.target.checked })}/> Preserve configured direct-warning exclusion</label>
+    <button className="external-action" disabled={!draft.relays.length || phase.type === 'working'} onClick={() => execute(placeId)}>Execute bounded author resolution</button>
+    <p>No hydration occurs on acquisition, selection, scrolling, paging, or branch activation.</p>
+    {state.attempt && <AuthorResolutionResult attempt={state.attempt}/>}
+  </section>;
+}
+
+function AuthorResolutionResult({ attempt }: { attempt: NonNullable<NonNullable<ReturnType<typeof fieldFor>['authorResolution']>['attempt']> }) {
+  return <section className={`author-resolution-result is-${attempt.status}`}><strong>{attempt.status.toUpperCase()}</strong><span>{attempt.authorCount ?? 0} bounded authors · {attempt.resolvedCount ?? 0} resolved · {attempt.unresolvedCount ?? 0} unresolved · {attempt.failedCount ?? 0} failed</span>{attempt.authorBoundarySized && <span>AUTHOR WINDOW REACHED ITS CONFIGURED BOUNDARY</span>}{attempt.error && <p>{attempt.error}</p>}<small>Author handle {attempt.authorHandleId ?? 'unavailable'} · profile-event handle {attempt.supportingHandleId ?? 'unavailable'}</small>{attempt.commands && <details className="command-disclosure"><summary>Commands, author bounds, omissions, completeness, and external facts</summary><pre>{JSON.stringify({ commands: attempt.commands, authorBounds: attempt.authorBounds, authorOmissions: attempt.authorOmissions, authorBoundarySized: attempt.authorBoundarySized, completeness: attempt.completeness, external: attempt.external }, null, 2)}</pre></details>}</section>;
 }
 
 function FieldContent() {
@@ -171,20 +258,57 @@ function FieldContent() {
   return <section className="field-content">
     <Guide/>
     <div className="field-heading"><div><span>CURRENT PLACE · {field.role.toUpperCase()}</span><h1>{field.label}</h1><p>{field.description}</p></div><div className="view-tabs" role="group" aria-label="Place projection"><button aria-pressed={field.projection === 'stream'} className={field.projection === 'stream' ? 'is-active' : ''} onClick={() => setView('stream')}><Icon name="stream"/> Stream</button><button aria-pressed={field.projection === 'gallery'} className={field.projection === 'gallery' ? 'is-active' : ''} onClick={() => setView('gallery')}><Icon name="gallery"/> Gallery</button><button aria-pressed={field.projection === 'accounts'} className={field.projection === 'accounts' ? 'is-active' : ''} disabled={field.role === 'start' || livePhase.type === 'working'} onClick={() => openAccountProjection(placeId)}><Icon name="account"/> Accounts</button></div></div>
+    {field.role !== 'start' && <AuthorResolutionPanel placeId={placeId}/>}
     {field.role !== 'start' && <section className="place-orientation"><div><span>HANDLE</span><code>{field.handleId}</code></div><div><span>INSTALLED</span><strong>revision {field.installRevision} · never replaced</strong></div><div><span>REASON</span><strong>{field.navigatorReason}</strong></div><details><summary>Origin, bounds, omissions, and resolution</summary><pre>{JSON.stringify({command: field.originCommand, receipt: field.originReceipt, bounds: field.declaredBounds, omissions: field.declaredOmissions, evidenceResolution: field.evidenceResolution}, null, 2)}</pre></details></section>}
     <div className="result-line"><strong>{field.projection === 'accounts' ? field.accountProjection?.accountIds.length ?? 0 : visibleNotes.length}</strong> displayed {field.projection === 'accounts' ? field.accountProjection?.countUnit ?? 'accounts' : field.countingUnit}{query && field.projection !== 'accounts' && <span> · visible local constraint “{query}”</span>}</div>
-    {field.projection === 'accounts' ? <AccountListView placeId={placeId}/> : !fieldNotes.length ? <div className="no-results live-start"><span className="live-start-mark">⌁</span><strong>{field.role === 'start' ? 'No Ground yet' : 'No displayed event subjects'}</strong><span>{field.role === 'start' ? 'Select relays and explicit request bounds to begin.' : 'The handle remains a valid bounded place even when its preview is empty.'}</span>{field.role === 'start' && <button onClick={() => openLiveQuery(true)}>Open acquisition draft</button>}</div> : visibleNotes.length ? <>{field.projection === 'stream' && <StreamView visibleNotes={visibleNotes} selectedId={selectedId}/>} {field.projection === 'gallery' && <GalleryView visibleNotes={visibleNotes} selectedId={selectedId}/>}</> : <div className="no-results"><Icon name="search" size={28}/><strong>No matching displayed notes</strong><span>This interface-only constraint did not alter the handle or contact a relay.</span></div>}
+    {field.projection === 'accounts' ? <AccountListView placeId={placeId}/> : !fieldNotes.length ? <div className="no-results live-start"><span className="live-start-mark">⌁</span><strong>{field.role === 'start' ? 'No Ground yet' : 'No displayed event subjects'}</strong><span>{field.role === 'start' ? 'Select relays and explicit request bounds to begin.' : 'The handle remains a valid bounded place even when its preview is empty.'}</span>{field.role === 'start' && <button onClick={() => openLiveQuery(true)}>Open acquisition draft</button>}</div> : visibleNotes.length ? <>{field.projection === 'stream' && <StreamView visibleNotes={visibleNotes} selectedId={selectedId} placeId={placeId}/>} {field.projection === 'gallery' && <GalleryView visibleNotes={visibleNotes} selectedId={selectedId} placeId={placeId}/>}</> : <div className="no-results"><Icon name="search" size={28}/><strong>No matching displayed notes</strong><span>This interface-only constraint did not alter the handle or contact a relay.</span></div>}
     {active && <div className="field-live-actions"><div><span>LOCAL HANDLE PAGE</span><strong>{active.nextOffset} of {active.total} event identities observed</strong><small>Paging this immutable handle is local. It cannot broaden the relay request.</small></div><div><button disabled={livePhase.type !== 'idle' || active.nextOffset >= active.total} onClick={showMore}>Load more from this handle</button></div>{livePhase.type === 'failure' && livePhase.stage === 'page' && <p className="is-error">{livePhase.message}</p>}</div>}
   </section>;
 }
 
-function MediaEvidence({ media }: { media: Media }) {
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
-  if (!media.src) return null;
-  if (!loaded) return <div className="remote-media-load"><span>REMOTE {media.type.toUpperCase()}</span><p>The note declares an external file. Its origin is contacted only if you load it.</p><code>{media.src}</code><button onClick={() => setLoaded(true)}>Load actual {media.type}</button></div>;
-  if (failed) return <div className="remote-media-load is-failed"><span>MEDIA FAILED</span><p>The external file could not be displayed. The declared URL remains visible.</p><code>{media.src}</code></div>;
-  return <figure className="inspector-media">{media.type === 'video' ? <video src={media.src} controls preload="metadata" onError={() => setFailed(true)}/> : <img src={media.src} alt={media.alt} referrerPolicy="no-referrer" onError={() => setFailed(true)}/>}<figcaption>External file declared by this note</figcaption></figure>;
+const NOTE_RELATIONSHIPS: Array<{ value: NoteRelationship; label: string }> = [
+  { value: 'ancestors', label: 'Parent / ancestors' }, { value: 'replies', label: 'Replies' },
+  { value: 'quotes', label: 'Quoted events' }, { value: 'mentions', label: 'Mentioned events' },
+  { value: 'referenced-events', label: 'Referenced events' },
+];
+
+function RelationshipDraft({ placeId, noteId, draft }: { placeId: string; noteId: string; draft: RelationshipActionDraft }) {
+  const update = useLiveStore((state) => state.updateNoteRelationshipDraft);
+  const execute = useLiveStore((state) => state.requestNoteRelationship);
+  const phase = useLiveStore((state) => state.phase);
+  const patch = (value: Partial<RelationshipActionDraft>) => update(placeId, noteId, value);
+  return <section className="relationship-draft">
+    <span>NOTE RELATIONSHIP · RELAY DRAFT</span>
+    <label>Exact relationship<select aria-label="Note relationship" value={draft.relationship} onChange={(event) => patch({ relationship: event.target.value as NoteRelationship })}>{NOTE_RELATIONSHIPS.map((route) => <option value={route.value} key={route.value}>{route.label}</option>)}</select></label>
+    <label>Relay targets<textarea aria-label="Relationship relay targets" value={draft.relays.join('\n')} onChange={(event) => patch({ relays: event.target.value.split(/[\s,]+/u).filter(Boolean) })}/></label>
+    <div className="compact-draft-fields"><label>Event limit<input aria-label="Relationship event limit" type="number" min="1" max="100" value={draft.eventLimit} onChange={(event) => patch({ eventLimit: Number(event.target.value) })}/></label><label>Timeout ms<input type="number" min="100" max="60000" value={draft.timeoutMs} onChange={(event) => patch({ timeoutMs: Number(event.target.value) })}/></label><label>Observation bound<input type="number" min="1" value={draft.observationLimit} onChange={(event) => patch({ observationLimit: Number(event.target.value) })}/></label><label>Distinct-event bound<input type="number" min="1" value={draft.distinctEventLimit} onChange={(event) => patch({ distinctEventLimit: Number(event.target.value) })}/></label><label>Concurrency<input type="number" min="1" max="10" value={draft.concurrency} onChange={(event) => patch({ concurrency: Number(event.target.value) })}/></label></div>
+    <label className="draft-warning"><input type="checkbox" checked={draft.excludeContentWarnings} onChange={(event) => patch({ excludeContentWarnings: event.target.checked })}/> Preserve configured direct-warning exclusion</label>
+    <button className="external-action" disabled={!draft.relays.length || phase.type === 'working'} onClick={() => execute(placeId, noteId)}>Execute relay continuation and open branch</button>
+    <small>Ordinary continue source=relays. Bounded empty results still open an immutable branch.</small>
+  </section>;
+}
+
+function NoteDoors({ note, placeId, observation }: { note: Note; placeId: string; observation: NoteObservation }) {
+  useAtlasStore((state) => state.fieldRevision);
+  const selectExact = useAtlasStore((state) => state.selectExactSubject);
+  const openLocal = useLiveStore((state) => state.openLocalNoteRelationship);
+  const prepare = useLiveStore((state) => state.prepareNoteRelationship);
+  const phase = useLiveStore((state) => state.phase);
+  const research = fieldFor(placeId).noteResearch?.[note.id];
+  return <section className="note-doors">
+    <header><span>TYPED NOTE DOORS</span><p>Exact subjects select locally. Sets open ordinary never-replaced branches. No route is recommended.</p></header>
+    <div className="exact-subject-groups">
+      {observation.referencedEvents?.length ? <div><strong>Referenced events · exact selection</strong>{observation.referencedEvents.map((id) => <button key={id} onClick={() => selectExact('note', id)}>{notes[id] ? 'Known event' : 'Unresolved event'} · {shortId(id)}</button>)}</div> : null}
+      {observation.referencedAccounts?.length ? <div><strong>Mentioned / referenced accounts · exact selection</strong>{observation.referencedAccounts.map((id) => <button key={id} onClick={() => selectExact('account', id)}>{accounts[id] ? presenceFor(accounts[id]).name : shortId(id)} · {shortId(id)}</button>)}</div> : null}
+      {observation.referencedAddresses?.length ? <div><strong>Referenced addresses · exact selection</strong>{observation.referencedAddresses.map((id) => <button key={id} onClick={() => selectExact('address', id)}>Address · {shortId(id)}</button>)}</div> : null}
+    </div>
+    <div className="relationship-routes">{NOTE_RELATIONSHIPS.map((route) => {
+      const attempts = research?.attempts[route.value];
+      return <article key={route.value}><strong>{route.label}</strong><code>continue · {route.value} · source local · eventLimit {research?.relationshipDraft.eventLimit ?? 20}</code><div><button disabled={!observation.eventHandleId || phase.type === 'working'} onClick={() => openLocal(placeId, note.id, route.value)}>Open bounded local branch</button><button disabled={!observation.eventHandleId} onClick={() => prepare(placeId, note.id, route.value)}>Prepare relay draft</button></div>{(['local', 'relays'] as const).map((source) => { const attempt = attempts?.[source]; return attempt ? <small key={source} className={`attempt-${attempt.status}`}>{source.toUpperCase()} · {attempt.status.toUpperCase()} · {attempt.count ?? 0} events · handle {attempt.handleId ?? 'unavailable'}</small> : null; })}</article>;
+    })}</div>
+    {research?.draftOpen && <RelationshipDraft placeId={placeId} noteId={note.id} draft={research.relationshipDraft}/>}
+    <details className="command-disclosure"><summary>Relationship evidence bounds and retained handles</summary><pre>{JSON.stringify({ eventHandleId: observation.eventHandleId, referencedEvents: observation.referencedEvents, referencedAccounts: observation.referencedAccounts, referencedAddresses: observation.referencedAddresses, relationshipsOmitted: observation.relationshipsOmitted, bounds: observation.bounds, attempts: research?.attempts }, null, 2)}</pre></details>
+  </section>;
 }
 
 function NoteInspector({ note, placeId }: { note: Note; placeId: string }) {
@@ -200,7 +324,7 @@ function NoteInspector({ note, placeId }: { note: Note; placeId: string }) {
   const relationshipGroups = observation ? [['Referenced events', observation.referencedEvents], ['Referenced accounts', observation.referencedAccounts], ['Referenced addresses', observation.referencedAddresses]] as const : [];
   return <div className="inspector-body note-context">
     <div className="inspector-kicker">SELECTED NOTE <span>LOCAL OBSERVATION</span></div>
-    <button className="inspector-author" onClick={() => inspectAccount(note.authorId)}><Avatar account={account} size="large"/><span><strong>{account.name}</strong><small>{account.handle}</small></span><b>Select observed author →</b></button>
+    <button className="inspector-author" onClick={() => inspectAccount(note.authorId)}><Avatar account={account} size="large"/><span><strong>{presenceFor(account).name}</strong><small>{account.handle} · {presenceFor(account).state === 'observed' ? presenceFor(account).attribution : 'public-key fallback'}</small></span><b>Select exact author locally →</b></button>
     <section className="event-identifiers"><div><span>EVENT ID</span><code>{note.id}</code></div><div><span>AUTHOR PUBLIC KEY</span><code>{account.publicKey}</code></div></section>
     {(!observation || observation.status === 'loading') && <div className="local-evidence-status is-loading"><strong>Reading bounded known evidence…</strong><span>The selection gesture authorized disclosed local commands; no relay is contacted.</span></div>}
     {observation?.status === 'failure' && <div className="local-evidence-status is-error"><strong>Local observation failed</strong><span>{observation.error}</span><button onClick={() => observeNote(note.id, placeId)}>Retry local observation</button></div>}
@@ -213,28 +337,31 @@ function NoteInspector({ note, placeId }: { note: Note; placeId: string }) {
       {observation.attachments && <section className="evidence-section"><span>NORMALIZED ATTACHMENTS · {observation.attachments.length}{observation.attachmentsOmitted ? ` + ${observation.attachmentsOmitted} omitted` : ''}</span>{observation.attachments.map((attachment, index) => <div className="attachment-evidence" key={index}><code>{String(attachment.url ?? 'URL unavailable')}</code><small>{String(attachment.classification ?? '')}</small></div>)}</section>}
       {observation.observedRelays?.length ? <div className="observed-relays"><span>OBSERVED VIA DURING THIS SESSION</span>{observation.observedRelays.map((relay) => <code key={relay}>{relay}</code>)}</div> : null}
       {(observation.provenance || observation.bounds) && <details className="evidence-details"><summary>Attributed provenance and response bounds</summary><pre>{JSON.stringify({provenance: observation.provenance, bounds: observation.bounds}, null, 2)}</pre></details>}
+      <NoteDoors note={note} placeId={placeId} observation={observation}/>
     </>}
-    {note.media && <MediaEvidence key={note.id} media={note.media}/>}<div className="inspector-actions"><button className={pinned ? 'secondary-action is-pinned' : 'secondary-action'} onClick={() => togglePin(note.id)}><Icon name="pin"/> {pinned ? 'Pinned' : 'Pin note'}</button></div>
+    <NoteAttachments note={note} placeId={placeId}/><div className="inspector-actions"><button className={pinned ? 'secondary-action is-pinned' : 'secondary-action'} onClick={() => togglePin(note.id)}><Icon name="pin"/> {pinned ? 'Pinned' : 'Pin note'}</button></div>
     <ObservationDisclosure placeId={placeId} type="note" id={note.id}/>
     <p className="inspector-boundary">Selection retained this place, projection, page offset, facets, constraints, and acquisition draft.</p>
   </div>;
 }
 
-function ProfilePictureClaim({ url, name }: { url: string; name: string }) {
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
-  if (!loaded) return <div className="profile-picture-claim"><span>RELAY-OBSERVED PICTURE CLAIM</span><code>{url}</code><button onClick={() => setLoaded(true)}>Load claimed profile picture</button></div>;
-  if (failed) return <div className="profile-picture-claim is-failed"><span>PROFILE PICTURE UNAVAILABLE</span><code>{url}</code></div>;
-  return <figure className="profile-picture-observation"><img src={url} alt={`Relay-observed profile picture claimed for ${name}`} referrerPolicy="no-referrer" onError={() => setFailed(true)}/><figcaption>External image from an attributed relay-observed profile claim</figcaption></figure>;
+function ProfilePictureClaim({ url, name, placeId, accountId }: { url: string; name: string; placeId?: string; accountId: string }) {
+  useAtlasStore((state) => state.fieldRevision);
+  const setMediaLoad = useAtlasStore((state) => state.setMediaLoad);
+  const mediaKey = `profile:${accountId}`;
+  const status = placeId ? fieldFor(placeId).mediaLoads?.[mediaKey]?.[url] ?? 'placeholder' : 'placeholder';
+  if (status === 'placeholder') return <div className="profile-picture-claim"><span>RELAY-OBSERVED PICTURE CLAIM</span><code>{url}</code><button onClick={() => placeId && setMediaLoad(placeId, mediaKey, url, 'loaded')}>Load claimed profile picture</button></div>;
+  if (status === 'failed') return <div className="profile-picture-claim is-failed"><span>PROFILE PICTURE UNAVAILABLE</span><code>{url}</code></div>;
+  return <figure className="profile-picture-observation"><img src={url} alt={`Relay-observed profile picture claimed for ${name}`} referrerPolicy="no-referrer" onError={() => placeId && setMediaLoad(placeId, mediaKey, url, 'failed')}/><figcaption>External image from an attributed relay-observed profile claim</figcaption></figure>;
 }
 
-export function AccountProfileHeader({ account, profile }: { account: Account; profile?: ProfileObservation }) {
+export function AccountProfileHeader({ account, profile, placeId }: { account: Account; profile?: ProfileObservation; placeId?: string }) {
   const presentation = accountProfilePresentation(account, profile);
   return <section className={`account-profile-header is-${presentation.state}`}>
     <Avatar account={account} size="large"/><h2>{presentation.name}</h2><span className="account-handle">{account.handle}</span>
     <strong className="profile-attribution">{presentation.attribution}</strong>
     <p className="account-about">{presentation.about}</p>
-    {presentation.picture && <ProfilePictureClaim url={presentation.picture} name={presentation.name}/>}
+    {presentation.picture && <ProfilePictureClaim url={presentation.picture} name={presentation.name} placeId={placeId} accountId={account.id}/>}
   </section>;
 }
 
@@ -266,7 +393,7 @@ function AccountInspector({ account, placeId }: { account: Account; placeId: str
   useEffect(() => { if (!research || research.localStatus === 'idle') void observeAccount(account.id, placeId); }, [account.id, observeAccount, placeId, research]);
   return <div className="inspector-body account-inspector">
     <div className="inspector-kicker">SELECTED ACCOUNT <span>LOCAL SUBJECT</span></div>
-    <AccountProfileHeader account={account} profile={research?.profile}/>
+    <AccountProfileHeader account={account} profile={research?.profile} placeId={placeId}/>
     <div className="public-key"><span>PUBLIC KEY</span><code>{account.publicKey}</code></div>
     <div className={`local-evidence-status ${research?.engineHandleId ? '' : research?.localStatus === 'failure' ? 'is-error' : research?.localStatus === 'unresolved' ? 'is-unresolved' : 'is-loading'}`}><strong>{research?.engineHandleId ? 'Operational account handle retained' : research?.localStatus === 'failure' ? 'Local author observation failed' : research?.localStatus === 'unresolved' ? 'Author evidence unresolved' : 'Resolving account from retained event evidence…'}</strong><span>{research?.engineHandleId ? `${research.engineHandleId} · no relay contacted` : research?.localError ?? 'Selection leaves the place and all drafts unchanged.'}</span></div>
     {research && <>
@@ -289,6 +416,10 @@ function ObservationDisclosure({ placeId, type, id }: { placeId: string; type: '
   return <details className="command-disclosure"><summary>Inspect attributed {snapshot.locality} commands and bounded responses</summary><pre>{JSON.stringify({sourceHandle: snapshot.sourceHandleId, observedRevision: snapshot.observedRevision, exchanges: snapshot.exchanges}, null, 2)}</pre></details>;
 }
 
+function ExactSubjectInspector({ target }: { target: { type: 'note' | 'address'; id: string } }) {
+  return <div className="inspector-body exact-subject-inspector"><div className="inspector-kicker">EXACT {target.type.toUpperCase()} SUBJECT <span>SELECTION · NO MOVEMENT</span></div><h2>{target.type === 'note' && notes[target.id] ? 'Retained event subject' : 'Unresolved stable subject'}</h2><code>{target.id}</code>{target.type === 'note' && notes[target.id] ? <><RichText text={notes[target.id].content}/><p>This event is retained elsewhere in the process but is not a member of the current place. Selection did not install a branch or contact a relay.</p></> : <p>The typed identifier remains selectable, but no bounded presentation evidence is currently available here.</p>}<p className="inspector-boundary">Opening one exact subject changed only this place’s selection.</p></div>;
+}
+
 function EmptyInspector() {
   const openLiveQuery = useLiveStore((state) => state.setPanelOpen);
   return <div className="empty-inspector"><span>⌁</span><strong>No subject selected</strong><p>Selection is not movement. Choose a displayed note or account without changing this place.</p><button onClick={() => openLiveQuery(true)}>Open acquisition draft</button></div>;
@@ -298,7 +429,8 @@ function Inspector() {
   useAtlasStore((state) => state.fieldRevision);
   const placeId = useAtlasStore(currentPlaceId);
   const target = fieldFor(placeId).selected;
-  return <aside className="inspector" aria-label="Inspector"><header><span>SELECTED SUBJECT</span><small>Local evidence · explicit external doors</small></header>{target.type === 'note' && notes[target.id] ? <NoteInspector note={notes[target.id]} placeId={placeId}/> : target.type === 'account' && accounts[target.id] ? <AccountInspector account={accounts[target.id]} placeId={placeId}/> : <EmptyInspector/>}</aside>;
+  const currentMember = target.type === 'note' && fieldFor(placeId).noteIds.includes(target.id);
+  return <aside className="inspector" aria-label="Inspector"><header><span>SELECTED SUBJECT</span><small>Local evidence · explicit external doors</small></header>{target.type === 'note' && notes[target.id] && currentMember ? <NoteInspector note={notes[target.id]} placeId={placeId}/> : target.type === 'account' && accounts[target.id] ? <AccountInspector account={accounts[target.id]} placeId={placeId}/> : target.type === 'note' || target.type === 'address' ? <ExactSubjectInspector target={target}/> : <EmptyInspector/>}</aside>;
 }
 
 function ConditionsBar() {

@@ -1,11 +1,15 @@
-import type { ActiveLiveField, AuthoredActionDraft, ExternalActionDraft } from './live-types';
+import type {
+  ActiveLiveField, AuthorResolutionDraft, AuthoredActionDraft, ExternalActionDraft,
+  NoteRelationship, RelationshipActionDraft,
+} from './live-types';
 
 export type EvidenceStatus = 'idle' | 'loading' | 'available' | 'unresolved' | 'failure';
 
 export type InspectorTarget =
   | { type: 'none'; id: '' }
   | { type: 'note'; id: string }
-  | { type: 'account'; id: string };
+  | { type: 'account'; id: string }
+  | { type: 'address'; id: string };
 
 export type NoteObservation = {
   status: EvidenceStatus;
@@ -87,6 +91,49 @@ export type AccountResearchState = {
   authoredNotes?: AuthoredNotesRequest;
 };
 
+export type NoteRelationshipAttempt = ExternalAttempt & {
+  relationship: NoteRelationship;
+  source: 'local' | 'relays';
+  handleId?: string;
+  count?: number;
+  installRevision?: number;
+  completeness?: Record<string, unknown>;
+};
+
+export type NoteResearchState = {
+  draftOpen: boolean;
+  relationshipDraft: RelationshipActionDraft;
+  attempts: Partial<Record<NoteRelationship, { local?: NoteRelationshipAttempt; relays?: NoteRelationshipAttempt }>>;
+};
+
+export type AuthorResolutionAttempt = ExternalAttempt & {
+  status: 'idle' | 'loading' | 'available' | 'empty' | 'partial' | 'unresolved' | 'failure';
+  authorHandleId?: string;
+  supportingHandleId?: string;
+  authorCount?: number;
+  resolvedCount?: number;
+  unresolvedCount?: number;
+  failedCount?: number;
+  commands?: Record<string, unknown>[];
+  completeness?: Record<string, unknown>;
+  authorBounds?: Record<string, unknown>;
+  authorOmissions?: Record<string, unknown>;
+  authorBoundarySized?: boolean;
+};
+
+export type AuthorResolutionState = {
+  draftOpen: boolean;
+  draft: AuthorResolutionDraft;
+  attempt?: AuthorResolutionAttempt;
+};
+
+export type ObservedProfilePresence = {
+  accountId: string;
+  profile: ProfileObservation;
+  sourcePlaceId: string;
+  observedAtRevision: number;
+};
+
 export type AccountFacetRecord = {
   account: string;
   noteCount: number;
@@ -127,11 +174,27 @@ export type Account = {
 };
 
 export type Media = {
-  type: 'image' | 'video';
+  type: 'image' | 'video' | 'audio' | 'file' | 'unknown';
   src?: string;
   alt: string;
   remote: true;
 };
+
+export type AttachmentFact = {
+  url: string;
+  families: Array<'image' | 'video' | 'audio' | 'file' | 'unknown'>;
+  mimeTypes: string[];
+  classification: string;
+  sources: string[];
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+  alt?: string;
+  hashes: string[];
+  fallbackUrls: string[];
+};
+
+export type MediaLoadState = 'placeholder' | 'loading' | 'loaded' | 'failed';
 
 /** Bounded presentation data returned by public observations; never canonical UI-owned evidence. */
 export type Note = {
@@ -143,6 +206,9 @@ export type Note = {
   relayCount: number;
   relayUrls?: string[];
   media?: Media;
+  attachments?: AttachmentFact[];
+  contentRole?: string;
+  conversationRole?: string;
   parentId?: string;
   replyCount?: number;
   tags?: string[];
@@ -190,6 +256,9 @@ export type Field = {
   accountFacet?: AccountFacetState;
   accountProjection?: AccountProjectionState;
   accountResearch: Record<string, AccountResearchState>;
+  noteResearch?: Record<string, NoteResearchState>;
+  authorResolution?: AuthorResolutionState;
+  mediaLoads?: Record<string, Record<string, MediaLoadState>>;
   runtime?: ActiveLiveField;
   conditions: {
     source: string;
@@ -203,6 +272,8 @@ export type Field = {
 export const accounts: Record<string, Account> = {};
 export const notes: Record<string, Note> = {};
 export const fields: Record<string, Field> = {};
+/** Process-local attributed presentation cache; canonical evidence remains in the engine. */
+export const observedProfiles: Record<string, ObservedProfilePresence> = {};
 
 export const emptyField: Field = {
   id: 'start',
@@ -254,7 +325,18 @@ export function observationFor<T extends Record<string, unknown>>(
   return snapshot?.facts as T | undefined;
 }
 
+export function profileForAccount(accountId: string, local?: ProfileObservation) {
+  if (local) return local;
+  return observedProfiles[accountId]?.profile;
+}
+
+export function retainObservedProfile(accountId: string, profile: ProfileObservation, sourcePlaceId: string, observedAtRevision: number) {
+  if (!['available', 'partial'].includes(profile.status) || !Object.keys(profile.claims ?? {}).length) return;
+  observedProfiles[accountId] = { accountId, profile, sourcePlaceId, observedAtRevision };
+}
+
 export function accountProfilePresentation(account: Account, profile?: ProfileObservation): AccountProfilePresentation {
+  profile = profileForAccount(account.id, profile);
   if (!profile) return {
     name: account.name,
     about: 'Profile metadata has not been requested.',
@@ -276,7 +358,7 @@ export function accountProfilePresentation(account: Account, profile?: ProfileOb
   const claims = profile.claims ?? {};
   const displayName = claimString(claims.display_name) || claimString(claims.name);
   const about = claimString(claims.about);
-  const picture = claimString(claims.picture);
+  const picture = httpUrlClaim(claims.picture);
   if (['available', 'partial'].includes(profile.status) && (displayName || about || picture)) {
     return {
       name: displayName || account.name,
@@ -296,4 +378,10 @@ export function accountProfilePresentation(account: Account, profile?: ProfileOb
 
 function claimString(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+function httpUrlClaim(value: unknown) {
+  const claim = claimString(value);
+  if (!claim) return '';
+  try { return ['http:', 'https:'].includes(new URL(claim).protocol) ? claim : ''; } catch { return ''; }
 }

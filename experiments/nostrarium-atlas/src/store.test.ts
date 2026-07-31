@@ -50,6 +50,29 @@ describe('Atlas place boundary', () => {
     expect(currentPlaceId(useAtlasStore.getState())).toBe('ground');
   });
 
+  it('selects exact unresolved typed subjects without moving or creating handles', () => {
+    useAtlasStore.getState().installGround('ground');
+    const history = [...useAtlasStore.getState().history];
+    const handle = fields.ground.handleId;
+    useAtlasStore.getState().selectExactSubject('address', '30023:pubkey:slug');
+    expect(fields.ground.selected).toEqual({ type: 'address', id: '30023:pubkey:slug' });
+    expect(useAtlasStore.getState().history).toEqual(history);
+    expect(fields.ground.handleId).toBe(handle);
+  });
+
+  it('retains independently authorized media load state per place during backtracking', () => {
+    useAtlasStore.getState().installGround('ground');
+    useAtlasStore.getState().setMediaLoad('ground', 'event', 'https://media.example/a.jpg', 'loaded');
+    useAtlasStore.getState().setMediaLoad('ground', 'profile:author', 'https://media.example/profile.jpg', 'failed');
+    useAtlasStore.getState().installBranch('branch');
+    useAtlasStore.getState().setMediaLoad('branch', 'other', 'https://media.example/b.jpg', 'failed');
+    useAtlasStore.getState().back();
+    expect(fields.ground.mediaLoads?.event['https://media.example/a.jpg']).toBe('loaded');
+    expect(fields.ground.mediaLoads?.['profile:author']['https://media.example/profile.jpg']).toBe('failed');
+    expect(fields.branch.mediaLoads?.other['https://media.example/b.jpg']).toBe('failed');
+    expect(fields.ground.handleId).toBe('handle-ground');
+  });
+
   it('restores projection, local constraints, paging, selection, and observations per place', () => {
     useAtlasStore.getState().installGround('ground');
     fields.ground.accountProjection = {

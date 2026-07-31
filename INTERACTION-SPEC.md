@@ -543,6 +543,115 @@ The slice must demonstrate that:
 - notes and accounts remain useful even when evidence is unresolved; and
 - no Atlas-specific engine operation is required.
 
+## Second experimental vertical slice
+
+The first slice proved place identity, branching, subject selection, local
+facets, and explicit external actions. The second slice should make those
+mechanics useful for reading and traversing Nostr. It is not a request for a
+universal workbench or broad feature parity.
+
+The complete loop is:
+
+```text
+read a rich note in Ground
+→ select it without moving
+→ see its exact author and typed relationship evidence
+→ open an already-known subject or a bounded local relationship branch
+→ optionally prepare and execute a visible relay relationship request
+→ read the resulting note place
+→ return with the former place, selection, and projection intact
+```
+
+### Rich note rendering
+
+The stream and gallery render already-exposed factual content without rewriting
+the canonical event. The required presentation is:
+
+- readable multiline text;
+- safe clickable web links;
+- visible hashtags and Nostr references;
+- normalized image, video, and audio attachments with URL and declared factual
+  metadata when available; and
+- reply, quote, repost, or other content-role context when the public event
+  facts expose it.
+
+External media bytes are never loaded merely because a note entered a place or
+became visible. Every image, video, or audio attachment first appears as a
+bounded factual placeholder. The navigator explicitly loads each external
+resource. A failed load remains a visible failed external observation rather
+than disappearing. Rendering does not execute engine commands and does not
+infer safety, quality, authorship, or intent.
+
+### Note doors
+
+The selected-note surface exposes only routes supported by retained typed
+evidence or the contextual continuation contract:
+
+- exact author account;
+- reply parent and ancestors;
+- replies;
+- quoted events;
+- mentioned or otherwise referenced events;
+- mentioned accounts; and
+- referenced addresses.
+
+Opening one already-known exact subject is selection, not movement. Opening a
+set of subjects installs and opens a new branch backed by an ordinary handle.
+Unresolved subjects remain visible as unresolved and may still be navigable by
+their stable identifier.
+
+Local relationship doors use ordinary `move` or `continue` commands with
+`source: "local"`, contact no relay, and disclose their commands. A local zero
+is only a resident-memory result.
+
+Relay-backed relationship doors use ordinary `continue` with
+`source: "relays"`. Before execution, Atlas displays a dedicated editable
+draft containing the exact relationship, relay targets, event limit, timeout,
+observation limit, distinct-event limit, concurrency, and warning exclusion.
+Executing the draft installs and opens the returned event handle as a branch,
+including when its bounded preview is empty. Relay completion and network
+exhaustiveness remain separate.
+
+Atlas may arrange the routes compactly, but it must not recommend one, execute
+several automatically, merge local and relay behavior under one ambiguous
+control, or hide intermediate result handles.
+
+### Attributed account presence
+
+When explicit hydration has resolved profile claims, Atlas may use the
+relay-observed `display_name`/`name` and picture in note and account
+presentation. The exact public key remains available and the UI distinguishes
+the claim from canonical account identity.
+
+Atlas may provide one explicit bounded **Resolve authors in this place**
+action. It composes the current event handle through ordinary `move` to
+`authors`, then `hydrate` for kind `0` using visible relays and bounds. It
+executes no request until the navigator confirms the draft. Resolved,
+unresolved, partial, and failed counts remain visible. It does not hydrate on
+acquisition, selection, scrolling, or branch activation.
+
+Observed profile claims may enrich presentation across retained places in the
+same process, but they do not alter event evidence, subject identity, or the
+research notebook.
+
+### Second-slice acceptance
+
+The slice is complete when real-relay voyages demonstrate that:
+
+- a media-bearing note remains readable before any external media loads;
+- loading one attachment does not load other attachments or move place;
+- selecting a displayed author opens the exact account without contacting a
+  relay;
+- local relationship movement contacts no relay and reports resident-memory
+  limits honestly;
+- relay-backed replies or conversation research exposes and executes one
+  editable bounded draft, then opens a branch;
+- already-resolved profile claims appear consistently in note and account
+  presentation with attribution and public-key fallback;
+- returning to Ground restores its projection, selection, facets, constraints,
+  and media-load state; and
+- no engine/controller change or Atlas-specific operation was needed.
+
 ## Evidence inherited from earlier experiments
 
 This specification is informed by, but does not require importing:
