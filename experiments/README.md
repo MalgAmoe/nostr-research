@@ -23,6 +23,9 @@ Current experiments:
   and observation composer;
 - [`darkroom-composer/`](./darkroom-composer/): fixed Ground and paired A/B
   exposures;
+- [`nostrarium-cockpit/`](./nostrarium-cockpit/): a fixture-driven spaceship cockpit
+  combining one bounded universe viewport, readable evidence, explicit voyage
+  placement, factual instruments, and a flat shared-focus navigator;
 - [`evidence-desk/`](./evidence-desk/): a voyage-tested single-frame note/account
   decision surface with separate schema-backed visible controls;
 - [`field-board/`](./field-board/): a pure multi-frame Ground and branch position

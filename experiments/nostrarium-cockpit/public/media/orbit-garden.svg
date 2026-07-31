@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540">
+  <defs>
+    <radialGradient id="sky" cx="68%" cy="28%" r="76%">
+      <stop offset="0" stop-color="#7adbc5" stop-opacity=".55"/>
+      <stop offset=".42" stop-color="#17384b"/>
+      <stop offset="1" stop-color="#050b12"/>
+    </radialGradient>
+    <linearGradient id="land" x2="0" y2="1">
+      <stop stop-color="#315e58"/><stop offset="1" stop-color="#101c21"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#sky)"/>
+  <circle cx="710" cy="122" r="46" fill="#d5ffe8" opacity=".82"/>
+  <path d="M0 350 Q170 270 320 345 T650 322 T960 306 V540 H0Z" fill="url(#land)"/>
+  <g fill="none" stroke="#a8f5d4" stroke-width="3" opacity=".8">
+    <path d="M170 500q-5-110 66-167M214 438q-40-35-72-18M218 408q34-52 79-37"/>
+    <path d="M550 510q15-128-64-198M524 424q45-42 88-30M508 382q-38-43-81-31"/>
+  </g>
+  <g fill="#ffd47a">
+    <circle cx="140" cy="420" r="8"/><circle cx="298" cy="370" r="7"/><circle cx="613" cy="394" r="9"/><circle cx="425" cy="350" r="6"/>
+  </g>
+  <text x="48" y="74" fill="#e7fff5" font-family="monospace" font-size="22" letter-spacing="6">ORBITAL GARDEN / FIXTURE FRAME</text>
+</svg>
