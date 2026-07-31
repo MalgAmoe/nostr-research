@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { accounts, fields, notes } from './data';
+import { accounts, fieldFor, fields, notes } from './data';
 import { currentLocation, initialAtlasState, useAtlasStore } from './store';
 
 beforeEach(() => {
@@ -42,6 +42,28 @@ describe('Atlas live UI store', () => {
     expect(currentLocation(useAtlasStore.getState()).target).toEqual({ type: 'note', id: 'event' });
     useAtlasStore.getState().forward();
     expect(currentLocation(useAtlasStore.getState()).target).toEqual({ type: 'account', id: 'author' });
+  });
+
+  it('restores each installed field with its retained ordinary engine handle', () => {
+    fields.live.runtime = {
+      fieldId: 'live', sourceKind: 'query', handleId: 'engine-field-one', pageHandleId: 'engine-field-one', total: 1, nextOffset: 1,
+      mode: 'replace', prependCount: 0, handleAddedCount: 1, olderExhausted: false, relays: ['wss://relay.test/'],
+      draft: { limit: 5, hours: 24, search: '', eventId: '', author: '', hashtag: '', excludeContentWarnings: true },
+      newestTimestamp: 1, oldestTimestamp: 1,
+    };
+    notes.other = { ...notes.event, id: 'other' };
+    fields.other = {
+      ...fields.live, id: 'other', label: 'Other field', noteIds: ['other'],
+      runtime: { ...fields.live.runtime, fieldId: 'other', handleId: 'engine-field-two' },
+    };
+
+    useAtlasStore.getState().openInstalledField('live');
+    useAtlasStore.getState().openInstalledField('other');
+    expect(fieldFor(currentLocation(useAtlasStore.getState()).fieldId).runtime?.handleId).toBe('engine-field-two');
+    useAtlasStore.getState().back();
+    expect(fieldFor(currentLocation(useAtlasStore.getState()).fieldId).runtime?.handleId).toBe('engine-field-one');
+    useAtlasStore.getState().forward();
+    expect(fieldFor(currentLocation(useAtlasStore.getState()).fieldId).runtime?.handleId).toBe('engine-field-two');
   });
 
   it('pins only installed live notes and accounts', () => {

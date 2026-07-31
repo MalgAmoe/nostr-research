@@ -12,8 +12,11 @@ export type QueryDraft = {
 
 export type AcquisitionMode = 'replace' | 'newer' | 'older';
 
+export type FieldSourceKind = 'query' | 'authored-notes';
+
 export type AcquiredPhase = {
   type: 'acquired';
+  sourceKind: FieldSourceKind;
   mode: AcquisitionMode;
   handleId: string;
   count: number;
@@ -22,15 +25,19 @@ export type AcquiredPhase = {
   relays: string[];
   draft: QueryDraft;
   fieldId?: string;
+  fieldHandleId?: string;
 };
 
 export type ActiveLiveField = {
   fieldId: string;
+  sourceKind: FieldSourceKind;
   handleId: string;
+  pageHandleId: string;
   total: number;
   nextOffset: number;
   mode: AcquisitionMode;
   prependCount: number;
+  handleAddedCount: number;
   olderExhausted: boolean;
   relays: string[];
   draft: QueryDraft;

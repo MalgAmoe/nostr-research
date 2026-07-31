@@ -28,7 +28,6 @@ export function LiveQueryPanel() {
   const selected = store.relays.filter((relay) => relay.selected);
   const busy = ['acquiring', 'observing', 'paging'].includes(store.phase.type);
   const nip50RelayMismatch = Boolean(store.draft.search.trim()) && selected.length !== 1;
-  const undrainedActiveBuffer = Boolean(store.active && store.active.nextOffset < store.active.total);
   const coverage = store.phase.type === 'acquired' ? safeObject(store.phase.coverage?.external) : {};
   const completeness = safeObject(coverage.completeness);
   const updateMode = store.phase.type === 'acquired' && store.phase.mode !== 'replace';
@@ -62,7 +61,7 @@ export function LiveQueryPanel() {
       </div>
       <footer className="query-footer">
         <div className="query-status">
-          {store.phase.type==='idle'&&<><i className={nip50RelayMismatch||undrainedActiveBuffer?'failed':'ready'}/><span>{undrainedActiveBuffer?'Drain the current result handle before replacing it with another search.':nip50RelayMismatch?'Choose exactly one relay for experimental NIP-50 text search.':'Ready. Search, buffer update, and display remain visible commands.'}</span></>}
+          {store.phase.type==='idle'&&<><i className={nip50RelayMismatch?'failed':'ready'}/><span>{nip50RelayMismatch?'Choose exactly one relay for experimental NIP-50 text search.':'Ready. Each installed field retains its own ordinary result handle.'}</span></>}
           {store.phase.type==='acquiring'&&<><i className="working"/><span>{store.phase.mode==='replace'?'Searching selected relays':store.phase.mode==='newer'?'Checking for newer notes':'Acquiring an older page'}…</span></>}
           {store.phase.type==='observing'&&<><i className="working"/><span>Displaying the explicit bounded buffer page…</span></>}
           {store.phase.type==='paging'&&<><i className="working"/><span>Loading the next explicit page from the buffer…</span></>}
@@ -71,7 +70,7 @@ export function LiveQueryPanel() {
         </div>
         <div className="query-buttons">
           {store.phase.type==='failure'&&<button className="query-secondary" onClick={store.resetPhase}>Revise search</button>}
-          {store.phase.type==='acquired'?(store.phase.count>0?<button className="query-primary" onClick={store.observe}>{updateMode?'Display buffered update':`Display ${Math.min(20,store.phase.count)}${store.phase.count>20?` of ${store.phase.count}`:''} notes`}</button>:<button className="query-secondary" onClick={store.resetPhase}>No results · revise</button>):<button className="query-primary" disabled={busy||nip50RelayMismatch||undrainedActiveBuffer} onClick={store.acquire}>{store.phase.type==='acquiring'?'Working…':undrainedActiveBuffer?'Drain current buffer':nip50RelayMismatch?'Choose one relay':'Search and update buffer'}</button>}
+          {store.phase.type==='acquired'?(store.phase.count>0?<button className="query-primary" onClick={store.observe}>{updateMode?'Display buffered update':`Display ${Math.min(20,store.phase.count)}${store.phase.count>20?` of ${store.phase.count}`:''} notes`}</button>:<button className="query-secondary" onClick={store.resetPhase}>No results · revise</button>):<button className="query-primary" disabled={busy||nip50RelayMismatch} onClick={store.acquire}>{store.phase.type==='acquiring'?'Working…':nip50RelayMismatch?'Choose one relay':'Search and update buffer'}</button>}
         </div>
       </footer>
       {store.phase.type==='acquired'&&<details className="command-disclosure"><summary>Inspect buffer command and outcome</summary><pre>{JSON.stringify({command:store.phase.command,acquisitionStage:store.phase.coverage},null,2)}</pre></details>}

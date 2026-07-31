@@ -2,13 +2,15 @@
 
 Status: **disposable live-only content exploration experiment**.
 
-Atlas tests a direct interaction premise:
+Atlas tests a direct research journey:
 
-> Notes and event authors are the primary interface. Relay-producing actions
-> are explicit and bounded; navigation among already-observed content is local
-> and immediate.
+> Acquire a bounded field, open one observed note locally, inspect its author,
+> explicitly request profile claims, and explicitly acquire that account's
+> authored notes as another navigable field.
 
-Atlas contains no bundled notes, accounts, images, videos, or sample field.
+Atlas contains no bundled notes, accounts, images, videos, or sample field. It
+uses only public controller/session commands and does not expose a generic
+command builder.
 
 ## Run
 
@@ -19,83 +21,108 @@ npm run test:browser --workspace @nostrarium/atlas
 npm run build --workspace @nostrarium/atlas
 ```
 
-## Live journey
+## Relay field journey
 
-1. Atlas opens with relay sources and search controls embedded in the left
-   sidebar; they are not a modal or overlay. On narrow screens this search
-   section appears above the results.
-2. Select nos.lol, Primal, Snort, the unverified Searchnos search preset, or
-   add a valid custom `wss://` URL. Selected relay URLs remain visible even
-   while the local relay-list filter is active.
-3. Combine exact event ID, exact author, hashtag, time window, a 5–100 per-relay
-   limit, and the direct content-warning policy. Experimental NIP-50 text search
-   is a distinct one-relay mode because support and matching vary by relay.
-4. Click `Search and update buffer`. This sends one visible `plan` containing
-   explicit acquisition and acquisition-scoped selection stages.
-5. Review the buffered identity count and acquisition facts, then click
-   `Display … notes`. This sends one visible `show` command.
-6. Use `Load more from buffer` to request the next explicit 20-item presentation
-   page without network contact. Drain that handle before starting another relay
-   acquisition so buffered identities are not abandoned.
-7. For structured recent-note fields, use `Check for updates` or `Acquire older
-   notes` to send a new, visibly bounded acquisition. Timestamp boundaries are
-   inclusive and event identities are deduplicated. NIP-50 fields are refreshed
-   by running another explicit one-relay search instead.
-8. Read and locally filter notes, inspect observed event authors, switch between
-   Stream and Gallery, use Back/Forward and the trail, or pin subjects. The note
-   remains in the center list; the inspector instead shows event identifiers,
-   exact time, query settings, relay observations, media loading, and actions.
-9. Remote image/video URLs are not contacted until `Load actual image/video` is
-   clicked.
+1. Choose visible relay URLs and bounded NIP-01 filters in the left sidebar.
+   Experimental NIP-50 text search requires exactly one relay and Atlas displays
+   its returned identities newest-first rather than claiming relevance order.
+2. `Search and update buffer` sends an explicit bounded acquisition/selection
+   plan. Review the outcome, then explicitly display its first page.
+3. Every installed field retains its ordinary engine result-handle identifier,
+   paging position, bounds, relay selection, and minimal UI merge state. Opening
+   another field does not replace that operational reference. Back, Forward, and
+   Trail restore the corresponding field and its remaining local buffer pages.
+4. `Load more from buffer` is a local `show` operation. Structured query fields
+   can explicitly request newer or older bounded acquisitions. NIP-50 fields are
+   refreshed with another explicit one-relay search.
 
-The header filter remains strictly local to the displayed field. `Experimental
-NIP-50 text search` is an explicit one-relay network filter. Atlas does not claim
-relay capability or preserve relevance ordering: it displays returned matches
-newest-first and labels that policy before acquisition.
+The header filter remains strictly local to the displayed field.
 
-## Experiment sources
+## Note → account → authored notes
 
-Atlas reuses findings, not implementations:
+### Open a note: local observation
 
-- Evidence Desk: readable single-note/account inspection and separate evidence,
-  provenance, and claim boundaries;
-- Field Board and voyage-system slice: one shared focus and recoverable position,
-  translated into ordinary browser history and a trail;
-- controller trials: commands, bounds, outcomes, exclusions, and uncertainty
-  remain visible;
-- cockpit: readable Stream and Gallery views remain primary.
+Selecting a note is immediate. Atlas then uses the installed field's retained
+handle with ordinary local `filter`, `move`, `relate`, `inspect`, and `show`
+commands. This does **not** contact a relay.
 
-Atlas imports no other experiment. It uses the browser Worker and neutral
-controller. The memory package passes the optional NIP-50 `search` filter to the
-relay without interpreting matching semantics; Atlas then explicitly selects
-and displays the bounded result newest-first.
+The inspector reports only response-provided facts:
 
-## Boundary
+- resident/resolved/unresolved state and resolution source;
+- content as complete only when its returned projection is shorter than the
+  requested 1,000-character observation bound; a response reaching that bound
+  is labelled potentially truncated, and absent canonical evidence is labelled
+  unavailable;
+- canonical event tags plus their explicit omission count;
+- engine-derived event role, conversation role, and referenced event/account/
+  address subjects;
+- normalized attachments and attachment omissions;
+- observed relay provenance, freshness/corpus facts, and cardinality bounds only
+  when the response includes them.
 
-Live contact occurs only after `Search and update buffer`, `Check for updates`,
-or `Acquire older notes`; every selected relay URL and the request summary are
-visible. Acquisition/selection and display are separate visible commands. No
-display, retry, broadening, relay substitution, profile request, or follow-up is
-issued automatically. `Load more from buffer` issues only an explicit paged
-`show`. Clicking a note, account, view, history entry, pin, or local filter
-performs no acquisition.
+The local event and author handles are ordinary named session results. Atlas
+stores their identifiers only so subsequent actions can continue through public
+operations; it does not copy the engine's evidence model.
 
-- Live account panels initially show only the public key observed in an event;
-  profile metadata is explicitly reported as unrequested.
-- Relay count is not presented as trust or quality.
-- Local filtering never broadens or acquires another field.
-- Returned counts and EOSE never imply relay completeness.
-- Pinned state and browser history are presentation-local; they are not the
-  engine notebook or archive.
+### Request profile: explicit external hydration
 
-## Deliberate omissions and gaps
+Opening the account remains local. Atlas shows the exact currently selected
+relay URLs and fixed request bounds. `Request profile` explicitly runs public
+`hydrate` for kind 0 events from those relays. No profile request occurs on
+selection or hover.
 
-No profile metadata acquisition, live conversation continuation, automatic
-relay-capability discovery, search-result verification or relevance-order
-preservation, comparison UI, raw console, schema composer, write or signing support, reactions,
+Returned profile fields are displayed as relay-observed claims. The inspector
+retains and exposes response-provided external status, completeness, resolution,
+and provenance. A successful command with no resolvable profile remains
+unresolved; partial relay attempts remain partial. Absence is never presented as
+proof that no profile exists.
+
+### Authored notes: explicit external continuation
+
+`Authored notes` explicitly runs public `continue` with relationship
+`authored-notes`, source `relays`, the displayed relay URLs, and the displayed
+global event bound. It retains the returned ordinary event handle and reports
+its external/completeness facts before navigation.
+
+`Open … authored notes` is a separate local `show`. It contacts no relay,
+installs another engine-backed Atlas field, and adds that field to browser
+history and the Trail. Returning to either field restores its own retained
+handle and paging state.
+
+## Media boundary
+
+Normalized attachment facts come from local engine observation. External image
+or video bytes are not requested until `Load actual image/video` is clicked.
+External media can fail independently; Atlas keeps the declared URL visible.
+Tag-only attachments can appear in the evidence inspector even when the compact
+field card did not identify media.
+
+## Command and evidence boundary
+
+Relay contact occurs only after these labelled actions:
+
+- `Search and update buffer`;
+- `Check for updates`;
+- `Acquire older notes`;
+- `Request profile`;
+- `Authored notes`.
+
+Local selection, history, Trail, pins, field filtering, note/account observation,
+`Load more from buffer`, and `Open … authored notes` perform no acquisition.
+Commands and outcomes remain inspectable in Activity, but Atlas offers no raw
+console, schema composer, relation workbench, or universal action catalogue.
+
+Returned counts, EOSE, profile resolution, and relay observations never imply
+relay or network completeness. Relay observations attached to event evidence
+are cumulative process/session facts and may include earlier requests.
+
+## Deliberate omissions
+
+No automatic profile hydration, traversal, retry, query broadening, relay
+substitution, capability discovery, relevance ranking, conversation UI, generic
+relation UI, notebook/archive integration, write/signing support, reactions,
 messaging, or shared UI package is included.
 
-Live media recognition currently uses direct image/video URLs visible in the
-bounded content excerpt. Tag-only `imeta` attachments are unavailable in that
-preview. External media can fail independently; Atlas retains and displays the
-declared URL.
+The slice required no Atlas-specific engine operation or engine shortcut. The
+public field handles, local collection/relation observations, hydration, and
+continuation operations were sufficient.

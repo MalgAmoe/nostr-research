@@ -14,11 +14,14 @@ const draft: QueryDraft = {
 
 const active: ActiveLiveField = {
   fieldId: 'field',
+  sourceKind: 'query',
   handleId: 'handle',
+  pageHandleId: 'handle',
   total: 20,
   nextOffset: 20,
   mode: 'replace',
   prependCount: 0,
+  handleAddedCount: 20,
   olderExhausted: false,
   relays: ['wss://relay.example'],
   draft,

@@ -1,3 +1,51 @@
+import type { ActiveLiveField } from './live-types';
+
+export type EvidenceStatus = 'idle' | 'loading' | 'available' | 'unresolved' | 'failure';
+
+export type NoteObservation = {
+  status: EvidenceStatus;
+  eventHandleId?: string;
+  authorHandleId?: string;
+  resolution?: { resident: boolean; resolved: boolean; source?: string };
+  content?: string;
+  contentState?: 'complete' | 'bounded' | 'unavailable';
+  tags?: unknown[][];
+  omittedTags?: number;
+  role?: string;
+  conversationRole?: string;
+  attachments?: Record<string, unknown>[];
+  attachmentsOmitted?: number;
+  observedRelays?: string[];
+  referencedEvents?: string[];
+  referencedAccounts?: string[];
+  referencedAddresses?: string[];
+  relationshipsOmitted?: number;
+  provenance?: Record<string, unknown>;
+  bounds?: Record<string, unknown>;
+  error?: string;
+};
+
+export type ExternalAttempt = {
+  status: 'idle' | 'loading' | 'available' | 'empty' | 'partial' | 'unresolved' | 'failure';
+  relays: string[];
+  command?: Record<string, unknown>;
+  external?: Record<string, unknown>;
+  completeness?: Record<string, unknown>;
+  error?: string;
+};
+
+export type ProfileObservation = ExternalAttempt & {
+  claims?: Record<string, unknown>;
+  resolution?: { resident: boolean; resolved: boolean; source?: string };
+  provenance?: Record<string, unknown>;
+};
+
+export type AuthoredNotesRequest = ExternalAttempt & {
+  handleId?: string;
+  count?: number;
+  eventLimit?: number;
+};
+
 export type Account = {
   id: string;
   name: string;
@@ -6,6 +54,11 @@ export type Account = {
   about: string;
   color: string;
   live: true;
+  sourceNoteId?: string;
+  engineHandleId?: string;
+  localObservation?: { status: EvidenceStatus; resolution?: Record<string, unknown>; error?: string };
+  profile?: ProfileObservation;
+  authoredNotes?: AuthoredNotesRequest;
 };
 
 export type Media = {
@@ -27,6 +80,7 @@ export type Note = {
   parentId?: string;
   replyCount?: number;
   tags?: string[];
+  observation?: NoteObservation;
   live: true;
 };
 
@@ -36,6 +90,7 @@ export type Field = {
   description: string;
   noteIds: string[];
   commandLabel: string;
+  runtime?: ActiveLiveField;
   conditions: {
     source: string;
     terminal: string;
