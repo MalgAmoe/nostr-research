@@ -8,24 +8,37 @@ export type QueryDraft = {
   author: string;
   hashtag: string;
   excludeContentWarnings: boolean;
+  includeFilterLimit: boolean;
+  timeoutMs: number;
+  observationLimit: number;
+  distinctEventLimit: number;
+  concurrency: number;
 };
 
-export type AcquisitionMode = 'replace' | 'newer' | 'older';
+export type ExternalActionDraft = {
+  relays: string[];
+  timeoutMs: number;
+  observationLimit: number;
+  distinctEventLimit: number;
+  concurrency: number;
+  excludeContentWarnings: boolean;
+};
 
-export type FieldSourceKind = 'query' | 'authored-notes';
+export type AuthoredActionDraft = ExternalActionDraft & { eventLimit: number };
+
+export type FieldSourceKind = 'query' | 'authored-notes' | 'local-account-notes';
 
 export type AcquiredPhase = {
   type: 'acquired';
-  sourceKind: FieldSourceKind;
-  mode: AcquisitionMode;
+  sourceKind: Exclude<FieldSourceKind, 'local-account-notes'>;
   handleId: string;
+  installRevision: number;
   count: number;
   command: Record<string, unknown>;
+  receipt: Record<string, unknown>;
   coverage: Record<string, unknown> | null;
   relays: string[];
   draft: QueryDraft;
-  fieldId?: string;
-  fieldHandleId?: string;
 };
 
 export type ActiveLiveField = {
@@ -35,10 +48,7 @@ export type ActiveLiveField = {
   pageHandleId: string;
   total: number;
   nextOffset: number;
-  mode: AcquisitionMode;
-  prependCount: number;
   handleAddedCount: number;
-  olderExhausted: boolean;
   relays: string[];
   draft: QueryDraft;
   newestTimestamp: number;
@@ -47,8 +57,5 @@ export type ActiveLiveField = {
 
 export type LivePhase =
   | { type: 'idle' }
-  | { type: 'acquiring'; mode: AcquisitionMode; command: Record<string, unknown> }
-  | AcquiredPhase
-  | { type: 'observing'; acquired: AcquiredPhase; command: Record<string, unknown> }
-  | { type: 'paging'; command: Record<string, unknown> }
-  | { type: 'failure'; stage: 'acquire' | 'observe' | 'page'; message: string; command?: Record<string, unknown> };
+  | { type: 'working'; stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'profile' | 'authored'; command: Record<string, unknown> | Record<string, unknown>[] }
+  | { type: 'failure'; stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'profile' | 'authored'; message: string; command?: Record<string, unknown> | Record<string, unknown>[] };

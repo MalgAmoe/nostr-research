@@ -1,18 +1,13 @@
 import { create } from 'zustand';
-import { accounts, notes, notesFor } from './data';
+import { accounts, fieldFor, fields, notes, notesFor, type InspectorTarget, type PlaceProjection } from './data';
 
-export type InspectorTarget =
-  | { type: 'none'; id: '' }
-  | { type: 'note'; id: string }
-  | { type: 'account'; id: string };
 export type Location = { fieldId: string; target: InspectorTarget };
 export type Activity = { id: number; label: string; command: string; outcome: string };
 
 type AtlasData = {
-  history: Location[];
+  history: string[];
   historyIndex: number;
-  view: 'stream' | 'gallery';
-  query: string;
+  groundPlaceId: string | null;
   pinnedNoteIds: string[];
   pinnedAccountIds: string[];
   activities: Activity[];
@@ -24,13 +19,17 @@ type AtlasData = {
 export type AtlasStore = AtlasData & {
   selectNote: (id: string) => void;
   inspectAccount: (id: string) => void;
-  openInstalledField: (id: string) => void;
+  selectAccountFacet: (id: string) => void;
+  installGround: (id: string) => void;
+  installBranch: (id: string) => void;
+  activatePlace: (id: string) => void;
+  removePlace: (id: string) => void;
   back: () => void;
   forward: () => void;
   jump: (index: number) => void;
   openPinnedNote: (id: string) => void;
   openPinnedAccount: (id: string) => void;
-  setView: (view: AtlasData['view']) => void;
+  setView: (view: PlaceProjection) => void;
   setQuery: (query: string) => void;
   toggleNotePin: (id: string) => void;
   toggleAccountPin: (id: string) => void;
@@ -40,10 +39,9 @@ export type AtlasStore = AtlasData & {
 };
 
 export const initialAtlasState: AtlasData = {
-  history: [{ fieldId: 'start', target: { type: 'none', id: '' } }],
+  history: ['start'],
   historyIndex: 0,
-  view: 'stream',
-  query: '',
+  groundPlaceId: null,
   pinnedNoteIds: [],
   pinnedAccountIds: [],
   activities: [],
@@ -52,29 +50,67 @@ export const initialAtlasState: AtlasData = {
   fieldRevision: 0,
 };
 
-export function currentLocation(state: AtlasData): Location {
-  return state.history[state.historyIndex];
+export function currentPlaceId(state: AtlasData): string {
+  return state.history[state.historyIndex] ?? 'start';
 }
 
-function visit(state: AtlasData, location: Location) {
-  const history = [...state.history.slice(0, state.historyIndex + 1), location];
+export function currentLocation(state: AtlasData): Location {
+  const fieldId = currentPlaceId(state);
+  return { fieldId, target: fieldFor(fieldId).selected };
+}
+
+function visit(state: AtlasData, fieldId: string) {
+  if (!fields[fieldId] || currentPlaceId(state) === fieldId) return {};
+  const history = [...state.history.slice(0, state.historyIndex + 1), fieldId];
   return { history, historyIndex: history.length - 1 };
+}
+
+function mutateCurrent(state: AtlasData, update: (fieldId: string) => void) {
+  const fieldId = currentPlaceId(state);
+  if (!fields[fieldId]) return state;
+  update(fieldId);
+  return { fieldRevision: state.fieldRevision + 1 };
 }
 
 export const useAtlasStore = create<AtlasStore>((set) => ({
   ...initialAtlasState,
-  selectNote: (id) => set((state) => {
-    const current = currentLocation(state);
-    if (!notesFor(current.fieldId).some((note) => note.id === id)
-        || (current.target.type === 'note' && current.target.id === id)) return state;
-    return visit(state, { fieldId: current.fieldId, target: { type: 'note', id } });
+  selectNote: (id) => set((state) => mutateCurrent(state, (fieldId) => {
+    if (notesFor(fieldId).some((note) => note.id === id)) fields[fieldId].selected = { type: 'note', id };
+  })),
+  inspectAccount: (id) => set((state) => mutateCurrent(state, (fieldId) => {
+    if (accounts[id]) fields[fieldId].selected = { type: 'account', id };
+  })),
+  selectAccountFacet: (id) => set((state) => mutateCurrent(state, (fieldId) => {
+    if (accounts[id] && fields[fieldId].accountFacet?.records.some((record) => record.account === id)) {
+      fields[fieldId].selectedFacet = id;
+      fields[fieldId].selected = { type: 'account', id };
+    }
+  })),
+  installGround: (id) => set((state) => {
+    if (!fields[id]) return state;
+    if (state.groundPlaceId && fields[state.groundPlaceId] && state.groundPlaceId !== id) {
+      fields[state.groundPlaceId].role = 'branch';
+    }
+    fields[id].role = 'ground';
+    const moved = visit(state, id);
+    return { ...moved, groundPlaceId: id, fieldRevision: state.fieldRevision + 1 };
   }),
-  inspectAccount: (id) => set((state) => accounts[id]
-    ? visit(state, { fieldId: currentLocation(state).fieldId, target: { type: 'account', id } })
-    : state),
-  openInstalledField: (id) => set((state) => {
-    const first = notesFor(id)[0];
-    return first ? visit(state, { fieldId: id, target: { type: 'note', id: first.id } }) : state;
+  installBranch: (id) => set((state) => {
+    if (!fields[id]) return state;
+    fields[id].role = 'branch';
+    return { ...visit(state, id), fieldRevision: state.fieldRevision + 1 };
+  }),
+  activatePlace: (id) => set((state) => fields[id] ? visit(state, id) : state),
+  removePlace: (id) => set((state) => {
+    if (!fields[id] || id === state.groundPlaceId) return state;
+    delete fields[id];
+    const retained = state.history.filter((placeId) => placeId !== id && (placeId === 'start' || fields[placeId]));
+    const history = retained.length ? retained : state.groundPlaceId ? [state.groundPlaceId] : ['start'];
+    return {
+      history,
+      historyIndex: Math.min(state.historyIndex, history.length - 1),
+      fieldRevision: state.fieldRevision + 1,
+    };
   }),
   back: () => set((state) => state.historyIndex > 0
     ? { historyIndex: state.historyIndex - 1 } : state),
@@ -84,16 +120,20 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
     ? { historyIndex: index } : state),
   openPinnedNote: (id) => set((state) => {
     if (!notes[id]) return state;
-    const fieldId = [...state.history].reverse()
-      .find((entry) => notesFor(entry.fieldId).some((note) => note.id === id))?.fieldId
-      ?? currentLocation(state).fieldId;
-    return visit(state, { fieldId, target: { type: 'note', id } });
+    const fieldId = Object.values(fields).find((field) => field.noteIds.includes(id))?.id;
+    if (!fieldId) return state;
+    fields[fieldId].selected = { type: 'note', id };
+    return { ...visit(state, fieldId), fieldRevision: state.fieldRevision + 1 };
   }),
-  openPinnedAccount: (id) => set((state) => accounts[id]
-    ? visit(state, { fieldId: currentLocation(state).fieldId, target: { type: 'account', id } })
-    : state),
-  setView: (view) => set({ view }),
-  setQuery: (query) => set({ query }),
+  openPinnedAccount: (id) => set((state) => {
+    if (!accounts[id]) return state;
+    const fieldId = fields[currentPlaceId(state)] ? currentPlaceId(state) : state.groundPlaceId;
+    if (!fieldId || !fields[fieldId]) return state;
+    fields[fieldId].selected = { type: 'account', id };
+    return { fieldRevision: state.fieldRevision + 1 };
+  }),
+  setView: (view) => set((state) => mutateCurrent(state, (fieldId) => { fields[fieldId].projection = view; })),
+  setQuery: (query) => set((state) => mutateCurrent(state, (fieldId) => { fields[fieldId].localConstraints.text = query; })),
   toggleNotePin: (id) => set((state) => state.pinnedNoteIds.includes(id)
     ? { pinnedNoteIds: state.pinnedNoteIds.filter((item) => item !== id) }
     : notes[id] ? { pinnedNoteIds: [...state.pinnedNoteIds, id] } : state),
@@ -105,7 +145,7 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
     const nextActivity = state.nextActivity + 1;
     return {
       nextActivity,
-      activities: [{ id: nextActivity, label, command, outcome }, ...state.activities].slice(0, 12),
+      activities: [{ id: nextActivity, label, command, outcome }, ...state.activities].slice(0, 20),
     };
   }),
   fieldUpdated: () => set((state) => ({ fieldRevision: state.fieldRevision + 1 })),

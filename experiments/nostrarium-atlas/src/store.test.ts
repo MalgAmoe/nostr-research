@@ -1,77 +1,111 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { accounts, fieldFor, fields, notes } from './data';
-import { currentLocation, initialAtlasState, useAtlasStore } from './store';
+import { accounts, fields, notes, type Field } from './data';
+import { currentLocation, currentPlaceId, initialAtlasState, useAtlasStore } from './store';
+import { DEFAULT_DRAFT } from './live-store';
+
+function place(id: string, handleId: string, noteId: string): Field {
+  return {
+    id, label: id, description: 'bounded place', noteIds: [noteId], handleId,
+    installRevision: handleId === 'handle-ground' ? 3 : 7, role: 'branch',
+    resultKind: 'events', countingUnit: 'subjects', originCommand: { command: 'select' },
+    originReceipt: { commandId: `${id}-command`, revisionAfter: 3 }, navigatorReason: `reason for ${id}`,
+    projection: 'stream', localPageOffset: 1, selected: { type: 'none', id: '' }, selectedFacet: null,
+    localConstraints: { text: '' }, observationSnapshots: [], declaredBounds: {}, declaredOmissions: {}, evidenceResolution: {}, accountResearch: {},
+    runtime: {
+      fieldId: id, sourceKind: 'query', handleId, pageHandleId: handleId, total: 1, nextOffset: 1,
+      handleAddedCount: 1, relays: ['wss://relay.test/'], draft: DEFAULT_DRAFT,
+      newestTimestamp: 1, oldestTimestamp: 1,
+    },
+    conditions: { source: 'wss://relay.test/', terminal: 'EOSE', excludedWarnings: 0, uncertainty: 'bounded', partial: false },
+  };
+}
 
 beforeEach(() => {
-  for (const record of [accounts, fields, notes]) {
-    for (const key of Object.keys(record)) delete record[key];
-  }
-  accounts.author = {
-    id: 'author', name: 'author…0000', handle: '@author', publicKey: 'a'.repeat(64),
-    about: 'Profile metadata has not been requested.', color: '#456', live: true,
-  };
-  notes.event = {
-    id: 'event', authorId: 'author', content: 'live test note', createdAt: 'just now',
-    timestamp: 1, relayCount: 1, relayUrls: ['wss://relay.test/'], live: true,
-  };
-  fields.live = {
-    id: 'live', label: 'Live relay field', description: 'One installed note.', noteIds: ['event'],
-    commandLabel: 'show live',
-    conditions: { source: 'wss://relay.test/', terminal: 'EOSE', excludedWarnings: 0, uncertainty: 'bounded' },
-  };
-  useAtlasStore.setState({
-    ...initialAtlasState,
-    history: [...initialAtlasState.history],
-    pinnedNoteIds: [], pinnedAccountIds: [], activities: [],
-  });
+  for (const record of [accounts, fields, notes]) for (const key of Object.keys(record)) delete record[key];
+  accounts.author = { id: 'author', name: 'author…0000', handle: '@author', publicKey: 'a'.repeat(64), about: 'Unrequested', color: '#456', live: true };
+  notes.event = { id: 'event', authorId: 'author', content: 'ground note', createdAt: 'now', timestamp: 1, relayCount: 1, live: true };
+  notes.other = { ...notes.event, id: 'other', content: 'branch note' };
+  fields.ground = place('ground', 'handle-ground', 'event');
+  fields.branch = place('branch', 'handle-branch', 'other');
+  useAtlasStore.setState({ ...initialAtlasState, history: ['start'], pinnedNoteIds: [], pinnedAccountIds: [], activities: [] });
 });
 
-describe('Atlas live UI store', () => {
-  it('starts empty and opens only installed live results', () => {
-    expect(currentLocation(useAtlasStore.getState()).target.type).toBe('none');
-    useAtlasStore.getState().openInstalledField('live');
-    expect(currentLocation(useAtlasStore.getState())).toEqual({ fieldId: 'live', target: { type: 'note', id: 'event' } });
+describe('Atlas place boundary', () => {
+  it('installs an explicit result as Ground and current place with its immutable handle metadata', () => {
+    useAtlasStore.getState().installGround('ground');
+    expect(useAtlasStore.getState().groundPlaceId).toBe('ground');
+    expect(currentPlaceId(useAtlasStore.getState())).toBe('ground');
+    expect(fields.ground.role).toBe('ground');
+    expect(fields.ground.handleId).toBe('handle-ground');
+    expect(fields.ground.installRevision).toBe(3);
   });
 
-  it('navigates directly among observed notes and authors', () => {
-    const store = useAtlasStore.getState();
-    store.openInstalledField('live');
+  it('keeps selection inside the place instead of adding navigation history', () => {
+    useAtlasStore.getState().installGround('ground');
+    const history = [...useAtlasStore.getState().history];
+    useAtlasStore.getState().selectNote('event');
     useAtlasStore.getState().inspectAccount('author');
+    expect(useAtlasStore.getState().history).toEqual(history);
     expect(currentLocation(useAtlasStore.getState()).target).toEqual({ type: 'account', id: 'author' });
-    useAtlasStore.getState().back();
-    expect(currentLocation(useAtlasStore.getState()).target).toEqual({ type: 'note', id: 'event' });
-    useAtlasStore.getState().forward();
-    expect(currentLocation(useAtlasStore.getState()).target).toEqual({ type: 'account', id: 'author' });
+    expect(currentPlaceId(useAtlasStore.getState())).toBe('ground');
   });
 
-  it('restores each installed field with its retained ordinary engine handle', () => {
-    fields.live.runtime = {
-      fieldId: 'live', sourceKind: 'query', handleId: 'engine-field-one', pageHandleId: 'engine-field-one', total: 1, nextOffset: 1,
-      mode: 'replace', prependCount: 0, handleAddedCount: 1, olderExhausted: false, relays: ['wss://relay.test/'],
-      draft: { limit: 5, hours: 24, search: '', eventId: '', author: '', hashtag: '', excludeContentWarnings: true },
-      newestTimestamp: 1, oldestTimestamp: 1,
+  it('restores projection, local constraints, paging, selection, and observations per place', () => {
+    useAtlasStore.getState().installGround('ground');
+    fields.ground.accountProjection = {
+      status: 'available', handleId: 'ground-accounts', installRevision: 4,
+      command: { command: 'move', input: 'handle-ground' }, receipt: { revisionAfter: 4 },
+      accountIds: ['author'], countUnit: 'subjects', bounds: { limit: 20 }, omissions: {},
     };
-    notes.other = { ...notes.event, id: 'other' };
-    fields.other = {
-      ...fields.live, id: 'other', label: 'Other field', noteIds: ['other'],
-      runtime: { ...fields.live.runtime, fieldId: 'other', handleId: 'engine-field-two' },
-    };
+    useAtlasStore.getState().setView('accounts');
+    useAtlasStore.getState().setQuery('ground-only');
+    useAtlasStore.getState().selectNote('event');
+    fields.ground.localPageOffset = 9;
+    fields.ground.observationSnapshots.push({
+      id: 'ground-observation', target: { type: 'note', id: 'event' }, sourceHandleId: 'handle-ground',
+      observedRevision: 4, locality: 'local', exchanges: [], facts: { status: 'available' },
+    });
 
-    useAtlasStore.getState().openInstalledField('live');
-    useAtlasStore.getState().openInstalledField('other');
-    expect(fieldFor(currentLocation(useAtlasStore.getState()).fieldId).runtime?.handleId).toBe('engine-field-two');
+    useAtlasStore.getState().installBranch('branch');
+    useAtlasStore.getState().setQuery('branch-only');
+    useAtlasStore.getState().selectNote('other');
     useAtlasStore.getState().back();
-    expect(fieldFor(currentLocation(useAtlasStore.getState()).fieldId).runtime?.handleId).toBe('engine-field-one');
+
+    expect(currentPlaceId(useAtlasStore.getState())).toBe('ground');
+    expect(fields.ground.projection).toBe('accounts');
+    expect(fields.ground.accountProjection?.handleId).toBe('ground-accounts');
+    expect(fields.ground.localConstraints.text).toBe('ground-only');
+    expect(fields.ground.localPageOffset).toBe(9);
+    expect(fields.ground.selected).toEqual({ type: 'note', id: 'event' });
+    expect(fields.ground.observationSnapshots[0].id).toBe('ground-observation');
     useAtlasStore.getState().forward();
-    expect(fieldFor(currentLocation(useAtlasStore.getState()).fieldId).runtime?.handleId).toBe('engine-field-two');
+    expect(fields.branch.localConstraints.text).toBe('branch-only');
+    expect(fields.branch.selected).toEqual({ type: 'note', id: 'other' });
   });
 
-  it('pins only installed live notes and accounts', () => {
-    const store = useAtlasStore.getState();
-    store.toggleNotePin('event');
-    store.toggleNotePin('missing');
-    store.toggleAccountPin('author');
-    expect(useAtlasStore.getState().pinnedNoteIds).toEqual(['event']);
-    expect(useAtlasStore.getState().pinnedAccountIds).toEqual(['author']);
+  it('replaces Ground only through explicit installation and leaves the former Ground and facets as a branch', () => {
+    fields.ground.accountFacet = {
+      status: 'available', sourcePlaceId: 'ground', sourceHandleId: 'handle-ground', commands: [],
+      handles: { rows: 'rows', aggregate: 'aggregate', ranked: 'ranked' }, records: [],
+    };
+    useAtlasStore.getState().installGround('ground');
+    useAtlasStore.getState().installGround('branch');
+    expect(useAtlasStore.getState().groundPlaceId).toBe('branch');
+    expect(fields.branch.role).toBe('ground');
+    expect(fields.ground.role).toBe('branch');
+    expect(fields.ground.handleId).toBe('handle-ground');
+    expect(fields.ground.accountFacet?.handles?.rows).toBe('rows');
+  });
+
+  it('removes only a branch UI reference and never mutates another place handle', () => {
+    useAtlasStore.getState().installGround('ground');
+    useAtlasStore.getState().installBranch('branch');
+    const groundHandle = fields.ground.handleId;
+    const branchHandle = fields.branch.handleId;
+    useAtlasStore.getState().removePlace('branch');
+    expect(fields.branch).toBeUndefined();
+    expect(fields.ground.handleId).toBe(groundHandle);
+    expect(branchHandle).toBe('handle-branch'); // no release command or handle mutation is part of this store action
+    expect(currentPlaceId(useAtlasStore.getState())).toBe('ground');
   });
 });

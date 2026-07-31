@@ -149,6 +149,13 @@ available underneath.
 The goal is not to find the perfect layer above the controller. It is to make
 different good-faith interpretations cheap to build and safe to fail.
 
+The first product-level interaction contract is now recorded in
+[`INTERACTION-SPEC.md`](./INTERACTION-SPEC.md). It extracts the useful working-
+field, facet, subject-inspector, and branching ideas from the old interface
+without reviving its state architecture. The next browser experiment should
+implement only the specification's first vertical slice, then be evaluated
+through real voyages before the interaction surface expands.
+
 ## Promotion rule
 
 After several voyages, compare them before writing code.
@@ -208,6 +215,8 @@ have it.
 - [`VESSELS.md`](./VESSELS.md): current vessel conclusions.
 - [`CONTROL-AND-DATA-MAP.md`](./CONTROL-AND-DATA-MAP.md): engine controls and
   evidence surfaces.
+- [`INTERACTION-SPEC.md`](./INTERACTION-SPEC.md): product-level navigator
+  places, facets, projections, doors, and first browser vertical slice.
 - [`NOSTR-PROTOCOL-CAPABILITY-MAP.md`](./NOSTR-PROTOCOL-CAPABILITY-MAP.md):
   protocol coverage and possible future capabilities.
 - [`docs/voyages/`](./docs/voyages/): historical voyage journals and artifacts.

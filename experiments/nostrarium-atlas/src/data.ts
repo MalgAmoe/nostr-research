@@ -1,6 +1,11 @@
-import type { ActiveLiveField } from './live-types';
+import type { ActiveLiveField, AuthoredActionDraft, ExternalActionDraft } from './live-types';
 
 export type EvidenceStatus = 'idle' | 'loading' | 'available' | 'unresolved' | 'failure';
+
+export type InspectorTarget =
+  | { type: 'none'; id: '' }
+  | { type: 'note'; id: string }
+  | { type: 'account'; id: string };
 
 export type NoteObservation = {
   status: EvidenceStatus;
@@ -8,7 +13,7 @@ export type NoteObservation = {
   authorHandleId?: string;
   resolution?: { resident: boolean; resolved: boolean; source?: string };
   content?: string;
-  contentState?: 'complete' | 'bounded' | 'unavailable';
+  contentState?: 'returned' | 'boundary-sized' | 'unavailable';
   tags?: unknown[][];
   omittedTags?: number;
   role?: string;
@@ -35,15 +40,79 @@ export type ExternalAttempt = {
 };
 
 export type ProfileObservation = ExternalAttempt & {
+  supportingHandleId?: string;
   claims?: Record<string, unknown>;
   resolution?: { resident: boolean; resolved: boolean; source?: string };
   provenance?: Record<string, unknown>;
+};
+
+export type AccountProfilePresentation = {
+  name: string;
+  about: string;
+  picture?: string;
+  attribution: string;
+  state: 'not-requested' | 'loading' | 'observed' | 'unresolved' | 'failure';
 };
 
 export type AuthoredNotesRequest = ExternalAttempt & {
   handleId?: string;
   count?: number;
   eventLimit?: number;
+};
+
+export type ObservationExchange = {
+  command: Record<string, unknown>;
+  response: Record<string, unknown>;
+  receipt: Record<string, unknown>;
+};
+
+export type ObservationSnapshot = {
+  id: string;
+  target: { type: 'place' | 'note' | 'account' | 'facet'; id: string };
+  sourceHandleId: string;
+  observedRevision: number;
+  locality: 'local' | 'external';
+  exchanges: ObservationExchange[];
+  facts: Record<string, unknown>;
+};
+
+export type AccountResearchState = {
+  engineHandleId?: string;
+  localStatus: EvidenceStatus;
+  localResolution?: Record<string, unknown>;
+  localError?: string;
+  profileDraft: ExternalActionDraft;
+  authoredDraft: AuthoredActionDraft;
+  profile?: ProfileObservation;
+  authoredNotes?: AuthoredNotesRequest;
+};
+
+export type AccountFacetRecord = {
+  account: string;
+  noteCount: number;
+  sourcePlaceId: string;
+  sourceHandleId: string;
+  derivationHandles: { rows: string; aggregate: string; ranked: string };
+  derivationCommands: Record<string, unknown>[];
+  countUnit: string;
+  lineage: Record<string, unknown>;
+  bounds: Record<string, unknown>;
+  truncated: boolean;
+  omissions: Record<string, unknown>;
+};
+
+export type AccountFacetState = {
+  status: 'idle' | 'loading' | 'available' | 'failure';
+  sourcePlaceId: string;
+  sourceHandleId: string;
+  commands: Record<string, unknown>[];
+  handles?: { rows: string; aggregate: string; ranked: string };
+  records: AccountFacetRecord[];
+  countUnit?: string;
+  bounds?: Record<string, unknown>;
+  truncated?: boolean;
+  omissions?: Record<string, unknown>;
+  error?: string;
 };
 
 export type Account = {
@@ -55,10 +124,6 @@ export type Account = {
   color: string;
   live: true;
   sourceNoteId?: string;
-  engineHandleId?: string;
-  localObservation?: { status: EvidenceStatus; resolution?: Record<string, unknown>; error?: string };
-  profile?: ProfileObservation;
-  authoredNotes?: AuthoredNotesRequest;
 };
 
 export type Media = {
@@ -68,6 +133,7 @@ export type Media = {
   remote: true;
 };
 
+/** Bounded presentation data returned by public observations; never canonical UI-owned evidence. */
 export type Note = {
   id: string;
   authorId: string;
@@ -80,8 +146,23 @@ export type Note = {
   parentId?: string;
   replyCount?: number;
   tags?: string[];
-  observation?: NoteObservation;
   live: true;
+};
+
+export type PlaceRole = 'ground' | 'branch' | 'start';
+export type PlaceProjection = 'stream' | 'gallery' | 'accounts';
+
+export type AccountProjectionState = {
+  status: 'loading' | 'available' | 'failure';
+  handleId: string;
+  installRevision?: number;
+  command: Record<string, unknown>;
+  receipt?: Record<string, unknown>;
+  accountIds: string[];
+  countUnit?: string;
+  bounds?: Record<string, unknown>;
+  omissions?: Record<string, unknown>;
+  error?: string;
 };
 
 export type Field = {
@@ -89,13 +170,33 @@ export type Field = {
   label: string;
   description: string;
   noteIds: string[];
-  commandLabel: string;
+  handleId: string;
+  installRevision: number;
+  role: PlaceRole;
+  resultKind: string;
+  countingUnit: string;
+  originCommand: Record<string, unknown> | Record<string, unknown>[];
+  originReceipt: Record<string, unknown> | Record<string, unknown>[];
+  navigatorReason: string;
+  projection: PlaceProjection;
+  localPageOffset: number;
+  selected: InspectorTarget;
+  selectedFacet: string | null;
+  localConstraints: { text: string };
+  observationSnapshots: ObservationSnapshot[];
+  declaredBounds: Record<string, unknown>;
+  declaredOmissions: Record<string, unknown>;
+  evidenceResolution: Record<string, unknown>;
+  accountFacet?: AccountFacetState;
+  accountProjection?: AccountProjectionState;
+  accountResearch: Record<string, AccountResearchState>;
   runtime?: ActiveLiveField;
   conditions: {
     source: string;
     terminal: string;
     excludedWarnings: number;
     uncertainty: string;
+    partial: boolean;
   };
 };
 
@@ -105,15 +206,33 @@ export const fields: Record<string, Field> = {};
 
 export const emptyField: Field = {
   id: 'start',
-  label: 'No live field',
-  description: 'Choose relays and run an explicit bounded query to begin.',
+  label: 'No live place',
+  description: 'Choose relays and run an explicit bounded acquisition to establish Ground.',
   noteIds: [],
-  commandLabel: '',
+  handleId: '',
+  installRevision: 0,
+  role: 'start',
+  resultKind: 'none',
+  countingUnit: 'subjects',
+  originCommand: {},
+  originReceipt: {},
+  navigatorReason: 'No acquisition has been requested.',
+  projection: 'stream',
+  localPageOffset: 0,
+  selected: { type: 'none', id: '' },
+  selectedFacet: null,
+  localConstraints: { text: '' },
+  observationSnapshots: [],
+  declaredBounds: {},
+  declaredOmissions: {},
+  evidenceResolution: {},
+  accountResearch: {},
   conditions: {
     source: 'No relay contacted',
     terminal: 'IDLE',
     excludedWarnings: 0,
     uncertainty: 'No acquisition has been requested in this session.',
+    partial: false,
   },
 };
 
@@ -123,4 +242,58 @@ export function fieldFor(fieldId: string): Field {
 
 export function notesFor(fieldId: string): Note[] {
   return fieldFor(fieldId).noteIds.map((id) => notes[id]).filter(Boolean);
+}
+
+export function observationFor<T extends Record<string, unknown>>(
+  fieldId: string,
+  type: ObservationSnapshot['target']['type'],
+  id: string,
+): T | undefined {
+  const snapshot = [...fieldFor(fieldId).observationSnapshots]
+    .reverse().find((candidate) => candidate.target.type === type && candidate.target.id === id);
+  return snapshot?.facts as T | undefined;
+}
+
+export function accountProfilePresentation(account: Account, profile?: ProfileObservation): AccountProfilePresentation {
+  if (!profile) return {
+    name: account.name,
+    about: 'Profile metadata has not been requested.',
+    attribution: 'Public-key fallback · no profile request yet',
+    state: 'not-requested',
+  };
+  if (profile.status === 'loading') return {
+    name: account.name,
+    about: 'The explicit bounded profile request is still in progress.',
+    attribution: 'Profile request in progress · public-key fallback shown',
+    state: 'loading',
+  };
+  if (profile.status === 'failure') return {
+    name: account.name,
+    about: `Profile request failed${profile.error ? `: ${profile.error}` : '.'}`,
+    attribution: 'Profile request failed · public-key fallback shown',
+    state: 'failure',
+  };
+  const claims = profile.claims ?? {};
+  const displayName = claimString(claims.display_name) || claimString(claims.name);
+  const about = claimString(claims.about);
+  const picture = claimString(claims.picture);
+  if (['available', 'partial'].includes(profile.status) && (displayName || about || picture)) {
+    return {
+      name: displayName || account.name,
+      about: about || 'The returned profile metadata contained no about claim.',
+      ...(picture ? { picture } : {}),
+      attribution: `Relay-observed profile claims · ${profile.status}`,
+      state: 'observed',
+    };
+  }
+  return {
+    name: account.name,
+    about: 'The bounded profile request returned no resolvable profile claim.',
+    attribution: 'Profile unresolved · public-key fallback shown',
+    state: 'unresolved',
+  };
+}
+
+function claimString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
