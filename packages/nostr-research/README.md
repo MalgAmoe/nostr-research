@@ -132,13 +132,18 @@ The observation limit bounds accepted valid `EVENT` messages across all
 relays; the distinct-event limit bounds unique canonical event IDs. Duplicate
 relay observations consume only the observation budget. The result reports
 received packets, invalid events, canonical events that did not match the
-exact requested NIP-01 filter, accepted and duplicate observations, distinct
+requested structured NIP-01 constraints, accepted and duplicate observations, distinct
 acquired events, newly stored corpus events, the stopping bound, provenance,
 complete attempt coverage, and corpus changes. Non-matching events are not
 ingested and consume neither budget. Unknown acquisition options are rejected
 before relay contact. Attempt coverage is returned directly; the corpus does
 not keep a global acquisition history.
 Cancellation uses an `AbortSignal`.
+
+An acquisition filter may include the optional NIP-50 `search` string. It is
+sent unchanged alongside ordinary filter fields. Search support, matching, and
+ranking remain relay-owned; accepting the field does not claim relay support or
+local verification of relevance.
 
 Acquisition also excludes directly self-warned matching events by default,
 before either acquisition budget or memory ingestion. A direct

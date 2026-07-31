@@ -346,7 +346,7 @@ export function operationSchema() {
       },
       acquire: {
         relays: 'non-empty relay URL array',
-        filter: 'normalized NIP-01 filter',
+        filter: 'normalized NIP-01 filter with optional NIP-50 search string',
         ...ACQUISITION,
       },
       'relay-info': {
@@ -355,7 +355,7 @@ export function operationSchema() {
         concurrency: RESEARCH_CONSTRAINTS.relayInformation.concurrency,
       },
       'relay-count': {
-        filter: 'one normalized NIP-01 filter',
+        filter: 'one normalized NIP-01 filter with optional NIP-50 search string',
         relays: 'non-empty normalized relay URL array; session relay defaults apply',
         timeoutMs: RESEARCH_CONSTRAINTS.relayCount.timeoutMs,
         concurrency: RESEARCH_CONSTRAINTS.relayCount.concurrency,
@@ -460,7 +460,7 @@ export function operationSchema() {
       },
       fetch: {
         relays: 'non-empty relay URL array',
-        filter: 'static normalized NIP-01 filter; bound fields are supplied separately',
+        filter: 'static normalized NIP-01 filter with optional NIP-50 search string; bound fields are supplied separately',
         bindings: {
           type: 'non-empty object',
           keys: FETCH_BINDING_KEYS,

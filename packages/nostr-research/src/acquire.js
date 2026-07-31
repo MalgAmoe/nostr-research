@@ -524,6 +524,10 @@ export function normalizeFilter(filter) {
       if (!Number.isSafeInteger(value) || value < 0) {
         throw new ResearchMemoryError(`Filter ${key} must be a non-negative integer.`);
       }
+    } else if (key === 'search') {
+      if (typeof value !== 'string') {
+        throw new ResearchMemoryError('Filter search must be a string.');
+      }
     } else if (key.startsWith('#')) {
       if (key.length !== 2 || !isStringArray(value)) {
         throw new ResearchMemoryError(`Filter ${key} must be a single-letter tag with an array of strings.`);

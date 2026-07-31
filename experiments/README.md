@@ -23,6 +23,9 @@ Current experiments:
   and observation composer;
 - [`darkroom-composer/`](./darkroom-composer/): fixed Ground and paired A/B
   exposures;
+- [`nostrarium-atlas/`](./nostrarium-atlas/): a live-only content-first
+  exploration browser with explicit relay queries, direct note/account
+  navigation, ordinary history, and Stream and Gallery views;
 - [`nostrarium-cockpit/`](./nostrarium-cockpit/): a fixture-driven spaceship cockpit
   combining one bounded universe viewport, readable evidence, explicit voyage
   placement, factual instruments, and a flat shared-focus navigator;
