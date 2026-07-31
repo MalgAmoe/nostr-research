@@ -1,6 +1,6 @@
 # Nostrarium Atlas
 
-Status: **disposable browser interaction experiment implementing the first two Place/Ground/Branch slices and a provisional action/resolver boundary**.
+Status: **disposable browser interaction experiment implementing the first two Place/Ground/Branch slices through a typed action/resolver boundary**.
 
 Atlas proves bounded navigator-controlled reading and traversal above the neutral controller:
 
@@ -13,9 +13,9 @@ explicit relay acquisition → rich readable Ground notes → exact subject sele
 
 It contains no bundled field, universal command surface, notebook/archive model, relay scoring, persistence, or Atlas-specific engine operation.
 
-## Provisional action boundary
+## Action boundary
 
-Atlas is incrementally testing one predictable UI path:
+Atlas uses one predictable UI path:
 
 ```text
 component gesture → typed stateless navigator action → narrow resolver intent
@@ -24,19 +24,14 @@ component gesture → typed stateless navigator action → narrow resolver inten
 
 Initial acquisition, place navigation and view state, media authorization,
 local note/account observation, local handle paging, account projection,
-account-frequency derivation, and local account-note branching use this path.
-The actions do not own research
-state, recommend a route, dispatch by generic event name, or hide the emitted
-engine commands. Resolvers alone construct and execute the migrated command
-sequences; the Atlas store remains the single owner of current UI and research
-state while its `research` view aliases the existing field, note, and account
-maps rather than copying them.
-
-Profile/authored-note work, relay continuations, and author resolution remain
-on the older direct path. They are kept visibly transitional rather than
-wrapped behind a second abstraction. Further migration should happen one
-coherent action family at a time only when the boundary continues to make the
-interface easier to reason about.
+account-frequency derivation, local account-note branching, profile hydration,
+authored-note continuation, note-relationship continuation, and place-wide
+author resolution all use this path. The actions do not own research state,
+recommend a route, dispatch by generic event name, or hide emitted engine
+commands. Resolvers alone construct and execute command sequences; the Atlas
+store remains the single owner of current UI and research state while its
+`research` view aliases the existing field, note, and account maps rather than
+copying them. The former direct execution store has been removed.
 
 ## Run
 

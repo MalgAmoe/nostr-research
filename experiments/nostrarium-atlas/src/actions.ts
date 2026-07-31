@@ -1,14 +1,21 @@
 import { accounts, fields, notes, observationFor, type Field, type InspectorTarget, type MediaLoadState, type NoteObservation, type PlaceProjection } from './data';
-import type { QueryDraft } from './live-types';
-import { useLiveStore } from './live-store';
+import type { AuthorResolutionDraft, AuthoredActionDraft, ExternalActionDraft, NoteRelationship, QueryDraft, RelationshipActionDraft } from './live-types';
 import {
-  acquisitionDraftError, cleanAcquisitionDraft, ResolverFailure, resolveAcquisition, resolveSubjectObservation,
+  acquisitionDraftCommand, acquisitionDraftError, authorResolutionDraftCommands, cleanAcquisitionDraft, freshAccountResearchDraft,
+  relationshipDraftCommand, ResolverFailure, resolveAcquisition, resolveSubjectObservation,
   resolveAccountFacet, resolveAccountNotes, resolveAccountProjection, resolvePlacePage,
+  resolveAuthoredNotes, resolveAuthors, resolveNoteRelationship, resolveProfileHydration,
+  sanitizeAuthorResolutionDraft, sanitizeAuthoredDraft, sanitizeExternalDraft, sanitizeRelationshipDraft,
   type AccountFacetIntent, type AccountFacetResolution, type AccountNotesIntent, type AccountNotesResolution,
   type AccountProjectionIntent, type AccountProjectionResolution, type AcquisitionIntent, type AcquisitionResolution,
-  type PlacePageIntent, type PlacePageResolution, type SubjectObservationIntent, type SubjectObservationResolution,
+  type AuthoredNotesIntent, type AuthoredNotesResolution, type AuthorResolutionIntent, type AuthorResolutionResolution,
+  type NoteRelationshipIntent, type NoteRelationshipResolution, type PlacePageIntent, type PlacePageResolution,
+  type ProfileHydrationIntent, type ProfileHydrationResolution, type SubjectObservationIntent, type SubjectObservationResolution,
 } from './resolvers';
-import { currentPlaceId, placeOperationKey, subjectOperationKey, useAtlasStore } from './store';
+import {
+  authoredOperationKey, authorsOperationKey, currentPlaceId, placeOperationKey, profileOperationKey,
+  relationshipOperationKey, subjectOperationKey, useAtlasStore,
+} from './store';
 
 export type NavigatorActions = {
   setAcquisitionPanel(open: boolean): void;
@@ -25,6 +32,18 @@ export type NavigatorActions = {
   openAccountProjection(placeId: string): Promise<void>;
   deriveAccountFacet(placeId: string): Promise<void>;
   openAccountNotes(placeId: string, accountId: string): Promise<void>;
+  prepareAccountResearch(placeId: string, accountId: string): void;
+  updateProfileDraft(placeId: string, accountId: string, patch: Partial<ExternalActionDraft>): void;
+  updateAuthoredDraft(placeId: string, accountId: string, patch: Partial<AuthoredActionDraft>): void;
+  requestProfile(placeId: string, accountId: string): Promise<void>;
+  requestAuthoredNotes(placeId: string, accountId: string): Promise<void>;
+  openLocalNoteRelationship(placeId: string, noteId: string, relationship: NoteRelationship): Promise<void>;
+  prepareNoteRelationship(placeId: string, noteId: string, relationship: NoteRelationship): void;
+  updateNoteRelationshipDraft(placeId: string, noteId: string, patch: Partial<RelationshipActionDraft>): void;
+  requestNoteRelationship(placeId: string, noteId: string): Promise<void>;
+  prepareAuthorResolution(placeId: string): void;
+  updateAuthorResolutionDraft(placeId: string, patch: Partial<AuthorResolutionDraft>): void;
+  resolveAuthors(placeId: string): Promise<void>;
   selectNote(placeId: string, noteId: string): void;
   selectAccount(placeId: string, accountId: string): void;
   selectAccountFacet(placeId: string, accountId: string): void;
@@ -46,6 +65,10 @@ type ActionDependencies = {
   resolveAccountProjection?(intent: AccountProjectionIntent): Promise<AccountProjectionResolution>;
   resolveAccountFacet?(intent: AccountFacetIntent): Promise<AccountFacetResolution>;
   resolveAccountNotes?(intent: AccountNotesIntent): Promise<AccountNotesResolution>;
+  resolveProfileHydration?(intent: ProfileHydrationIntent): Promise<ProfileHydrationResolution>;
+  resolveAuthoredNotes?(intent: AuthoredNotesIntent): Promise<AuthoredNotesResolution>;
+  resolveNoteRelationship?(intent: NoteRelationshipIntent): Promise<NoteRelationshipResolution>;
+  resolveAuthors?(intent: AuthorResolutionIntent): Promise<AuthorResolutionResolution>;
 };
 
 export function createNavigatorActions(dependencies: ActionDependencies): NavigatorActions {
@@ -67,7 +90,7 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
     const conflictingOperation = Object.entries(state.navigatorOperations).find(([operationKey, operation]) =>
       operationKey !== key && operation.status === 'working',
     );
-    if (useLiveStore.getState().phase.type === 'working' || conflictingOperation) {
+    if (conflictingOperation) {
       const message = 'Local observation was not started because another explicit research operation is still running.';
       state.commitObservationFailure(placeId, type, id, message, []);
       state.commitOperationFailure(key, { status: 'failure', stage: type, message, exchanges: [] });
@@ -117,7 +140,7 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
     resetAcquisitionFailure: () => useAtlasStore.getState().clearOperation('acquisition'),
     acquireGround: async () => {
       const state = useAtlasStore.getState();
-      if (Object.values(state.navigatorOperations).some((operation) => operation.status === 'working') || useLiveStore.getState().phase.type === 'working') return;
+      if (Object.values(state.navigatorOperations).some((operation) => operation.status === 'working')) return;
       const relays = state.acquisition.relays.filter((relay) => relay.selected).map((relay) => relay.url);
       const draft = cleanAcquisitionDraft(clone(state.acquisition.draft));
       const intent: AcquisitionIntent = {
@@ -215,6 +238,92 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
         settleUnexpectedOperationFailure(key, 'branch', error);
       }
     },
+    prepareAccountResearch: (placeId, accountId) => {
+      const place = fields[placeId];
+      if (!place?.accountFacet?.records.some((record) => record.account === accountId)) return;
+      const draft = freshAccountResearchDraft(accountId);
+      const relays = useAtlasStore.getState().acquisition.relays.filter((relay) => relay.selected).map((relay) => relay.url);
+      useAtlasStore.getState().prepareAccountResearch(placeId, accountId, draft, acquisitionDraftCommand(draft, relays));
+    },
+    updateProfileDraft: (placeId, accountId, patch) => {
+      const current = fields[placeId]?.accountResearch[accountId]?.profileDraft; if (!current) return;
+      useAtlasStore.getState().updateProfileDraft(placeId, accountId, sanitizeExternalDraft({ ...clone(current), ...clone(patch) }));
+    },
+    updateAuthoredDraft: (placeId, accountId, patch) => {
+      const current = fields[placeId]?.accountResearch[accountId]?.authoredDraft; if (!current) return;
+      useAtlasStore.getState().updateAuthoredDraft(placeId, accountId, sanitizeAuthoredDraft({ ...clone(current), ...clone(patch) }));
+    },
+    requestProfile: async (placeId, accountId) => {
+      const state = useAtlasStore.getState(); const place = fields[placeId]; const research = place?.accountResearch[accountId];
+      const key = profileOperationKey(placeId, accountId);
+      if (!place || !research?.engineHandleId || researchBusy(state)) return;
+      const draft = clone(research.profileDraft); const engineHandleId = research.engineHandleId;
+      state.commitProfileStarted(key, placeId, accountId, draft);
+      try {
+        const resolution = await (dependencies.resolveProfileHydration ?? resolveProfileHydration)({ place: { id: placeId, installRevision: place.installRevision }, accountId, engineHandleId, draft });
+        if (fields[placeId]?.installRevision !== place.installRevision || fields[placeId]?.accountResearch[accountId]?.engineHandleId !== engineHandleId) {
+          settleUnexpectedExternalFailure(key, 'profile', new Error('Profile source changed or disappeared before the operation settled.'), { placeId, installRevision: place.installRevision, accountId }); return;
+        }
+        useAtlasStore.getState().commitProfileHydration(key, resolution);
+      } catch (error) { settleUnexpectedExternalFailure(key, 'profile', error, { placeId, installRevision: place.installRevision, accountId }); }
+    },
+    requestAuthoredNotes: async (placeId, accountId) => {
+      const state = useAtlasStore.getState(); const place = fields[placeId]; const research = place?.accountResearch[accountId];
+      const key = authoredOperationKey(placeId, accountId);
+      if (!place || !research?.engineHandleId || researchBusy(state)) return;
+      const draft = clone(research.authoredDraft); const context = presentationContext(place); const engineHandleId = research.engineHandleId;
+      state.commitAuthoredStarted(key, placeId, accountId, draft);
+      try {
+        const resolution = await (dependencies.resolveAuthoredNotes ?? resolveAuthoredNotes)({
+          place: { id: place.id, label: place.label, installRevision: place.installRevision, relays: [...(place.runtime?.relays ?? [])], excludeContentWarnings: place.runtime?.draft.excludeContentWarnings ?? true },
+          accountId, accountName: accounts[accountId]?.name ?? shortKey(accountId), engineHandleId, draft, ...context,
+        });
+        if (fields[placeId]?.installRevision !== place.installRevision || fields[placeId]?.accountResearch[accountId]?.engineHandleId !== engineHandleId) {
+          settleUnexpectedExternalFailure(key, 'authored', new Error('Authored-note source changed or disappeared before the operation settled.'), { placeId, installRevision: place.installRevision, accountId }); return;
+        }
+        useAtlasStore.getState().commitAuthoredNotes(key, resolution);
+      } catch (error) { settleUnexpectedExternalFailure(key, 'authored', error, { placeId, installRevision: place.installRevision, accountId }); }
+    },
+    openLocalNoteRelationship: async (placeId, noteId, relationship) => {
+      await runRelationship(dependencies, placeId, noteId, 'local', relationship);
+    },
+    prepareNoteRelationship: (placeId, noteId, relationship) => {
+      const place = fields[placeId]; const eventHandleId = place && noteEventHandle(place, noteId); if (!place || !eventHandleId) return;
+      const research = place.noteResearch?.[noteId];
+      const draft = sanitizeRelationshipDraft({ ...(research?.relationshipDraft ?? defaultRelationshipDraft(place)), relationship });
+      useAtlasStore.getState().prepareNoteRelationship(placeId, noteId, relationship, relationshipDraftCommand(eventHandleId, draft));
+    },
+    updateNoteRelationshipDraft: (placeId, noteId, patch) => {
+      const place = fields[placeId]; if (!place) return;
+      const current = place.noteResearch?.[noteId]?.relationshipDraft ?? defaultRelationshipDraft(place);
+      useAtlasStore.getState().updateNoteRelationshipDraft(placeId, noteId, sanitizeRelationshipDraft({ ...clone(current), ...clone(patch) }));
+    },
+    requestNoteRelationship: async (placeId, noteId) => {
+      await runRelationship(dependencies, placeId, noteId, 'relays');
+    },
+    prepareAuthorResolution: (placeId) => {
+      const place = fields[placeId]; if (!place || place.role === 'start') return;
+      const draft = clone(place.authorResolution?.draft ?? defaultAuthorDraft(place));
+      useAtlasStore.getState().prepareAuthorResolution(placeId, authorResolutionDraftCommands(place.handleId, draft));
+    },
+    updateAuthorResolutionDraft: (placeId, patch) => {
+      const place = fields[placeId]; if (!place) return;
+      const current = place.authorResolution?.draft ?? defaultAuthorDraft(place);
+      useAtlasStore.getState().updateAuthorResolutionDraft(placeId, sanitizeAuthorResolutionDraft({ ...clone(current), ...clone(patch) }));
+    },
+    resolveAuthors: async (placeId) => {
+      const state = useAtlasStore.getState(); const place = fields[placeId]; const key = authorsOperationKey(placeId);
+      if (!place || place.role === 'start' || researchBusy(state)) return;
+      const draft = clone(place.authorResolution?.draft ?? defaultAuthorDraft(place));
+      state.commitAuthorsStarted(key, placeId, draft);
+      try {
+        const resolution = await (dependencies.resolveAuthors ?? resolveAuthors)({ place: { id: place.id, handleId: place.handleId, installRevision: place.installRevision }, draft });
+        if (fields[placeId]?.installRevision !== place.installRevision || fields[placeId]?.handleId !== place.handleId) {
+          settleUnexpectedExternalFailure(key, 'authors', new Error('Author-resolution source changed or disappeared before the operation settled.'), { placeId, installRevision: place.installRevision }); return;
+        }
+        useAtlasStore.getState().commitAuthorResolution(key, resolution);
+      } catch (error) { settleUnexpectedExternalFailure(key, 'authors', error, { placeId, installRevision: place.installRevision }); }
+    },
     selectNote: (placeId, noteId) => {
       if (fields[placeId]?.noteIds.includes(noteId)) selectAndObserve(placeId, { type: 'note', id: noteId });
     },
@@ -239,6 +348,10 @@ export const navigatorActions = createNavigatorActions({
   resolveAccountProjection,
   resolveAccountFacet,
   resolveAccountNotes,
+  resolveProfileHydration,
+  resolveAuthoredNotes,
+  resolveNoteRelationship,
+  resolveAuthors,
 });
 
 export function visibleAcquisitionError(draft: QueryDraft, relays: string[]) {
@@ -293,7 +406,7 @@ function presentationContext(place: Field) {
 }
 
 function researchBusy(state: ReturnType<typeof useAtlasStore.getState>) {
-  return Object.values(state.navigatorOperations).some((operation) => operation.status === 'working') || useLiveStore.getState().phase.type === 'working';
+  return Object.values(state.navigatorOperations).some((operation) => operation.status === 'working');
 }
 
 type LocalOperationStage = 'page' | 'projection' | 'facet' | 'branch';
@@ -318,4 +431,49 @@ function settleUnexpectedOperationFailure(key: string, stage: LocalOperationStag
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function runRelationship(
+  dependencies: ActionDependencies, placeId: string, noteId: string, source: 'local' | 'relays', relationship?: NoteRelationship,
+) {
+  const state = useAtlasStore.getState(); const place = fields[placeId]; const eventHandleId = place && noteEventHandle(place, noteId);
+  if (!place || !eventHandleId || researchBusy(state)) return;
+  const current = place.noteResearch?.[noteId]?.relationshipDraft ?? defaultRelationshipDraft(place);
+  const draft = sanitizeRelationshipDraft({ ...clone(current), ...(relationship ? { relationship } : {}) });
+  const key = relationshipOperationKey(placeId, noteId, draft.relationship, source); const context = presentationContext(place);
+  state.commitRelationshipStarted(key, placeId, noteId, draft.relationship, source, draft);
+  try {
+    const resolution = await (dependencies.resolveNoteRelationship ?? resolveNoteRelationship)({
+      place: { id: place.id, label: place.label, installRevision: place.installRevision, relays: [...(place.runtime?.relays ?? [])], excludeContentWarnings: place.runtime?.draft.excludeContentWarnings ?? true },
+      noteId, eventHandleId, source, draft, ...context,
+    });
+    if (fields[placeId]?.installRevision !== place.installRevision || noteEventHandle(fields[placeId], noteId) !== eventHandleId) {
+      settleUnexpectedExternalFailure(key, 'relationship', new Error('Relationship source changed or disappeared before the operation settled.'), { placeId, installRevision: place.installRevision, noteId, relationship: draft.relationship, source }); return;
+    }
+    useAtlasStore.getState().commitNoteRelationship(key, resolution);
+  } catch (error) { settleUnexpectedExternalFailure(key, 'relationship', error, { placeId, installRevision: place.installRevision, noteId, relationship: draft.relationship, source }); }
+}
+
+function noteEventHandle(place: Field, noteId: string) {
+  const snapshot = [...place.observationSnapshots].reverse().find((candidate) => candidate.target.type === 'note' && candidate.target.id === noteId);
+  return typeof snapshot?.facts.eventHandleId === 'string' ? snapshot.facts.eventHandleId : '';
+}
+
+function defaultExternalDraft(place: Field): ExternalActionDraft {
+  return { relays: [...(place.runtime?.relays ?? [])], timeoutMs: 10000, observationLimit: 80, distinctEventLimit: 60, concurrency: 2, excludeContentWarnings: place.runtime?.draft.excludeContentWarnings ?? true };
+}
+function defaultRelationshipDraft(place: Field): RelationshipActionDraft { return { ...defaultExternalDraft(place), relationship: 'replies', eventLimit: 20 }; }
+function defaultAuthorDraft(place: Field): AuthorResolutionDraft { return { ...defaultExternalDraft(place), authorLimit: 20 }; }
+function shortKey(value: string) { return value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value; }
+
+function settleUnexpectedExternalFailure(
+  key: string, stage: 'profile' | 'authored' | 'relationship' | 'authors', error: unknown,
+  target: { placeId: string; installRevision?: number; accountId?: string; noteId?: string; relationship?: NoteRelationship; source?: 'local' | 'relays' },
+) {
+  useAtlasStore.getState().commitExternalFailure(
+    key, stage, errorMessage(error),
+    error instanceof ResolverFailure ? (error.commands.length === 1 ? error.commands[0] : error.commands) : undefined,
+    error instanceof ResolverFailure ? error.exchanges : undefined,
+    target,
+  );
 }

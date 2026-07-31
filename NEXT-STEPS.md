@@ -173,14 +173,14 @@ The slice remains entirely caller-side: it reuses ordinary controller commands,
 retains exact evidence and bounds, and creates no engine milestone, automatic
 background request, recommendation, or canonical identity claim.
 
-A subsequent architectural tracer now gives initial acquisition, navigation,
-view state, media authorization, local subject observation, paging, account
-projection, account-frequency derivation, and local account-note branching one
-explicit path from typed navigator action through a narrow resolver to a single
-Atlas store commit. It adds no user-facing capability and is not a third
-feature slice. The remaining external subject-action families stay explicit in
-the older path; they should move together only after this broader local family
-continues to hold under use. No third Atlas feature slice is agreed yet.
+The architectural tracer now gives initial acquisition, navigation, view state,
+media authorization, local subject observation, paging, account projection,
+account-frequency derivation, local account-note branching, profile hydration,
+authored-note continuation, note-relationship continuation, and place-wide
+author resolution one explicit path from typed navigator actions through narrow
+resolvers to the single Atlas store. Resolvers alone execute ordinary controller
+commands, and the former direct execution store has been removed. This is an
+architecture change only; it adds no user-facing capability or feature slice.
 
 ## Promotion rule
 

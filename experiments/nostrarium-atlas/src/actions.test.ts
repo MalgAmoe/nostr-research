@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createNavigatorActions } from './actions';
 import { accounts, fields, notes, type Field } from './data';
 import { DEFAULT_DRAFT } from './live-types';
-import { useLiveStore } from './live-store';
 import {
   resolveAccountFacet, resolveAccountNotes, resolveAccountProjection, resolveAcquisition, resolvePlacePage,
-  resolveSubjectObservation, type ControllerFactory, type SubjectObservationIntent,
+  resolveAuthoredNotes, resolveAuthors, resolveNoteRelationship, resolveProfileHydration, resolveSubjectObservation,
+  type ControllerFactory, type SubjectObservationIntent,
 } from './resolvers';
 import { currentPlaceId, initialAtlasState, placeOperationKey, useAtlasStore } from './store';
 
@@ -30,7 +30,6 @@ function resetAtlas() {
   for (const record of [accounts, fields, notes]) for (const key of Object.keys(record)) delete record[key];
   accounts[author] = { id: author, name: 'author', handle: '@author', publicKey: author, about: 'unrequested', color: '#456', live: true };
   notes.event = { id: 'event', authorId: author, content: 'preview', createdAt: 'now', timestamp: 1, relayCount: 1, live: true };
-  useLiveStore.setState({ phase: { type: 'idle' } });
   useAtlasStore.setState({
     ...initialAtlasState,
     history: ['start'], historyIndex: 0, groundPlaceId: null, activities: [], nextActivity: 0,
@@ -333,20 +332,20 @@ describe('typed Atlas navigator boundary', () => {
     expect(JSON.stringify(commands)).not.toContain('relays');
   });
 
-  it('keeps keyed lifecycle state while preventing tracer and legacy command recipes from interleaving', async () => {
+  it('keeps keyed lifecycle state while preventing explicit command recipes from interleaving', async () => {
     fields.ground = place('ground', 'ground-handle'); fields.ground.role = 'ground';
     useAtlasStore.setState({ history: ['ground'], historyIndex: 0, groundPlaceId: 'ground' });
     const resolveAcquisitionSpy = vi.fn();
     const resolveSubjectSpy = vi.fn();
     const actions = createNavigatorActions({ resolveAcquisition: resolveAcquisitionSpy, resolveSubjectObservation: resolveSubjectSpy });
 
-    useLiveStore.setState({ phase: { type: 'working', stage: 'authors', command: { command: 'move' } } });
+    useAtlasStore.getState().commitOperationStarted('authors:other', { status: 'working', stage: 'authors' });
     actions.selectNote('ground', 'event');
     expect(fields.ground.selected).toEqual({ type: 'note', id: 'event' });
     expect(fields.ground.observationSnapshots.at(-1)?.facts).toMatchObject({ status: 'failure' });
     expect(resolveSubjectSpy).not.toHaveBeenCalled();
 
-    useLiveStore.setState({ phase: { type: 'idle' } });
+    useAtlasStore.getState().clearOperation('authors:other');
     useAtlasStore.getState().commitOperationStarted('observe:other', { status: 'working', stage: 'note' });
     await actions.acquireGround();
     expect(resolveAcquisitionSpy).not.toHaveBeenCalled();
@@ -433,6 +432,119 @@ describe('typed Atlas navigator boundary', () => {
     expect(captured!.fallbackSource).toEqual({ noteId: 'event', placeHandleId: 'ground-handle' });
     expect(JSON.stringify(captured)).not.toContain('unrelated');
     expect(JSON.stringify(captured)).not.toContain('observationSnapshots');
+  });
+
+  it('retains one successful integrated external-family workflow and its real resolver commands', async () => {
+    fields.ground = place('ground', 'ground-handle'); fields.ground.role = 'ground';
+    fields.ground.observationSnapshots.push({ id: 'exact-note', target: { type: 'note', id: 'event' }, sourceHandleId: 'ground-handle', observedRevision: 3, locality: 'local', exchanges: [], facts: { status: 'available', eventHandleId: 'event-handle' } });
+    const externalDraft = { relays: ['wss://relay.test'], timeoutMs: 1000, observationLimit: 8, distinctEventLimit: 6, concurrency: 1, excludeContentWarnings: true };
+    fields.ground.accountResearch[author] = { localStatus: 'available', engineHandleId: 'account-handle', profileDraft: externalDraft, authoredDraft: { ...externalDraft, eventLimit: 4 } };
+    const commands: Record<string, unknown>[] = [];
+    const handleRelationships = new Map<string, string>();
+    let inspectCount = 0;
+    const factory = controllerFactory(async (command) => {
+      commands.push(structuredClone(command));
+      const parameters = command.parameters as Record<string, unknown> | undefined;
+      let result: Record<string, unknown>;
+      if (command.command === 'continue') {
+        handleRelationships.set(String(command.resultId), String(parameters?.relationship ?? ''));
+        result = { handle: { count: 1, revision: 5 }, external: { status: 'complete' }, completeness: { status: 'complete', attemptStatus: 'complete' } };
+      } else if (command.command === 'move') {
+        result = { handle: { count: 1, revision: 7 } };
+      } else if (command.command === 'hydrate') {
+        result = { handle: { count: 1, revision: 8 }, external: { status: 'complete', completeness: { status: 'complete', attemptStatus: 'complete' } } };
+      } else if (command.command === 'inspect') {
+        inspectCount += 1;
+        result = { resident: true, resolved: true, resolutionSource: 'memory', evidence: { profile: { name: inspectCount === 1 ? 'Observed profile' : 'Observed author' }, provenance: { relays: ['wss://relay.test'] }, observationCount: 1, omittedObservationCount: 0 } };
+      } else if (command.command === 'show' && String(command.input).includes('place-authors')) {
+        result = { count: 1, countUnit: 'subjects', offset: 0, nextOffset: 1, preview: [{ id: author }] };
+      } else if (command.command === 'show') {
+        const relationship = handleRelationships.get(String(command.input)) ?? '';
+        const id = relationship === 'authored-notes' ? 'authored-event' : 'reply-event';
+        result = { count: 1, countUnit: 'subjects', offset: 0, nextOffset: 1, preview: [{ id, preview: { author: { publicKey: author }, contentExcerpt: `${relationship} result`, createdAt: 2, relays: ['wss://relay.test'] } }] };
+      } else {
+        result = {};
+      }
+      return { response: { ok: true, sessionRevision: 9, result }, receipt: { commandId: String(command.command), revisionAfter: 9 } };
+    });
+    const actions = createNavigatorActions({
+      resolveAcquisition: vi.fn(), resolveSubjectObservation: vi.fn(),
+      resolveProfileHydration: (intent) => resolveProfileHydration(intent, factory),
+      resolveAuthoredNotes: (intent) => resolveAuthoredNotes(intent, factory),
+      resolveNoteRelationship: (intent) => resolveNoteRelationship(intent, factory),
+      resolveAuthors: (intent) => resolveAuthors(intent, factory),
+    });
+
+    await actions.requestProfile('ground', author);
+    await actions.requestAuthoredNotes('ground', author);
+    actions.prepareNoteRelationship('ground', 'event', 'replies');
+    await actions.requestNoteRelationship('ground', 'event');
+    actions.prepareAuthorResolution('ground');
+    await actions.resolveAuthors('ground');
+
+    const shapes = commands.map((command) => ({ command: command.command, input: command.input, parameters: command.parameters }));
+    expect(shapes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ command: 'hydrate', input: 'account-handle', parameters: expect.objectContaining({ kinds: [0], relays: ['wss://relay.test'] }) }),
+      expect.objectContaining({ command: 'inspect' }),
+      expect.objectContaining({ command: 'continue', input: 'account-handle', parameters: expect.objectContaining({ relationship: 'authored-notes', source: 'relays', eventLimit: 4 }) }),
+      expect.objectContaining({ command: 'continue', input: 'event-handle', parameters: expect.objectContaining({ relationship: 'replies', source: 'relays', eventLimit: 20 }) }),
+      expect.objectContaining({ command: 'move', input: 'ground-handle', parameters: { to: 'authors', limit: 20 } }),
+      expect.objectContaining({ command: 'hydrate', parameters: expect.objectContaining({ kinds: [0], relays: ['wss://relay.test'] }) }),
+    ]));
+    expect(commands.filter((command) => command.command === 'show')).toHaveLength(3);
+    expect(commands.filter((command) => command.command === 'inspect')).toHaveLength(2);
+    expect(fields.ground.observationSnapshots).toContainEqual(expect.objectContaining({ target: { type: 'account', id: author }, facts: expect.objectContaining({ status: 'available' }) }));
+    expect(fields.ground.accountResearch[author].authoredNotes).toMatchObject({ status: 'available', command: expect.objectContaining({ command: 'continue', input: 'account-handle' }), count: 1 });
+    expect(Object.values(fields).some((field) => field.runtime?.sourceKind === 'authored-notes' && field.noteIds.includes('authored-event'))).toBe(true);
+    expect(fields.ground.noteResearch?.event.attempts.replies?.relays).toMatchObject({ status: 'available', command: expect.objectContaining({ command: 'continue', input: 'event-handle' }), count: 1 });
+    expect(Object.values(fields).some((field) => field.runtime?.sourceKind === 'note-relationship' && field.noteIds.includes('reply-event'))).toBe(true);
+    expect(fields.ground.authorResolution?.attempt).toMatchObject({ status: 'available', authorCount: 1, resolvedCount: 1, commands: expect.arrayContaining([expect.objectContaining({ command: 'move' }), expect.objectContaining({ command: 'hydrate' }), expect.objectContaining({ command: 'inspect' })]) });
+    expect(fields.ground.accountResearch[author].profile).toMatchObject({ status: 'available', claims: { name: 'Observed author' } });
+    expect(Object.values(useAtlasStore.getState().navigatorOperations).some((operation) => operation.status === 'working')).toBe(false);
+  });
+
+  it('settles profile exceptions in both keyed and retained research state without losing the captured draft', async () => {
+    fields.ground = place('ground', 'ground-handle');
+    const profileDraft = { relays: ['wss://profile.test'], timeoutMs: 1234, observationLimit: 8, distinctEventLimit: 6, concurrency: 1, excludeContentWarnings: true };
+    fields.ground.accountResearch[author] = {
+      localStatus: 'available', engineHandleId: 'account-handle', profileDraft,
+      authoredDraft: { ...profileDraft, eventLimit: 5 },
+    };
+    const actions = createNavigatorActions({
+      resolveAcquisition: vi.fn(), resolveSubjectObservation: vi.fn(),
+      resolveProfileHydration: async () => { throw new Error('transport exploded'); },
+    });
+
+    await actions.requestProfile('ground', author);
+
+    expect(fields.ground.accountResearch[author].profile).toMatchObject({ status: 'failure', relays: ['wss://profile.test'], error: 'transport exploded' });
+    expect(fields.ground.accountResearch[author].profileDraft).toEqual(profileDraft);
+    expect(Object.values(useAtlasStore.getState().navigatorOperations)).toContainEqual(expect.objectContaining({ status: 'failure', stage: 'profile', message: 'transport exploded' }));
+  });
+
+  it('rejects an author-resolution result when its captured place generation has been replaced', async () => {
+    fields.ground = place('ground', 'ground-handle');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const actions = createNavigatorActions({
+      resolveAcquisition: vi.fn(), resolveSubjectObservation: vi.fn(),
+      resolveAuthors: async (intent) => {
+        await gate;
+        return {
+          kind: 'author-resolution', placeId: intent.place.id, commands: [], exchanges: [], sourceHandleId: intent.place.handleId,
+          observedRevision: intent.place.installRevision, accounts: {}, profiles: [],
+          attempt: { status: 'empty', relays: [], commands: [], authorCount: 0, resolvedCount: 0, unresolvedCount: 0, failedCount: 0 },
+        };
+      },
+    });
+
+    const pending = actions.resolveAuthors('ground');
+    fields.ground = { ...place('ground', 'replacement-handle'), installRevision: 99 };
+    release();
+    await pending;
+
+    expect(fields.ground.authorResolution?.attempt).toBeUndefined();
+    expect(Object.values(useAtlasStore.getState().navigatorOperations)).toContainEqual(expect.objectContaining({ status: 'failure', stage: 'authors', message: expect.stringContaining('source changed') }));
   });
 
   it('resolves exact accounts from retained notes using local commands only', async () => {

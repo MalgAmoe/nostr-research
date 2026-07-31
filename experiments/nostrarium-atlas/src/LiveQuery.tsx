@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { navigatorActions } from './actions';
-import { useLiveStore } from './live-store';
-import type { LivePhase } from './live-types';
 import { selectAcquisition, selectAcquisitionOperation, useAtlasStore, type AcquisitionUiState, type NavigatorOperation } from './store';
 
 export function LiveQueryButton() {
@@ -13,16 +11,14 @@ export function LiveQueryPanel() {
   const acquisition = useAtlasStore(selectAcquisition);
   const operation = useAtlasStore(selectAcquisitionOperation);
   const navigatorBusy = useAtlasStore((state) => Object.entries(state.navigatorOperations).some(([key, item]) => key !== 'acquisition' && item.status === 'working'));
-  const legacyPhase = useLiveStore((state) => state.phase);
   const groundPlaceId = useAtlasStore((state) => state.groundPlaceId);
-  return <LiveQueryPanelContent acquisition={acquisition} operation={operation} navigatorBusy={navigatorBusy} legacyPhase={legacyPhase} groundPlaceId={groundPlaceId}/>;
+  return <LiveQueryPanelContent acquisition={acquisition} operation={operation} navigatorBusy={navigatorBusy} groundPlaceId={groundPlaceId}/>;
 }
 
-export function LiveQueryPanelContent({ acquisition, operation, navigatorBusy, legacyPhase, groundPlaceId }: {
+export function LiveQueryPanelContent({ acquisition, operation, navigatorBusy, groundPlaceId }: {
   acquisition: AcquisitionUiState;
   operation?: NavigatorOperation;
   navigatorBusy: boolean;
-  legacyPhase: LivePhase;
   groundPlaceId: string | null;
 }) {
   const panel = useRef<HTMLElement>(null);
@@ -33,7 +29,7 @@ export function LiveQueryPanelContent({ acquisition, operation, navigatorBusy, l
   }, [acquisition.relays, acquisition.relaySearch]);
   if (!acquisition.panelOpen) return null;
   const selected = acquisition.relays.filter((relay) => relay.selected);
-  const busy = operation?.status === 'working' || navigatorBusy || legacyPhase.type === 'working';
+  const busy = operation?.status === 'working' || navigatorBusy;
   const nip50RelayMismatch = Boolean(acquisition.draft.search.trim()) && selected.length !== 1;
 
   return <section ref={panel} className="query-panel" role="region" aria-labelledby="query-title">
@@ -65,9 +61,8 @@ export function LiveQueryPanelContent({ acquisition, operation, navigatorBusy, l
       </section>
     </div>
     <footer className="query-footer"><div className="query-status">
-      {!operation && legacyPhase.type !== 'working' && !navigatorBusy && <><i className={nip50RelayMismatch ? 'failed' : 'ready'}/><span>{nip50RelayMismatch ? 'Choose exactly one relay for NIP-50.' : groundPlaceId ? 'Execution explicitly replaces Ground; the former place remains a branch.' : 'Success installs one never-replaced handle as Ground and current place.'}</span></>}
-      {!operation && legacyPhase.type === 'working' && <><i className="working"/><span>Working: {legacyPhase.stage}…</span></>}
-      {!operation && legacyPhase.type !== 'working' && navigatorBusy && <><i className="working"/><span>Working: bounded local observation…</span></>}
+      {!operation && !navigatorBusy && <><i className={nip50RelayMismatch ? 'failed' : 'ready'}/><span>{nip50RelayMismatch ? 'Choose exactly one relay for NIP-50.' : groundPlaceId ? 'Execution explicitly replaces Ground; the former place remains a branch.' : 'Success installs one never-replaced handle as Ground and current place.'}</span></>}
+      {!operation && navigatorBusy && <><i className="working"/><span>Working: bounded research operation…</span></>}
       {operation?.status === 'working' && <><i className="working"/><span>{operation.stage === 'acquire' ? 'Executing explicit bounded acquisition and local first-page observation…' : `Working: ${operation.stage}…`}</span></>}
       {operation?.status === 'failure' && <><i className="failed"/><span>{operation.message}</span></>}
     </div><div className="query-buttons">{operation?.status === 'failure' && <button className="query-secondary" onClick={navigatorActions.resetAcquisitionFailure}>Revise draft</button>}<button className="query-primary" disabled={busy || nip50RelayMismatch || !selected.length} onClick={navigatorActions.acquireGround}>{operation?.status === 'working' && operation.stage === 'acquire' ? 'Acquiring…' : groundPlaceId ? 'Replace Ground with this acquisition' : 'Acquire and establish Ground'}</button></div></footer>

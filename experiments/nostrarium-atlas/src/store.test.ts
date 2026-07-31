@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { accounts, fields, notes, type Field } from './data';
 import { currentLocation, currentPlaceId, initialAtlasState, useAtlasStore } from './store';
-import { DEFAULT_DRAFT } from './live-store';
+import { DEFAULT_DRAFT } from './live-types';
 
 function place(id: string, handleId: string, noteId: string): Field {
   return {

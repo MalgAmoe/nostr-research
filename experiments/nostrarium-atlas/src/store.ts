@@ -1,12 +1,16 @@
 import { create } from 'zustand';
 import {
-  accounts, fieldFor, fields, notes, type AccountResearchState, type InspectorTarget,
+  accounts, fieldFor, fields, notes, retainObservedProfile, type AccountResearchState, type InspectorTarget,
   type MediaLoadState, type NoteResearchState, type ObservationExchange, type PlaceProjection,
 } from './data';
-import { DEFAULT_DRAFT, DEFAULT_RELAYS, type QueryDraft, type RelaySource } from './live-types';
+import {
+  DEFAULT_DRAFT, DEFAULT_RELAYS, type AuthorResolutionDraft, type AuthoredActionDraft, type ExternalActionDraft,
+  type NoteRelationship, type QueryDraft, type RelaySource, type RelationshipActionDraft,
+} from './live-types';
 import type {
   AccountFacetResolution, AccountNotesResolution, AccountProjectionResolution, AcquisitionResolution,
-  PlacePageResolution, SubjectObservationResolution,
+  AuthoredNotesResolution, AuthorResolutionResolution, NoteRelationshipResolution, PlacePageResolution,
+  ProfileHydrationResolution, SubjectObservationResolution,
 } from './resolvers';
 
 export type Location = { fieldId: string; target: InspectorTarget };
@@ -14,7 +18,7 @@ export type Activity = { id: number; label: string; command: string; outcome: st
 export type ExternalStatus = { label: string; status: string; warningCount: number };
 export type NavigatorOperation = {
   status: 'working' | 'failure';
-  stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'note' | 'account';
+  stage: 'acquire' | 'page' | 'projection' | 'facet' | 'branch' | 'note' | 'account' | 'profile' | 'authored' | 'relationship' | 'authors';
   message?: string;
   command?: Record<string, unknown> | Record<string, unknown>[];
   exchanges?: ObservationExchange[];
@@ -75,9 +79,25 @@ export type AtlasStore = AtlasData & {
   commitObservationStarted: (placeId: string, type: 'note' | 'account', id: string) => void;
   commitObservation: (resolution: SubjectObservationResolution) => void;
   commitObservationFailure: (placeId: string, type: 'note' | 'account', id: string, error: string, exchanges: ObservationExchange[]) => void;
+  prepareAccountResearch: (placeId: string, accountId: string, draft: QueryDraft, command: Record<string, unknown>) => void;
+  updateProfileDraft: (placeId: string, accountId: string, draft: ExternalActionDraft) => void;
+  updateAuthoredDraft: (placeId: string, accountId: string, draft: AuthoredActionDraft) => void;
+  prepareNoteRelationship: (placeId: string, noteId: string, relationship: NoteRelationship, command: Record<string, unknown>) => void;
+  updateNoteRelationshipDraft: (placeId: string, noteId: string, draft: RelationshipActionDraft) => void;
+  prepareAuthorResolution: (placeId: string, commands: Record<string, unknown>[]) => void;
+  updateAuthorResolutionDraft: (placeId: string, draft: AuthorResolutionDraft) => void;
+  commitProfileStarted: (key: string, placeId: string, accountId: string, draft: ExternalActionDraft) => void;
+  commitProfileHydration: (key: string, resolution: ProfileHydrationResolution) => void;
+  commitAuthoredStarted: (key: string, placeId: string, accountId: string, draft: AuthoredActionDraft) => void;
+  commitAuthoredNotes: (key: string, resolution: AuthoredNotesResolution) => void;
+  commitRelationshipStarted: (key: string, placeId: string, noteId: string, relationship: NoteRelationship, source: 'local' | 'relays', draft: RelationshipActionDraft) => void;
+  commitNoteRelationship: (key: string, resolution: NoteRelationshipResolution) => void;
+  commitAuthorsStarted: (key: string, placeId: string, draft: AuthorResolutionDraft) => void;
+  commitAuthorResolution: (key: string, resolution: AuthorResolutionResolution) => void;
+  commitExternalFailure: (key: string, stage: 'profile' | 'authored' | 'relationship' | 'authors', message: string, command?: Record<string, unknown> | Record<string, unknown>[], exchanges?: ObservationExchange[], target?: { placeId: string; installRevision?: number; accountId?: string; noteId?: string; relationship?: NoteRelationship; source?: 'local' | 'relays' }) => void;
   setExternalStatus: (status: ExternalStatus) => void;
 
-  // Unmigrated legacy actions retain the same maps and source of truth.
+  // UI-local navigation and presentation state share the same maps and source of truth.
   installGround: (id: string) => void;
   installBranch: (id: string) => void;
   activatePlace: (id: string) => void;
@@ -123,6 +143,10 @@ export const selectAcquisition = (state: AtlasStore) => state.acquisition;
 export const selectAcquisitionOperation = (state: AtlasStore) => state.navigatorOperations.acquisition;
 export const subjectOperationKey = (placeId: string, type: 'note' | 'account', id: string) => `observe:${placeId}:${type}:${id}`;
 export const placeOperationKey = (placeId: string, stage: 'page' | 'projection' | 'facet' | 'branch') => `${stage}:${placeId}`;
+export const profileOperationKey = (placeId: string, accountId: string) => `profile:${placeId}:account:${accountId}`;
+export const authoredOperationKey = (placeId: string, accountId: string) => `authored:${placeId}:account:${accountId}`;
+export const relationshipOperationKey = (placeId: string, noteId: string, relationship: NoteRelationship, source: 'local' | 'relays') => `relationship:${placeId}:note:${noteId}:${relationship}:${source}`;
+export const authorsOperationKey = (placeId: string) => `authors:${placeId}`;
 
 function visit(state: AtlasData, fieldId: string) {
   if (!fields[fieldId] || currentPlaceId(state) === fieldId) return {};
@@ -397,6 +421,132 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
     addSubjectSnapshot(placeId, type, id, { status: 'failure', error }, exchanges);
     return { fieldRevision: state.fieldRevision + 1 };
   }),
+  prepareAccountResearch: (placeId, accountId, draft, command) => set((state) => {
+    const place = fields[placeId];
+    if (!place?.accountFacet?.records.some((record) => record.account === accountId)) return state;
+    place.selectedFacet = accountId;
+    const nextActivity = state.nextActivity + 1;
+    return {
+      fieldRevision: state.fieldRevision + 1, nextActivity,
+      acquisition: { ...state.acquisition, draft: { ...draft }, panelOpen: true },
+      activities: [{ id: nextActivity, label: 'Prepared independent relay acquisition draft', command: JSON.stringify(command), outcome: 'Draft only · no relay contacted · older draft constraints discarded' }, ...state.activities].slice(0, 20),
+    };
+  }),
+  updateProfileDraft: (placeId, accountId, draft) => set((state) => {
+    const place = fields[placeId]; if (!place) return state;
+    ensureAccountResearch(placeId, accountId).profileDraft = clone(draft);
+    return { fieldRevision: state.fieldRevision + 1 };
+  }),
+  updateAuthoredDraft: (placeId, accountId, draft) => set((state) => {
+    const place = fields[placeId]; if (!place) return state;
+    ensureAccountResearch(placeId, accountId).authoredDraft = clone(draft);
+    return { fieldRevision: state.fieldRevision + 1 };
+  }),
+  prepareNoteRelationship: (placeId, noteId, relationship, command) => set((state) => {
+    const place = fields[placeId]; if (!place || !noteEventHandle(placeId, noteId)) return state;
+    const research = ensureNoteResearch(placeId, noteId); research.draftOpen = true; research.relationshipDraft.relationship = relationship;
+    const nextActivity = state.nextActivity + 1;
+    return { fieldRevision: state.fieldRevision + 1, nextActivity, activities: [{ id: nextActivity, label: 'Prepared note-relationship relay draft', command: JSON.stringify(command), outcome: 'Draft only · no relay contacted' }, ...state.activities].slice(0, 20) };
+  }),
+  updateNoteRelationshipDraft: (placeId, noteId, draft) => set((state) => {
+    if (!fields[placeId]) return state; ensureNoteResearch(placeId, noteId).relationshipDraft = clone(draft);
+    return { fieldRevision: state.fieldRevision + 1 };
+  }),
+  prepareAuthorResolution: (placeId, commands) => set((state) => {
+    const place = fields[placeId]; if (!place || place.role === 'start') return state;
+    ensureAuthorResolution(placeId).draftOpen = true;
+    const nextActivity = state.nextActivity + 1;
+    return { fieldRevision: state.fieldRevision + 1, nextActivity, activities: [{ id: nextActivity, label: 'Prepared Resolve authors draft', command: JSON.stringify(commands), outcome: 'Draft only · no relay contacted' }, ...state.activities].slice(0, 20) };
+  }),
+  updateAuthorResolutionDraft: (placeId, draft) => set((state) => {
+    if (!fields[placeId]) return state; ensureAuthorResolution(placeId).draft = clone(draft);
+    return { fieldRevision: state.fieldRevision + 1 };
+  }),
+  commitProfileStarted: (key, placeId, accountId, draft) => set((state) => {
+    const place = fields[placeId]; if (!place) return state;
+    ensureAccountResearch(placeId, accountId).profile = { status: 'loading', relays: [...draft.relays] };
+    return { fieldRevision: state.fieldRevision + 1, navigatorOperations: { ...state.navigatorOperations, [key]: { status: 'working', stage: 'profile' } } };
+  }),
+  commitProfileHydration: (key, resolution) => set((state) => {
+    const place = fields[resolution.placeId]; const navigatorOperations = { ...state.navigatorOperations };
+    if (!place) return settleMissingSource(state, navigatorOperations, key, 'profile', resolution.placeId, `account:${resolution.accountId}`);
+    ensureAccountResearch(resolution.placeId, resolution.accountId).profile = clone(resolution.profile);
+    if (resolution.profile.status !== 'failure') retainObservedProfile(resolution.accountId, resolution.profile, resolution.placeId, resolution.observedRevision);
+    addExternalSnapshot(place, { type: 'account', id: resolution.accountId }, resolution.sourceHandleId, resolution.observedRevision, resolution.exchanges, resolution.profile as unknown as Record<string, unknown>);
+    settleResolutionOperation(navigatorOperations, key, 'profile', resolution.profile.status === 'failure' ? resolution.profile.error : undefined, resolution.commands, resolution.exchanges);
+    return resolutionState(state, navigatorOperations, resolution.externalStatus, resolution.activity);
+  }),
+  commitAuthoredStarted: (key, placeId, accountId, draft) => set((state) => {
+    if (!fields[placeId]) return state;
+    ensureAccountResearch(placeId, accountId).authoredNotes = { status: 'loading', relays: [...draft.relays], eventLimit: draft.eventLimit };
+    return { fieldRevision: state.fieldRevision + 1, navigatorOperations: { ...state.navigatorOperations, [key]: { status: 'working', stage: 'authored' } } };
+  }),
+  commitAuthoredNotes: (key, resolution) => set((state) => {
+    const source = fields[resolution.placeId]; const navigatorOperations = { ...state.navigatorOperations };
+    if (!source) return settleMissingSource(state, navigatorOperations, key, 'authored', resolution.placeId, `account:${resolution.accountId}`);
+    ensureAccountResearch(resolution.placeId, resolution.accountId).authoredNotes = clone(resolution.authoredNotes);
+    addExternalSnapshot(source, { type: 'account', id: resolution.accountId }, resolution.sourceHandleId, resolution.observedRevision, resolution.exchanges, resolution.authoredNotes as unknown as Record<string, unknown>);
+    let moved = {}; if (resolution.place) { mergePresentedEvidence(resolution.notes, resolution.baseNotes, resolution.accounts); fields[resolution.place.id] = resolution.place; moved = visit(state, resolution.place.id); }
+    const message = resolution.authoredNotes.error ?? (resolution.observationFailure ? 'Authored-note branch opened, but its first bounded preview is unavailable.' : undefined);
+    settleResolutionOperation(navigatorOperations, key, 'authored', message, resolution.commands, resolution.exchanges);
+    return { ...resolutionState(state, navigatorOperations, resolution.externalStatus, resolution.activity), ...moved };
+  }),
+  commitRelationshipStarted: (key, placeId, noteId, relationship, source, draft) => set((state) => {
+    if (!fields[placeId]) return state;
+    setRelationshipAttempt(ensureNoteResearch(placeId, noteId), relationship, source, { status: 'loading', relationship, source, relays: source === 'local' ? [] : [...draft.relays] });
+    return { fieldRevision: state.fieldRevision + 1, navigatorOperations: { ...state.navigatorOperations, [key]: { status: 'working', stage: 'relationship' } } };
+  }),
+  commitNoteRelationship: (key, resolution) => set((state) => {
+    const sourcePlace = fields[resolution.placeId]; const navigatorOperations = { ...state.navigatorOperations };
+    if (!sourcePlace) return settleMissingSource(state, navigatorOperations, key, 'relationship', resolution.placeId, `note:${resolution.noteId}:${resolution.relationship}:${resolution.source}`);
+    setRelationshipAttempt(ensureNoteResearch(resolution.placeId, resolution.noteId), resolution.relationship, resolution.source, clone(resolution.attempt));
+    addExternalSnapshot(sourcePlace, { type: 'place', id: `${resolution.noteId}:${resolution.relationship}:${resolution.source}` }, resolution.sourceHandleId, resolution.observedRevision, resolution.exchanges, resolution.attempt as unknown as Record<string, unknown>, resolution.source === 'local' ? 'local' : 'external');
+    let moved = {}; if (resolution.place) { mergePresentedEvidence(resolution.notes, resolution.baseNotes, resolution.accounts); fields[resolution.place.id] = resolution.place; moved = visit(state, resolution.place.id); }
+    const message = resolution.attempt.error ?? (resolution.observationFailure ? `${resolution.source === 'local' ? 'Local' : 'Relay relationship'} branch opened, but its first bounded preview is unavailable.` : undefined);
+    settleResolutionOperation(navigatorOperations, key, 'relationship', message, resolution.commands, resolution.exchanges);
+    return { ...resolutionState(state, navigatorOperations, resolution.externalStatus, resolution.activity), ...moved };
+  }),
+  commitAuthorsStarted: (key, placeId, draft) => set((state) => {
+    if (!fields[placeId]) return state;
+    ensureAuthorResolution(placeId).attempt = { status: 'loading', relays: [...draft.relays] };
+    return { fieldRevision: state.fieldRevision + 1, navigatorOperations: { ...state.navigatorOperations, [key]: { status: 'working', stage: 'authors' } } };
+  }),
+  commitAuthorResolution: (key, resolution) => set((state) => {
+    const place = fields[resolution.placeId]; const navigatorOperations = { ...state.navigatorOperations };
+    if (!place) return settleMissingSource(state, navigatorOperations, key, 'authors', resolution.placeId, 'place:resolved-authors');
+    for (const [id, account] of Object.entries(resolution.accounts)) accounts[id] ??= account;
+    ensureAuthorResolution(resolution.placeId).attempt = clone(resolution.attempt);
+    for (const item of resolution.profiles) {
+      ensureAccountResearch(resolution.placeId, item.accountId).profile = clone(item.profile);
+      retainObservedProfile(item.accountId, item.profile, resolution.placeId, item.observedRevision);
+    }
+    addExternalSnapshot(place, { type: 'place', id: `${resolution.placeId}:resolved-authors` }, resolution.sourceHandleId, resolution.observedRevision, resolution.exchanges, resolution.attempt as unknown as Record<string, unknown>, resolution.profiles.length ? 'external' : 'local');
+    settleResolutionOperation(navigatorOperations, key, 'authors', resolution.attempt.status === 'failure' ? resolution.attempt.error : undefined, resolution.commands, resolution.exchanges);
+    return resolutionState(state, navigatorOperations, resolution.externalStatus, resolution.activity);
+  }),
+  commitExternalFailure: (key, stage, message, command, exchanges, target) => set((state) => {
+    const place = target && fields[target.placeId];
+    const currentSource = place && (target?.installRevision === undefined || place.installRevision === target.installRevision);
+    if (currentSource && target) {
+      if (stage === 'profile' && target.accountId) {
+        const research = ensureAccountResearch(target.placeId, target.accountId);
+        research.profile = { status: 'failure', relays: [...research.profileDraft.relays], error: message };
+      }
+      if (stage === 'authored' && target.accountId) {
+        const research = ensureAccountResearch(target.placeId, target.accountId);
+        research.authoredNotes = { status: 'failure', relays: [...research.authoredDraft.relays], eventLimit: research.authoredDraft.eventLimit, error: message };
+      }
+      if (stage === 'relationship' && target.noteId && target.relationship && target.source) {
+        const research = ensureNoteResearch(target.placeId, target.noteId);
+        setRelationshipAttempt(research, target.relationship, target.source, { status: 'failure', relationship: target.relationship, source: target.source, relays: target.source === 'local' ? [] : [...research.relationshipDraft.relays], error: message });
+      }
+      if (stage === 'authors') {
+        const research = ensureAuthorResolution(target.placeId);
+        research.attempt = { status: 'failure', relays: [...research.draft.relays], commands: [], error: message };
+      }
+    }
+    return { fieldRevision: state.fieldRevision + (currentSource ? 1 : 0), navigatorOperations: { ...state.navigatorOperations, [key]: { status: 'failure', stage, message, command, exchanges } } };
+  }),
   setExternalStatus: (latestExternal) => set({ latestExternal }),
 
   installGround: (id) => set((state) => {
@@ -437,7 +587,8 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
   toggleAccountPin: (id) => set((state) => state.pinnedAccountIds.includes(id) ? { pinnedAccountIds: state.pinnedAccountIds.filter((item) => item !== id) } : accounts[id] ? { pinnedAccountIds: [...state.pinnedAccountIds, id] } : state),
   setMediaLoad: (placeId, noteId, url, status) => set((state) => {
     const place = fields[placeId];
-    if (!place || (!notes[noteId] && !noteId.startsWith('profile:')) || !url) return state;
+    const knownSubject = Boolean(notes[noteId]) || noteId.startsWith('profile:');
+    if (!place || !knownSubject || !url) return state;
     place.mediaLoads ??= {}; place.mediaLoads[noteId] ??= {}; place.mediaLoads[noteId][url] = status;
     return { fieldRevision: state.fieldRevision + 1 };
   }),
@@ -480,6 +631,62 @@ function ensureNoteResearch(placeId: string, noteId: string): NoteResearchState 
   place.noteResearch[noteId] = state;
   return state;
 }
+
+function ensureAuthorResolution(placeId: string) {
+  const place = fields[placeId];
+  if (place.authorResolution) return place.authorResolution;
+  place.authorResolution = {
+    draftOpen: false,
+    draft: { relays: [...(place.runtime?.relays ?? [])], authorLimit: 20, timeoutMs: 10000, observationLimit: 80, distinctEventLimit: 60, concurrency: 2, excludeContentWarnings: place.runtime?.draft.excludeContentWarnings ?? true },
+  };
+  return place.authorResolution;
+}
+
+function noteEventHandle(placeId: string, noteId: string) {
+  const snapshot = [...fields[placeId].observationSnapshots].reverse().find((candidate) => candidate.target.type === 'note' && candidate.target.id === noteId);
+  return typeof snapshot?.facts.eventHandleId === 'string' ? snapshot.facts.eventHandleId : '';
+}
+
+function setRelationshipAttempt(research: NoteResearchState, relationship: NoteRelationship, source: 'local' | 'relays', attempt: NonNullable<NoteResearchState['attempts'][NoteRelationship]>['local']) {
+  research.attempts[relationship] = { ...(research.attempts[relationship] ?? {}), [source]: attempt };
+}
+
+function addExternalSnapshot(
+  place: typeof fields[string], target: { type: 'place' | 'account'; id: string }, sourceHandleId: string,
+  observedRevision: number, exchanges: ObservationExchange[], facts: Record<string, unknown>, locality: 'local' | 'external' = 'external',
+) {
+  place.observationSnapshots.push({ id: `atlas-tracer-observation-${++nextTracerSnapshot}`, target, sourceHandleId, observedRevision, locality, exchanges: clone(exchanges), facts: clone(facts) });
+}
+
+function settleResolutionOperation(
+  operations: Record<string, NavigatorOperation>, key: string, stage: 'profile' | 'authored' | 'relationship' | 'authors',
+  message: string | undefined, commands: Record<string, unknown>[], exchanges: ObservationExchange[],
+) {
+  if (message) operations[key] = { status: 'failure', stage, message, command: commands.length === 1 ? commands[0] : commands, exchanges };
+  else delete operations[key];
+}
+
+function settleMissingSource(
+  state: AtlasStore, operations: Record<string, NavigatorOperation>, key: string,
+  stage: 'profile' | 'authored' | 'relationship' | 'authors', placeId: string, source: string,
+) {
+  operations[key] = { status: 'failure', stage, message: `Source ${source} in place ${placeId} disappeared before the operation settled.` };
+  return { navigatorOperations: operations };
+}
+
+function resolutionState(
+  state: AtlasStore, navigatorOperations: Record<string, NavigatorOperation>,
+  latestExternal?: ExternalStatus, activity?: { label: string; command: string; outcome: string },
+) {
+  if (!activity) return { navigatorOperations, fieldRevision: state.fieldRevision + 1, ...(latestExternal ? { latestExternal } : {}) };
+  const nextActivity = state.nextActivity + 1;
+  return {
+    navigatorOperations, fieldRevision: state.fieldRevision + 1, ...(latestExternal ? { latestExternal } : {}), nextActivity,
+    activities: [{ id: nextActivity, ...activity }, ...state.activities].slice(0, 20),
+  };
+}
+
+function clone<T>(value: T): T { return structuredClone(value); }
 
 function addSubjectSnapshot(placeId: string, type: 'note' | 'account', id: string, facts: Record<string, unknown>, exchanges: ObservationExchange[]) {
   const place = fields[placeId];

@@ -1,8 +1,12 @@
 import {
-  type Account, type AccountFacetRecord, type AttachmentFact, type Field, type Note, type NoteObservation, type ObservationExchange,
+  type Account, type AccountFacetRecord, type AttachmentFact, type AuthoredNotesRequest, type Field, type Note,
+  type NoteObservation, type NoteRelationshipAttempt, type ObservationExchange, type ProfileObservation,
 } from './data';
 import { liveController } from './live-session';
-import { DEFAULT_DRAFT, type QueryDraft } from './live-types';
+import {
+  DEFAULT_DRAFT, type AuthorResolutionDraft, type AuthoredActionDraft, type ExternalActionDraft,
+  type NoteRelationship, type QueryDraft, type RelationshipActionDraft,
+} from './live-types';
 
 export type ExecutedCommand = {
   result: Record<string, unknown>;
@@ -154,6 +158,69 @@ export type AccountNotesResolution = {
   commands: Record<string, unknown>[]; exchanges: ObservationExchange[];
   place?: Field; notes: Record<string, Note>; baseNotes: Record<string, Note>; accounts: Record<string, Account>;
   observationFailure?: ObservationExchange; error?: string;
+};
+
+export type ProfileHydrationIntent = {
+  place: { id: string; installRevision: number };
+  accountId: string;
+  engineHandleId: string;
+  draft: ExternalActionDraft;
+};
+
+export type ProfileHydrationResolution = {
+  kind: 'profile-hydration'; placeId: string; accountId: string; engineHandleId: string;
+  profile: ProfileObservation; commands: Record<string, unknown>[]; exchanges: ObservationExchange[];
+  sourceHandleId: string; observedRevision: number;
+  externalStatus: { label: string; status: string; warningCount: number };
+  activity?: { label: string; command: string; outcome: string };
+};
+
+export type AuthoredNotesIntent = {
+  place: { id: string; label: string; installRevision: number; relays: string[]; excludeContentWarnings: boolean };
+  accountId: string; accountName: string; engineHandleId: string; draft: AuthoredActionDraft;
+  knownNotes: Record<string, Note>; knownAccounts: Record<string, Account>;
+};
+
+export type AuthoredNotesResolution = {
+  kind: 'authored-notes'; placeId: string; accountId: string; engineHandleId: string;
+  authoredNotes: AuthoredNotesRequest; commands: Record<string, unknown>[]; exchanges: ObservationExchange[];
+  sourceHandleId: string; observedRevision: number; place?: Field;
+  notes: Record<string, Note>; baseNotes: Record<string, Note>; accounts: Record<string, Account>;
+  observationFailure?: ObservationExchange;
+  externalStatus: { label: string; status: string; warningCount: number };
+  activity?: { label: string; command: string; outcome: string };
+};
+
+export type NoteRelationshipIntent = {
+  place: { id: string; label: string; installRevision: number; relays: string[]; excludeContentWarnings: boolean };
+  noteId: string; eventHandleId: string; source: 'local' | 'relays'; draft: RelationshipActionDraft;
+  knownNotes: Record<string, Note>; knownAccounts: Record<string, Account>;
+};
+
+export type NoteRelationshipResolution = {
+  kind: 'note-relationship'; placeId: string; noteId: string; eventHandleId: string;
+  relationship: NoteRelationship; source: 'local' | 'relays'; attempt: NoteRelationshipAttempt;
+  commands: Record<string, unknown>[]; exchanges: ObservationExchange[]; sourceHandleId: string;
+  observedRevision: number; place?: Field; notes: Record<string, Note>; baseNotes: Record<string, Note>;
+  accounts: Record<string, Account>; observationFailure?: ObservationExchange;
+  externalStatus?: { label: string; status: string; warningCount: number };
+  activity?: { label: string; command: string; outcome: string };
+};
+
+export type AuthorResolutionIntent = {
+  place: { id: string; handleId: string; installRevision: number };
+  draft: AuthorResolutionDraft;
+};
+
+export type ResolvedAuthorProfile = { accountId: string; profile: ProfileObservation; observedRevision: number };
+
+export type AuthorResolutionResolution = {
+  kind: 'author-resolution'; placeId: string; commands: Record<string, unknown>[];
+  exchanges: ObservationExchange[]; sourceHandleId: string; observedRevision: number;
+  attempt: import('./data').AuthorResolutionAttempt; accounts: Record<string, Account>;
+  profiles: ResolvedAuthorProfile[];
+  externalStatus?: { label: string; status: string; warningCount: number };
+  activity?: { label: string; command: string; outcome: string };
 };
 
 export type ControllerFactory = typeof liveController;
@@ -459,6 +526,279 @@ export async function resolveAccountNotes(
   };
 }
 
+export async function resolveProfileHydration(
+  intent: ProfileHydrationIntent,
+  controllerFactory: ControllerFactory = liveController,
+): Promise<ProfileHydrationResolution> {
+  const draft = sanitizeExternalDraft(intent.draft);
+  const handleId = uniqueHandle('atlas-profile-events');
+  const hydrate = { command: 'hydrate', input: intent.engineHandleId, parameters: { ...draft, kinds: [0] }, resultId: handleId };
+  const inspect = inspectCommand({ type: 'account', id: intent.accountId });
+  const commands = [hydrate, inspect];
+  const relayError = validateRelayDraft(draft.relays);
+  if (relayError) {
+    const failed = localFailure(relayError, hydrate);
+    return profileFailure(intent, draft, handleId, commands, failed.exchanges, relayError);
+  }
+  try {
+    const outcomes = await executeSequence(commands, controllerFactory);
+    const hydrated = outcomes[0]; const inspected = outcomes[1];
+    const evidence = object(inspected.result.evidence); const claims = object(evidence.profile);
+    const external = object(hydrated.result.external); const completeness = object(external.completeness);
+    const resolved = boolean(inspected.result.resolved) && Object.keys(claims).length > 0;
+    const attemptStatus = string(external.status) || string(completeness.attemptStatus);
+    const profile: ProfileObservation = {
+      status: !resolved ? 'unresolved' : attemptStatus === 'partial' ? 'partial' : 'available',
+      relays: [...draft.relays], command: hydrate, supportingHandleId: handleId, external, completeness, claims,
+      resolution: { resident: boolean(inspected.result.resident), resolved: boolean(inspected.result.resolved), source: string(inspected.result.resolutionSource) || undefined },
+      provenance: presentObject({ summary: inspected.result.provenance, evidence: evidence.provenance, observationCount: evidence.observationCount, omittedObservationCount: evidence.omittedObservationCount }),
+    };
+    return {
+      kind: 'profile-hydration', placeId: intent.place.id, accountId: intent.accountId, engineHandleId: intent.engineHandleId,
+      profile, commands, exchanges: outcomes.map((outcome, index) => exchange(commands[index], outcome)),
+      sourceHandleId: handleId, observedRevision: number(inspected.response.sessionRevision) || intent.place.installRevision,
+      externalStatus: { label: 'Profile hydration', status: (attemptStatus || 'BOUNDED').toUpperCase(), warningCount: Array.isArray(hydrated.response.warnings) ? hydrated.response.warnings.length : 0 },
+      activity: { label: 'Executed dedicated profile hydration draft', command: JSON.stringify(hydrate), outcome: `${Object.keys(claims).length ? 'Profile claims observed' : 'Profile unresolved'} · place unchanged` },
+    };
+  } catch (error) {
+    const failure = error instanceof ResolverFailure ? error : localFailure(errorMessage(error), hydrate);
+    return profileFailure(intent, draft, handleId, commands, failure.exchanges, errorMessage(error));
+  }
+}
+
+function profileFailure(intent: ProfileHydrationIntent, draft: ExternalActionDraft, handleId: string, commands: Record<string, unknown>[], exchanges: ObservationExchange[], error: string): ProfileHydrationResolution {
+  return {
+    kind: 'profile-hydration', placeId: intent.place.id, accountId: intent.accountId, engineHandleId: intent.engineHandleId,
+    profile: { status: 'failure', relays: [...draft.relays], command: commands[0], supportingHandleId: handleId, error },
+    commands, exchanges, sourceHandleId: exchanges.length > 1 ? handleId : intent.engineHandleId,
+    observedRevision: lastExchangeRevision(exchanges, intent.place.installRevision),
+    externalStatus: { label: 'Profile hydration', status: 'FAILURE', warningCount: 0 },
+  };
+}
+
+export async function resolveAuthoredNotes(
+  intent: AuthoredNotesIntent,
+  controllerFactory: ControllerFactory = liveController,
+): Promise<AuthoredNotesResolution> {
+  const draft = sanitizeAuthoredDraft(intent.draft);
+  const handleId = uniqueHandle('atlas-authored-notes');
+  const { eventLimit, relays, ...externalDraft } = draft;
+  const command = { command: 'continue', input: intent.engineHandleId, parameters: { relationship: 'authored-notes', source: 'relays', relays, eventLimit, ...externalDraft }, resultId: handleId };
+  const commands: Record<string, unknown>[] = [command];
+  const relayError = validateRelayDraft(relays);
+  if (relayError) return authoredFailure(intent, draft, handleId, commands, localFailure(relayError, command).exchanges, relayError);
+  let continued: ExecutedCommand;
+  try { continued = await execute(command, controllerFactory); }
+  catch (error) {
+    const failure = error instanceof ResolverFailure ? error : localFailure(errorMessage(error), command);
+    return authoredFailure(intent, draft, handleId, commands, failure.exchanges, errorMessage(error));
+  }
+  const handle = object(continued.result.handle); const count = number(handle.count);
+  const external = object(continued.result.external); const completeness = object(continued.result.completeness);
+  const show = boundedShowCommand(handleId, 0, count); commands.push(show);
+  let shown: ExecutedCommand | undefined; let observationFailure: ObservationExchange | undefined;
+  try { shown = await execute(show, controllerFactory); } catch (error) { observationFailure = failureExchange(show, error); }
+  const status = isPartial(completeness) || isPartial(external) || observationFailure ? 'partial' : count > 0 ? 'available' : 'empty';
+  const authoredNotes: AuthoredNotesRequest = { status, relays: [...relays], command, external, completeness, handleId, count, eventLimit };
+  const exchanges = [exchange(command, continued), ...(shown ? [exchange(show, shown)] : observationFailure ? [observationFailure] : [])];
+  const installRevision = number(handle.revision) || number(continued.response.sessionRevision);
+  const branch = eventBranch({
+    handleId, installRevision, count, command, receipt: continued.receipt, relays, draft: { ...DEFAULT_DRAFT, author: intent.accountId, limit: eventLimit, excludeContentWarnings: draft.excludeContentWarnings },
+    shown, observationFailure, label: `${intent.accountName} · authored notes`, reason: `Explicit authored-note relay research for ${shortKey(intent.accountId)}.`, sourceKind: 'authored-notes',
+    external: { ...external, completeness }, knownNotes: intent.knownNotes, knownAccounts: intent.knownAccounts,
+  });
+  return {
+    kind: 'authored-notes', placeId: intent.place.id, accountId: intent.accountId, engineHandleId: intent.engineHandleId,
+    authoredNotes, commands, exchanges, sourceHandleId: handleId, observedRevision: lastExchangeRevision(exchanges, installRevision),
+    place: branch.place, notes: branch.notes, baseNotes: branch.baseNotes, accounts: branch.accounts, observationFailure,
+    externalStatus: { label: 'Authored-note acquisition', status: (string(completeness.attemptStatus) || string(external.status) || 'BOUNDED').toUpperCase(), warningCount: Array.isArray(continued.response.warnings) ? continued.response.warnings.length : 0 },
+    activity: { label: 'Executed authored-note draft and opened branch', command: JSON.stringify(commands), outcome: observationFailure ? `${count} event subjects retained · branch opened · first preview unavailable · Ground unchanged` : `${count} event subjects · branch opened · Ground unchanged` },
+  };
+}
+
+function authoredFailure(intent: AuthoredNotesIntent, draft: AuthoredActionDraft, handleId: string, commands: Record<string, unknown>[], exchanges: ObservationExchange[], error: string): AuthoredNotesResolution {
+  return {
+    kind: 'authored-notes', placeId: intent.place.id, accountId: intent.accountId, engineHandleId: intent.engineHandleId,
+    authoredNotes: { status: 'failure', relays: [...draft.relays], eventLimit: draft.eventLimit, command: commands[0], handleId, error },
+    commands, exchanges, sourceHandleId: exchanges.length > 1 ? handleId : intent.engineHandleId,
+    observedRevision: lastExchangeRevision(exchanges, intent.place.installRevision), notes: {}, baseNotes: {}, accounts: {},
+    externalStatus: { label: 'Authored-note acquisition', status: 'FAILURE', warningCount: 0 },
+  };
+}
+
+export async function resolveNoteRelationship(
+  intent: NoteRelationshipIntent,
+  controllerFactory: ControllerFactory = liveController,
+): Promise<NoteRelationshipResolution> {
+  const draft = sanitizeRelationshipDraft(intent.draft);
+  const handleId = uniqueHandle(`atlas-${intent.source === 'local' ? 'local' : 'relay'}-${draft.relationship}`);
+  const { relationship, eventLimit, relays, ...external } = draft;
+  const parameters = intent.source === 'local' ? { relationship, source: 'local', eventLimit } : { relationship, source: 'relays', relays, eventLimit, ...external };
+  const command = { command: 'continue', input: intent.eventHandleId, parameters, resultId: handleId };
+  const commands: Record<string, unknown>[] = [command];
+  const relayError = intent.source === 'relays' ? validateRelayDraft(relays) : null;
+  if (relayError) return relationshipFailure(intent, draft, handleId, commands, localFailure(relayError, command).exchanges, relayError);
+  let continued: ExecutedCommand;
+  try { continued = await execute(command, controllerFactory); }
+  catch (error) {
+    const failure = error instanceof ResolverFailure ? error : localFailure(errorMessage(error), command);
+    return relationshipFailure(intent, draft, handleId, commands, failure.exchanges, errorMessage(error));
+  }
+  const handle = object(continued.result.handle); const count = number(handle.count); const completeness = object(continued.result.completeness);
+  const show = boundedShowCommand(handleId, 0, count); commands.push(show);
+  let shown: ExecutedCommand | undefined; let observationFailure: ObservationExchange | undefined;
+  try { shown = await execute(show, controllerFactory); } catch (error) { observationFailure = failureExchange(show, error); }
+  const attempt: NoteRelationshipAttempt = {
+    status: relationshipAttemptStatus(count, completeness, observationFailure), relationship, source: intent.source,
+    relays: intent.source === 'local' ? [] : [...relays], command, handleId, count,
+    installRevision: number(handle.revision) || number(continued.response.sessionRevision), completeness,
+    ...(intent.source === 'relays' ? { external: presentObject({ coverage: continued.result.coverage, counts: continued.result.counts, completionReason: continued.result.completionReason }) } : {}),
+  };
+  const exchanges = [exchange(command, continued), ...(shown ? [exchange(show, shown)] : observationFailure ? [observationFailure] : [])];
+  const local = intent.source === 'local';
+  const branch = eventBranch({
+    handleId, installRevision: attempt.installRevision!, count, command, receipt: continued.receipt,
+    relays: local ? [] : relays, draft: { ...DEFAULT_DRAFT, limit: eventLimit, excludeContentWarnings: draft.excludeContentWarnings },
+    shown, observationFailure, label: `${relationshipLabel(relationship)} · ${local ? 'local' : 'relays'}`,
+    reason: local ? `Local resident-memory ${relationship} from ${shortKey(intent.noteId)}.` : `Explicit bounded relay ${relationship} research from ${shortKey(intent.noteId)}.`,
+    sourceKind: local ? 'local-note-relationship' : 'note-relationship', external: local ? undefined : { status: completeness.status, completeness },
+    localSourceLabel: local ? intent.place.label : undefined, knownNotes: intent.knownNotes, knownAccounts: intent.knownAccounts,
+  });
+  return {
+    kind: 'note-relationship', placeId: intent.place.id, noteId: intent.noteId, eventHandleId: intent.eventHandleId,
+    relationship, source: intent.source, attempt, commands, exchanges, sourceHandleId: handleId,
+    observedRevision: lastExchangeRevision(exchanges, attempt.installRevision!), place: branch.place,
+    notes: branch.notes, baseNotes: branch.baseNotes, accounts: branch.accounts, observationFailure,
+    ...(local ? {} : { externalStatus: { label: `Note ${relationship}`, status: (string(completeness.status) || 'BOUNDED').toUpperCase(), warningCount: Array.isArray(continued.response.warnings) ? continued.response.warnings.length : 0 } }),
+    activity: { label: local ? 'Opened local note-relationship branch' : 'Executed note-relationship relay draft and opened branch', command: JSON.stringify(commands), outcome: local ? `${count} resident event subjects · Ground unchanged · no relay contacted` : `${count} event subjects · branch opened including bounded zero · Ground unchanged` },
+  };
+}
+
+function relationshipFailure(intent: NoteRelationshipIntent, draft: RelationshipActionDraft, handleId: string, commands: Record<string, unknown>[], exchanges: ObservationExchange[], error: string): NoteRelationshipResolution {
+  return {
+    kind: 'note-relationship', placeId: intent.place.id, noteId: intent.noteId, eventHandleId: intent.eventHandleId,
+    relationship: draft.relationship, source: intent.source,
+    attempt: { status: 'failure', relationship: draft.relationship, source: intent.source, relays: intent.source === 'local' ? [] : [...draft.relays], command: commands[0], handleId, error },
+    commands, exchanges, sourceHandleId: intent.eventHandleId, observedRevision: lastExchangeRevision(exchanges, intent.place.installRevision),
+    notes: {}, baseNotes: {}, accounts: {},
+    ...(intent.source === 'relays' ? { externalStatus: { label: `Note ${draft.relationship}`, status: 'FAILURE', warningCount: 0 } } : {}),
+  };
+}
+
+export async function resolveAuthors(
+  intent: AuthorResolutionIntent,
+  controllerFactory: ControllerFactory = liveController,
+): Promise<AuthorResolutionResolution> {
+  const draft = sanitizeAuthorResolutionDraft(intent.draft);
+  const authorHandleId = uniqueHandle('atlas-place-authors'); const supportingHandleId = uniqueHandle('atlas-place-profiles');
+  const { authorLimit, ...external } = draft;
+  const move = { command: 'move', input: intent.place.handleId, parameters: { to: 'authors', limit: authorLimit }, resultId: authorHandleId };
+  const show = boundedShowCommand(authorHandleId, 0, authorLimit);
+  const hydrate = { command: 'hydrate', input: authorHandleId, parameters: { ...external, kinds: [0] }, resultId: supportingHandleId };
+  const planned = [move, show, hydrate]; const relayError = validateRelayDraft(draft.relays);
+  if (relayError) return authorFailure(intent, draft, planned, [], relayError, authorHandleId, supportingHandleId);
+  const outcomes: ExecutedCommand[] = [];
+  try {
+    outcomes.push(await execute(move, controllerFactory));
+    outcomes.push(await execute(show, controllerFactory));
+    const authorIds = subjectIds(outcomes[1].result); const authorBounds = responseBounds(outcomes[1].result);
+    const authorOmissions = presentObject({ omitted: outcomes[1].result.omitted, omittedBefore: outcomes[1].result.omittedBefore, omittedAfter: outcomes[1].result.omittedAfter }) ?? {};
+    const authorBoundarySized = authorIds.length >= authorLimit;
+    const authorSourcePartial = boolean(object(object(outcomes[1].result.context).cardinality).truncated)
+      || Object.values(authorOmissions).some((value) => number(value) > 0);
+    const accounts = Object.fromEntries(authorIds.map((id) => [id, liveAccount(id)]));
+    if (!authorIds.length) {
+      const commands = planned.slice(0, 2); const exchanges = outcomes.map((outcome, index) => exchange(commands[index], outcome));
+      return {
+        kind: 'author-resolution', placeId: intent.place.id, commands, exchanges, sourceHandleId: authorHandleId,
+        observedRevision: lastExchangeRevision(exchanges, intent.place.installRevision), accounts, profiles: [],
+        attempt: { status: authorSourcePartial ? 'partial' : 'empty', relays: [...draft.relays], commands, authorHandleId, authorCount: 0, resolvedCount: 0, unresolvedCount: 0, failedCount: 0, completeness: { status: authorSourcePartial ? 'partial' : 'empty', scope: 'resident-place-authors', emptyValidResult: !authorSourcePartial }, authorBounds, authorOmissions, authorBoundarySized },
+      };
+    }
+    outcomes.push(await execute(hydrate, controllerFactory));
+    const hydrated = outcomes[2]; const externalResult = object(hydrated.result.external); const completeness = object(externalResult.completeness);
+    let resolvedCount = 0; let unresolvedCount = 0; let failedCount = 0;
+    const inspectCommands: Record<string, unknown>[] = []; const inspectionExchanges: ObservationExchange[] = []; const profiles: ResolvedAuthorProfile[] = [];
+    for (const accountId of authorIds) {
+      const inspect = inspectCommand({ type: 'account', id: accountId }); inspectCommands.push(inspect);
+      try {
+        const inspected = await execute(inspect, controllerFactory); inspectionExchanges.push(exchange(inspect, inspected));
+        const evidence = object(inspected.result.evidence); const claims = object(evidence.profile);
+        const resolved = boolean(inspected.result.resolved) && Object.keys(claims).length > 0;
+        const profile: ProfileObservation = {
+          status: resolved ? (isPartial(completeness) ? 'partial' : 'available') : 'unresolved', relays: [...draft.relays], command: hydrate,
+          supportingHandleId, external: externalResult, completeness, claims,
+          resolution: { resident: boolean(inspected.result.resident), resolved: boolean(inspected.result.resolved), source: string(inspected.result.resolutionSource) || undefined },
+          provenance: presentObject({ summary: inspected.result.provenance, evidence: evidence.provenance, observationCount: evidence.observationCount, omittedObservationCount: evidence.omittedObservationCount }),
+        };
+        profiles.push({ accountId, profile, observedRevision: number(inspected.response.sessionRevision) || intent.place.installRevision });
+        if (resolved) resolvedCount += 1; else unresolvedCount += 1;
+      } catch (error) {
+        failedCount += 1; inspectionExchanges.push(error instanceof ResolverFailure ? error.exchanges.at(-1)! : failureExchange(inspect, error));
+      }
+    }
+    const commands = [...planned, ...inspectCommands];
+    const exchanges = [exchange(move, outcomes[0]), exchange(show, outcomes[1]), exchange(hydrate, outcomes[2]), ...inspectionExchanges];
+    const partial = authorSourcePartial || isPartial(completeness) || failedCount > 0;
+    const status = partial ? 'partial' : resolvedCount ? 'available' : 'unresolved';
+    return {
+      kind: 'author-resolution', placeId: intent.place.id, commands, exchanges, sourceHandleId: supportingHandleId,
+      observedRevision: lastExchangeRevision(exchanges, number(hydrated.response.sessionRevision) || intent.place.installRevision), accounts, profiles,
+      attempt: { status, relays: [...draft.relays], commands, authorHandleId, supportingHandleId, authorCount: authorIds.length, resolvedCount, unresolvedCount, failedCount, external: externalResult, completeness, authorBounds, authorOmissions, authorBoundarySized },
+      externalStatus: { label: 'Resolve authors in this place', status: (status === 'partial' ? 'PARTIAL' : string(completeness.attemptStatus) || string(externalResult.status) || status).toUpperCase(), warningCount: Array.isArray(hydrated.response.warnings) ? hydrated.response.warnings.length : 0 },
+      activity: { label: 'Resolved authors in this place explicitly', command: JSON.stringify(commands), outcome: `${resolvedCount} resolved · ${unresolvedCount} unresolved · ${failedCount} failed · place unchanged` },
+    };
+  } catch (error) {
+    const failure = error instanceof ResolverFailure ? error : localFailure(errorMessage(error), planned[outcomes.length] ?? move);
+    const completed = outcomes.map((outcome, index) => exchange(planned[index], outcome));
+    return authorFailure(intent, draft, planned, [...completed, ...failure.exchanges], errorMessage(error), authorHandleId, supportingHandleId);
+  }
+}
+
+function authorFailure(intent: AuthorResolutionIntent, draft: AuthorResolutionDraft, commands: Record<string, unknown>[], exchanges: ObservationExchange[], error: string, authorHandleId: string, supportingHandleId: string): AuthorResolutionResolution {
+  return {
+    kind: 'author-resolution', placeId: intent.place.id, commands, exchanges,
+    sourceHandleId: exchanges.length > 1 ? authorHandleId : intent.place.handleId,
+    observedRevision: lastExchangeRevision(exchanges, intent.place.installRevision), accounts: {}, profiles: [],
+    attempt: { status: 'failure', relays: [...draft.relays], commands, authorHandleId, supportingHandleId, error },
+    externalStatus: { label: 'Resolve authors in this place', status: 'FAILURE', warningCount: 0 },
+  };
+}
+
+function eventBranch(input: {
+  handleId: string; installRevision: number; count: number; command: Record<string, unknown>; receipt: Record<string, unknown>;
+  relays: string[]; draft: QueryDraft; shown?: ExecutedCommand; observationFailure?: ObservationExchange;
+  label: string; reason: string; sourceKind: 'authored-notes' | 'local-note-relationship' | 'note-relationship';
+  external?: Record<string, unknown>; localSourceLabel?: string; knownNotes: Record<string, Note>; knownAccounts: Record<string, Account>;
+}) {
+  const shownResult = input.shown?.result ?? {};
+  const presentation = presentNotes(objectArray(shownResult.preview), input.knownNotes, input.knownAccounts);
+  const noteIds = presentation.noteIds; const placeId = `branch:${input.handleId}`;
+  const timestamps = Object.values(presentation.notes).map((note) => note.timestamp).filter((value) => value > 0);
+  const nextOffset = number(shownResult.nextOffset) || number(shownResult.offset) + noteIds.length;
+  const completeness = object(input.external?.completeness); const local = Boolean(input.localSourceLabel);
+  const place: Field = {
+    id: placeId, label: input.label, description: `${noteIds.length} displayed of ${input.count} ${local ? 'locally derived' : 'retained'} event subjects.`,
+    noteIds, handleId: input.handleId, installRevision: input.installRevision, role: 'branch', resultKind: 'events', countingUnit: string(shownResult.countUnit) || 'subjects',
+    originCommand: input.command, originReceipt: input.receipt, navigatorReason: input.reason, projection: 'stream', localPageOffset: nextOffset,
+    selected: { type: 'none', id: '' }, selectedFacet: null, localConstraints: { text: '' }, observationSnapshots: [],
+    declaredBounds: presentObject({ requestBudget: object(shownResult.context).budget, response: input.shown ? responseBounds(shownResult) : undefined, completeness: completeness.boundsReached }) ?? {},
+    declaredOmissions: presentObject({ omitted: shownResult.omitted, omittedBefore: shownResult.omittedBefore, omittedAfter: shownResult.omittedAfter, observationUnavailable: input.observationFailure ? true : undefined }) ?? {},
+    evidenceResolution: object(object(shownResult.summary).evidenceResolution), accountResearch: {}, noteResearch: {}, mediaLoads: {},
+    authorResolution: { draftOpen: false, draft: { relays: [...input.relays], authorLimit: 20, timeoutMs: 10000, observationLimit: 80, distinctEventLimit: 60, concurrency: 2, excludeContentWarnings: input.draft.excludeContentWarnings } },
+    runtime: { fieldId: placeId, sourceKind: input.sourceKind, handleId: input.handleId, pageHandleId: input.handleId, total: input.count, nextOffset, handleAddedCount: noteIds.length, relays: [...input.relays], draft: input.draft, newestTimestamp: timestamps.length ? Math.max(...timestamps) : 0, oldestTimestamp: timestamps.length ? Math.min(...timestamps) : 0 },
+    conditions: local ? { source: `Local memory · ${input.localSourceLabel}`, terminal: 'LOCAL', excludedWarnings: 0, uncertainty: input.observationFailure ? 'The local branch handle was installed, but its first bounded preview is unavailable.' : 'A bounded subset of Ground rows; no relay was contacted.', partial: Boolean(input.observationFailure) || boolean(object(object(shownResult.context).cardinality).truncated) }
+      : { source: input.relays.join(' · '), terminal: string(completeness.attemptStatus).toUpperCase() || string(completeness.status).toUpperCase() || string(input.external?.status).toUpperCase() || 'BOUNDED', excludedWarnings: number(completeness.excludedContentWarnings), uncertainty: input.observationFailure ? 'The external handle was installed, but its first bounded preview is unavailable.' : input.sourceKind === 'authored-notes' ? 'Bounded authored-note evidence from displayed relays; network completeness is not implied.' : 'A bounded relay attempt was made; relay and network completeness are not implied.', partial: Boolean(input.observationFailure) || isPartial(completeness) || string(input.external?.status) === 'partial' },
+  };
+  place.observationSnapshots.push({
+    id: `atlas-resolver-observation-${++nextResolverHandle}`, target: { type: 'place', id: place.id }, sourceHandleId: place.handleId,
+    observedRevision: input.shown ? number(input.shown.response.sessionRevision) : input.installRevision, locality: 'local',
+    exchanges: input.shown ? [exchange(boundedShowCommand(place.handleId, 0, input.count), input.shown)] : input.observationFailure ? [input.observationFailure] : [],
+    facts: input.shown ? input.shown.result : { status: 'failure', unavailable: true, error: input.observationFailure ? errorMessageFromExchange(input.observationFailure) : 'Observation unavailable.' },
+  });
+  return { place, notes: presentation.notes, baseNotes: presentation.baseNotes, accounts: presentation.accounts };
+}
+
 async function resolveNoteObservation(intent: SubjectObservationIntent, controllerFactory: ControllerFactory): Promise<NoteObservationResolution> {
   if (intent.subject.type !== 'note') throw new Error('Expected a note observation intent.');
   const { place } = intent;
@@ -730,6 +1070,60 @@ function validateDraft(draft: QueryDraft) {
 }
 export function validateSearchRelayCount(draft: QueryDraft, relays: string[]) {
   return draft.search.trim() && relays.length !== 1 ? 'Experimental NIP-50 text search requires exactly one selected relay.' : null;
+}
+export function freshAccountResearchDraft(publicKey: string): QueryDraft {
+  return { ...DEFAULT_DRAFT, author: publicKey, hours: 0, includeFilterLimit: false };
+}
+export function acquisitionDraftCommand(draft: QueryDraft, relays: string[]) {
+  return acquisitionCommand('draft-result', cleanDraft(draft), relays);
+}
+export function relationshipDraftCommand(eventHandleId: string, draft: RelationshipActionDraft) {
+  const cleaned = sanitizeRelationshipDraft(draft); const { relationship, eventLimit, relays, ...external } = cleaned;
+  return { command: 'continue', input: eventHandleId, parameters: { relationship, source: 'relays', relays, eventLimit, ...external }, resultId: 'draft-result' };
+}
+export function authorResolutionDraftCommands(placeHandleId: string, draft: AuthorResolutionDraft) {
+  const cleaned = sanitizeAuthorResolutionDraft(draft); const { authorLimit, ...external } = cleaned;
+  return [
+    { command: 'move', input: placeHandleId, parameters: { to: 'authors', limit: authorLimit }, resultId: 'draft-authors' },
+    boundedShowCommand('draft-authors', 0, authorLimit),
+    { command: 'hydrate', input: 'draft-authors', parameters: { ...external, kinds: [0] }, resultId: 'draft-profiles' },
+  ];
+}
+export function sanitizeExternalDraft<T extends ExternalActionDraft>(draft: T): T {
+  return {
+    ...draft, relays: [...new Set(draft.relays.map((relay) => relay.trim()).filter(Boolean))],
+    timeoutMs: boundedInteger(draft.timeoutMs, 1, 60000), observationLimit: Math.max(1, Math.round(draft.observationLimit)),
+    distinctEventLimit: Math.max(1, Math.round(draft.distinctEventLimit)), concurrency: boundedInteger(draft.concurrency, 1, 10),
+  };
+}
+export function sanitizeAuthoredDraft(draft: AuthoredActionDraft): AuthoredActionDraft {
+  return { ...sanitizeExternalDraft(draft), eventLimit: boundedInteger(draft.eventLimit, 1, 100) };
+}
+export function sanitizeRelationshipDraft(draft: RelationshipActionDraft): RelationshipActionDraft {
+  return { ...sanitizeExternalDraft(draft), relationship: draft.relationship, eventLimit: boundedInteger(draft.eventLimit, 1, 100) };
+}
+export function sanitizeAuthorResolutionDraft(draft: AuthorResolutionDraft): AuthorResolutionDraft {
+  return { ...sanitizeExternalDraft(draft), authorLimit: boundedInteger(draft.authorLimit, 1, 20) };
+}
+function validateRelayDraft(relays: string[]) {
+  if (!relays.length) return 'Enter at least one visible wss:// relay.';
+  if (relays.some((relay) => { try { return new URL(relay).protocol !== 'wss:'; } catch { return true; } })) return 'Every relay target must be a valid wss:// URL.';
+  return null;
+}
+function relationshipAttemptStatus(count: number, completeness: Record<string, unknown>, observationFailure?: ObservationExchange) {
+  if (observationFailure || isPartial(completeness)) return 'partial' as const;
+  return count ? 'available' as const : 'empty' as const;
+}
+function isPartial(completeness: Record<string, unknown>) {
+  return string(completeness.status) === 'partial' || string(completeness.attemptStatus) === 'partial'
+    || (Array.isArray(completeness.boundsReached) && completeness.boundsReached.length > 0);
+}
+function relationshipLabel(value: NoteRelationship) {
+  return ({ ancestors: 'Parent / ancestors', replies: 'Replies', quotes: 'Quoted events', mentions: 'Mentioned events', 'referenced-events': 'Referenced events' })[value];
+}
+function lastExchangeRevision(exchanges: ObservationExchange[], fallback: number) {
+  for (const item of [...exchanges].reverse()) if (Number.isSafeInteger(item.response.sessionRevision)) return item.response.sessionRevision as number;
+  return fallback;
 }
 function queryFilter(draft: QueryDraft): Record<string, unknown> {
   const filter: Record<string, unknown> = { kinds: [1] };
