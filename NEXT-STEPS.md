@@ -192,6 +192,21 @@ duplicate History and repeated facet-row actions are removed. The slice changes
 only caller-side arrangement and UI state; engine/controller behavior, explicit
 request semantics, immutable handles, and evidence disclosure remain unchanged.
 
+That slice validated state and execution coherence but did not validate the
+human interface. Its default vocabulary still exposes too much of Atlas's
+internal model and remains more confusing than the deleted Solid explorer.
+The next Atlas product experiment is therefore the replacement human surface in
+[`HUMAN-EXPLORER-SPEC.md`](./experiments/nostrarium-atlas/HUMAN-EXPLORER-SPEC.md).
+It keeps the proven action/store/resolver foundation while translating the
+default interface back to results, notes, accounts, related material, facets,
+and explicit browse/search. Handles, commands, bounds, provenance, and request
+lifecycle remain available as evidence rather than primary navigation.
+
+Do not add new engine operations or facet families during this replacement.
+First prove that a person can complete the specified note/account voyage
+without learning the engine's vocabulary. Only then should additional research
+lenses be introduced through the same coherent boundary.
+
 ## Promotion rule
 
 After several voyages, compare them before writing code.
