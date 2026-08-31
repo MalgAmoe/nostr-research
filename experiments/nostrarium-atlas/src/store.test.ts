@@ -27,7 +27,7 @@ beforeEach(() => {
   notes.other = { ...notes.event, id: 'other', content: 'branch note' };
   fields.ground = place('ground', 'handle-ground', 'event');
   fields.branch = place('branch', 'handle-branch', 'other');
-  useAtlasStore.setState({ ...initialAtlasState, history: ['start'], pinnedNoteIds: [], pinnedAccountIds: [], activities: [] });
+  useAtlasStore.setState({ ...initialAtlasState, history: ['start'], activities: [] });
 });
 
 describe('Atlas place boundary', () => {
@@ -45,6 +45,7 @@ describe('Atlas place boundary', () => {
     const history = [...useAtlasStore.getState().history];
     useAtlasStore.getState().commitSelection('ground', { type: 'note', id: 'event' });
     useAtlasStore.getState().commitSelection('ground', { type: 'account', id: 'author' });
+    expect(useAtlasStore.getState().commitSelection('ground', { type: 'note', id: 'other' }, false, true)).toBe(false);
     expect(useAtlasStore.getState().history).toEqual(history);
     expect(currentLocation(useAtlasStore.getState()).target).toEqual({ type: 'account', id: 'author' });
     expect(currentPlaceId(useAtlasStore.getState())).toBe('ground');

@@ -59,19 +59,6 @@ export type AuthorResolutionDraft = ExternalActionDraft & { authorLimit: number 
 
 export type FieldSourceKind = 'query' | 'authored-notes' | 'local-account-notes' | 'local-note-relationship' | 'note-relationship';
 
-export type AcquiredPhase = {
-  type: 'acquired';
-  sourceKind: Exclude<FieldSourceKind, 'local-account-notes'>;
-  handleId: string;
-  installRevision: number;
-  count: number;
-  command: Record<string, unknown>;
-  receipt: Record<string, unknown>;
-  coverage: Record<string, unknown> | null;
-  relays: string[];
-  draft: QueryDraft;
-};
-
 export type ActiveLiveField = {
   fieldId: string;
   sourceKind: FieldSourceKind;
@@ -85,8 +72,3 @@ export type ActiveLiveField = {
   newestTimestamp: number;
   oldestTimestamp: number;
 };
-
-export type LivePhase =
-  | { type: 'idle' }
-  | { type: 'working'; stage: 'profile' | 'authored' | 'relationship' | 'authors'; command: Record<string, unknown> | Record<string, unknown>[] }
-  | { type: 'failure'; stage: 'profile' | 'authored' | 'relationship' | 'authors'; message: string; command?: Record<string, unknown> | Record<string, unknown>[] };

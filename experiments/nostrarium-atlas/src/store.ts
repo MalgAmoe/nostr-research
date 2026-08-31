@@ -44,8 +44,6 @@ export type AtlasData = {
   history: string[];
   historyIndex: number;
   groundPlaceId: string | null;
-  pinnedNoteIds: string[];
-  pinnedAccountIds: string[];
   activities: Activity[];
   nextActivity: number;
   guideVisible: boolean;
@@ -82,7 +80,7 @@ export type AtlasStore = AtlasData & {
   commitAccountProjection: (resolution: AccountProjectionResolution) => void;
   commitAccountFacet: (resolution: AccountFacetResolution) => void;
   commitAccountNotes: (resolution: AccountNotesResolution) => void;
-  commitSelection: (placeId: string, target: InspectorTarget, facet?: boolean) => boolean;
+  commitSelection: (placeId: string, target: InspectorTarget, facet?: boolean, memberOnly?: boolean) => boolean;
   commitObservationStarted: (placeId: string, type: 'note' | 'account', id: string) => void;
   commitObservation: (resolution: SubjectObservationResolution) => void;
   commitObservationFailure: (placeId: string, type: 'note' | 'account', id: string, error: string, exchanges: ObservationExchange[]) => void;
@@ -112,21 +110,15 @@ export type AtlasStore = AtlasData & {
   back: () => void;
   forward: () => void;
   jump: (index: number) => void;
-  openPinnedNote: (id: string) => void;
-  openPinnedAccount: (id: string) => void;
   setView: (view: PlaceProjection) => void;
   setQuery: (query: string) => void;
-  toggleNotePin: (id: string) => void;
-  toggleAccountPin: (id: string) => void;
   setMediaLoad: (placeId: string, noteId: string, url: string, status: MediaLoadState) => void;
   dismissGuide: () => void;
-  recordActivity: (label: string, command: string, outcome: string) => void;
-  fieldUpdated: () => void;
 };
 
 export const initialAtlasState: AtlasData = {
   history: ['start'], historyIndex: 0, groundPlaceId: null,
-  pinnedNoteIds: [], pinnedAccountIds: [], activities: [], nextActivity: 0,
+  activities: [], nextActivity: 0,
   guideVisible: true, fieldRevision: 0,
   acquisition: {
     panelOpen: true, relays: DEFAULT_RELAYS.map((relay) => ({ ...relay })), relaySearch: '',
@@ -362,11 +354,11 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
       activities: [{ id: nextActivity, label: 'Opened local account-note branch', command: JSON.stringify(resolution.commands), outcome: resolution.observationFailure ? 'Branch handle installed · first preview unavailable · Ground unchanged · no relay contacted' : `${resolution.place.noteIds.length} event subjects · Ground unchanged · no relay contacted` }, ...state.activities].slice(0, 20),
     };
   }),
-  commitSelection: (placeId, target, facet = false) => {
+  commitSelection: (placeId, target, facet = false, memberOnly = false) => {
     let selected = false;
     set((state) => {
       const place = fields[placeId];
-      if (!place || !target.id) return state;
+      if (!place || !target.id || (memberOnly && target.type === 'note' && !place.noteIds.includes(target.id))) return state;
       if (target.type === 'note' && !place.noteIds.includes(target.id) && !notes[target.id]) {
         place.selected = target; selected = true;
       } else if (target.type === 'account' && accounts[target.id]) {
@@ -577,24 +569,8 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
   back: () => set((state) => state.historyIndex > 0 ? { historyIndex: state.historyIndex - 1 } : state),
   forward: () => set((state) => state.historyIndex < state.history.length - 1 ? { historyIndex: state.historyIndex + 1 } : state),
   jump: (index) => set((state) => Number.isInteger(index) && index >= 0 && index < state.history.length ? { historyIndex: index } : state),
-  openPinnedNote: (id) => set((state) => {
-    if (!notes[id]) return state;
-    const fieldId = Object.values(fields).find((field) => field.noteIds.includes(id))?.id;
-    if (!fieldId) return state;
-    fields[fieldId].selected = { type: 'note', id };
-    return { ...visit(state, fieldId), fieldRevision: state.fieldRevision + 1 };
-  }),
-  openPinnedAccount: (id) => set((state) => {
-    if (!accounts[id]) return state;
-    const fieldId = fields[currentPlaceId(state)] ? currentPlaceId(state) : state.groundPlaceId;
-    if (!fieldId || !fields[fieldId]) return state;
-    fields[fieldId].selected = { type: 'account', id };
-    return { fieldRevision: state.fieldRevision + 1 };
-  }),
   setView: (view) => set((state) => mutateCurrent(state, (fieldId) => { fields[fieldId].projection = view; })),
   setQuery: (query) => set((state) => mutateCurrent(state, (fieldId) => { fields[fieldId].localConstraints.text = query; })),
-  toggleNotePin: (id) => set((state) => state.pinnedNoteIds.includes(id) ? { pinnedNoteIds: state.pinnedNoteIds.filter((item) => item !== id) } : notes[id] ? { pinnedNoteIds: [...state.pinnedNoteIds, id] } : state),
-  toggleAccountPin: (id) => set((state) => state.pinnedAccountIds.includes(id) ? { pinnedAccountIds: state.pinnedAccountIds.filter((item) => item !== id) } : accounts[id] ? { pinnedAccountIds: [...state.pinnedAccountIds, id] } : state),
   setMediaLoad: (placeId, noteId, url, status) => set((state) => {
     const place = fields[placeId];
     const knownSubject = Boolean(notes[noteId]) || noteId.startsWith('profile:');
@@ -603,11 +579,6 @@ export const useAtlasStore = create<AtlasStore>((set) => ({
     return { fieldRevision: state.fieldRevision + 1 };
   }),
   dismissGuide: () => set({ guideVisible: false }),
-  recordActivity: (label, command, outcome) => set((state) => {
-    const nextActivity = state.nextActivity + 1;
-    return { nextActivity, activities: [{ id: nextActivity, label, command, outcome }, ...state.activities].slice(0, 20) };
-  }),
-  fieldUpdated: () => set((state) => ({ fieldRevision: state.fieldRevision + 1 })),
 }));
 
 function ensureAccountResearch(placeId: string, accountId: string): AccountResearchState {

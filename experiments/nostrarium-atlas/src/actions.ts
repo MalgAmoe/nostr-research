@@ -1,7 +1,7 @@
 import { accounts, fields, notes, observationFor, type Field, type InspectorTarget, type MediaLoadState, type NoteObservation, type PlaceProjection } from './data';
 import type { AuthorResolutionDraft, AuthoredActionDraft, ExternalActionDraft, NoteRelationship, QueryDraft, RelationshipActionDraft } from './live-types';
 import {
-  acquisitionDraftCommand, acquisitionDraftError, authorResolutionDraftCommands, cleanAcquisitionDraft, freshAccountResearchDraft,
+  acquisitionDraftCommand, authorResolutionDraftCommands, cleanAcquisitionDraft, freshAccountResearchDraft,
   relationshipDraftCommand, ResolverFailure, resolveAcquisition, resolveSubjectObservation,
   resolveAccountFacet, resolveAccountNotes, resolveAccountProjection, resolvePlacePage,
   resolveAuthoredNotes, resolveAuthors, resolveNoteRelationship, resolveProfileHydration,
@@ -14,7 +14,7 @@ import {
 } from './resolvers';
 import type { WorkspaceSurface } from './store';
 import {
-  authoredOperationKey, authorsOperationKey, currentPlaceId, placeOperationKey, profileOperationKey,
+  authoredOperationKey, authorsOperationKey, placeOperationKey, profileOperationKey,
   relationshipOperationKey, subjectOperationKey, useAtlasStore,
 } from './store';
 
@@ -55,8 +55,6 @@ export type NavigatorActions = {
   observeSubject(placeId: string, type: 'note' | 'account', id: string): Promise<void>;
   activatePlace(placeId: string): void;
   removePlace(placeId: string): void;
-  toggleNotePin(noteId: string): void;
-  toggleAccountPin(accountId: string): void;
   dismissGuide(): void;
   navigateBack(): void;
   navigateForward(): void;
@@ -130,10 +128,10 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
     }
   };
 
-  const selectAndObserve = (placeId: string, target: Extract<InspectorTarget, { type: 'note' | 'account' | 'address' }>, facet = false) => {
-    const selected = useAtlasStore.getState().commitSelection(placeId, target, facet);
-    if (!selected || target.type === 'address') return;
-    void observe(placeId, target.type, target.id);
+  const selectAndObserve = (placeId: string, target: Extract<InspectorTarget, { type: 'note' | 'account' | 'address' }>, facet = false, memberOnly = false) => {
+    const selected = useAtlasStore.getState().commitSelection(placeId, target, facet, memberOnly);
+    if (selected && target.type !== 'address') void observe(placeId, target.type, target.id);
+    return selected;
   };
 
   return {
@@ -345,16 +343,14 @@ export function createNavigatorActions(dependencies: ActionDependencies): Naviga
       } catch (error) { settleUnexpectedExternalFailure(key, 'authors', error, { placeId, installRevision: place.installRevision }); }
     },
     selectNote: (placeId, noteId) => {
-      if (fields[placeId]?.noteIds.includes(noteId)) { selectAndObserve(placeId, { type: 'note', id: noteId }); useAtlasStore.getState().setWorkspaceSurface('inspector'); }
+      if (selectAndObserve(placeId, { type: 'note', id: noteId }, false, true)) useAtlasStore.getState().setWorkspaceSurface('inspector');
     },
-    selectAccount: (placeId, accountId) => { selectAndObserve(placeId, { type: 'account', id: accountId }); useAtlasStore.getState().setWorkspaceSurface('inspector'); },
-    selectAccountFacet: (placeId, accountId) => { selectAndObserve(placeId, { type: 'account', id: accountId }, true); useAtlasStore.getState().setWorkspaceSurface('inspector'); },
+    selectAccount: (placeId, accountId) => { if (selectAndObserve(placeId, { type: 'account', id: accountId })) useAtlasStore.getState().setWorkspaceSurface('inspector'); },
+    selectAccountFacet: (placeId, accountId) => { if (selectAndObserve(placeId, { type: 'account', id: accountId }, true)) useAtlasStore.getState().setWorkspaceSurface('inspector'); },
     selectExactSubject: (placeId, target) => selectAndObserve(placeId, target),
     observeSubject: (placeId, type, id) => observe(placeId, type, id, true),
     activatePlace: (placeId) => useAtlasStore.getState().activatePlace(placeId),
     removePlace: (placeId) => useAtlasStore.getState().removePlace(placeId),
-    toggleNotePin: (noteId) => useAtlasStore.getState().toggleNotePin(noteId),
-    toggleAccountPin: (accountId) => useAtlasStore.getState().toggleAccountPin(accountId),
     dismissGuide: () => useAtlasStore.getState().dismissGuide(),
     navigateBack: () => useAtlasStore.getState().back(),
     navigateForward: () => useAtlasStore.getState().forward(),
@@ -377,18 +373,6 @@ export const navigatorActions = createNavigatorActions({
   resolveNoteRelationship,
   resolveAuthors,
 });
-
-export function visibleAcquisitionError(draft: QueryDraft, relays: string[]) {
-  return acquisitionDraftError(draft, relays);
-}
-
-export function selectedAcquisitionRelays() {
-  return useAtlasStore.getState().acquisition.relays.filter((relay) => relay.selected).map((relay) => relay.url);
-}
-
-export function activePlaceId() {
-  return currentPlaceId(useAtlasStore.getState());
-}
 
 function accountObservationIntent(place: Field, accountId: string): SubjectObservationIntent {
   const projection = place.accountProjection?.status === 'available' && place.accountProjection.accountIds.includes(accountId)

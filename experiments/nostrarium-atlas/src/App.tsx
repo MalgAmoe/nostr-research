@@ -8,14 +8,13 @@ import { navigatorActions } from './actions';
 import { LiveQueryButton, LiveQueryPanel } from './LiveQuery';
 import { currentPlaceId, placeOperationKey, useAtlasStore } from './store';
 
-function Icon({ name, size = 18 }: { name: 'back' | 'forward' | 'search' | 'stream' | 'gallery' | 'pin' | 'reply' | 'account' | 'activity' | 'close'; size?: number }) {
+function Icon({ name, size = 18 }: { name: 'back' | 'forward' | 'search' | 'stream' | 'gallery' | 'reply' | 'account' | 'activity' | 'close'; size?: number }) {
   const paths: Record<string, React.ReactNode> = {
     back: <><path d="m15 18-6-6 6-6"/><path d="M9 12h10"/></>,
     forward: <><path d="m9 18 6-6-6-6"/><path d="M5 12h10"/></>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     stream: <><path d="M5 6h14M5 12h14M5 18h14"/></>,
     gallery: <><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m4 16 4-4 3 3 3-4 6 6"/></>,
-    pin: <><path d="m12 17-5 3 1-6-4-4 6-1 2-5 2 5 6 1-4 4 1 6z"/></>,
     reply: <><path d="m9 17-5-5 5-5"/><path d="M4 12h10a6 6 0 0 1 6 6"/></>,
     account: <><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></>,
     activity: <><path d="M4 12h3l2-6 4 12 2-6h5"/></>,
@@ -286,7 +285,6 @@ function NoteDoors({ note, placeId, observation }: { note: Note; placeId: string
 function NoteInspector({ note, placeId }: { note: Note; placeId: string }) {
   useAtlasStore((state) => state.fieldRevision);
   const account = accounts[note.authorId];
-  const pinned = useAtlasStore((state) => state.pinnedNoteIds.includes(note.id));
   const field = fieldFor(placeId);
   const observation = observationFor<NoteObservation>(placeId, 'note', note.id);
   const relationshipGroups = observation ? [['Referenced events', observation.referencedEvents], ['Referenced accounts', observation.referencedAccounts], ['Referenced addresses', observation.referencedAddresses]] as const : [];
@@ -310,7 +308,7 @@ function NoteInspector({ note, placeId }: { note: Note; placeId: string }) {
       </details>
       <NoteDoors note={note} placeId={placeId} observation={observation}/>
     </>}
-    <NoteAttachments note={note} placeId={placeId}/><div className="inspector-actions"><button className={pinned ? 'secondary-action is-pinned' : 'secondary-action'} onClick={() => navigatorActions.toggleNotePin(note.id)}><Icon name="pin"/> {pinned ? 'Pinned' : 'Pin note'}</button></div>
+    <NoteAttachments note={note} placeId={placeId}/>
     <ObservationDisclosure placeId={placeId} type="note" id={note.id}/>
     <p className="inspector-boundary">Selection retained this place, projection, page offset, facets, constraints, and acquisition draft.</p>
   </div>;
@@ -350,7 +348,6 @@ function DraftFields({ kind, state, placeId, accountId }: { kind: 'profile' | 'a
 
 function AccountInspector({ account, placeId }: { account: Account; placeId: string }) {
   useAtlasStore((state) => state.fieldRevision);
-  const pinned = useAtlasStore((state) => state.pinnedAccountIds.includes(account.id));
   const busy = useResearchBusy();
   const activeDraft = useAtlasStore((state) => state.inspectorDraft);
   const place = fieldFor(placeId);
@@ -372,7 +369,6 @@ function AccountInspector({ account, placeId }: { account: Account; placeId: str
       {activeDraft?.placeId === placeId && activeDraft?.subjectId === account.id && activeDraft?.kind === 'authored' && (!research.authoredNotes || research.authoredNotes.status === 'loading' || research.authoredNotes.status === 'failure') && <section className="contextual-draft"><DraftFields kind="authored" state={research} placeId={placeId} accountId={account.id}/><button className="external-action" disabled={!research.engineHandleId || !research.authoredDraft.relays.length || busy} onClick={() => navigatorActions.requestAuthoredNotes(placeId, account.id)}><Icon name="stream"/><span><strong>{research.authoredNotes?.status === 'loading' ? 'Requesting authored notes…' : 'Execute and open authored-note branch'}</strong><small>Relay request · opens immutable branch</small></span></button></section>}
       {research.authoredNotes && research.authoredNotes.status !== 'loading' && <section className={`attempt-summary authored-result is-${research.authoredNotes.status}`}><strong>Authored attempt · {research.authoredNotes.status}</strong><span>{research.authoredNotes.error ?? `${research.authoredNotes.count ?? 0} events · handle ${research.authoredNotes.handleId ?? 'unavailable'}`}</span><details className="evidence-details"><summary>Command, bounds, completeness, and external facts</summary><pre>{JSON.stringify(research.authoredNotes, null, 2)}</pre></details></section>}
     </>}
-    <div className="inspector-actions"><button className={pinned ? 'secondary-action is-pinned' : 'secondary-action'} onClick={() => navigatorActions.toggleAccountPin(account.id)}><Icon name="pin"/> {pinned ? 'Pinned' : 'Pin account'}</button></div>
     <ObservationDisclosure placeId={placeId} type="account" id={account.id}/>
     <p className="profile-warning">Profile and authored actions use separate editable drafts prefilled from this place’s producing relays. Neither reads the main acquisition draft.</p>
   </div>;
