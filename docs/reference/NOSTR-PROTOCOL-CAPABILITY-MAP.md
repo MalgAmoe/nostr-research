@@ -1,6 +1,6 @@
 # Nostr protocol and relay capability map
 
-Status: protocol-side audit of the repository, updated on 2026-07-29 after the
+Status: reference audit of the repository, updated on 2026-07-29 after the
 relationship, reference, relay-visibility, count, and content-fact milestones.
 
 ## Purpose

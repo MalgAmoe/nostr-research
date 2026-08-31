@@ -46,13 +46,13 @@ notebook entries, named memberships, and handles.
 ## Project documents
 
 - [CONTEXT.md](./CONTEXT.md) contains durable principles and terminology.
-- [VESSELS.md](./VESSELS.md) contains the current conclusions from vessel and
-  playful-voyage experiments.
+- [docs/voyages/VESSELS.md](./docs/voyages/VESSELS.md) contains the conclusions
+  from the completed vessel and playful-voyage experiments.
 - [NEXT-STEPS.md](./NEXT-STEPS.md) contains the active direction and promotion
   rules for future work.
-- [CONTROL-AND-DATA-MAP.md](./CONTROL-AND-DATA-MAP.md) maps the available
+- [docs/reference/CONTROL-AND-DATA-MAP.md](./docs/reference/CONTROL-AND-DATA-MAP.md) maps the available
   controls and evidence surfaces.
-- [NOSTR-PROTOCOL-CAPABILITY-MAP.md](./NOSTR-PROTOCOL-CAPABILITY-MAP.md) maps
+- [docs/reference/NOSTR-PROTOCOL-CAPABILITY-MAP.md](./docs/reference/NOSTR-PROTOCOL-CAPABILITY-MAP.md) maps
   protocol coverage and possible future capabilities.
 - [docs/voyages/](./docs/voyages/) contains completed trial journals and
   artifacts. They are evidence, not current guidance.

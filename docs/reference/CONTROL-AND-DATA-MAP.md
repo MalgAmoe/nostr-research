@@ -658,12 +658,12 @@ This inventory does not decide:
 - whether a human interface presents rows, maps, cards, trails, or several
   synchronized views.
 
-The first round of those experiments is complete. Its current conclusions are
-in [`VESSELS.md`](./VESSELS.md), while the detailed evidence is archived under
-[`docs/voyages/`](./docs/voyages/).
+The first round of those experiments is complete. Its conclusions are in
+[`VESSELS.md`](../voyages/VESSELS.md), while the detailed evidence remains
+under [`docs/voyages/`](../voyages/).
 
 Those trials confirmed that coherent postures alter journeys, but also showed
 that not every useful arrangement deserves to become a named vessel. Current
-systems and composers live under [`experiments/`](./experiments/), where
+systems and composers live under [`experiments/`](../../experiments/), where
 multiple overlapping interpretations can be tested without turning one into
 the canonical layer above the controller.

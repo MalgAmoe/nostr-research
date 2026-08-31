@@ -3,8 +3,8 @@
 This directory contains completed Nostrarium research trials. It is historical
 evidence, not the current operating guide.
 
-For the current conclusions, read [`VESSELS.md`](../../VESSELS.md). For the
-engine and controller, start with the repository
+For the completed phase conclusions, read [`VESSELS.md`](./VESSELS.md). For
+the engine and controller, start with the repository
 [`README.md`](../../README.md) and [`CLI.md`](../../CLI.md).
 
 ## Current experimental voyages

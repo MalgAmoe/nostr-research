@@ -53,7 +53,8 @@ not belong exclusively to Field, Navigate, Analyze, or Collect.
 
 ## Product conclusion
 
-The current vessel synthesis is in [`VESSELS.md`](./VESSELS.md).
+The completed vessel synthesis is in
+[`VESSELS.md`](./docs/voyages/VESSELS.md).
 
 The important distinction is:
 
@@ -150,7 +151,7 @@ The goal is not to find the perfect layer above the controller. It is to make
 different good-faith interpretations cheap to build and safe to fail.
 
 The first product-level interaction contract is recorded in
-[`INTERACTION-SPEC.md`](./INTERACTION-SPEC.md). Its first Atlas vertical slice
+[`INTERACTION-SPEC.md`](./experiments/nostrarium-atlas/INTERACTION-SPEC.md). Its first Atlas vertical slice
 is complete and voyage-tested: explicit acquisition establishes immutable
 Ground, a bounded account-frequency facet overlaps local branching and relay-
 draft preparation, selected notes and accounts retain local observations,
@@ -263,12 +264,12 @@ have it.
 - [`README.md`](./README.md): project entry point.
 - [`CLI.md`](./CLI.md): practical operating guide.
 - [`CONTEXT.md`](./CONTEXT.md): durable principles and terminology.
-- [`VESSELS.md`](./VESSELS.md): current vessel conclusions.
-- [`CONTROL-AND-DATA-MAP.md`](./CONTROL-AND-DATA-MAP.md): engine controls and
+- [`VESSELS.md`](./docs/voyages/VESSELS.md): completed vessel conclusions.
+- [`CONTROL-AND-DATA-MAP.md`](./docs/reference/CONTROL-AND-DATA-MAP.md): engine controls and
   evidence surfaces.
-- [`INTERACTION-SPEC.md`](./INTERACTION-SPEC.md): product-level navigator
+- [`INTERACTION-SPEC.md`](./experiments/nostrarium-atlas/INTERACTION-SPEC.md): Atlas navigator
   places, facets, projections, doors, and first browser vertical slice.
-- [`NOSTR-PROTOCOL-CAPABILITY-MAP.md`](./NOSTR-PROTOCOL-CAPABILITY-MAP.md):
+- [`NOSTR-PROTOCOL-CAPABILITY-MAP.md`](./docs/reference/NOSTR-PROTOCOL-CAPABILITY-MAP.md):
   protocol coverage and possible future capabilities.
 - [`docs/voyages/`](./docs/voyages/): historical voyage journals and artifacts.
 - [`packages/nostr-research/README.md`](./packages/nostr-research/README.md):

@@ -1,8 +1,8 @@
 # Vessels
 
-This document is the current synthesis of Nostrarium's vessel experiments.
-Detailed protocols and raw voyage records live under
-[`docs/voyages/`](./docs/voyages/).
+This document is the synthesis of Nostrarium's completed vessel-experiment
+phase. Detailed protocols and raw voyage records live alongside it in this
+directory.
 
 ## Definition
 
@@ -133,7 +133,7 @@ framing is most valuable when it creates an entrance and remains falsifiable:
 
 The briefs exposed useful instruments, not six additional vessels. Their
 detailed evidence is in
-[`PLAYFUL-EXPERIMENT-SUITE.md`](./docs/voyages/history/PLAYFUL-EXPERIMENT-SUITE.md).
+[`PLAYFUL-EXPERIMENT-SUITE.md`](./history/PLAYFUL-EXPERIMENT-SUITE.md).
 
 ## Current conclusion
 

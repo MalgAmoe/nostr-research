@@ -1,6 +1,6 @@
 # Nostrarium navigator interaction specification
 
-Status: first product-level interaction specification for experimentation.
+Status: product-level interaction specification explored by Atlas.
 
 ## Purpose
 
