@@ -1,0 +1,161 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #090b0d;
+  color: #edf0eb;
+  --surface: #111519;
+  --surface-raised: #171c20;
+  --line: #293138;
+  --muted: #8d989e;
+  --accent: #c8f57a;
+  --accent-ink: #11180a;
+  --danger: #ff8d85;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 760px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(104, 153, 118, 0.13), transparent 30rem),
+    #090b0d;
+}
+
+button, select, textarea, input { font: inherit; }
+
+button {
+  border: 0;
+  border-radius: 0.55rem;
+  padding: 0.62rem 0.9rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled { cursor: not-allowed; opacity: 0.42; }
+
+button.quiet {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: #d9dfda;
+}
+
+.shell { padding: 1.25rem; }
+
+.topbar, .setup, .panel header, .composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+h1, h2, p { margin: 0; }
+h1 { font-size: 1.25rem; font-weight: 600; }
+h2 { font-size: 1.05rem; margin-top: 0.2rem; }
+
+.eyebrow {
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.muted, .state { color: var(--muted); font-size: 0.78rem; }
+
+.setup {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: rgba(17, 21, 25, 0.9);
+}
+
+.setup-controls { display: flex; align-items: end; gap: 0.65rem; }
+
+label { display: grid; gap: 0.35rem; color: var(--muted); font-size: 0.75rem; }
+
+select, textarea, input {
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: #0d1013;
+  color: #edf0eb;
+  padding: 0.62rem;
+}
+
+select { min-width: 11rem; }
+
+.login-prompt { display: flex; align-items: end; gap: 0.5rem; }
+.login-prompt[hidden] { display: none; }
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(22rem, 0.9fr) minmax(28rem, 1.1fr);
+  gap: 1rem;
+  height: calc(100vh - 10.4rem);
+  min-height: 32rem;
+}
+
+.panel {
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: rgba(17, 21, 25, 0.94);
+  overflow: hidden;
+}
+
+.panel header { padding: 0.75rem 0.9rem; border-bottom: 1px solid var(--line); }
+
+.conversation { display: grid; grid-template-rows: auto 1fr auto; }
+.messages { overflow: auto; padding: 1rem; }
+
+.message {
+  max-width: 88%;
+  margin-bottom: 0.9rem;
+  padding: 0.72rem 0.8rem;
+  border-radius: 0.72rem;
+  background: var(--surface-raised);
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.message.user { margin-left: auto; background: #26331f; }
+.message.error { color: var(--danger); border: 1px solid #613532; }
+
+.composer { padding: 0.8rem; border-top: 1px solid var(--line); }
+.composer textarea { width: 100%; resize: none; }
+.composer-actions { margin-top: 0.55rem; justify-content: flex-end; }
+
+.right-column { display: grid; grid-template-rows: minmax(12rem, 0.7fr) minmax(18rem, 1.3fr); gap: 1rem; min-height: 0; }
+.activity, .evidence { overflow: auto; height: calc(100% - 2.7rem); }
+.activity { padding: 0.75rem; }
+
+.activity-item {
+  padding: 0.58rem 0;
+  border-bottom: 1px solid rgba(41, 49, 56, 0.7);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+}
+
+.activity-item strong { color: #d8e6d0; }
+.activity-item span { color: var(--muted); }
+
+.evidence {
+  margin: 0;
+  padding: 0.85rem;
+  color: #cad5ce;
+  font: 0.74rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 920px) {
+  body { min-width: 0; }
+  .workspace { grid-template-columns: 1fr; height: auto; }
+  .conversation { min-height: 32rem; }
+  .right-column { min-height: 42rem; }
+  .setup { align-items: stretch; flex-direction: column; }
+  .setup-controls { flex-wrap: wrap; }
+}

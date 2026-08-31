@@ -1,16 +1,16 @@
 # Nostrarium
 
-Nostrarium develops research and navigation through the Nostr field. Its
-foundation is a composable, UI-independent research engine and a small neutral
-controller. Above them, disposable experiments explore many ways of operating,
-composing, and experiencing the same evidence.
+Nostrarium develops agent-operated research and navigation through the Nostr
+field. Its foundation is a composable, UI-independent research engine and a
+small neutral controller. The current product direction is a local desktop
+application in which an embedded agent operates that foundation while a human
+directs the voyage, inspects evidence, and owns the conclusions.
 
 ```text
 packages/nostr-research/    UI-independent research library and JSONL session
 packages/nostrarium-controller/  Neutral controller with Node and browser transports
-experiments/schema-composer/  Schema-backed command and observation composer
-experiments/flight-console/   Research sensors, movements, and engine escape
-experiments/overlap-cockpits/ Bridge, Parallax, and Expedition experiments
+apps/nostrarium-desktop/    Local agent-operated application tracer
+experiments/                Completed disposable interface and composition trials
 workflow/                   Worker/reviewer task generator
 ```
 
@@ -38,6 +38,12 @@ browser Worker transports.
 
 Disposable interpretations live under [`experiments/`](./experiments/).
 Stable engine and controller packages do not depend on them.
+
+The desktop-agent feasibility decision and first implementation milestone are
+in
+[`docs/reference/DESKTOP-AGENT-FEASIBILITY.md`](./docs/reference/DESKTOP-AGENT-FEASIBILITY.md).
+The application will embed Pi's lower-level agent libraries; users will not
+install or run Pi separately.
 
 Persistence and a database format are deliberately absent. Closing or
 resetting the session, or exiting the process, loses all resident evidence,

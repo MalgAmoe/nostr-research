@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>Nostrarium</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Nostrarium</p>
+          <h1>Navigate Nostr with an agent</h1>
+        </div>
+        <button id="reset" class="quiet" type="button">New voyage</button>
+      </header>
+
+      <section id="setup" class="setup" aria-labelledby="setup-title">
+        <div>
+          <p class="eyebrow">Agent connection</p>
+          <h2 id="setup-title">Choose an inference account</h2>
+          <p id="setup-status" class="muted">Loading providers…</p>
+        </div>
+        <div class="setup-controls">
+          <label>
+            Provider
+            <select id="provider"></select>
+          </label>
+          <button id="login" type="button">Sign in</button>
+          <label>
+            Model
+            <select id="model"></select>
+          </label>
+        </div>
+        <form id="login-prompt" class="login-prompt" hidden>
+          <label id="login-label" for="login-answer">Authentication response</label>
+          <input id="login-answer" autocomplete="off">
+          <select id="login-select" hidden></select>
+          <button type="submit">Continue</button>
+        </form>
+      </section>
+
+      <section class="workspace">
+        <article class="conversation panel">
+          <header>
+            <p class="eyebrow">Conversation</p>
+            <span id="agent-state" class="state">Not connected</span>
+          </header>
+          <div id="messages" class="messages" aria-live="polite"></div>
+          <form id="composer" class="composer">
+            <textarea id="prompt" rows="3" placeholder="Ask the agent to begin a voyage…" disabled></textarea>
+            <div class="composer-actions">
+              <button id="abort" class="quiet" type="button" disabled>Stop</button>
+              <button id="send" type="submit" disabled>Send</button>
+            </div>
+          </form>
+        </article>
+
+        <aside class="right-column">
+          <section class="panel activity-panel">
+            <header>
+              <p class="eyebrow">Movement</p>
+              <span class="muted">Visible commands</span>
+            </header>
+            <div id="activity" class="activity"></div>
+          </section>
+
+          <section class="panel evidence-panel">
+            <header>
+              <p class="eyebrow">Evidence</p>
+              <span id="evidence-kind" class="muted">Nothing selected</span>
+            </header>
+            <pre id="evidence" class="evidence">The agent's bounded research results will appear here.</pre>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <script type="module" src="./renderer.js"></script>
+  </body>
+</html>

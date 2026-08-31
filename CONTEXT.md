@@ -3,13 +3,21 @@
 ## Purpose
 
 Nostrarium is a project for research, navigation, and exploration of Nostr. It
-is not being shaped as a conventional feed client. Its job is to help a person
-acquire evidence, inspect it, navigate relationships, preserve useful collections,
-and understand why a result is present.
+is not being shaped as a conventional feed client. Its job is to help a human
+and an embedded research agent acquire evidence, inspect it, navigate
+relationships, preserve useful collections, and understand why a result is
+present. The agent operates the research system; the human directs the voyage,
+intervenes, inspects evidence, and owns the conclusions.
 
 The product foundation is a UI-independent library. The CLI, functional
 verification, agents, and any future adapters are consumers of that library;
 no presentation layer defines the domain boundary.
+
+The first product application is local rather than hosted. It embeds the agent
+runtime, provider authentication, engine, and controller in one installed
+desktop application while keeping the visible renderer isolated from Node and
+credentials. This choice does not change the engine's runtime-neutral or
+browser-compatible boundary.
 
 ## Settled principles
 
@@ -32,6 +40,9 @@ no presentation layer defines the domain boundary.
   included in a query, relationship traversal, or named notebook membership.
 - Persistence and a database format are deliberately absent. Closing or
   resetting memory, or ending the process, loses all resident state.
+- Nostr content is untrusted evidence. An embedded agent receives only bounded
+  Nostrarium research operations, never coding, shell, filesystem, arbitrary
+  network, credential, or executable-UI authority.
 
 ## Shared terms
 
