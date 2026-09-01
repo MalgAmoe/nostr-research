@@ -220,31 +220,59 @@ function finishStep(event) {
   if (!step) return;
   const details = event.result?.details;
   const outcome = details?.response ? details : null;
+  const batch = Array.isArray(details?.executions) ? details : null;
+  const failedResponse = batch?.executions.find(({ receipt }) => receipt?.ok === false);
   step.node.classList.remove('running');
-  step.node.classList.toggle('failed', event.isError || outcome?.response?.ok === false);
-  step.status.textContent = event.isError || outcome?.response?.ok === false ? 'failed' : 'complete';
+  step.node.classList.toggle('failed', event.isError || outcome?.response?.ok === false || failedResponse);
+  step.status.textContent = event.isError || outcome?.response?.ok === false || failedResponse
+    ? 'failed' : 'complete';
   step.result.className = 'step-result';
-  step.result.replaceChildren(...resultFacts(outcome, event));
+  step.result.replaceChildren(...(batch ? batchResultFacts(batch) : resultFacts(outcome, event)));
 
-  step.node.append(lazyRawDetails(outcome, event));
+  step.node.append(lazyRawDetails(details, event));
 
   if (outcome) retainEvidence(outcome, stepNumberFor(step.node));
+  for (const execution of batch?.executions ?? []) {
+    retainEvidence(execution, stepNumberFor(step.node));
+  }
   pendingNarration = step;
   step.node.scrollIntoView({ block: 'end' });
 }
 
-function lazyRawDetails(outcome, event) {
+function lazyRawDetails(details, event) {
   const raw = document.createElement('details');
   raw.className = 'step-raw';
   const summary = document.createElement('summary');
-  summary.textContent = 'Raw command and response';
+  const batchExecutions = Array.isArray(details?.executions) ? details.executions : null;
+  summary.textContent = batchExecutions
+    ? 'Raw commands and responses'
+    : 'Raw command and response';
   const pre = document.createElement('pre');
-  pre.textContent = 'Open to load the retained controller record.';
+  pre.textContent = batchExecutions
+    ? 'Open to load the retained controller records.'
+    : 'Open to load the retained controller record.';
   let loaded = false;
   raw.addEventListener('toggle', async () => {
     if (!raw.open || loaded) return;
     loaded = true;
-    const commandId = outcome?.receipt?.commandId;
+    if (batchExecutions) {
+      pre.textContent = 'Loading retained command records…';
+      try {
+        const executions = await Promise.all(batchExecutions.map(async (execution) => ({
+          intent: execution.intent,
+          record: await api.commandRecord(execution.receipt.commandId),
+        })));
+        pre.textContent = JSON.stringify({
+          intent: details.intent,
+          batch: details.batch,
+          executions,
+        }, null, 2);
+      } catch (error) {
+        pre.textContent = `Unable to load the retained command records: ${error?.message ?? error}`;
+      }
+      return;
+    }
+    const commandId = details?.receipt?.commandId;
     if (!commandId) {
       pre.textContent = JSON.stringify(event.result, null, 2);
       return;
@@ -252,7 +280,7 @@ function lazyRawDetails(outcome, event) {
     pre.textContent = 'Loading retained command record…';
     try {
       const record = await api.commandRecord(commandId);
-      pre.textContent = JSON.stringify({ intent: outcome.intent, ...record }, null, 2);
+      pre.textContent = JSON.stringify({ intent: details.intent, ...record }, null, 2);
     } catch (error) {
       pre.textContent = `Unable to load the retained command record: ${error?.message ?? error}`;
     }
@@ -293,6 +321,26 @@ function resultFacts(outcome, event) {
   if (receipt.warnings?.length) nodes.push(fact('Warnings', receipt.warnings.join(' '), 'warning'));
   if (receipt.error) nodes.push(fact('Error', `${receipt.error.code}: ${receipt.error.message}`, 'error'));
   return nodes.length ? nodes : [fact('Result', 'Command completed; no compact result facts declared.')];
+}
+
+function batchResultFacts(details) {
+  const nodes = [fact(
+    'Batch',
+    `${details.batch.executed} of ${details.batch.requested} commands executed`,
+    details.batch.stoppedOnFailure ? 'warning' : '',
+  )];
+  for (const execution of details.executions) {
+    const receipt = execution.receipt ?? {};
+    const label = execution.command?.command ?? 'command';
+    if (receipt.error) {
+      nodes.push(fact(label, `${receipt.error.code}: ${receipt.error.message}`, 'error'));
+    } else if (receipt.handle) {
+      nodes.push(fact(label, `${receipt.handle.id} · ${receipt.handle.kind} · ${receipt.handle.count}`));
+    } else {
+      nodes.push(fact(label, receipt.ok ? 'completed' : 'failed'));
+    }
+  }
+  return nodes;
 }
 
 function fact(label, value, className = '') {
@@ -336,6 +384,9 @@ function resolutionText(result) {
 }
 
 function describeCommand(request) {
+  if (Array.isArray(request.commands)) {
+    return `Run ${request.commands.length} predetermined commands`;
+  }
   const command = request.command ?? request.action ?? 'research';
   const source = request.input ? ` from ${request.input}` : '';
   const destination = request.resultId ? ` into ${request.resultId}` : '';

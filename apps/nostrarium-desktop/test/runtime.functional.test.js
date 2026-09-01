@@ -13,6 +13,7 @@ test('an embedded agent operates one persistent research session through the vis
   const events = [];
   const sessionIds = [];
   let exposedTools;
+  let initialSystemPrompt;
   const runtime = createDesktopRuntime({
     credentials: new InMemoryCredentialStore(),
     providers: [faux.provider],
@@ -23,6 +24,7 @@ test('an embedded agent operates one persistent research session through the vis
     (context, options) => {
       sessionIds.push(options?.sessionId);
       exposedTools = context.tools.map(({ name }) => name);
+      initialSystemPrompt = context.systemPrompt;
       return fauxAssistantMessage(fauxToolCall('nostrarium', {
         intent: 'Establish whether the research session is ready.',
         command: 'status', parameters: {},
@@ -54,6 +56,13 @@ test('an embedded agent operates one persistent research session through the vis
   ]);
   assert.equal(sessionIds.length, 2);
   assert.deepEqual(exposedTools, ['nostrarium', 'nostrarium_attention', 'nostrarium_recipes']);
+  assert.match(initialSystemPrompt, /<nostrarium_agent_guide>/u);
+  assert.match(initialSystemPrompt, /# Desktop navigator guide/u);
+  assert.match(initialSystemPrompt, /## Predetermined command batches/u);
+  assert.match(initialSystemPrompt, /## Discover commands without guessing/u);
+  assert.match(initialSystemPrompt, /`show` uses `previewLimit`, not operation `limit`/u);
+  assert.match(initialSystemPrompt, /It pages a fixed handle\s+order/u);
+  assert.doesNotMatch(initialSystemPrompt, /npm run research-session/u);
   assert.equal(sessionIds[0], sessionIds[1]);
   assert.match(sessionIds[0], /^nostrarium-/);
   assert.ok(events.some((event) => event.type === 'message-delta'));
@@ -71,6 +80,138 @@ test('an embedded agent operates one persistent research session through the vis
     'wss://relay.primal.net/',
     'wss://relay.snort.social/',
   ]);
+
+  await runtime.close();
+});
+
+test('one tool call can execute a transparent sequence of predetermined ordinary commands', async () => {
+  const faux = fauxProvider();
+  const events = [];
+  const runtime = createDesktopRuntime({
+    credentials: new InMemoryCredentialStore(),
+    providers: [faux.provider],
+    emit: (event) => events.push(event),
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('nostrarium', {
+      intent: 'Create and inspect a small deterministic field without another research decision.',
+      commands: [
+        {
+          intent: 'Create a bounded corpus view.',
+          command: 'select', parameters: { scope: 'corpus', limit: 10 }, resultId: 'batch-field',
+        },
+        {
+          intent: 'Take one deterministic sample from that view.',
+          command: 'sample', input: 'batch-field', parameters: { limit: 1 }, resultId: 'batch-sample',
+        },
+        {
+          intent: 'Observe the sample summary.',
+          command: 'show', input: 'batch-sample', parameters: { mode: 'summary' },
+        },
+      ],
+    }), { stopReason: 'toolUse' }),
+    fauxAssistantMessage('The predetermined sequence completed in one model round.'),
+  ]);
+
+  await runtime.selectModel(faux.provider.id, faux.getModel().id);
+  await runtime.prompt('Run the already-decided setup and observation sequence.');
+
+  const toolEnd = events.find((event) => event.type === 'tool-end');
+  assert.equal(toolEnd?.isError, false);
+  assert.deepEqual(toolEnd.result.details.batch, {
+    requested: 3,
+    executed: 3,
+    stoppedOnFailure: false,
+  });
+  assert.deepEqual(
+    toolEnd.result.details.executions.map(({ command, response }) => ({
+      command: command.command,
+      ok: response.ok,
+    })),
+    [
+      { command: 'select', ok: true },
+      { command: 'sample', ok: true },
+      { command: 'show', ok: true },
+    ],
+  );
+  assert.equal(runtime.state().research.transcript.retainedEntries, 3);
+  assert.match(toolEnd.result.content[0].text, /"executions"/u);
+
+  await runtime.close();
+});
+
+test('a transparent command sequence stops after its first failed response', async () => {
+  const faux = fauxProvider();
+  const events = [];
+  const runtime = createDesktopRuntime({
+    credentials: new InMemoryCredentialStore(),
+    providers: [faux.provider],
+    emit: (event) => events.push(event),
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('nostrarium', {
+      intent: 'Verify that dependent predetermined commands do not run after failure.',
+      commands: [
+        { intent: 'Check the current state.', command: 'status' },
+        { intent: 'Deliberately exercise a semantic failure.', command: 'does-not-exist' },
+        { intent: 'This dependent command must not execute.', command: 'list' },
+      ],
+    }), { stopReason: 'toolUse' }),
+    fauxAssistantMessage('The sequence stopped at the failed command.'),
+  ]);
+
+  await runtime.selectModel(faux.provider.id, faux.getModel().id);
+  await runtime.prompt('Exercise batch failure behavior.');
+
+  const toolEnd = events.find((event) => event.type === 'tool-end');
+  assert.deepEqual(toolEnd.result.details.batch, {
+    requested: 3,
+    executed: 2,
+    stoppedOnFailure: true,
+  });
+  assert.equal(toolEnd.result.details.executions[1].response.ok, false);
+  assert.equal(runtime.state().research.transcript.retainedEntries, 2);
+
+  await runtime.close();
+});
+
+test('large command batches keep model and UI projections bounded while controller records remain complete', async () => {
+  const faux = fauxProvider();
+  const events = [];
+  const runtime = createDesktopRuntime({
+    credentials: new InMemoryCredentialStore(),
+    providers: [faux.provider],
+    emit: (event) => events.push(event),
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('nostrarium', {
+      intent: 'Exercise projection bounds without hiding authoritative command records.',
+      commands: Array.from({ length: 8 }, (_, index) => ({
+        intent: `Inspect the complete contract copy ${index + 1}.`,
+        command: 'schema', parameters: { detail: 'full' },
+      })),
+    }), { stopReason: 'toolUse' }),
+    fauxAssistantMessage('The bounded batch projection remains recoverable from the controller.'),
+  ]);
+
+  await runtime.selectModel(faux.provider.id, faux.getModel().id);
+  await runtime.prompt('Exercise a deliberately large predetermined batch.');
+
+  const toolEnd = events.find((event) => event.type === 'tool-end');
+  const executions = toolEnd.result.details.executions;
+  assert.equal(executions.length, 8);
+  assert.match(toolEnd.result.content[0].text, /combined model projection exceeded 40000/u);
+  assert.ok(executions.some(({ responseOmitted }) => (
+    responseOmitted?.reason === 'batch-ui-details-bound'
+  )));
+  assert.ok(JSON.stringify(toolEnd.result.details).length < 81_000);
+  for (const execution of executions) {
+    const record = runtime.commandRecord(execution.receipt.commandId);
+    assert.equal(record.available, true);
+    assert.equal(record.entry.response.ok, true);
+    assert.equal(record.entry.response.result.detail, 'full');
+  }
+  assert.equal(runtime.state().research.transcript.retainedEntries, 8);
 
   await runtime.close();
 });

@@ -47,6 +47,23 @@ requested through the same tool when dynamic fields or parameter shapes need
 to be discovered. It is construction help, not a gate on which research paths
 the navigator may attempt.
 
+The complete [desktop navigator guide](./AGENT-GUIDE.md) is included in the
+agent's initial operating instructions, so basic command discovery does not
+consume the beginning of every voyage. It is adapted to the embedded tool,
+controller-owned correlation, command batches, attention, recipes, and context
+checkpoints; the separate repository CLI guide remains specific to JSONL
+terminal operation.
+
+The same `nostrarium` tool can execute up to 20 already-decided ordinary
+commands as a transparent sequential batch. Every member keeps its own intent,
+controller receipt, response, and transcript entry. A batch stops on the first
+failed response and must not cross a point where evidence or human judgment
+should determine the next command. Engine `plan` remains the transactional
+representation for research stages; desktop batching only removes unnecessary
+model turns between heterogeneous ordinary commands such as observation and
+lifecycle steps. Combined model and renderer projections are bounded; opening
+the raw batch disclosure loads each complete retained controller record lazily.
+
 `nostrarium_attention` is a bounded, process-local caller-side experiment for
 temporary voyage orientation. It is a small key/value JSON workspace whose
 organization belongs entirely to the navigator: the application does not name
