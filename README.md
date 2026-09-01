@@ -9,8 +9,7 @@ directs the voyage, inspects evidence, and owns the conclusions.
 ```text
 packages/nostr-research/    UI-independent research library and JSONL session
 packages/nostrarium-controller/  Neutral controller with Node and browser transports
-packages/nostrarium-schema-composer/  Factual contract-to-command compiler
-apps/nostrarium-desktop/    Local agent-operated application tracer
+apps/nostrarium-desktop/    Local agent-operated desktop application
 experiments/                Archived interface and composition trials
 ```
 
@@ -38,9 +37,7 @@ browser Worker transports.
 
 Completed disposable interpretations live under [`experiments/`](./experiments/).
 They are retained as evidence but are not npm workspaces, dependencies, or part
-of routine verification. The schema composer was promoted into
-[`packages/nostrarium-schema-composer/`](./packages/nostrarium-schema-composer/)
-after the desktop agent repeatedly needed its factual contract compiler.
+of routine verification.
 
 The desktop-agent feasibility decision and first implementation milestone are
 in
@@ -48,9 +45,11 @@ in
 The application will embed Pi's lower-level agent libraries; users will not
 install or run Pi separately.
 
-Persistence and a database format are deliberately absent. Closing or
-resetting the session, or exiting the process, loses all resident evidence,
-notebook entries, named memberships, and handles.
+Research evidence and session state remain deliberately process-local. Closing
+or resetting the session loses resident evidence, notebook entries, named
+memberships, and handles. The desktop application separately persists its own
+settings and agent-authored command recipes in a local SQLite store; it does
+not persist the research engine's memory.
 
 ## Project documents
 

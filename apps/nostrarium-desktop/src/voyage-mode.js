@@ -9,6 +9,8 @@ const DEFAULT_MODEL = 'gpt-5.6-sol';
 
 export async function runVoyageMode({
   credentials,
+  defaultRelays,
+  recipeStore,
   args = [],
   stdout = process.stdout,
   stderr = process.stderr,
@@ -20,6 +22,8 @@ export async function runVoyageMode({
   try {
     runtime = createDesktopRuntime({
       credentials,
+      ...(defaultRelays === undefined ? {} : { defaultRelays }),
+      ...(recipeStore === undefined ? {} : { recipeStore }),
       ...(options.contextTokenLimit === null ? {} : {
         contextTokenLimit: options.contextTokenLimit,
       }),

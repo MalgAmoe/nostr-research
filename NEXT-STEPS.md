@@ -54,11 +54,11 @@ Prove one complete local agent voyage in three bounded tasks:
 1. **Desktop and runtime tracer (implemented)** — create a secure local Electron shell and
    connect a sandboxed renderer to one in-process research session and neutral
    controller.
-2. **Embedded agent and informed tool bridge (implemented and controlled-test verified)** — embed Pi agent-core with sequential
-   execution, typed tools for common engine boundaries, one internally
-   schema-backed handle-operation tool, and one complete raw escape hatch.
-   Focused contract lookup is adapter plumbing rather than an agent turn; the
-   compiled research command remains visible and authoritative.
+2. **Embedded agent and complete command bridge (implemented and live verified)** — embed Pi agent-core with sequential
+   execution and expose the complete session command surface as the agent's
+   primary interface. Focused schema, observation, transformations, traversal,
+   plans, and lifecycle all cross the same visible boundary; caller-side
+   conveniences must never reduce that power.
 3. **Credentials and live voyage (implemented and repeatedly verified)** — encrypted
    provider credentials and a real subscription login now support visible
    human-directed voyages over public relays. The voyage ledger, bounded
@@ -66,35 +66,41 @@ Prove one complete local agent voyage in three bounded tasks:
    pressure-triggered factual voyage checkpoints were added in response to
    those trials. Packaging follows only after the operating loop is stable.
 
-The first broad-search trial found that explicit schema-chasing consumed
-research turns and hid existing observation pagination. Contextual schemas now
-expose observation contracts separately, projection errors enumerate accepted
-parameters, mapped project fields compile through the composer, and the
-desktop adapter presents stable command vocabulary before the voyage.
+Headless voyage mode uses the exact desktop runtime, encrypted login, system
+prompt, tools, controller, and compaction without a renderer. Early trials
+showed genuine construction friction, and a schema-backed specialized adapter
+temporarily reduced it. A later identity-search regression exposed the larger
+cost: presenting common operations as primary tools and the complete command
+surface as an escape hatch narrowed the navigator's strategy. It abandoned a
+failed NIP-50 route instead of composing a different acquisition and analysis
+path. The adapter also projected only selected response fields, which hid plan
+stage results from the model.
 
-The next agent-interface round is now in progress through a headless voyage
-mode that uses the exact desktop runtime, encrypted login, system prompt,
-tools, controller, and compaction without a renderer. Initial open-field,
-identity-search, and relation-analysis voyages exposed repeated construction
-friction around nested predicates, exact subjects, dynamic relation contracts,
-and invisible transform bounds. The first correction round therefore:
+The specialized adapter has therefore been removed from the desktop runtime.
+The agent again receives one complete `nostrarium` command tool plus the
+separate optional attention workspace. Full engine responses are retained at
+that boundary, including declarative plan stages. Focused schema remains
+available through an ordinary command, and future recipes or composers may
+produce transparent command drafts without becoming a smaller substitute for
+the engine. The exact failed identity-search prompt now completes through a
+multi-route live voyage and corroborates the discovered profile across relays.
 
-- makes focused filter schemas select their actual collection or relation
-  predicate rather than returning an unresolved variant wrapper;
-- validates nested predicate facts and reports allowed fields and enum values;
-- makes exact-subject tool shapes explicit as `{type, id}` or NIP-19/NIP-21;
-- provides one compact, factual focused-contract tool for genuinely dynamic
-  fields and choices; and
-- returns existing local transformation cardinality and truncation facts with
-  the operation result instead of requiring a follow-up observation.
+The desktop application now also owns a deliberately separate SQLite store for
+cross-run application memory. Its first migration contains typed settings and
+versioned JSON recipe records; the configured relay defaults feed both the
+windowed and headless runtime. A separate agent memory tool can list, load,
+save, and delete those records; it has no execution authority. Engine memory,
+attention, controller state, and credentials remain outside this database.
 
-A subsequent 60-note structural voyage completed with 23 tool calls, zero
-construction or execution failures, no global-schema request, correct exact
-subject construction, and immediate recognition of a truncated link
-explosion. This is evidence that the adapter is closing the measured gap, not
-that its current shape is final. Continue varied voyages before promoting
-boolean derivation, high-cardinality handling, denser relation presentation,
-or acquisition-balancing ideas into engine work.
+The first recipe trials established three useful constraints. A natural voyage
+with construction failures correctly declined to save a recipe. A recipe later
+reconstructed from prose preserved the right research posture but invented
+stale command fields and obstructed reuse. After revision to exact ordinary
+command templates, all five recipe operations succeeded on first use without
+schema consultation, while the navigator still adapted selection and judged
+evidence itself. Keep recipes as transparent JSON orientation for now: capture
+proven command envelopes, expose decision points, and do not add automatic
+execution or a fixed recipe language until repeated use requires it.
 
 The next interface trial extracted one repeated idea from the closed experiment
 phase: temporary voyage attention. The first implementation deliberately tried
@@ -168,8 +174,9 @@ reset. It is a tracer for the product loop, not a new general workbench.
   executable UI content.
 - The desktop app consumes the existing public engine and controller; it does
   not create a second research executor.
-- Research persistence, export, skills, vessel techniques, and dynamic visual
-  composition remain later questions informed by real agent-operated voyages.
+- Research-evidence persistence, export, skills, vessel techniques, and dynamic
+  visual composition remain later questions informed by real agent-operated
+  voyages. The desktop SQLite store persists only explicit application data.
 - Do not revive or combine old experiments merely to reuse their code. Extract
   a result only when the new application encounters the same need.
 
@@ -191,8 +198,9 @@ operations.
 
 Protocol and performance work resumes only for a verified correctness problem
 or repeated voyage blocker. NIP-50, multi-filter requests, authenticated relay
-reads, higher capacity, persistence, Rust, and other protocol candidates remain
-parked under the triggers documented in the protocol capability map.
+reads, higher capacity, engine-evidence persistence, Rust, and other protocol
+candidates remain parked under the triggers documented in the protocol
+capability map.
 
 ## Documentation map
 

@@ -7,18 +7,23 @@ import {
   safeStorage,
   shell,
 } from 'electron';
+import { normalizeSessionConfiguration } from '@nostr-research/memory';
+import { DesktopAppStore } from './app-store.js';
 import { EncryptedCredentialStore } from './credential-store.js';
-import { createDesktopRuntime } from './runtime.js';
+import { createDesktopRuntime, DEFAULT_RELAYS } from './runtime.js';
 import { runVoyageMode } from './voyage-mode.js';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
 const voyageMode = process.argv.includes('--voyage');
 let window;
 let runtime;
+let appStore;
 const authPrompts = new Map();
 
 void app.whenReady().then(voyageMode ? startVoyage : start).catch((error) => {
   console.error(error);
+  appStore?.close();
+  appStore = null;
   app.quit();
 });
 
@@ -27,12 +32,17 @@ async function startVoyage() {
     file: join(app.getPath('userData'), 'credentials.enc'),
     safeStorage,
   });
+  appStore = openAppStore();
   try {
     await runVoyageMode({
       credentials,
+      defaultRelays: configuredRelays(appStore),
+      recipeStore: appStore,
       args: process.argv.slice(process.argv.indexOf('--voyage') + 1),
     });
   } finally {
+    appStore.close();
+    appStore = null;
     app.quit();
   }
 }
@@ -42,9 +52,12 @@ async function start() {
     file: join(app.getPath('userData'), 'credentials.enc'),
     safeStorage,
   });
+  appStore = openAppStore();
 
   runtime = createDesktopRuntime({
     credentials,
+    defaultRelays: configuredRelays(appStore),
+    recipeStore: appStore,
     emit: (event) => send('nostrarium:event', event),
   });
 
@@ -80,6 +93,13 @@ async function start() {
   handle('nostrarium:prompt', ({ message }) => runtime.prompt(string(message, 'message')));
   handle('nostrarium:steer', ({ message }) => runtime.steer(string(message, 'message')));
   handle('nostrarium:abort', () => runtime.abort());
+  handle('nostrarium:settings', () => appStore.settings());
+  handle('nostrarium:set-setting', ({ key, value }) => setAppSetting(appStore, key, value));
+  handle('nostrarium:delete-setting', ({ key }) => appStore.deleteSetting(key));
+  handle('nostrarium:recipes', () => appStore.recipes());
+  handle('nostrarium:recipe', ({ id }) => appStore.recipe(id));
+  handle('nostrarium:save-recipe', ({ recipe }) => appStore.saveRecipe(recipe));
+  handle('nostrarium:delete-recipe', ({ id }) => appStore.deleteRecipe(id));
   handle('nostrarium:login', ({ providerId, method }) => runtime.login(
     string(providerId, 'providerId'),
     string(method, 'method'),
@@ -100,13 +120,40 @@ async function start() {
 app.on('before-quit', () => {
   for (const prompt of authPrompts.values()) prompt.reject(new Error('Application closed.'));
   authPrompts.clear();
+  appStore?.close();
+  appStore = null;
 });
 
 app.on('window-all-closed', async () => {
   if (voyageMode) return;
   await runtime?.close().catch(() => {});
+  appStore?.close();
+  appStore = null;
   app.quit();
 });
+
+function openAppStore() {
+  const store = new DesktopAppStore({
+    file: join(app.getPath('userData'), 'nostrarium.sqlite3'),
+  });
+  if (store.setting('relayDefaults') === null) {
+    store.setSetting('relayDefaults', DEFAULT_RELAYS);
+  }
+  return store;
+}
+
+function configuredRelays(store) {
+  return normalizeSessionConfiguration({
+    relays: store.setting('relayDefaults')?.value ?? DEFAULT_RELAYS,
+  }).relays;
+}
+
+function setAppSetting(store, key, value) {
+  const normalized = key === 'relayDefaults'
+    ? normalizeSessionConfiguration({ relays: value }).relays
+    : value;
+  return store.setSetting(key, normalized);
+}
 
 function handle(channel, action) {
   ipcMain.handle(channel, async (event, input = {}) => {

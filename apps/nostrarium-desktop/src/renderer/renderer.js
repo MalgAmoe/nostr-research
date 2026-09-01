@@ -202,7 +202,7 @@ function startStep(event) {
 
   const operation = document.createElement('p');
   operation.className = 'step-operation';
-  operation.textContent = describeCommand(request, event.toolName);
+  operation.textContent = describeCommand(request);
   const result = document.createElement('div');
   result.className = 'step-result muted';
   result.textContent = 'Waiting for the research engine…';
@@ -335,15 +335,8 @@ function resolutionText(result) {
     .join(' · ');
 }
 
-function describeCommand(request, toolName) {
-  const directCommands = {
-    nostrarium_acquire: 'acquire',
-    nostrarium_show: 'show',
-    nostrarium_inspect: 'inspect',
-    nostrarium_explain: 'explain',
-    nostrarium_handles: request.action,
-  };
-  const command = request.command ?? request.operation ?? directCommands[toolName] ?? 'research';
+function describeCommand(request) {
+  const command = request.command ?? request.action ?? 'research';
   const source = request.input ? ` from ${request.input}` : '';
   const destination = request.resultId ? ` into ${request.resultId}` : '';
   const focus = command === 'schema' && request.parameters?.operation

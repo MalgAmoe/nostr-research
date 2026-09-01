@@ -5,9 +5,9 @@ the Nostrarium controller, and one in-process research session. Users do not
 install or run Pi separately.
 
 This first slice is deliberately narrow. It provides one encrypted OpenAI
-Codex login, an informed research-tool adapter with a complete raw escape
-hatch, a persistent in-process voyage, human intervention, and bounded
-evidence presentation before wider interface work begins.
+Codex login, the complete Nostrarium command interface, a persistent in-process
+voyage, human intervention, and bounded evidence presentation before wider
+interface work begins.
 
 ```sh
 npm run dev --workspace @nostrarium/desktop
@@ -38,22 +38,14 @@ claims must still be reopened from named handles or controller records.
 
 ## Agent tools
 
-Common acquisition, observation, exact-subject inspection, membership
-explanation, status, listing, and release operations have typed tools whose
-stable vocabulary is available before the first command.
-
-`nostrarium_action` handles collection and relation transformations. It obtains
-the current focused contract internally, validates navigator-supplied values
-with the factual schema composer, and executes exactly one ordinary
-research command. The local contract lookup consumes no model turn, performs
-no research movement, and remains recorded in the bounded controller
-transcript. The result exposes the compiled command and validation basis.
-
-`nostrarium_contract` exposes one compact focused contract when current
-populated fields, routes, or nested choices genuinely affect construction. It
-executes no research operation and makes no recommendation. Local
-transformations return their existing cardinality and truncation facts in the
-same result so the navigator can reject a biased bounded view immediately.
+`nostrarium` is the primary and complete research tool. It accepts every
+ordinary session command: configuration, acquisition, observation,
+transformation, traversal, plans, schema discovery, notebook operations, and
+lifecycle. Commands execute against one persistent engine session, and their
+full responses remain available in the controller record. Focused schema is
+requested through the same tool when dynamic fields or parameter shapes need
+to be discovered. It is construction help, not a gate on which research paths
+the navigator may attempt.
 
 `nostrarium_attention` is a bounded, process-local caller-side experiment for
 temporary voyage orientation. It is a small key/value JSON workspace whose
@@ -67,11 +59,37 @@ working state must survive several steps, not as a mirror of every handle,
 command, fact, or conclusion. Recurring structures may inform a later design;
 none are part of the interface yet.
 
-`nostrarium` remains the complete raw escape hatch for configuration, relay
-information/counting, plans, notebook queries, diagnostics, and commands not
-yet represented by the informed adapter. Visible schema inspection remains
-available when the navigator is deciding among dynamic capabilities; it is no
-longer required merely to construct ordinary syntax.
+`nostrarium_recipes` exposes cross-run recipe memory through four operations:
+list, get, save, and delete. Recipes are bounded JSON objects owned by the
+navigator. Loading one gives the agent orientation; saving or loading executes
+no controller or research command. Actual operations remain ordinary visible
+`nostrarium` commands. Command-like recipe steps should preserve exact command
+envelopes that previously succeeded, while parameters, decision points, and
+limitations remain explicit and adaptable.
+
+The adapter does not replace this command surface with task-specific tools.
+Caller-side recipes or command composers may later produce visible ordinary
+commands, but the navigator must always retain access to the complete
+interface and may combine operations in ways those conveniences did not
+anticipate.
+
+## Application persistence
+
+Electron's main process owns one local SQLite application store at
+`nostrarium.sqlite3` inside the application-data directory. The sandboxed
+renderer never opens the database. Its narrow bridge currently exposes typed
+settings and versioned JSON recipe records. Recipe definitions are available
+to the agent through the separate memory tool but are never executed by it.
+
+The store seeds `relayDefaults`, and both the windowed runtime and headless
+voyage mode use that application setting when constructing a new research
+session. Schema migrations are explicit and records are size-bounded.
+
+This is application memory, not engine persistence. Live handles, observation
+buffer contents, archive evidence, notebook knowledge, temporary attention,
+controller state, and in-flight voyages remain process-local. Provider
+credentials remain separately encrypted through Electron `safeStorage` and
+never enter SQLite.
 
 ## Headless voyage mode
 
@@ -95,8 +113,8 @@ npm run voyage --workspace @nostrarium/desktop -- \
 ```
 
 Use `--prompt-file` for longer prompts, or explicitly override `--provider`
-and `--model`. Voyage mode shares the desktop system prompt, informed tools,
-controller, schema composer, context compaction, default relays, and encrypted
+and `--model`. Voyage mode shares the desktop system prompt, research tools,
+controller, context compaction, default relays, and encrypted
 credential store. It does not provide a separate login flow or a second
 implementation of agent behavior.
 

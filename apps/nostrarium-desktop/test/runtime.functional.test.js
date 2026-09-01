@@ -12,6 +12,7 @@ test('an embedded agent operates one persistent research session through the vis
   const faux = fauxProvider();
   const events = [];
   const sessionIds = [];
+  let exposedTools;
   const runtime = createDesktopRuntime({
     credentials: new InMemoryCredentialStore(),
     providers: [faux.provider],
@@ -19,11 +20,12 @@ test('an embedded agent operates one persistent research session through the vis
   });
 
   faux.setResponses([
-    (_context, options) => {
+    (context, options) => {
       sessionIds.push(options?.sessionId);
-      return fauxAssistantMessage(fauxToolCall('nostrarium_handles', {
+      exposedTools = context.tools.map(({ name }) => name);
+      return fauxAssistantMessage(fauxToolCall('nostrarium', {
         intent: 'Establish whether the research session is ready.',
-        action: 'status',
+        command: 'status', parameters: {},
       }), { stopReason: 'toolUse' });
     },
     (_context, options) => {
@@ -51,6 +53,7 @@ test('an embedded agent operates one persistent research session through the vis
     'wss://relay.snort.social/',
   ]);
   assert.equal(sessionIds.length, 2);
+  assert.deepEqual(exposedTools, ['nostrarium', 'nostrarium_attention', 'nostrarium_recipes']);
   assert.equal(sessionIds[0], sessionIds[1]);
   assert.match(sessionIds[0], /^nostrarium-/);
   assert.ok(events.some((event) => event.type === 'message-delta'));
@@ -69,6 +72,84 @@ test('an embedded agent operates one persistent research session through the vis
     'wss://relay.snort.social/',
   ]);
 
+  await runtime.close();
+});
+
+test('desktop-configured relay defaults initialize the same complete research runtime', async () => {
+  const faux = fauxProvider();
+  const events = [];
+  const runtime = createDesktopRuntime({
+    credentials: new InMemoryCredentialStore(),
+    providers: [faux.provider],
+    defaultRelays: ['wss://relay.example.com'],
+    emit: (event) => events.push(event),
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('nostrarium', {
+      intent: 'Confirm application-owned relay defaults reached the engine.',
+      command: 'status', parameters: {},
+    }), { stopReason: 'toolUse' }),
+    fauxAssistantMessage('The configured relay field is active.'),
+  ]);
+
+  await runtime.selectModel(faux.provider.id, faux.getModel().id);
+  await runtime.prompt('Check the configured relay field.');
+
+  const toolEnd = events.find((event) => event.type === 'tool-end');
+  assert.deepEqual(toolEnd.result.details.response.result.configuration.relays, [
+    'wss://relay.example.com/',
+  ]);
+  await runtime.close();
+});
+
+test('recipe memory stores agent-authored JSON without executing or narrowing research commands', async () => {
+  const faux = fauxProvider();
+  const events = [];
+  const runtime = createDesktopRuntime({
+    credentials: new InMemoryCredentialStore(),
+    providers: [faux.provider],
+    emit: (event) => events.push(event),
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('nostrarium_recipes', {
+      intent: 'Retain a sequence that already proved reusable.',
+      action: 'save',
+      id: 'profiles-from-events',
+      name: 'Profiles from events',
+      definition: {
+        purpose: 'Move from event evidence to profile candidates.',
+        parameters: ['source', 'prefix'],
+        steps: [
+          {
+            command: 'move', input: '$source',
+            parameters: { to: 'authors', limit: 100 },
+            resultId: '$prefix-authors',
+          },
+          { checkpoint: 'Inspect the authors before deciding whether to hydrate.' },
+        ],
+      },
+    }), { stopReason: 'toolUse' }),
+    fauxAssistantMessage(fauxToolCall('nostrarium_recipes', {
+      intent: 'Confirm the retained pattern remains explicit rather than executable.',
+      action: 'get', id: 'profiles-from-events',
+    }), { stopReason: 'toolUse' }),
+    fauxAssistantMessage('The recipe is stored as orientation only.'),
+  ]);
+
+  await runtime.selectModel(faux.provider.id, faux.getModel().id);
+  await runtime.prompt('Retain the proven sequence without executing it.');
+
+  const recipeEnds = events.filter(({ type }) => type === 'tool-end');
+  assert.equal(recipeEnds.length, 2);
+  assert.equal(recipeEnds.every(({ toolName }) => toolName === 'nostrarium_recipes'), true);
+  assert.equal(recipeEnds[0].result.details.recipe.revision, 1);
+  assert.equal(recipeEnds[1].result.details.recipe.definition.steps[0].command, 'move');
+  assert.equal(runtime.state().research.transcript.retainedEntries, 0);
+  assert.equal(runtime.state().recipes.count, 1);
+
+  await runtime.resetSession();
+  assert.equal(runtime.state().recipes.count, 1);
+  assert.equal(runtime.state().research.transcript.retainedEntries, 0);
   await runtime.close();
 });
 
@@ -111,7 +192,7 @@ test('ordinary voyages retain complete model-visible tool history without count-
   await runtime.close();
 });
 
-test('the informed observation tool pages a stable handle without schema discovery', async () => {
+test('the complete command tool pages a stable handle directly', async () => {
   const faux = fauxProvider();
   const events = [];
   const runtime = createDesktopRuntime({
@@ -126,12 +207,11 @@ test('the informed observation tool pages a stable handle without schema discove
       parameters: { scope: 'corpus', limit: 10 },
       resultId: 'notes',
     }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage(fauxToolCall('nostrarium_show', {
+    fauxAssistantMessage(fauxToolCall('nostrarium', {
       intent: 'Inspect the second page without creating another handle.',
+      command: 'show',
       input: 'notes',
-      mode: 'preview',
-      offset: 5,
-      previewLimit: 20,
+      parameters: { mode: 'preview', offset: 5, previewLimit: 20 },
     }), { stopReason: 'toolUse' }),
     fauxAssistantMessage('The stable page is empty.'),
   ]);
@@ -140,7 +220,9 @@ test('the informed observation tool pages a stable handle without schema discove
   await runtime.prompt('Page the existing handle directly.');
 
   const showEnd = events.find((event) => (
-    event.type === 'tool-end' && event.toolName === 'nostrarium_show'
+    event.type === 'tool-end'
+      && event.toolName === 'nostrarium'
+      && event.result?.details?.command?.command === 'show'
   ));
   assert.equal(showEnd?.isError, false);
   assert.deepEqual(showEnd.result.details.command, {
@@ -153,7 +235,7 @@ test('the informed observation tool pages a stable handle without schema discove
   await runtime.close();
 });
 
-test('the schema-backed action tool retrieves its contract internally and executes one visible research command', async () => {
+test('the complete command tool returns visible stage facts for declarative plans', async () => {
   const faux = fauxProvider();
   const events = [];
   const runtime = createDesktopRuntime({
@@ -163,85 +245,32 @@ test('the schema-backed action tool retrieves its contract internally and execut
   });
   faux.setResponses([
     fauxAssistantMessage(fauxToolCall('nostrarium', {
-      intent: 'Create a bounded local event position.',
-      command: 'select',
-      parameters: { scope: 'corpus', limit: 10 },
-      resultId: 'notes',
+      intent: 'Execute two freely composed operations as one visible plan.',
+      command: 'plan',
+      plan: [
+        { id: 'selected', operation: 'select', parameters: { scope: 'corpus', limit: 10 } },
+        { id: 'sampled', operation: 'sample', input: 'selected', parameters: { limit: 1 } },
+      ],
+      outputs: { selected: 'notes', sampled: 'sampled' },
     }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage(fauxToolCall('nostrarium_action', {
-      intent: 'Take one reproducible bounded sample from the position.',
-      input: 'notes',
-      operation: 'sample',
-      parameters: { limit: 1 },
-      resultId: 'sampled',
-    }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage('The compiled sample is available.'),
+    fauxAssistantMessage('Both plan stages and their ordinary handles are visible.'),
   ]);
 
   await runtime.selectModel(faux.provider.id, faux.getModel().id);
-  await runtime.prompt('Exercise the schema-backed route.');
+  await runtime.prompt('Exercise the complete command route.');
 
-  const actionEnd = events.find((event) => (
-    event.type === 'tool-end' && event.toolName === 'nostrarium_action'
-  ));
-  assert.equal(actionEnd?.isError, false);
-  assert.deepEqual(actionEnd.result.details.command, {
-    command: 'sample',
-    input: 'notes',
-    parameters: { limit: 1 },
-    resultId: 'sampled',
-  });
-  assert.equal(
-    actionEnd.result.details.composition.compiler,
-    '@nostrarium/schema-composer',
+  const planEnd = events.find((event) => event.type === 'tool-end');
+  assert.equal(planEnd?.toolName, 'nostrarium');
+  assert.equal(planEnd?.isError, false);
+  assert.equal(planEnd.result.details.response.result.type, 'research-plan-report');
+  assert.deepEqual(
+    planEnd.result.details.response.result.stages.map(({ id, operation }) => ({ id, operation })),
+    [{ id: 'selected', operation: 'select' }, { id: 'sampled', operation: 'sample' }],
   );
-  assert.equal(actionEnd.result.details.composition.contract, 'notes:sample');
-  assert.equal(actionEnd.result.details.composition.contractLookup.cached, false);
-  assert.match(
-    actionEnd.result.details.composition.contractLookup.commandId,
-    /^navigator-/u,
-  );
-  assert.equal(runtime.state().research.transcript.retainedEntries, 3);
-  const record = runtime.commandRecord(actionEnd.result.details.receipt.commandId);
-  assert.equal(record.entry.command.command, 'sample');
-  assert.equal(record.entry.command.input, 'notes');
-  assert.equal(record.entry.command.resultId, 'sampled');
-
-  await runtime.close();
-});
-
-test('the focused contract tool exposes compact dynamic controls without executing research movement', async () => {
-  const faux = fauxProvider();
-  const events = [];
-  const runtime = createDesktopRuntime({
-    credentials: new InMemoryCredentialStore(),
-    providers: [faux.provider],
-    emit: (event) => events.push(event),
-  });
-  faux.setResponses([
-    fauxAssistantMessage(fauxToolCall('nostrarium', {
-      intent: 'Create a stable empty collection for contract inspection.',
-      command: 'select', parameters: { scope: 'corpus', limit: 10 }, resultId: 'notes',
-    }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage(fauxToolCall('nostrarium_contract', {
-      intent: 'Learn the exact current sampling bounds before constructing it.',
-      input: 'notes', operation: 'sample',
-    }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage('The focused sample contract is available.'),
-  ]);
-
-  await runtime.selectModel(faux.provider.id, faux.getModel().id);
-  await runtime.prompt('Inspect one dynamic contract without moving through the field.');
-
-  const contractEnd = events.find((event) => (
-    event.type === 'tool-end' && event.toolName === 'nostrarium_contract'
-  ));
-  assert.equal(contractEnd?.isError, false);
-  assert.equal(contractEnd.result.details.command.command, 'schema');
-  assert.equal(contractEnd.result.details.contract.type, 'command-composition');
-  assert.equal(contractEnd.result.details.contract.operation, 'sample');
-  assert.match(contractEnd.result.content[0].text, /"command-composition"/u);
-  assert.equal(runtime.state().research.transcript.retainedEntries, 2);
+  assert.equal(planEnd.result.details.response.result.stages[0].handle.id, 'notes');
+  assert.equal(planEnd.result.details.response.result.stages[1].handle.id, 'sampled');
+  assert.match(planEnd.result.content[0].text, /"stages"/u);
+  assert.equal(runtime.state().research.transcript.retainedEntries, 1);
 
   await runtime.close();
 });
@@ -302,127 +331,6 @@ test('temporary voyage attention stays outside research state and clears on rese
     keys: [],
     limits: { entries: 12, entryBytes: 4_000, totalBytes: 24_000 },
   });
-
-  await runtime.close();
-});
-
-test('a failed internal contract lookup executes no requested research operation', async () => {
-  const faux = fauxProvider();
-  const events = [];
-  const runtime = createDesktopRuntime({
-    credentials: new InMemoryCredentialStore(),
-    providers: [faux.provider],
-    emit: (event) => events.push(event),
-  });
-  faux.setResponses([
-    fauxAssistantMessage(fauxToolCall('nostrarium_action', {
-      intent: 'Attempt a handle operation without inspecting its contract.',
-      input: 'missing',
-      operation: 'scan',
-      parameters: { fields: ['event.text'], terms: ['privacy'] },
-      resultId: 'matches',
-    }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage('The action was not executed because its input handle was absent.'),
-  ]);
-
-  await runtime.selectModel(faux.provider.id, faux.getModel().id);
-  await runtime.prompt('Try the unprepared action.');
-
-  const actionEnd = events.find((event) => (
-    event.type === 'tool-end' && event.toolName === 'nostrarium_action'
-  ));
-  assert.equal(actionEnd?.isError, true);
-  assert.match(actionEnd.result.content[0].text, /Focused scan contract lookup failed: UNKNOWN_RESULT/u);
-  assert.equal(runtime.state().research.transcript.retainedEntries, 1);
-
-  await runtime.close();
-});
-
-test('the schema-backed action tool rejects values outside a loaded contract before execution', async () => {
-  const faux = fauxProvider();
-  const events = [];
-  const runtime = createDesktopRuntime({
-    credentials: new InMemoryCredentialStore(),
-    providers: [faux.provider],
-    emit: (event) => events.push(event),
-  });
-  faux.setResponses([
-    fauxAssistantMessage(fauxToolCall('nostrarium', {
-      intent: 'Create the position to test.',
-      command: 'select',
-      parameters: { scope: 'corpus', limit: 10 },
-      resultId: 'notes',
-    }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage(fauxToolCall('nostrarium_action', {
-      intent: 'Try an unadvertised sample option.',
-      input: 'notes',
-      operation: 'sample',
-      parameters: { limit: 1, seed: 7 },
-      resultId: 'sampled',
-    }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage('The invalid command was rejected before execution.'),
-  ]);
-
-  await runtime.selectModel(faux.provider.id, faux.getModel().id);
-  await runtime.prompt('Verify contract enforcement.');
-
-  const actionEnd = events.find((event) => (
-    event.type === 'tool-end' && event.toolName === 'nostrarium_action'
-  ));
-  assert.equal(actionEnd?.isError, true);
-  assert.match(actionEnd.result.content[0].text, /seed must be a non-empty string/u);
-  assert.match(actionEnd.result.content[0].text, /Accepted parameters for sample/u);
-  assert.equal(runtime.state().research.transcript.retainedEntries, 2);
-
-  await runtime.close();
-});
-
-test('releasing a handle also releases its retained focused contracts', async () => {
-  const faux = fauxProvider();
-  const events = [];
-  const runtime = createDesktopRuntime({
-    credentials: new InMemoryCredentialStore(),
-    providers: [faux.provider],
-    emit: (event) => events.push(event),
-  });
-  faux.setResponses([
-    fauxAssistantMessage(fauxToolCall('nostrarium', {
-      intent: 'Create a temporary position.',
-      command: 'select',
-      parameters: { scope: 'corpus', limit: 10 },
-      resultId: 'temporary',
-    }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage(fauxToolCall('nostrarium', {
-      intent: 'Load a focused contract for the temporary position.',
-      command: 'schema',
-      input: 'temporary',
-      parameters: { operation: 'sample' },
-    }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage(fauxToolCall('nostrarium', {
-      intent: 'Release the temporary position.',
-      command: 'release',
-      input: 'temporary',
-      parameters: {},
-    }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage(fauxToolCall('nostrarium_action', {
-      intent: 'Verify that the released position has no retained contract.',
-      input: 'temporary',
-      operation: 'sample',
-      parameters: { limit: 1 },
-      resultId: 'sampled',
-    }), { stopReason: 'toolUse' }),
-    fauxAssistantMessage('The released contract cannot be reused.'),
-  ]);
-
-  await runtime.selectModel(faux.provider.id, faux.getModel().id);
-  await runtime.prompt('Exercise focused-contract lifecycle cleanup.');
-
-  const actionEnd = events.find((event) => (
-    event.type === 'tool-end' && event.toolName === 'nostrarium_action'
-  ));
-  assert.equal(actionEnd?.isError, true);
-  assert.match(actionEnd.result.content[0].text, /Focused sample contract lookup failed: UNKNOWN_RESULT/u);
-  assert.equal(runtime.state().research.transcript.retainedEntries, 4);
 
   await runtime.close();
 });

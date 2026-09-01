@@ -49,7 +49,3 @@ Archived experiments:
 Superseded experimental implementations are removed once their findings are
 distilled. Historical voyage evidence belongs under
 [`docs/voyages/`](../docs/voyages/), not here.
-
-The factual schema composer was promoted to
-[`packages/nostrarium-schema-composer/`](../packages/nostrarium-schema-composer/)
-because it became part of the desktop agent's ordinary command path.

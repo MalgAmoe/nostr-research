@@ -33,5 +33,12 @@ contextBridge.exposeInMainWorld('nostrarium', Object.freeze({
   prompt: (message) => ipcRenderer.invoke('nostrarium:prompt', { message }),
   steer: (message) => ipcRenderer.invoke('nostrarium:steer', { message }),
   abort: () => ipcRenderer.invoke('nostrarium:abort'),
+  settings: () => ipcRenderer.invoke('nostrarium:settings'),
+  setSetting: (key, value) => ipcRenderer.invoke('nostrarium:set-setting', { key, value }),
+  deleteSetting: (key) => ipcRenderer.invoke('nostrarium:delete-setting', { key }),
+  recipes: () => ipcRenderer.invoke('nostrarium:recipes'),
+  recipe: (id) => ipcRenderer.invoke('nostrarium:recipe', { id }),
+  saveRecipe: (recipe) => ipcRenderer.invoke('nostrarium:save-recipe', { recipe }),
+  deleteRecipe: (id) => ipcRenderer.invoke('nostrarium:delete-recipe', { id }),
   onEvent: (callback) => subscribe('nostrarium:event', callback),
 }));
