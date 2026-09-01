@@ -185,22 +185,6 @@ export function normalizeResearchPlan(plan) {
         `Research plan ${stage.operation} stage ${id} parameter with must name an earlier stage.`,
       );
     }
-    if (stage.operation === 'remember-membership') {
-      rejectUnknownParameterKeys(stage, new Set(['name', 'reason', 'attribution']));
-      if (typeof stage.parameters.name !== 'string' || stage.parameters.name.trim().length === 0) {
-        throw new ResearchMemoryError(`Research plan remember-membership stage ${id} requires a name.`);
-      }
-      if (stage.parameters.reason !== undefined) {
-        const reason = stage.parameters.reason;
-        if (!isPlainObject(reason)
-            || typeof reason.type !== 'string'
-            || reason.type.trim().length === 0) {
-          throw new ResearchMemoryError(
-            `Research plan remember-membership stage ${id} reason requires a non-empty type.`,
-          );
-        }
-      }
-    }
     ids.add(id);
     return {
       id,
@@ -303,11 +287,6 @@ export function preflightResearchOperation(
       kind: 'subjects', itemKind: 'subjects', resultKind: 'subjects', scope: 'archive',
     };
   }
-  if (name === 'notebook') {
-    if (input !== undefined) throw new ResearchMemoryError('Research notebook operation must not have an input.');
-    memory.notebook(parameters);
-    return { kind: 'subjects', itemKind: 'subjects', resultKind: 'subjects', scope: 'notebook' };
-  }
   if (name === 'fetch') return validatePipelineFetch(parameters, input);
   if (name === 'extract') return validatePipelineExtract(parameters, input);
   if ((isRelationOperation(name) && operationSemantics(name).executor !== 'collection-or-relation')
@@ -360,23 +339,7 @@ export function preflightResearchOperation(
     }
     return { ...input, resultKind: operationResultKind(name, input.kind) };
   }
-  if (name === 'remember') {
-    normalizeRememberParameters(parameters);
-    return { ...input, resultKind: input.kind };
-  }
-  if (name === 'forget') {
-    if (Object.keys(parameters).length) {
-      throw new ResearchMemoryError('Research forget parameters must be empty.');
-    }
-    return { ...input, resultKind: input.kind };
-  }
-  const { name: membershipName, ...options } = parameters;
-  rejectUnknownParameterKeys(
-    { id: 'operation', operation: 'remember-membership', parameters },
-    new Set(['name', 'reason', 'attribution']),
-  );
-  memory.validateNotebookMembership(membershipName, options, input.kind);
-  return { ...input, resultKind: semantics.resultKind };
+  throw new ResearchMemoryError(`Unsupported research operation: ${name}.`);
 }
 
 function inputForSetOperation(outputs, id, operation) {
@@ -500,7 +463,6 @@ export async function executeResearchOperation(memory, operation, input = undefi
       omitted: archive.omitted,
     }, 'subjects');
   }
-  if (name === 'notebook') return memory.notebook(parameters);
   if (isTransformOperation(name)) {
     return executeCollectionOperation(memory, input, { operation: name, ...parameters });
   }
@@ -532,50 +494,7 @@ export async function executeResearchOperation(memory, operation, input = undefi
       provenance: [],
     })), { operation: 'release-archive', archiveMutation: mutation }, collection.kind);
   }
-  if (name === 'remember') {
-    const collection = memory.asCollection(input);
-    const notebook = memory.describe().notebook;
-    const additions = collection.items.filter(
-      ({ subject }) => memory.getNotebookEntry(subject) === null,
-    ).length;
-    if (notebook.entryCount + additions > notebook.capacity) {
-      throw new ResearchMemoryError(
-        `Research notebook entry capacity ${notebook.capacity} has been reached.`,
-        'CAPACITY_EXCEEDED',
-      );
-    }
-    for (const item of collection.items) memory.remember(item.subject, parameters);
-    return {
-      ...collection,
-      context: {
-        operation: 'remember',
-        input: collection.context,
-        notebookMutation: { count: collection.items.length },
-      },
-    };
-  }
-  if (name === 'forget') {
-    const collection = memory.asCollection(input);
-    let count = 0;
-    for (const item of collection.items) {
-      if (memory.forget(item.subject).removed) count += 1;
-    }
-    return {
-      ...collection,
-      context: {
-        operation: 'forget',
-        input: collection.context,
-        notebookMutation: { count },
-      },
-    };
-  }
-  const { name: membershipName, ...options } = parameters;
-  const collection = memory.asCollection(input);
-  return {
-    ...memory.rememberMembership(collection, membershipName, options),
-    type: 'notebook-membership',
-    collection,
-  };
+  throw new ResearchMemoryError(`Unsupported research operation: ${name}.`);
 }
 
 function resultDescriptor(value) {
@@ -586,14 +505,6 @@ function resultDescriptor(value) {
     itemKind: collection?.itemKind ?? collection?.kind,
     resultKind: value?.type ?? collection?.kind,
   };
-}
-
-function normalizeRememberParameters(parameters) {
-  if (!isPlainObject(parameters)) throw new ResearchMemoryError('Remember parameters must be an object.');
-  const allowed = new Set(['kind', 'labels', 'note', 'judgment', 'strength', 'reason',
-    'attribution', 'sourceReferences', 'summary']);
-  const unknown = Object.keys(parameters).find((key) => !allowed.has(key));
-  if (unknown) throw new ResearchMemoryError(`Unknown remember parameter: ${unknown}.`);
 }
 
 function resolveStageInputs(stage, outputs) {
@@ -754,16 +665,6 @@ function rejectUnknownKeys(value, allowed, index) {
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) {
       throw new ResearchMemoryError(`Unknown research plan stage ${index + 1} field: ${key}.`);
-    }
-  }
-}
-
-function rejectUnknownParameterKeys(stage, allowed) {
-  for (const key of Object.keys(stage.parameters)) {
-    if (!allowed.has(key)) {
-      throw new ResearchMemoryError(
-        `Unknown ${stage.operation} parameters field at stage ${stage.id}: ${key}.`,
-      );
     }
   }
 }

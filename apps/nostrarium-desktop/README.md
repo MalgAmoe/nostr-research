@@ -40,7 +40,7 @@ claims must still be reopened from named handles or controller records.
 
 `nostrarium` is the primary and complete research tool. It accepts every
 ordinary session command: configuration, acquisition, observation,
-transformation, traversal, plans, schema discovery, notebook operations, and
+transformation, traversal, plans, schema discovery, and
 lifecycle. Commands execute against one persistent engine session, and their
 full responses remain available in the controller record. Focused schema is
 requested through the same tool when dynamic fields or parameter shapes need
@@ -53,7 +53,7 @@ organization belongs entirely to the navigator: the application does not name
 Ground, focus, questions, candidates, or any other research concept. It executes
 no research command, copies no evidence, records no conclusion by its own
 authority, and is cleared by session reset. Temporary hypotheses stored there
-do not become canonical evidence or notebook knowledge. The current workspace is included
+do not become canonical evidence. The current workspace is included
 in factual context checkpoints. It should be used selectively when temporary
 working state must survive several steps, not as a mirror of every handle,
 command, fact, or conclusion. Recurring structures may inform a later design;
@@ -67,8 +67,14 @@ no controller or research command. Actual operations remain ordinary visible
 envelopes that previously succeeded, while parameters, decision points, and
 limitations remain explicit and adaptable.
 
+The store seeds three versioned, replaceable orientations: profile descent,
+raw p-tag mention frequency, and a two-relay comparison. They are examples of
+proven command compositions, not privileged workflows. Application-owned seeds
+may receive factual corrections on a later version; a navigator-edited recipe
+is never overwritten.
+
 The adapter does not replace this command surface with task-specific tools.
-Caller-side recipes or command composers may later produce visible ordinary
+Caller-side recipes or command arrangements may later produce visible ordinary
 commands, but the navigator must always retain access to the complete
 interface and may combine operations in ways those conveniences did not
 anticipate.
@@ -87,10 +93,25 @@ voyage mode use that application setting when constructing a new research
 session. Schema migrations are explicit and records are size-bounded.
 
 This is application memory, not engine persistence. Live handles, observation
-buffer contents, archive evidence, notebook knowledge, temporary attention,
+buffer contents, archive evidence, temporary attention,
 controller state, and in-flight voyages remain process-local. Provider
 credentials remain separately encrypted through Electron `safeStorage` and
 never enter SQLite.
+
+## Retained runtime seams
+
+The main process and preload boundary intentionally retain two operations that
+the first renderer does not yet display:
+
+- `logout(providerId)` removes stored provider access and clears a selected
+  model from that provider. It is the future account-management boundary.
+- `steer(message)` injects a human message into an active agent turn. It is the
+  future mid-voyage intervention boundary; the current renderer offers abort
+  only.
+
+They remain narrow runtime operations rather than speculative UI. When either
+control is exposed, the renderer should call the existing preload method; it
+must not add another authentication or agent-execution path.
 
 ## Headless voyage mode
 

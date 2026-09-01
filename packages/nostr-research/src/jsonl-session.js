@@ -12,7 +12,6 @@ const HELP = `Usage: nostr-research-session --capacity <${CAPACITY_RANGE}> [opti
 
 Options:
   --archive-capacity <${CAPACITY_RANGE}>
-  --notebook-capacity <${RESEARCH_CONSTRAINTS.notebook.capacity.minimum}-${RESEARCH_CONSTRAINTS.notebook.capacity.maximum}>
 
 Reads one JSON command per non-empty UTF-8 input line and writes one JSON
 response line. The process owns one bounded, process-local research session.
@@ -31,8 +30,6 @@ export async function startJsonlResearchSession(args, streams = {}) {
     capacity: options.capacity,
     ...(options.archiveCapacity === undefined
       ? {} : { archiveCapacity: options.archiveCapacity }),
-    ...(options.notebookCapacity === undefined
-      ? {} : { notebookCapacity: options.notebookCapacity }),
   });
   const session = createDeclarativeResearchSession(memory);
   const lines = createInterface({ input, crlfDelay: Infinity, terminal: false });
@@ -81,7 +78,6 @@ function parseArguments(args) {
   const names = {
     '--capacity': 'capacity',
     '--archive-capacity': 'archiveCapacity',
-    '--notebook-capacity': 'notebookCapacity',
   };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -102,9 +98,7 @@ function parseArguments(args) {
     );
   }
   for (const [name, value] of Object.entries(options)) {
-    const constraint = name === 'notebookCapacity'
-      ? RESEARCH_CONSTRAINTS.notebook.capacity
-      : RESEARCH_CONSTRAINTS.memory.capacity;
+    const constraint = RESEARCH_CONSTRAINTS.memory.capacity;
     if (!Number.isSafeInteger(value)
         || value < constraint.minimum || value > constraint.maximum) {
       throw new ResearchMemoryError(

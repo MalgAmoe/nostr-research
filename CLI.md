@@ -12,18 +12,17 @@ From the repository root:
 npm run research-session -- --capacity 1000
 ```
 
-The three independent session stores can be bounded at construction:
+The two independent evidence stores can be bounded at construction:
 
 ```sh
 npm run research-session -- \
   --capacity 1000 \
-  --archive-capacity 250 \
-  --notebook-capacity 250
+  --archive-capacity 250
 ```
 
 Each capacity must be an integer from 1 to 1,000. `--capacity` bounds the
-renewable observation buffer, `--archive-capacity` bounds deliberately
-preserved evidence, and `--notebook-capacity` bounds researcher knowledge.
+renewable observation buffer, and `--archive-capacity` bounds deliberately
+preserved evidence.
 
 The process reads one JSON object per line from stdin and writes one JSON
 response per line to stdout. Keep it running while researching: named results
@@ -45,11 +44,10 @@ Each complete command must occupy one line.
 
 ## The operating model
 
-The session contains four different things:
+The session contains three different things:
 
 - an observation buffer of recently acquired canonical events;
 - an archive of evidence deliberately preserved before buffer turnover;
-- a notebook of explicit researcher judgments and memberships;
 - named result handles, which are temporary working views.
 
 A handle does not copy or preserve its source evidence. Everything disappears
@@ -63,7 +61,7 @@ acquire a bounded field
 → relate subjects when value analysis is needed
 → filter, scan, aggregate, or navigate
 → fetch or continue when more relay data is wanted
-→ explicitly preserve evidence or remember a judgment
+→ explicitly preserve evidence when it must survive buffer turnover
 ```
 
 There is no implicit active result. Every consuming command names its `input`;
@@ -191,7 +189,7 @@ mixed subjects. Use them for identity and navigation:
 - `filter`, `pick`, `limit`, `sample`;
 - `move`;
 - `union`, `intersection`, `difference`, `compare`;
-- `continue`, `hydrate`, `preserve`, and notebook operations where applicable.
+- `continue`, `hydrate`, and `preserve` where applicable.
 
 Set operations use `input` for the left collection and `parameters.with` for
 the right collection. The general `inputs` envelope is reserved for operations
@@ -341,35 +339,22 @@ counts as a global total:
 
 Neither operation changes the evidence buffer.
 
-## Keep evidence and decisions
+## Keep evidence
 
 ```jsonl
 {"commandId":"preserve-1","command":"preserve","input":"accounts","parameters":{"level":"reference","reason":{"type":"candidate-anchor"}}}
-{"commandId":"remember-1","command":"remember","input":"accounts","parameters":{"judgment":"interested","strength":0.7,"reason":"Repeated relevant evidence in this session","attribution":"researcher","labels":["privacy"]}}
-{"commandId":"membership-1","command":"remember-membership","input":"accounts","parameters":{"name":"privacy-candidates","reason":{"type":"field-trial"}}}
 ```
 
-These actions are independent:
+Evidence and working-state actions are independent:
 
 - `release` removes a working handle;
-- `delete-membership` removes a membership;
 - `release-archive` removes archived evidence;
-- `forget` removes notebook judgments;
 - `reset` clears the entire session.
 
-Notebook observation is also explicit:
-
-- `notebook` queries remembered subject judgments;
-- `memberships` lists named memberships;
-- `membership` reads one named membership;
-- `remember-membership` changes membership state.
-
-The fixed judgment vocabulary is `interested`, `uninterested`, `uncertain`, and
-`anchor`.
-
-The `anchor` judgment means only that the researcher considers a subject a
-useful place from which to continue. It triggers no acquisition, traversal,
-preservation, or other automatic behavior.
+The engine does not store navigator judgments. Temporary orientation belongs
+to caller-side working state; reusable methods and durable application metadata
+belong to the embedding application. Conclusions stay with the navigator or an
+explicit exported artifact rather than becoming a parallel engine memory.
 
 ## Common mistakes
 

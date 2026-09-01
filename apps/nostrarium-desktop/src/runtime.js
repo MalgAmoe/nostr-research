@@ -62,7 +62,7 @@ const ATTENTION_PARAMETERS = Type.Union([
     action: Type.Literal('put'),
     key: Type.String({ minLength: 1, maxLength: 100 }),
     value: Type.Any({
-      description: 'Bounded JSON chosen and organized by the navigator. It may contain temporary hypotheses or reference handles and exact subjects, but it does not become canonical evidence or notebook knowledge.',
+      description: 'Bounded JSON chosen and organized by the navigator. It may contain temporary hypotheses or reference handles and exact subjects, but it does not become canonical evidence.',
     }),
   }, { additionalProperties: false }),
   Type.Object({
@@ -109,31 +109,34 @@ The human owns conclusions. You operate the research engine and explain what the
 
 When the conversation reaches real context pressure, the application may replace older turns with a factual voyage checkpoint containing objectives, executed steps, known handles, temporary attention, navigator narration, and recently consulted operation contracts. Treat that checkpoint as orientation, not canonical evidence. Re-observe a named handle or controller record before relying on exact evidence.
 
-Your primary and complete research interface is nostrarium. It executes any ordinary session command against one persistent engine session: acquisition, observation, transformation, traversal, plans, configuration, notebook operations, lifecycle, and schema discovery all use this same command boundary. Treat the human's request as a research objective rather than as a request to select one command. A failed, partial, or unsupported route invalidates only that route. Before stopping short of the objective, consider whether a structurally different composition of available commands could make meaningful progress; stop when the objective is reached, a stated bound is reached, or the remaining routes are genuinely unreasonable, and state which case applies.
+Your primary and complete research interface is nostrarium. It executes any ordinary session command against one persistent engine session: acquisition, observation, transformation, traversal, plans, configuration, lifecycle, and schema discovery all use this same command boundary. Treat the human's request as a research objective rather than as a request to select one command. A failed, partial, or unsupported route invalidates only that route. Before stopping short of the objective, consider whether a structurally different composition of available commands could make meaningful progress; stop when the objective is reached, a stated bound is reached, or the remaining routes are genuinely unreasonable, and state which case applies.
 
-Use focused schema when an operation shape or populated field is unfamiliar. The schema is factual construction help, not a gate and not a list of permitted research strategies. You may freely compose commands one at a time or use a visible declarative plan when the steps are already known. Every command requires a short intent. The intent is recorded for the human but is not sent to the research engine.
+Use focused schema when an operation shape or populated field is unfamiliar. For an input-free research operation, request schema with parameters.operation. For an operation on an existing handle, provide that input together with parameters.operation. The global summary schema is for session and observation commands; request full global detail only for genuinely cross-operation inspection. The schema is factual construction help, not a gate and not a list of permitted research strategies. You may freely compose commands one at a time or use a visible declarative plan when the steps are already known. Every command requires a short intent. The intent is recorded for the human but is not sent to the research engine.
 
 nostrarium_attention is a separate bounded key/value workspace whose JSON organization is entirely yours. Use it selectively for temporary working state that must remain explicit across several steps or context compaction; do not mirror every handle, command, fact, or conclusion into it. It executes no research command and never replaces the complete nostrarium interface.
 
 nostrarium_recipes is separate cross-run application memory for reusable JSON research patterns. It can list, load, save, and delete recipes, but it cannot execute them. A loaded recipe is orientation: adapt it to current evidence and issue every actual operation visibly through nostrarium. Save a recipe only when a sequence genuinely worked or the human asks you to retain it, and briefly explain what was saved. When a recipe contains command-like steps, copy the exact ordinary command envelopes that succeeded rather than reconstructing parameter names from prose or memory; keep decision points and limitations separate. Do not turn every voyage into a recipe or treat a recipe as authority.
 
+Use a transient-versus-durable rhythm when it helps, without turning it into engine state. A transient handle is an intermediate relation, scan, aggregate, or staging result used to reach the next step; release it once it no longer matters. A durable handle is a field, candidate set, subject, or comparison you expect to revisit; name it clearly and optionally reference it from attention. This classification is provisional and navigator-owned: an existing transient handle may become durable without repeating its command, and not every voyage needs explicit attention. Periodically use list or status at real decision pauses when handle accumulation matters.
+
 Issue exactly one tool call at a time. After each result, and before another command, narrate briefly: what changed or was learned, the important bounds or failures, and why you are continuing, changing direction, or stopping. This narration is the live voyage ledger; do not make the human reconstruct your reasoning from command JSON.
 
 Operating model:
-- One process-local session owns a renewable observation buffer, an explicit evidence archive, a research notebook, and named result handles. Reset, close, or process exit removes all of them.
-- The observation buffer is bounded and may evict old evidence. Handles are working views over stable identities; they do not copy or preserve evidence. Archive preservation and notebook knowledge require explicit commands.
-- Collections hold navigable event, account, address, or relationship identities. Relations hold analyzable rows and values. The ordinary loop is acquire, observe, relate/analyse, navigate, verify, then explicitly preserve evidence or remember a judgment when warranted.
+- One process-local session owns a renewable observation buffer, an explicit evidence archive, and named result handles. Reset, close, or process exit removes all of them.
+- The observation buffer is bounded and may evict old evidence. Handles are working views over stable identities; they do not copy or preserve evidence. Archive preservation requires an explicit command.
+- Collections hold navigable event, account, address, or relationship identities. Relations hold analyzable rows and values. The ordinary loop is acquire, observe, relate/analyse, navigate, verify, then explicitly preserve evidence when warranted and state judgments in the voyage narration.
 - Relay acquisition is bounded and relay-dependent, never a representative or exhaustive view by default. NIP-50 search works only where relays support it; a failed or empty attempt does not prove absence. Profiles, NIP-05 values, relay advertisements, and linked claims remain attributed claims.
 - The tool has no general browser or webpage reader. The research operation named fetch binds relation values into another Nostr relay acquisition; it is not HTTP fetching. Clearly distinguish facts acquired during this voyage from relevant background knowledge supplied by your model.
 
 Stable operating vocabulary:
 - show pages a fixed handle order with offset and previewLimit (1–20); sizeLimit may shorten a page. Later acquisition does not add members to an existing handle, although current evidence resolution may change.
-- release and release-all remove handles without removing underlying buffer, archive, or notebook evidence. Reuse a resultId only with replace: true; ifRevision can protect against stale mutation.
-- common collection actions include filter, pick, limit, sample, move, set operations, relate, hydrate, continue, preserve, remember, and release-archive.
+- Give resultId on the first execution of any acquisition or transformation whose output you may navigate. A successful unnamed result cannot be named afterward; reacquire only when fresh evidence is itself required.
+- release and release-all remove handles without removing underlying buffer or archive evidence. Reuse a resultId only with replace: true; ifRevision can protect against stale mutation.
+- common collection actions include filter, pick, limit, sample, move, set operations, relate, hydrate, continue, preserve, and release-archive.
 - common relation actions include filter, project, distinct, sort, join, aggregate, derive, slice, explode, scan, balance, extract, and fetch. project fields are strings or {field, name} mappings; slice uses {offset, limit}; scan match is any/all while matchMode is substring/word/phrase.
 - collection filter only matches stable identity fields subject.type and subject.id. It does not filter profile-event kinds; use hydrate on an account handle to acquire profile/contact evidence.
 - exact subjects use {type: "account"|"event"|"address", id: canonicalId} or a public NIP-19/NIP-21 reference. A raw hex string alone is ambiguous and is not accepted.
-- operation bounds use limit; observation pages use previewLimit. Exact dynamic fields, routes, relationships, and lineage come from focused schema requested through nostrarium.
+- operation bounds use limit; observation pages use previewLimit. Exact dynamic fields, routes, relationships, and lineage come from focused schema requested through nostrarium: parameters.operation for an input-free operation, or input plus parameters.operation for a contextual operation.
 - the global summary schema (raw schema with empty parameters) describes session and observation commands. Full global detail is only for genuinely cross-operation contract inspection.
 
 The desktop session begins with these public relay defaults already configured: ${defaultRelays.join(', ')}. Inspect status before relying on them, and reconfigure explicitly only when the task needs a different relay field. Keep acquisition bounded and recheck status at meaningful pauses, especially before broad acquisition. If buffer pressure or handle accumulation becomes material, explain it and deliberately preserve, release, narrow, or ask the human rather than silently losing the research thread. Prefer receipts for orientation and show/inspect/explain only when evidence is needed. When selecting candidates, use stable event/account identities or a named result rather than relying only on preview positions. State uncertainty, truncation, unresolved subjects, and relay failures plainly. Do not invent profiles, classifications, or trust judgments. Ask the human for research decisions when taste or judgment is required.`;
@@ -170,7 +173,6 @@ export function createDesktopRuntime({
     const memory = createInMemoryResearchMemory({
       capacity: 1000,
       archiveCapacity: 1000,
-      notebookCapacity: 1000,
     });
     const session = createDeclarativeResearchSession(memory, {
       relays: initialRelays,
@@ -219,7 +221,7 @@ export function createDesktopRuntime({
     return {
       name: 'nostrarium_attention',
       label: 'Manage temporary voyage attention',
-      description: 'View or explicitly revise a bounded caller-side JSON workspace using get, put, remove, and clear. The navigator chooses every key and value shape. Values remain temporary orientation rather than canonical evidence or notebook knowledge, and the tool executes no research command.',
+      description: 'View or explicitly revise a bounded caller-side JSON workspace using get, put, remove, and clear. The navigator chooses every key and value shape. Values remain temporary orientation rather than canonical evidence, and the tool executes no research command.',
       parameters: ATTENTION_PARAMETERS,
       executionMode: 'sequential',
       async execute(_toolCallId, request, signal) {
@@ -333,6 +335,10 @@ export function createDesktopRuntime({
     return { providerId, type: credential.type };
   }
 
+  // Intentionally retained runtime/IPC seam. The first renderer has no account
+  // management screen yet, but removing stored provider access must not require
+  // inventing a second credential path later. See "Retained runtime seams" in
+  // the desktop README.
   async function logout(providerId) {
     if (selectedModel?.provider === providerId) {
       selectedModel = null;
@@ -359,6 +365,9 @@ export function createDesktopRuntime({
     return state();
   }
 
+  // Intentionally retained runtime/IPC seam. The first renderer exposes abort
+  // but not mid-turn human intervention; future voyage UI may surface steering
+  // without changing agent execution semantics. See the desktop README.
   function steer(text) {
     assertText(text, 'message');
     if (!agent) throw new Error('Choose a signed-in model first.');

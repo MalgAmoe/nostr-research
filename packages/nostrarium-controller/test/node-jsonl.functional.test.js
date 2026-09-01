@@ -8,7 +8,6 @@ test('one Node JSONL process retains handles, preserves semantic failures, and c
     workingDirectory: process.cwd(),
     capacity: 10,
     archiveCapacity: 10,
-    notebookCapacity: 10,
     responseTimeoutMs: 5_000,
   });
   const initialPid = transport.status().pid;

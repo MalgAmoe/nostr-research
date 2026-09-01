@@ -11,6 +11,7 @@ import { normalizeSessionConfiguration } from '@nostr-research/memory';
 import { DesktopAppStore } from './app-store.js';
 import { EncryptedCredentialStore } from './credential-store.js';
 import { createDesktopRuntime, DEFAULT_RELAYS } from './runtime.js';
+import { seedStarterRecipes } from './starter-recipes.js';
 import { runVoyageMode } from './voyage-mode.js';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
@@ -132,6 +133,7 @@ function openAppStore() {
   if (store.setting('relayDefaults') === null) {
     store.setSetting('relayDefaults', DEFAULT_RELAYS);
   }
+  seedStarterRecipes(store);
   return store;
 }
 

@@ -156,12 +156,6 @@ export const CONTINUATION = deepFreeze({
 });
 
 export const FETCH_BINDING_KEYS = Object.freeze(['ids', 'authors', '#e', '#p', '#t']);
-export const NOTEBOOK_KINDS = Object.freeze([
-  'judgment', 'note', 'derived-observation', 'summary',
-]);
-export const NOTEBOOK_JUDGMENTS = Object.freeze([
-  'interested', 'uninterested', 'uncertain', 'anchor',
-]);
 export const UNSUCCESSFUL_RELAY_OUTCOMES = Object.freeze([
   'connection-failure', 'peer-error', 'peer-closed', 'closed',
 ]);

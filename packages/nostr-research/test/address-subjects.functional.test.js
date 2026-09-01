@@ -116,34 +116,14 @@ test('address subjects navigate typed references to current local replaceable ev
     assert.deepEqual(extracted.items.map(({ subject: item }) => item.id),
       [articleAddress, missingAddress].sort());
 
-    const membership = memory.rememberMembership(addresses, 'address leads', {
-      reason: { type: 'lead-set' }, attribution: 'test',
-    });
-    assert.equal(memory.listMemberships().find(
-      ({ name }) => name === membership.name,
-    ).counts.address, 2);
-    assert.equal(memory.asCollection(membership).kind, 'addresses');
-
-    memory.preserve(memory.lookup(subject('address', articleAddress)), {
-      level: 'canonical', reason: { type: 'stable-reference' },
-    });
-    for (let index = 0; index < 10; index += 1) {
-      ingest(memory, sign(1, 500 + index, [], `turnover ${index}`, BOB_KEY));
-    }
-    assert.equal(memory.inspect(subject('address', articleAddress)).resolutionSource, 'archive');
-    memory.releaseEvidence([subject('address', articleAddress)]);
-    assert.equal(memory.inspect(subject('address', articleAddress)).resolutionSource, 'unresolved');
-
-    memory.remember(subject('address', articleAddress), {
-      labels: ['address-schema'],
-      reason: 'retain stable address identity',
-      attribution: 'test',
-    });
     const session = createDeclarativeResearchSession(memory);
+    await session.execute({
+      commandId: 'source', command: 'select', resultId: 'source',
+      parameters: { scope: 'corpus', ids: [source.id] },
+    });
     const installed = await session.execute({
-      commandId: 'addresses', command: 'notebook',
-      resultId: 'addresses',
-      parameters: { labels: ['address-schema'], limit: 10 },
+      commandId: 'addresses', command: 'move', input: 'source',
+      resultId: 'addresses', parameters: { to: 'referencedAddresses', limit: 10 },
     });
     assert.equal(installed.ok, true);
     const filtered = await session.execute({
@@ -168,6 +148,17 @@ test('address subjects navigate typed references to current local replaceable ev
     assert.ok(moveSchema.result.operation.choices.to.some(
       ({ to }) => to === 'currentEvents',
     ));
+
+    memory.preserve(memory.lookup(subject('address', articleAddress)), {
+      level: 'canonical', reason: { type: 'stable-reference' },
+    });
+    for (let index = 0; index < 10; index += 1) {
+      ingest(memory, sign(1, 500 + index, [], `turnover ${index}`, BOB_KEY));
+    }
+    assert.equal(memory.inspect(subject('address', articleAddress)).resolutionSource, 'archive');
+    memory.releaseEvidence([subject('address', articleAddress)]);
+    assert.equal(memory.inspect(subject('address', articleAddress)).resolutionSource, 'unresolved');
+
     await session.close();
   } finally {
     memory.close();

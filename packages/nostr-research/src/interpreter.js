@@ -21,11 +21,9 @@ import {
   acquisitionCorpusAccounting,
   explainResearchMembership,
   presentHandleList,
-  presentNotebookMembership,
   presentSessionStatus,
   relayReportCompleteness,
   showResearchValue,
-  validateNotebookMembershipPresentationOptions,
   validateResearchPresentationOptions,
 } from './presentation.js';
 import {
@@ -40,18 +38,16 @@ import {
   describeResearchRelation,
   isResearchRelation,
 } from './relation.js';
-import { NOTEBOOK_JUDGMENTS, QUERY_LIMIT } from './contract-facts.js';
-
 const COMMANDS = new Set([
   ...researchOperationNames(), 'plan',
-  'show', 'inspect', 'explain', 'list', 'memberships', 'membership', 'status', 'schema',
-  'configure', 'release', 'release-all', 'delete-membership', 'reset', 'close',
+  'show', 'inspect', 'explain', 'list', 'status', 'schema',
+  'configure', 'release', 'release-all', 'reset', 'close',
 ]);
 const OBSERVATIONS = new Set([
-  'show', 'inspect', 'explain', 'list', 'memberships', 'membership', 'status', 'schema',
+  'show', 'inspect', 'explain', 'list', 'status', 'schema',
 ]);
 const LIFECYCLE = new Set([
-  'release', 'release-all', 'delete-membership', 'reset', 'close',
+  'release', 'release-all', 'reset', 'close',
 ]);
 const UNSUCCESSFUL_RELAY_OUTCOME_SET = new Set(UNSUCCESSFUL_RELAY_OUTCOMES);
 const COMMAND_KEYS = new Set([
@@ -256,50 +252,6 @@ export class DeclarativeResearchSession {
         },
       ));
     }
-    if (command.command === 'memberships') {
-      const unknown = Object.keys(parameters).find((key) => key !== 'limit');
-      if (unknown) {
-        throw protocolError('INVALID_COMMAND', `Unknown memberships parameter: ${unknown}.`);
-      }
-      const limit = parameters.limit ?? RESEARCH_CONSTRAINTS.results.defaultQueryLimit;
-      if (!Number.isSafeInteger(limit) || limit < 0) {
-        throw protocolError(
-          'INVALID_COMMAND', 'memberships limit must be a non-negative integer.',
-        );
-      }
-      return readOnly(() => {
-        const all = this.#memory.listMemberships();
-        return {
-          type: 'notebook-membership-list',
-          count: all.length,
-          memberships: all.slice(0, limit),
-          omitted: Math.max(0, all.length - limit),
-        };
-      });
-    }
-    if (command.command === 'membership') {
-      rejectKeys(parameters, new Set([
-        'name', 'offset', 'previewLimit', 'reasonOffset', 'reasonLimit', 'sizeLimit',
-      ]));
-      const { name, ...requestedOptions } = parameters;
-      const options = {
-        previewLimit: this.#configuration.presentation.previewLimit,
-        reasonLimit: this.#configuration.presentation.previewLimit,
-        sizeLimit: this.#configuration.presentation.sizeLimit,
-        ...requestedOptions,
-      };
-      try {
-        validateNotebookMembershipPresentationOptions(options);
-      } catch (error) {
-        if (error instanceof TypeError) {
-          throw protocolError('INVALID_COMMAND', error.message);
-        }
-        throw error;
-      }
-      return readOnly(() => presentNotebookMembership(
-        this.#memory.getMembership(name), options,
-      ));
-    }
     return readOnly(() => presentSessionStatus(this.#memory, {
       revision: this.#revision,
       activeOperationCount: this.#active.size,
@@ -374,13 +326,6 @@ export class DeclarativeResearchSession {
           return result;
         },
       };
-    }
-    if (command.command === 'delete-membership') {
-      if (command.input !== undefined) {
-        throw protocolError('INVALID_COMMAND', `${command.command} does not accept an input handle.`);
-      }
-      rejectKeys(parameters, new Set(['name']));
-      return mutation(() => this.#memory.deleteMembership(parameters.name));
     }
     if (Object.keys(parameters).length) {
       throw protocolError(
@@ -1284,30 +1229,6 @@ function sessionSchema(configuration) {
     },
     commands: {
       research: [...researchOperationNames(), 'plan'],
-      notebook: {
-        remember: {
-          input: 'subject result handle',
-          parameters: {
-            judgment: NOTEBOOK_JUDGMENTS,
-            strength: 'optional number from 0 to 1',
-            reason: 'required caller-authored string',
-            attribution: 'required caller or operation name',
-            sourceReferences: 'stable references; resolution is not implied',
-            labels: 'optional caller-defined string array',
-            note: 'optional caller-authored string',
-          },
-        },
-        query: {
-          command: 'notebook',
-          input: 'forbidden',
-          parameters: {
-            judgments: 'optional judgment array (OR)',
-            labels: 'optional label array (AND)',
-            limit: { ...QUERY_LIMIT, required: false },
-          },
-        },
-        forget: { input: 'subject result handle', parameters: {} },
-      },
       plan: {
         required: {
           commandId: 'non-empty string',
@@ -1367,17 +1288,6 @@ function sessionSchema(configuration) {
           },
         },
         list: { parameters: { limit: previewRange, sizeLimit: sizeRange } },
-        memberships: { parameters: { limit: 'non-negative integer' } },
-        membership: {
-          parameters: {
-            name: 'membership name',
-            offset: 'non-negative member offset',
-            previewLimit: previewRange,
-            reasonOffset: 'non-negative reason offset applied to each shown member',
-            reasonLimit: previewRange,
-            sizeLimit: sizeRange,
-          },
-        },
         status: { parameters: { limit: previewRange, sizeLimit: sizeRange } },
         schema: {
           input: 'optional named result handle; omitted returns the global schema',
@@ -1395,7 +1305,7 @@ function sessionSchema(configuration) {
         },
       },
       lifecycle: [
-        'release', 'release-all', 'delete-membership', 'reset', 'close',
+        'release', 'release-all', 'reset', 'close',
       ],
     },
     configuration: {
@@ -1420,27 +1330,13 @@ function sessionSchema(configuration) {
         'engine defaults',
         'engine hard constraints',
       ],
-      capacityChanges: 'Memory, archive, and notebook capacity are construction-time settings; generic session configuration never evicts evidence.',
-    },
-    notebookMemberships: {
-      list: { command: 'memberships', parameters: { limit: 'optional non-negative integer' } },
-      inspect: { command: 'membership', parameters: { name: 'membership name' } },
-      replace: {
-        command: 'remember-membership',
-        input: 'subject result handle',
-        parameters: {
-          name: 'membership name',
-          reason: 'optional membership reason object',
-        },
-      },
-      delete: { command: 'delete-membership', parameters: { name: 'membership name' } },
-      distinction: 'Releasing handles, deleting membership, and releasing archived evidence are independent.',
+      capacityChanges: 'Memory and archive capacity are construction-time settings; generic session configuration never evicts evidence.',
     },
     accountFields: {
       'account.name': 'literal Nostr kind-0 profile field "name"',
       'account.display_name': 'literal Nostr kind-0 profile field "display_name"',
     },
-    locality: 'Handles, notebook knowledge, and archived evidence are process-local and disappear on reset, close, or process exit.',
+    locality: 'Handles and archived evidence are process-local and disappear on reset, close, or process exit.',
   };
 }
 

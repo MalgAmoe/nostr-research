@@ -7,7 +7,7 @@ import {
 } from '@nostr-research/memory';
 import { loadFixtureEvents } from '../test-support/fixtures.js';
 
-const NOTEBOOK_TEST_KEY = Uint8Array.from(Buffer.from('6'.repeat(64), 'hex'));
+const SUMMARY_TEST_KEY = Uint8Array.from(Buffer.from('6'.repeat(64), 'hex'));
 
 test('summary size bounds retain the public factual core and report presentation omissions', async () => {
   const events = Array.from({ length: 40 }, (_, index) => finalizeEvent({
@@ -15,7 +15,7 @@ test('summary size bounds retain the public factual core and report presentation
     created_at: 100 + index,
     tags: [],
     content: `bounded summary fixture ${index}`,
-  }, NOTEBOOK_TEST_KEY));
+  }, SUMMARY_TEST_KEY));
   const memory = createInMemoryResearchMemory({ capacity: events.length });
   const session = createDeclarativeResearchSession(memory);
   for (const event of events) {
@@ -186,30 +186,14 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   assert.equal(explained.result.reasons.length, 1);
   assert.equal(explained.sessionRevision, 2);
 
-  const retained = await session.execute({
-    commandId: 'retain',
-    command: 'remember-membership',
-    input: 'finding',
-    parameters: {
-      name: 'kept independently',
-      reason: { type: 'explicit-selection' },
-      attribution: 'functional workflow',
-    },
-    resultId: 'retained',
-  });
-  assert.equal(retained.sessionRevision, 3);
-  const retainedId = retained.result.handle.id;
-  const setId = memory.listMemberships()[0].id;
-  assert.equal(retainedId, 'retained');
-
   const listed = await session.execute({
     commandId: 'list',
     command: 'list',
     parameters: { limit: 1 },
   });
-  assert.equal(listed.result.count, 3);
-  assert.equal(listed.result.omitted, 2);
-  assert.equal(listed.sessionRevision, 3);
+  assert.equal(listed.result.count, 2);
+  assert.equal(listed.result.omitted, 1);
+  assert.equal(listed.sessionRevision, 2);
 
   const invalidList = await session.execute({
     commandId: 'list-with-offset',
@@ -219,51 +203,49 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   assert.equal(invalidList.ok, false);
   assert.equal(invalidList.error.code, 'INVALID_COMMAND');
   assert.equal(invalidList.error.message, 'Unknown list parameter: offset.');
-  assert.equal(invalidList.sessionRevision, 3);
+  assert.equal(invalidList.sessionRevision, 2);
 
   const released = await session.execute({
     commandId: 'release',
     command: 'release',
-    input: 'retained',
+    input: 'chosen',
     parameters: {},
   });
-  assert.equal(released.sessionRevision, 4);
+  assert.equal(released.sessionRevision, 3);
   assert.equal(memory.getEvent(event.id).event.id, event.id);
-  assert.equal(memory.getMembership(setId).id, setId);
 
   const status = await session.execute({
     commandId: 'status',
     command: 'status',
     parameters: {},
   });
-  assert.equal(status.result.revision, 4);
-  assert.equal(status.result.handleCount, 2);
-  assert.equal(status.result.notebook.membershipCount, 1);
-  assert.equal(status.sessionRevision, 4);
+  assert.equal(status.result.revision, 3);
+  assert.equal(status.result.handleCount, 1);
+  assert.equal('notebook' in status.result, false);
+  assert.equal(status.sessionRevision, 3);
 
   const reset = await session.execute({
     commandId: 'reset',
-    ifRevision: 4,
+    ifRevision: 3,
     command: 'reset',
     parameters: {},
   });
-  assert.equal(reset.sessionRevision, 5);
+  assert.equal(reset.sessionRevision, 4);
   assert.equal(memory.describe().observationBuffer.eventCount, 0);
-  assert.deepEqual(memory.listMemberships(), []);
 
   const closed = await session.execute({
     commandId: 'close',
     command: 'close',
     parameters: {},
   });
-  assert.equal(closed.sessionRevision, 6);
+  assert.equal(closed.sessionRevision, 5);
   const rejected = await session.execute({
     commandId: 'after-close',
     command: 'status',
     parameters: {},
   });
   assert.equal(rejected.error.code, 'SESSION_CLOSED');
-  assert.equal(rejected.sessionRevision, 6);
+  assert.equal(rejected.sessionRevision, 5);
 });
 
 test('relation summaries compact source selection details without losing their shape', async () => {
@@ -388,7 +370,6 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.equal(shown.result.corpus.capacity, 3);
   assert.equal(shown.result.corpus.residentEvents, 1);
   assert.equal(shown.result.corpus.evictions, 0);
-  assert.equal(shown.result.corpus.subjectEffects.available, false);
   for (const mode of ['summary', 'coverage', 'details', 'explain']) {
     const observed = await session.execute({
       commandId: `show-comparison-${mode}`,
@@ -536,205 +517,4 @@ test('declarative named results compose compatible sets and expose their schema'
   assert.equal(configuredStatus.result.configuration.acquisition.timeoutMs, 2500);
   assert.equal(configuredStatus.result.configuration.presentation.previewLimit, 2);
   await session.close();
-});
-
-test('declarative notebook knowledge survives turnover and remains independent from evidence', async () => {
-  const memory = createInMemoryResearchMemory({ capacity: 2 });
-  const session = createDeclarativeResearchSession(memory);
-  const [interestedEvent, uninterestedEvent] = loadFixtureEvents();
-  memory.ingest(interestedEvent, {
-    relay: 'wss://fixture.example/', observedAt: '2026-07-27T10:00:00.000Z',
-  });
-
-  await session.execute({
-    commandId: 'positive-source', command: 'select',
-    parameters: { scope: 'corpus', ids: [interestedEvent.id] }, resultId: 'positive-source',
-  });
-  const positiveJudgment = await session.execute({
-    commandId: 'judge-positive', command: 'remember', input: 'positive-source',
-    parameters: {
-      kind: 'judgment', judgment: 'interested', strength: 0.8,
-      reason: 'Relevant first-hand example', attribution: 'researcher',
-      sourceReferences: [{ type: 'event', id: interestedEvent.id }],
-    },
-  });
-  assert.equal(positiveJudgment.ok, true);
-  memory.ingest(uninterestedEvent, {
-    relay: 'wss://fixture.example/', observedAt: '2026-07-27T10:01:00.000Z',
-  });
-  await session.execute({
-    commandId: 'negative-source', command: 'select',
-    parameters: { scope: 'corpus', ids: [uninterestedEvent.id] }, resultId: 'negative-source',
-  });
-  const negativeJudgment = await session.execute({
-    commandId: 'judge-negative', command: 'remember', input: 'negative-source',
-    parameters: {
-      kind: 'judgment', judgment: 'uninterested',
-      reason: 'Useful counterexample, outside this inquiry', attribution: 'researcher',
-      sourceReferences: [{ type: 'event', id: uninterestedEvent.id }],
-    },
-  });
-  assert.equal(negativeJudgment.ok, true);
-
-  await session.execute({
-    commandId: 'positives', command: 'notebook',
-    parameters: { judgments: ['interested'] }, resultId: 'positives',
-  });
-  await session.execute({
-    commandId: 'negatives', command: 'notebook',
-    parameters: { judgments: ['uninterested'] }, resultId: 'negatives',
-  });
-  const constrained = await session.execute({
-    commandId: 'constraint', command: 'difference', input: 'positives',
-    parameters: { with: 'negatives', limit: 10 }, resultId: 'constrained',
-  });
-  assert.equal(constrained.result.handle.count, 1);
-  assert.equal(
-    memory.getNotebookEntry({ type: 'event', id: interestedEvent.id }).reason,
-    'Relevant first-hand example',
-  );
-
-  const retained = await session.execute({
-    commandId: 'retain', command: 'remember-membership', input: 'constrained',
-    parameters: {
-      name: '  provisional examples  ',
-      attribution: '  researcher  ',
-    },
-    resultId: 'retained-handle',
-  });
-  assert.deepEqual(retained.warnings, []);
-  const membershipName = 'provisional examples';
-  assert.equal(
-    memory.getMembership(membershipName).members[0].reasons[0].attribution,
-    'researcher',
-  );
-  const membershipInput = await session.execute({
-    commandId: 'membership-input', command: 'filter', input: 'retained-handle',
-    parameters: { where: { field: 'subject.type', equals: 'event' }, limit: 10 },
-    resultId: 'membership-input',
-  });
-  assert.equal(membershipInput.result.handle.count, 1);
-
-  const turnoverEvents = [0, 1].map((index) => finalizeEvent({
-    kind: 1,
-    created_at: 200 + index,
-    tags: [],
-    content: `turnover ${index}`,
-  }, NOTEBOOK_TEST_KEY));
-  for (const event of turnoverEvents) {
-    memory.ingest(event, {
-      relay: 'wss://turnover.example/', observedAt: '2026-07-27T10:02:00.000Z',
-    });
-  }
-  assert.equal(memory.inspect({ type: 'event', id: interestedEvent.id }).resolutionSource, 'unresolved');
-  assert.equal(memory.inspect({ type: 'event', id: uninterestedEvent.id }).resolutionSource, 'unresolved');
-  assert.equal(memory.describe().observationBuffer.evictions, 2);
-
-  const notebookAfterTurnover = await session.execute({
-    commandId: 'notebook-after-turnover', command: 'filter', input: 'positives',
-    parameters: { where: { field: 'subject.type', equals: 'event' }, limit: 10 },
-    resultId: 'notebook-after-turnover',
-  });
-  assert.equal(notebookAfterTurnover.result.handle.count, 1);
-  const membershipAfterTurnover = await session.execute({
-    commandId: 'membership-after-turnover', command: 'filter', input: 'retained-handle',
-    parameters: { where: { field: 'subject.type', equals: 'event' }, limit: 10 },
-    resultId: 'membership-after-turnover',
-  });
-  assert.equal(membershipAfterTurnover.result.handle.count, 1);
-  const shownMembershipAfterTurnover = await session.execute({
-    commandId: 'show-membership-after-turnover', command: 'show', input: 'retained-handle',
-    parameters: { includeEvidence: true, previewLimit: 10 },
-  });
-  assert.equal(shownMembershipAfterTurnover.ok, true);
-  assert.equal(shownMembershipAfterTurnover.result.type, 'result-collection');
-  assert.equal(shownMembershipAfterTurnover.result.preview[0].resolved, false);
-
-  const turnoverSelection = await session.execute({
-    commandId: 'turnover-source', command: 'select',
-    parameters: { scope: 'corpus', ids: [turnoverEvents[0].id] }, resultId: 'turnover-source',
-  });
-  const revisionBeforeSummaryPlan = turnoverSelection.sessionRevision;
-  const validSummaryPlan = await session.execute({
-    commandId: 'remember-summary-plan-valid',
-    command: 'plan',
-    plan: [{
-      id: 'source',
-      operation: 'select',
-      parameters: { scope: 'corpus', ids: [turnoverEvents[0].id] },
-    }, {
-      id: 'summary',
-      operation: 'remember',
-      input: 'source',
-      parameters: {
-        kind: 'derived-observation',
-        summary: { observation: 'explicit bounded example', count: 1 },
-        reason: 'Remembered for later comparison',
-        attribution: 'researcher',
-        sourceReferences: [{ type: 'event', id: turnoverEvents[0].id }],
-      },
-    }],
-  });
-  assert.equal(validSummaryPlan.ok, true);
-  assert.equal(validSummaryPlan.sessionRevision, revisionBeforeSummaryPlan + 1);
-  assert.deepEqual(
-    memory.getNotebookEntry({ type: 'event', id: turnoverEvents[0].id }).summary,
-    { observation: 'explicit bounded example', count: 1 },
-  );
-
-  const replaced = memory.replaceMembership('  provisional examples  ', negativesForReplacement(), {
-    reason: { type: 'explicit-negative-example', provisional: true },
-    attribution: '  researcher  ',
-  });
-  assert.equal(replaced.memberCount, 1);
-  const canonicalMembership = memory.getMembership(` ${membershipName} `);
-  assert.equal(canonicalMembership.name, membershipName);
-  assert.equal(canonicalMembership.members[0].id, uninterestedEvent.id);
-  assert.equal(canonicalMembership.members[0].reasons[0].attribution, 'researcher');
-  assert.deepEqual(memory.listMemberships().map(({ name }) => name), [membershipName]);
-
-  const released = await session.execute({
-    commandId: 'release', command: 'release', input: 'retained-handle', parameters: {},
-  });
-  assert.equal(released.result.type, 'released-result-handle');
-  const inspectedSet = await session.execute({
-    commandId: 'inspect-membership', command: 'membership',
-    parameters: {
-      name: ` ${membershipName} `,
-      offset: 0,
-      previewLimit: 1,
-      reasonOffset: 0,
-      reasonLimit: 1,
-      sizeLimit: 2000,
-    },
-  });
-  assert.equal(inspectedSet.result.name, membershipName);
-  assert.equal(inspectedSet.result.type, 'notebook-membership');
-  assert.equal(inspectedSet.result.count, 1);
-  assert.equal(inspectedSet.result.preview.length, 1);
-  assert.equal(inspectedSet.result.preview[0].reasons.length, 1);
-  assert.equal(inspectedSet.result.preview[0].reasonCount, 1);
-
-  const filteredNotebook = await session.execute({
-    commandId: 'filter-notebook', command: 'filter', input: 'positives',
-    parameters: { where: { field: 'subject.type', equals: 'event' }, limit: 2 },
-    resultId: 'filtered-notebook',
-  });
-  assert.equal(filteredNotebook.result.handle.count, 1);
-
-  assert.equal(memory.getNotebookEntry({ type: 'event', id: interestedEvent.id }).attribution, 'researcher');
-  assert.equal(memory.archived().count, 0);
-  assert.equal(memory.getMembership(membershipName).members.length, 1);
-
-  await session.execute({
-    commandId: 'delete', command: 'delete-membership',
-    parameters: { name: ` ${membershipName} ` },
-  });
-  assert.equal(memory.getNotebookEntry({ type: 'event', id: interestedEvent.id }).judgment, 'interested');
-
-  await session.close();
-
-  function negativesForReplacement() {
-    return memory.notebook({ judgments: ['uninterested'] });
-  }
 });

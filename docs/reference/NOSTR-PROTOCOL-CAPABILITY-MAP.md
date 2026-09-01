@@ -554,7 +554,7 @@ The following should not be implemented merely for broader Nostr compliance:
 - a universal interpretation framework for every registered event kind.
 
 Some of these could become separate products. They do not improve the current
-research vessel enough to justify their security and complexity costs.
+research workflow enough to justify their security and complexity costs.
 
 ## Completed protocol passes
 

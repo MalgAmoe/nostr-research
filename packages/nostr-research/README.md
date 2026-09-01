@@ -2,8 +2,7 @@
 
 `@nostr-research/memory` is a UI-independent research library for canonical
 Nostr evidence. The active runtime is one process-local memory with a renewable
-observation buffer, a bounded deliberate evidence archive, and explicit
-research knowledge.
+observation buffer and a bounded deliberate evidence archive.
 
 The public library uses Web Platform primitives and can be imported in
 supported Node and browser-compatible runtimes without Node built-ins or
@@ -16,7 +15,7 @@ For practical CLI operation, begin with the repository
 reference.
 
 The product path has four layers: memory owns the observation buffer, evidence
-archive, research notebook, and only the indexes needed to retrieve that
+archive, and only the indexes needed to retrieve that
 state; the authoritative executor produces collection/relation values and
 per-attempt acquisition reports from explicit inputs; the declarative session
 owns names for those engine values; and the JSON Lines executable adapts those
@@ -32,7 +31,6 @@ import {
 const memory = createInMemoryResearchMemory({
   capacity: 500,
   archiveCapacity: 100,
-  notebookCapacity: 250,
 });
 const session = createDeclarativeResearchSession(memory, {
   relays: ['wss://relay.example'],
@@ -54,10 +52,10 @@ observations per event in the observation buffer. Identical retained
 observations are deduplicated. Further observation attempts are not retained;
 their count remains visible as discarded attempts, not as a count of distinct
 unseen evidence. Buffer capacity uses deterministic FIFO eviction.
-`describe()` reports separate observation-buffer, archive, and notebook
-capacity and counts; it does not duplicate buffer state under a legacy corpus
-shape. Eviction removes buffer evidence and its derived indexes, while notebook
-entries and named membership keep stable subject references.
+`describe()` reports separate observation-buffer and archive capacity and
+counts; it does not duplicate buffer state under a legacy corpus shape.
+Eviction removes buffer evidence and its derived indexes; only explicit archive
+preservation keeps evidence through turnover.
 `inspect(subject)` reports `resolutionSource` as
 `"archive"`, `"buffer"`, or `"unresolved"`.
 For an event, `resident` means that exact event is in the observation buffer.
@@ -110,8 +108,8 @@ path for a full event, account, or address identity. Address subjects use the
 canonical `<kind>:<64-character-lowercase-hex-pubkey>:<d>` coordinate and
 resolve to the current locally available replaceable event without changing
 the immutable identity of historical event subjects. Collection operations,
-continuations, inspection, and notebook inputs all read the same
-memory. A collection contains stable subjects, reasons, and provenance
+continuations, and inspection all read the same memory. A collection contains
+stable subjects, reasons, and provenance
 references, not a hidden copy of canonical evidence.
 
 Relay acquisition is explicit:
@@ -179,7 +177,7 @@ const notes = memory.transform(memory.select({ kinds: [1] }), {
 Collection filtering deliberately does not inspect evidence fields. Move
 routes cover event authors and protocol references,
 resident authored events, and current kind-3 follows. These transforms never
-acquire, hydrate, remember, or evict evidence.
+acquire, hydrate, preserve, or evict evidence.
 
 Protocol relationships are derived according to event kind before they enter
 the navigation indexes. Kind-1 and kind-1111 thread edges form conversations;
@@ -445,15 +443,6 @@ const report = await executeResearchPlan(memory, [
       distinctEventLimit: 20,
     },
   },
-  {
-    id: 'saved',
-    operation: 'remember-membership',
-    input: 'authors',
-    parameters: {
-      name: suppliedName,
-      reason: suppliedReason,
-    },
-  },
 ]);
 ```
 
@@ -462,13 +451,12 @@ each stage result plus a concise `resultKind`. Acquisition and hydration return
 their existing bounded completion reports and never replace an input
 collection, so a later stage can explicitly reuse the pre-hydration account
 stage. The runner infers no topics, exclusions, examples, names, or reasons,
-and does not update declarative session handles or persist plans. A membership reason,
-when supplied, is an object with a non-empty `type`; invalid plan data is
-rejected before any external stage runs.
+and does not update declarative session handles or persist plans. Invalid plan
+data is rejected before any external stage runs.
 
 There is deliberately no database format, persistence interface, or reopen
-behavior. Notebook knowledge lives only while this memory is open. Calling
-`reset()` or `close()`, or ending the Node process, loses all resident state.
+behavior. Calling `reset()` or `close()`, or ending the Node process, loses all
+resident state.
 A fresh process always starts empty.
 
 The public core is runtime-neutral. Node streams, process arguments, signals,
@@ -498,8 +486,8 @@ either:
 
 Malformed JSON cannot provide trustworthy correlation, so its response uses
 `commandId: null` and `INVALID_COMMAND`. Optional `ifRevision` rejects stale
-commands with `REVISION_CONFLICT`. Revisions advance when the corpus, notebook,
-archive, or named-handle state changes; observation commands and failed commands do not
+commands with `REVISION_CONFLICT`. Revisions advance when the corpus, archive,
+or named-handle state changes; observation commands and failed commands do not
 advance them.
 
 ### Browser Worker adapter
@@ -518,7 +506,7 @@ application's package tooling. The Worker owns one process-local memory and
 one declarative session. Initialize it once before sending research commands:
 
 ```json
-{"type":"initialize","commandId":"start","memory":{"capacity":500,"archiveCapacity":100,"notebookCapacity":250},"configuration":{"presentation":{"previewLimit":10}}}
+{"type":"initialize","commandId":"start","memory":{"capacity":500,"archiveCapacity":100},"configuration":{"presentation":{"previewLimit":10}}}
 ```
 
 Successful initialization returns:
@@ -542,7 +530,7 @@ session's ordinary `SESSION_CLOSED` response. The adapter adds no runtime
 capabilities to commands, schemas, provenance, or session state.
 
 Research commands include source operations, subject-collection transforms,
-relation operations, explicit archive and notebook operations, and `plan`.
+relation operations, explicit archive operations, and `plan`.
 `schema` without an input reports a compact global vocabulary and
 configuration. Request `{ "detail": "full" }` when the exhaustive parameter
 contracts are needed. `schema` with a named input and empty parameters reports
@@ -612,13 +600,8 @@ entry presence is reported separately from canonical evidence resolution,
 because reference and excerpt preservation do not retain complete canonical
 evidence.
 
-Exact named-membership observation is bounded independently from membership
-storage. `membership` accepts member `offset`/`previewLimit`, per-member
-`reasonOffset`/`reasonLimit`, and `sizeLimit`; its response reports omissions
-instead of returning every accumulated reason graph by default.
-
 Configuration has explicit levels. Engine constraints are immutable supported
-ranges. Memory, archive, and notebook capacities are construction-time
+ranges. Memory and archive capacities are construction-time
 configuration because changing them can evict or reject stored state. Session
 configuration supplies defaults for future relay acquisition and bounded
 presentation. Per-command parameters override those defaults for one command.
@@ -745,16 +728,6 @@ exists only when a relay sends an `auth-required:` `CLOSED` reason.
 Observation does not change `sessionRevision`. Each command names every input
 and output, so there is no active selection or background pipeline.
 
-The research notebook owns provisional judgments, notes, bounded summaries,
-and named subject membership. `remember` applies an attributed entry with a
-reason and stable source references to each subject in its input; `notebook`
-queries judgments or labels into an ordinary collection; `forget` removes
-entries. `remember-membership` records an explainable named candidate group.
-Nothing is recorded automatically and notebook actions never archive evidence.
-The fixed `anchor` judgment records only that the researcher considers a
-subject useful for later navigation. It triggers no acquisition, traversal,
-preservation, or other automatic behavior.
-
 `select` always makes its scope explicit. With an acquisition result as
 `input`, it selects only among that attempt's stable event subjects (and may
 set `scope: "acquisition"`). Without an input it must set
@@ -785,8 +758,8 @@ completed, `dataScope` identifies `resident-corpus` or
 `bounded-relay-attempt`, and `exhaustive` remains separate. Relay completeness
 therefore never implies that the relay's total data is exhaustive.
 
-Observation commands are `show`, `inspect`, `explain`, `list`, `memberships`, `membership`,
-`status`, and `schema`.
+Observation commands are `show`, `inspect`, `explain`, `list`, `status`, and
+`schema`.
 `show` and `explain` consume a named input. `inspect` receives its stable
 `subject` in `parameters`. Projection parameters are `previewLimit`,
 `excerptLimit`, `includeEvidence`, and `sizeLimit`; `show` additionally accepts
@@ -803,19 +776,15 @@ bound is reached, secondary provenance is removed before requested preview
 evidence.
 
 `status` exposes observation-buffer pressure and evictions, archive entries by
-preservation level, notebook entry and membership counts, and the total handle
-count. `list` exposes each named handle's kind and cardinality. Together these
-report evidence resolution separately as `buffer`, `archive`, and `unresolved`,
-and count named notebook memberships separately from notebook judgments. This
-makes renewable evidence, deliberate evidence, research knowledge, and working
-views observable without presenting one store as another.
+preservation level, and the total handle count. `list` exposes each named
+handle's kind and cardinality. Together these report evidence resolution
+separately as `buffer`, `archive`, and `unresolved`. This makes renewable
+evidence, deliberate evidence, and working views observable without presenting
+one store as another.
 
 Handle lifecycle commands are `release` and `release-all`; neither deletes
-notebook knowledge. Named membership is listed with `memberships`, inspected
-with `membership`, and changed by another `remember-membership` using the same name or
-`delete-membership`. Releasing archived evidence and deleting notebook
-knowledge are likewise independent. Ordinary `resultId` replacement still
-requires `replace: true`.
+buffer or archive evidence. Releasing archived evidence is an independent
+operation. Ordinary `resultId` replacement still requires `replace: true`.
 
 `reset` clears handles and all process-local memory. `close` also ends the
 session. Empty and partial

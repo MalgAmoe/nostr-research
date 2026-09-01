@@ -7,8 +7,6 @@ import {
   DERIVE_EXPRESSIONS,
   FETCH_BINDING_KEYS,
   FIELD_MAPPINGS,
-  NOTEBOOK_JUDGMENTS,
-  NOTEBOOK_KINDS,
   QUERY_LIMIT,
   RELATION_FIELDS,
   RELATION_PREDICATE,
@@ -79,10 +77,6 @@ export const RESEARCH_OPERATIONS = Object.freeze({
   }])),
   hydrate: definition('accounts', 'events', 'hydration-report', 'external', 'buffer', 'bounded-attempt', 'hydrate'),
   continue: definition('subjects', undefined, 'continuation-report', 'by-source', 'by-source', 'bounded-attempt-or-view', 'continue'),
-  'remember-membership': definition('subjects', undefined, 'notebook-membership', 'local', 'notebook', 'complete-input', 'remember-membership'),
-  remember: definition('subjects', undefined, 'input', 'local', 'notebook', 'complete-input', 'remember'),
-  forget: definition('subjects', undefined, 'input', 'local', 'notebook', 'complete-input', 'forget'),
-  notebook: definition('forbidden', 'subjects', 'subjects', 'local', 'none', 'bounded-view', 'notebook'),
   preserve: definition('subjects', undefined, 'input', 'local', 'archive', 'complete-input', 'preserve'),
   archived: definition('forbidden', 'subjects', 'subjects', 'local', 'none', 'bounded-view', 'archived'),
   'release-archive': {
@@ -142,12 +136,6 @@ export function supportsCollectionOperations(descriptor) {
 
 export function operationMutation(name, result, parameters = {}) {
   const mutation = operationSemantics(name)?.mutation;
-  if (mutation === 'notebook') {
-    if (name === 'remember' || name === 'forget') {
-      return (result?.context?.notebookMutation?.count ?? 0) > 0;
-    }
-    return true;
-  }
   if (mutation === 'archive') {
     if (name === 'preserve') return (result?.context?.archiveMutation?.count ?? 0) > 0;
     return resultCount(result) > 0;
@@ -401,28 +389,6 @@ export function operationSchema() {
           ...ACQUISITION.excludeContentWarnings, applicableTo: 'relay source only',
         },
       },
-      'remember-membership': {
-        name: 'required membership name',
-        reason: 'optional object with a non-empty type',
-        attribution: 'optional non-empty caller attribution',
-      },
-      remember: {
-        kind: { required: false, values: NOTEBOOK_KINDS },
-        labels: 'optional string labels',
-        note: 'optional caller note',
-        judgment: { required: false, values: NOTEBOOK_JUDGMENTS },
-        strength: 'optional judgment strength',
-        reason: 'required non-empty caller-supplied string',
-        attribution: 'required non-empty caller attribution',
-        sourceReferences: 'optional evidence references',
-        summary: 'optional caller summary',
-      },
-      forget: {},
-      notebook: {
-        labels: 'optional label filter',
-        judgments: 'optional judgment filter',
-        limit: QUERY_LIMIT,
-      },
       preserve: {
         level: { required: true, values: ['reference', 'excerpt', 'canonical'] },
         reason: 'required object with a non-empty type',
@@ -471,11 +437,6 @@ export function operationSchema() {
     },
     operationFacts: {
       scan: { resultShape: SCAN.resultShape },
-      remember: {
-        parameterRequirements: {
-          atLeastOne: ['labels', 'note', 'judgment', 'summary'],
-        },
-      },
       acquire: { resultFacts: acquisitionResultFacts() },
       'relay-info': {
         resultFacts: {
@@ -649,17 +610,6 @@ function contextualCollectionOperations(add, kind, structure, configuration) {
     });
   }
 
-  add('remember-membership', {
-    reason: 'Named membership preserves this stable candidate set with a reason.',
-    remainingChoices: ['Supply a membership name and optional reason.'],
-  });
-  add('remember', {
-    reason: 'Notebook entries record attributed researcher judgment.',
-    remainingChoices: ['Supply a reason and attribution.'],
-  });
-  add('forget', {
-    reason: 'Forget removes notebook entries for these subjects.',
-  });
   add('preserve', {
     reason: 'Preservation explicitly copies available evidence into the archive.',
     remainingChoices: ['Choose a preservation level and reason.'],

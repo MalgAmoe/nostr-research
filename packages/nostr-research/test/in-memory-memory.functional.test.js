@@ -26,7 +26,6 @@ test('mixed ingestion and FIFO eviction leave coherent public indexes and source
     memory.ingest(callerOwned, observation);
     callerOwned.content = 'mutated after ingestion';
     memory.ingest(retainedSource, observation);
-    const retained = memory.rememberMembership(memory.select({ ids: [target.id] }), 'eviction-safe reference');
     memory.ingest(retainedSource, { ...observation, relay: 'wss://duplicate.example' });
     memory.ingest(newest, observation);
 
@@ -45,7 +44,7 @@ test('mixed ingestion and FIFO eviction leave coherent public indexes and source
       relationships: [],
     });
     const continued = memory.traverse(
-      memory.getMembership(retained.name).members.map(({ type, id }) => subject(type, id)), {
+      [subject('event', target.id)], {
       relationshipTypes: ['quoted-event'], direction: 'outbound', depth: 1,
       },
     );
@@ -122,20 +121,6 @@ function sign(kind, createdAt, tags, content, key) {
 function withoutId(value) {
   const copy = structuredClone(value);
   delete copy.id;
-  delete copy.createdAt;
-  return copy;
-}
-
-function withoutSetReferences(value, sourceSetId) {
-  const copy = JSON.parse(JSON.stringify(withoutId(value)).replaceAll(sourceSetId, '<set>'));
-  delete copy.createdAt;
-  return copy;
-}
-
-function normalizeSet(value, replacements) {
-  let serialized = JSON.stringify(withoutId(value));
-  for (const [id, replacement] of replacements) serialized = serialized.replaceAll(id, replacement);
-  const copy = JSON.parse(serialized);
   delete copy.createdAt;
   return copy;
 }

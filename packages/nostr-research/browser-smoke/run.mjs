@@ -56,7 +56,7 @@ try {
     results.push(await send({
       type: 'initialize',
       commandId: 'initialize',
-      memory: { capacity: 10, archiveCapacity: 2, notebookCapacity: 4 },
+      memory: { capacity: 10, archiveCapacity: 2 },
       configuration: {
         acquisition: {
           timeoutMs: 1_000,

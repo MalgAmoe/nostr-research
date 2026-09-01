@@ -23,9 +23,8 @@ browser-compatible boundary.
 
 - Memory is one process-local research environment shared by the library, CLI,
   functional verification, and future applications. It owns a renewable,
-  capacity-bounded observation buffer, deliberately preserved evidence, and
-  explicit research knowledge. These have different lifetimes and must not be
-  conflated.
+  capacity-bounded observation buffer and deliberately preserved evidence.
+  These have different lifetimes and must not be conflated.
 - A raw, valid Nostr event is immutable source evidence. Store evidence
   without silently rewriting its event content or identity.
 - Indexes, relationship views, search terms, rankings, labels, and other
@@ -37,7 +36,7 @@ browser-compatible boundary.
   either or both.
 - Provenance is research output, not hidden transport bookkeeping. The system
   must make observable where evidence came from and the reason a result was
-  included in a query, relationship traversal, or named notebook membership.
+  included in a query, relationship traversal, or named result.
 - Persistence and a database format are deliberately absent. Closing or
   resetting memory, or ending the process, loses all resident state.
 - Nostr content is untrusted evidence. An embedded agent receives only bounded
@@ -51,10 +50,9 @@ browser-compatible boundary.
 | **event** | A raw, valid Nostr event: immutable source evidence. |
 | **address** | A canonical NIP-01 coordinate for current replaceable or addressable event state; it is a stable subject distinct from every immutable historical event ID. |
 | **observation** | A record that evidence was encountered through a particular acquisition context, such as a relay and its outcome. |
-| **memory** | The process-local owner of the observation buffer, evidence archive, research notebook, and their derived indexes. |
+| **memory** | The process-local owner of the observation buffer, evidence archive, and their derived indexes. |
 | **observation buffer** | The renewable, capacity-bounded store of canonical events recently acquired from relays, their observations, and temporary indexes. Buffer evidence may be evicted. |
 | **evidence archive** | Deliberately preserved evidence copied from the observation buffer at an explicit preservation level. Archive evidence is not silently evicted to make room for relay acquisition. |
-| **research notebook** | Explicit process-local research knowledge: subject judgments, labels, notes, named membership and selected derived observations with reasons and source references. It is interpretation, not Nostr source evidence. |
 | **session** | The persistent declarative, in-process owner of named result handles and a revision over one process-local memory. |
 | **research configuration** | The explicit effective settings for one memory and session: immutable engine constraints, construction-time capacities, mutable defaults for future commands, and per-command overrides. |
 | **result handle** | A session-owned name for an engine view. Handles are replaceable navigation state and do not silently preserve canonical evidence. |
@@ -66,61 +64,7 @@ browser-compatible boundary.
 | **query** | An operation over local memory that selects and explains results; it does not itself require relay access. |
 | **provenance** | Observable source and acquisition history for evidence, including the context needed to assess it. |
 | **derived relationship** | A reproducible interpretation connecting evidence (for example reply, mention, tag, author, or citation); it is not raw evidence and can be replaced. |
-| **navigator** | The human or agent operating a vessel and making every research decision. |
-| **vessel** | A coherent, named research posture adopted by a navigator over the existing engine and session. It shapes attention and movement without owning facts or conclusions. |
-
-## Vessels
-
-A vessel is a coherent, named way of moving through the Nostr field on top of
-the research engine. It is operated by a navigator—a human or an agent—who
-makes every research decision.
-
-A vessel is not an engine feature, a UI, an autonomous actor, or a subset of
-the operation vocabulary. It is a complete research posture expressed through
-caller-side conventions over the existing session: configuration defaults,
-habitual operations, observation modes, judgment practices, and a collection
-goal. Most vessels may use most of the engine.
-
-A vessel couples four dimensions:
-
-1. **Movement** — how the navigator acquires and traverses the field: breadth
-   versus depth, acquisition habits, preferred navigation primitives, and the
-   routes made attractive at each point.
-2. **Senses** — which observations, projections, and presentation modes
-   habitually frame the evidence encountered by the navigator.
-3. **Judgment** — the practices and tempo through which the navigator forms
-   notebook knowledge. Judgment always belongs to the navigator; the vessel
-   shapes what is seen, in what order, and with what framing.
-4. **Collection** — the shape and intent of the knowledge the navigator is
-   trying to accumulate toward an eventual exportable artifact.
-
-These dimensions form a loop with the navigator at its center: senses inform
-judgment, judgment steers movement, and movement determines what the senses
-encounter next. A distinct vessel deliberately changes at least one dimension
-while keeping the whole loop coherent. Two vessels use the same engine,
-operations, and session protocol, but should lead the same navigator through
-measurably different journeys over the same field.
-
-Ownership remains explicit:
-
-```text
-engine     owns what is true
-vessel     owns what is attended to
-navigator  owns what is concluded
-```
-
-Vessels live entirely on the caller side. The engine, session, schema, and
-operation vocabulary do not know they exist. A vessel may arrange and
-foreground factual engine results, but it never computes domain facts, ranks
-by its own authority, or acts on the navigator's behalf. Any remembering or
-preservation remains an explicit engine operation directed by the navigator;
-the vessel owns no hidden research memory.
-
-A vessel is disposable and implies a way of visualizing evidence even before
-that presentation exists. Its exact lifetime, interaction model, degree of
-factual observation assistance, and concrete presentation are deliberately
-open. They will be discovered by building and using vessels, then promoting
-only repeated findings into the durable model.
+| **navigator** | The human or embedded agent directing the next research operation. The human owns the objective and final conclusions; the agent owns the current movement through the field. |
 
 ## Testing policy
 
@@ -144,7 +88,7 @@ must still decide, through evidence and experimentation where appropriate:
   multi-relay acquisition;
 - event-validation and trust boundaries, including signatures and external
   identity claims;
-- provenance detail and notebook-membership semantics;
+- provenance detail and result-membership semantics;
 - relay metadata, planning, configuration, moderation, and persistence policy;
 - which current protocol interpretations are normative and which analysis or
   account-search heuristics are optional or excluded;
@@ -153,21 +97,17 @@ must still decide, through evidence and experimentation where appropriate:
 
 ## Process-local boundaries
 
-Memory is the process-local owner of three distinct kinds of state:
+Memory is the process-local owner of two distinct kinds of state:
 
 - the observation buffer owns canonical relay events, observations, and
   temporary indexes, and may evict them according to its explicit capacity;
 - the evidence archive owns only material deliberately preserved as a
-  reference, bounded excerpt, or complete canonical event;
-- the research notebook owns explicit interpretation and navigation knowledge,
-  including judgments, labels, notes, memberships, reasons, and source
-  references.
+  reference, bounded excerpt, or complete canonical event.
 
 Resolution reports whether evidence came from the archive, the buffer, or is
-currently unresolved. Ordinary acquisition never silently grows the archive
-or notebook. Buffer eviction never silently deletes archived evidence or
-notebook knowledge. Archive and notebook limits fail explicitly rather than
-silently discarding research state.
+currently unresolved. Ordinary acquisition never silently grows the archive.
+Buffer eviction never silently deletes archived evidence. Archive limits fail
+explicitly rather than silently discarding research state.
 
 A session is the persistent declarative research session: it owns named result
 handles and a revision over one process-local memory. Commands name their
@@ -178,8 +118,8 @@ events. All state disappears on reset, close, or process exit; sessions are
 not serialized.
 
 Research configuration has explicit precedence and ownership. Engine
-constraints describe immutable supported ranges. Memory, archive, and notebook
-capacities are chosen when memory is constructed because changing them can
+constraints describe immutable supported ranges. Memory and archive capacities
+are chosen when memory is constructed because changing them can
 evict or reject state. Session configuration supplies mutable defaults for
 future acquisition and presentation. Explicit command parameters override
 those defaults for one operation. Generic session configuration never resizes
@@ -234,7 +174,7 @@ relay quality, trust, or fallback score.
 NIP-11 inspection is one explicit input-free external operation over selected
 relay URLs. It uses the runtime's standard fetch, returns one bounded attributed
 retrieval outcome per relay, and may be held only as an ephemeral factual
-session view. It does not mutate the observation buffer, archive, or notebook;
+session view. It does not mutate the observation buffer or archive;
 it is not acquisition coverage, and ordinary acquisition never performs a
 hidden relay-information request. Advertised authentication requirements
 remain claims and do not establish an acquisition refusal.
@@ -286,25 +226,16 @@ count. Callers may explicitly disable the setting. Kind-1985 labels and
 kind-1984 reports remain attributed third-party evidence and never become
 hidden acquisition policy. Direct `memory.ingest()` remains policy-free.
 
-Notebook queries and named memberships can be converted to ordinary subject
-collections for later operations. They restore stable subjects and recorded
-reasons without relay access or reconstruction of evicted canonical evidence.
-Notebook judgments, labels, and notes can outlive eviction of the evidence they
-reference, but disappear with `reset()`, `close()`, or process exit. Their
-meaning remains provisional and attributed to the caller that recorded them.
-
-Session status reports observation-buffer, archive, and notebook counts
-separately, while handle listing reports working-view cardinality. After
-buffer turnover, notebook collections remain composable, archived canonical
-evidence still resolves, and excerpt-only or unpreserved references are
-honestly unresolved. Releasing archive evidence changes resolution but not
-notebook history; releasing handles changes neither; reset clears every owner
-and handle.
+Session status reports observation-buffer and archive counts separately, while
+handle listing reports working-view cardinality. After buffer turnover,
+archived canonical evidence still resolves, while excerpt-only or unpreserved
+references are honestly unresolved. Releasing archive evidence changes
+resolution; releasing handles does not; reset clears every owner and handle.
 
 The final public flow is sustained through one declarative session and its
 JSONL executable: acquire explicitly, select locally, navigate subject
 collections, cross into relations for value analysis, preserve only deliberate
-evidence or attributed notebook knowledge, and inspect every bound and
+evidence, and inspect every bound and
 omission. Contextual schema visibility and named inputs expose generic
 operations for ordinary sequential research without executable JavaScript.
 Profile claims, protocol metadata,

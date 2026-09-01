@@ -8,7 +8,7 @@
     "dev": "electron .",
     "voyage": "electron . --voyage",
     "test": "node --test",
-    "check": "node --check src/main.js && node --check src/runtime.js && node --check src/attention.js && node --check src/app-store.js && node --check src/voyage-mode.js && node --check src/credential-store.js && node --check src/preload.cjs && node --check src/renderer/renderer.js"
+    "check": "node --check src/main.js && node --check src/runtime.js && node --check src/attention.js && node --check src/app-store.js && node --check src/starter-recipes.js && node --check src/voyage-mode.js && node --check src/credential-store.js && node --check src/preload.cjs && node --check src/renderer/renderer.js"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.4",

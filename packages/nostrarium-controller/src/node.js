@@ -15,8 +15,6 @@ export function createNodeJsonlTransport(options = {}) {
     '--capacity', String(configuration.capacity),
     ...(configuration.archiveCapacity === undefined
       ? [] : ['--archive-capacity', String(configuration.archiveCapacity)]),
-    ...(configuration.notebookCapacity === undefined
-      ? [] : ['--notebook-capacity', String(configuration.notebookCapacity)]),
   ];
   const child = spawn(process.execPath, args, {
     cwd: configuration.workingDirectory,
@@ -230,7 +228,7 @@ export function createNodeJsonlTransport(options = {}) {
 function validateOptions(options) {
   if (!isPlainObject(options)) throw new TypeError('options must be a plain object.');
   const allowed = new Set([
-    'workingDirectory', 'capacity', 'archiveCapacity', 'notebookCapacity',
+    'workingDirectory', 'capacity', 'archiveCapacity',
     'responseTimeoutMs',
   ]);
   for (const key of Object.keys(options)) {
@@ -239,7 +237,7 @@ function validateOptions(options) {
   if (typeof options.workingDirectory !== 'string' || options.workingDirectory.length === 0) {
     throw new TypeError('workingDirectory must be a non-empty string.');
   }
-  for (const name of ['capacity', 'archiveCapacity', 'notebookCapacity']) {
+  for (const name of ['capacity', 'archiveCapacity']) {
     if (options[name] !== undefined
         && (!Number.isSafeInteger(options[name]) || options[name] < 0)) {
       throw new TypeError(`${name} must be a non-negative integer.`);

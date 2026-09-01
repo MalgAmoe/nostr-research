@@ -59,14 +59,6 @@ test('explicit archive preservation survives complete buffer turnover and releas
         : `note ${index}`,
   ));
   try {
-    const unknownMembership = await session.execute({
-      commandId: 'unknown-membership',
-      command: 'membership',
-      parameters: { name: 'missing' },
-    });
-    assert.equal(unknownMembership.ok, false);
-    assert.equal(unknownMembership.error.code, 'UNKNOWN_MEMBERSHIP');
-
     memory.ingest(events[0], observation);
     memory.ingest(events[1], observation);
 

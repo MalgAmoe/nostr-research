@@ -1,16 +1,16 @@
 # Nostrarium control and data map
 
 This document maps what a navigator can control through the current research
-session and what the engine returns, retains, derives, or discards. It is an
-inventory for discovering vessels later. It does not define a vessel.
+session and what the engine returns, retains, derives, or discards. It is a
+factual reference for the CLI, controller, desktop agent, and future adapters.
 
 The central distinction is:
 
 > Controls change contact, attention, memory, or presentation. Data records
 > evidence, derivation, uncertainty, and navigator judgment.
 
-A vessel can hide, arrange, default, or emphasize these controls. It must not
-change what the controls mean.
+An adapter may arrange or emphasize these controls. It must not change what
+they mean or hide the complete command surface from the agent.
 
 ## The whole loop
 
@@ -29,12 +29,12 @@ acquire missing evidence when explicitly requested
         ↓
 observe again
         ↓
-record navigator judgment and preserve selected evidence
+record navigator judgment in narration and preserve selected evidence
         ↓
 continue, release views, or end the voyage
 ```
 
-There are five different kinds of state in this loop:
+There are four different kinds of engine/session state in this loop:
 
 1. **Corpus evidence** — immutable Nostr events currently in the observation
    buffer or deliberately copied into the archive.
@@ -42,13 +42,13 @@ There are five different kinds of state in this loop:
    subjects entered a result, and how relationships were interpreted.
 3. **Named result handles** — replaceable views over subjects, relations, or
    reports. They are working instruments, not saved research.
-4. **Notebook knowledge** — attributed navigator judgment about stable subjects.
-5. **Session configuration** — current relay, acquisition, and presentation
+4. **Session configuration** — current relay, acquisition, and presentation
    defaults.
 
 These must remain distinct. Releasing a handle does not remove corpus evidence.
-Buffer eviction does not remove notebook judgment. Preserving evidence does not
-mean the navigator endorsed it.
+Preserving evidence does not mean the navigator endorsed it. Navigator
+judgments live in narration, temporary caller-side attention, or an explicit
+exported artifact rather than a parallel engine store.
 
 ## 1. Session and command controls
 
@@ -76,8 +76,7 @@ protocol adapter without creating a second engine path.
 The session is created with independent capacities for:
 
 - the renewable observation buffer;
-- the deliberate evidence archive;
-- the notebook.
+- the deliberate evidence archive.
 
 These capacities are subject counts, not byte budgets. They are honest and
 simple, but canonical archived events cost much more memory than references.
@@ -109,8 +108,8 @@ discarded attempts, not distinct unseen evidence.
 Per-operation acquisition and presentation parameters can override the relevant
 defaults. The effective configuration is visible through `status`.
 
-Configuration is therefore part of a vessel's posture, but not its identity.
-Two voyages using the same vessel may still use different bounds when the
+Configuration is therefore part of a caller's research posture, not a hidden
+classification. Two voyages using the same general method may use different bounds when the
 navigator deliberately changes them.
 
 ## 3. Contact with the Nostr field
@@ -451,34 +450,25 @@ provenance, not canonical subject inspection.
 
 - `schema` describes commands globally or in the context of a specific handle;
 - `list` shows live result handles;
-- `status` shows memory pressure, corpus indexes, archive, notebook,
-  configuration, active operations, and handle count;
-- membership observation commands expose named notebook memberships.
+- `status` shows memory pressure, corpus indexes, archive, configuration,
+  active operations, and handle count.
 
 Schema reports available and populated fields, typed transitions, required
 caller choices, defaults, and bounds. It describes possibilities; it does not
 recommend a next action.
 
-## 8. Judgment controls
+## 8. Navigator judgment
 
-Notebook actions record conclusions made by the navigator:
-
-- `remember` attaches labels, notes, summaries, source references, and the fixed
-  judgment vocabulary `interested`, `uninterested`, `uncertain`, or `anchor`;
-- `forget` removes notebook knowledge;
-- `remember-membership` places stable subjects in a named membership;
-- membership operations retrieve or delete those groups.
-
-Every remembered judgment requires a reason and attribution. `anchor` means a
-useful place from which the navigator may continue; it triggers no automatic
-behavior.
-
-The engine does not infer these judgments from activity, popularity, text, or
-network position.
+The engine exposes evidence, provenance, bounds, and working views; it does not
+own navigator conclusions. Judgments belong in the live narrated ledger,
+temporary caller-side attention when useful, or a deliberately exported
+artifact. The engine does not infer judgments from activity, popularity, text,
+or network position.
 
 ## 9. Collection and retention controls
 
-The archive and notebook answer different questions.
+The archive answers whether evidence should survive buffer turnover. It is not
+a judgment or annotation store.
 
 ### Evidence archive
 
@@ -497,14 +487,7 @@ selection, inspection, and local traversal can continue after buffer eviction.
 
 The archive says, “carry this evidence through buffer turnover.”
 
-### Notebook
-
-The notebook says, “the navigator concluded or annotated this about a stable
-subject.”
-
-A voyage may use either without the other. Preserving a disturbing or doubtful
-event for analysis must not imply interest; marking an account interesting must
-not silently archive all its events.
+Preserving a disturbing or doubtful event for analysis must not imply interest.
 
 ## 10. Working-view lifecycle
 
@@ -558,112 +541,3 @@ Every useful result also carries some combination of:
 This supporting information is not decoration. It is what allows the navigator
 to distinguish “no match,” “not fetched,” “evicted,” “relay failed,” “bounded
 away,” and “not represented by this projection.”
-
-## 12. Findings from a live bounded voyage
-
-A live CLI voyage on 29 July 2026 used three relays and a 300-distinct-event
-budget.
-
-The field returned:
-
-- 349 accepted observations;
-- 300 distinct kind-1 events;
-- 49 duplicate observations;
-- 119 distinct authors;
-- 300 new buffer events;
-- no evictions at 30% buffer pressure;
-- a declared `distinct-event-budget` completion reason;
-- one relay omitted from the bounded coverage page rather than silently absent.
-
-The first preview immediately exposed machine-generated zone-presence events.
-This demonstrated why a vessel's senses matter: a random field is real but not
-automatically legible or human.
-
-Local movement produced 119 account subjects. Explicit hydration resolved 79
-of them using 81 metadata events, leaving 40 unresolved. The difference between
-resolved accounts and immutable metadata events was reported rather than
-flattened.
-
-A broad scan for music, science, privacy, art, or history reduced 300 event rows
-to 8 rows without truncation. Exploding tags with a limit of 80 produced 80
-rows from 300 inputs and declared `truncated: true`, its output limit, and that
-only 19 source subjects were represented. This is exactly the information a
-navigator needs before treating downstream aggregates as representative.
-
-Extracting the eight scan hits returned to an events collection. Remembering
-them added eight attributed notebook entries without changing the corpus.
-
-Two deliberately incorrect commands were also informative:
-
-- passing a nonexistent `limit` to `relate` failed without mutation;
-- passing an unsupported `attribution` field to `preserve` failed without
-  mutation.
-
-In both cases, contextual schema is the intended recovery path. This suggests a
-vessel should make contextual controls visible before or alongside execution,
-not hide errors by inventing permissive semantics.
-
-## 13. The option space a vessel may organize
-
-Without inventing any new engine behavior, a vessel can choose:
-
-### Movement posture
-
-- relay set and contact bounds;
-- random breadth versus anchored depth;
-- local movement before external continuation;
-- favored subject transitions;
-- buffer turnover tempo;
-- when counts or relay information are consulted.
-
-### Sensory posture
-
-- summary-first, preview-first, or coverage-first;
-- which relation fields are habitually projected;
-- how many examples are shown;
-- when canonical details become visible;
-- whether provenance, uncertainty, media, conversation role, or relationship
-  evidence is foregrounded.
-
-### Judgment posture
-
-- when the navigator is invited to label or annotate;
-- how anchors and exclusions are framed;
-- how much evidence is inspected before judgment;
-- whether uncertainty is preserved explicitly;
-- how named memberships organize temporary themes.
-
-### Collection posture
-
-- whether the voyage seeks accounts, notes, threads, patterns, or a mixed
-  corpus;
-- what reaches notebook knowledge;
-- what evidence is preserved and at which fidelity;
-- how aggressively working handles are released;
-- what an eventual exportable artifact should contain.
-
-An interpretation may make some routes attractive and others quiet. It should
-not accidentally make a route impossible merely because an operation was
-assigned to another conceptual category.
-
-## 14. What remains deliberately outside this map
-
-This inventory does not decide:
-
-- which vessel should exist first;
-- which controls deserve visual widgets;
-- which recipes should become named caller-side templates;
-- how voyages should be exported;
-- whether multiple vessels can share one live session;
-- whether a human interface presents rows, maps, cards, trails, or several
-  synchronized views.
-
-The first round of those experiments is complete. Its conclusions are in
-[`VESSELS.md`](../voyages/VESSELS.md), while the detailed evidence remains
-under [`docs/voyages/`](../voyages/).
-
-Those trials confirmed that coherent postures alter journeys, but also showed
-that not every useful arrangement deserves to become a named vessel. Current
-systems and composers live under [`experiments/`](../../experiments/), where
-multiple overlapping interpretations can be tested without turning one into
-the canonical layer above the controller.

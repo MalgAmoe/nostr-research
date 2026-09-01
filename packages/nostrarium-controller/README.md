@@ -62,7 +62,6 @@ const transport = createNodeJsonlTransport({
   workingDirectory: process.cwd(),
   capacity: 2_000,
   archiveCapacity: 500,
-  notebookCapacity: 500,
   responseTimeoutMs: 10_000,
 });
 const controller = createNavigatorController({
@@ -111,7 +110,7 @@ const worker = new Worker(new URL('./research-worker.js', import.meta.url), {
 });
 const transport = await createBrowserWorkerTransport({
   worker,
-  memory: { capacity: 1_000, archiveCapacity: 300, notebookCapacity: 300 },
+  memory: { capacity: 1_000, archiveCapacity: 300 },
   configuration: { presentation: { previewLimit: 8 } },
   responseTimeoutMs: 45_000,
 });

@@ -52,11 +52,6 @@ export const RESEARCH_CONSTRAINTS = deepFreeze({
     terms: { minimum: 1, maximum: 50 },
     termLength: { minimum: 1, maximum: 200 },
   },
-  notebook: {
-    capacity: { default: 1000, minimum: 1, maximum: 1000 },
-    sourceReferences: { maximum: 50 },
-    summaryLength: { maximum: 2000 },
-  },
   derivedValues: {
     stringLength: { maximum: 280 },
     arrayLength: { maximum: 20 },

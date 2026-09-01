@@ -206,9 +206,9 @@ The renderer does not send raw Electron channel names. Every incoming message
 is validated in the main process. Every outgoing event is structured-cloned
 and stripped of credentials before crossing the bridge.
 
-## First product slice
+## Current product slice
 
-The first slice proves one loop and nothing more:
+The current slice supports one complete loop:
 
 ```text
 human asks a research question
@@ -218,7 +218,7 @@ human asks a research question
 → agent continues in the same research session
 ```
 
-The renderer needs only:
+The renderer currently contains:
 
 1. a provider/login and model chooser;
 2. a conversation stream;
@@ -227,70 +227,27 @@ The renderer needs only:
    relation, coverage, or schema response as safe structured data;
 5. stop/abort and session-reset controls.
 
-It does not need a feed, graph, dashboard, vessel registry, generic windowing
+It does not need a feed, graph, dashboard, posture registry, generic windowing
 system, agent-written components, persistence, export, or a polished human
 Nostr client.
 
-The first meaningful acceptance voyage is deliberately modest: starting from
-a bounded random acquisition, the agent follows evidence to identify and show
-a few accounts relevant to a question chosen by the human. Success is not the
-quality of a universal recommendation. Success is that the human can see the
-agent's movement, inspect the evidence behind its statements, intervene, and
-continue without operating the command protocol.
-
-## Implementation sequence
-
-### Task 1: desktop and runtime tracer
-
-- Add `apps/*` to the workspace and create `apps/nostrarium-desktop/`.
-- Start a local-only Electron window with the secure defaults above.
-- Instantiate an in-process memory, declarative session, and controller in the
-  main process.
-- Expose session start, state, and close through a narrow preload API.
-- Verify the renderer cannot access Node or raw IPC.
-
-Use a controlled local session; no real model or relay is required yet.
-
-### Task 2: embedded agent and tool bridge
-
-- Add pinned Pi AI and agent-core dependencies.
-- Instantiate an agent with sequential execution and only the Nostrarium tool.
-- Exercise the bridge using Pi's controlled/faux model facilities.
-- Stream assistant, tool-call, tool-result, and error events into the renderer.
-- Render safe structured evidence from a bounded observation response.
-
-The permanent verification should remain at the public boundary: one desktop
-runtime workflow, not tests for every view helper.
-
-### Task 3: credentials and live voyage
-
-- Implement the encrypted `CredentialStore`.
-- Add provider status, login interaction, logout, and model selection.
-- Test one real OAuth login in development and in the packaged application.
-- Run one real-relay agent voyage and record context size, command count,
-  intervention behavior, UI responsiveness, and any full-response friction.
-
-Packaging must be tested here because Pi's OAuth implementations and provider
-SDKs load lazily. Avoid bundling the main-process dependency graph until the
-packaged OAuth and provider paths are proven; package the required runtime
-dependencies intact.
+Live and headless voyages verify that the human can follow the agent's movement,
+inspect the evidence behind its statements, intervene, and continue without
+operating the command protocol.
 
 ## Explicit non-goals
 
-This milestone does not:
+The current application does not:
 
 - change the research engine or controller API;
 - make the agent autonomous or allow unattended background research;
-- add engine operations inferred from old interface experiments;
 - preserve research sessions across application restarts;
 - load arbitrary agent-generated JavaScript or UI code;
 - expose Pi's coding tools;
-- support every provider before one complete login and voyage works;
-- revive Atlas or combine the old experiments into a product shell.
+- support every provider before one complete login and voyage works.
 
-The old experiments remain evidence. Skills, reusable research techniques,
-dynamic visual vocabulary, export, and persistence should be extracted only
-after the embedded agent is used for real voyages.
+Skills, reusable research techniques, dynamic visual vocabulary, export, and
+persistence should be added only after repeated real voyages justify them.
 
 ## Main risks and decision triggers
 
@@ -309,8 +266,7 @@ after the embedded agent is used for real voyages.
 
 ## Conclusion
 
-The desktop direction is feasible without modifying Nostrarium's stable core.
-The strongest implementation is also the simplest: one trusted local runtime,
-one neutral controller, one visible research tool, and one isolated evidence
-interface. The first milestone should prove that loop before attempting to
-design the final Nostrarium experience.
+The desktop direction works without replacing Nostrarium's stable core: one
+trusted local runtime, one neutral controller, one complete visible research
+tool, and one isolated evidence interface. Future work should preserve that
+boundary and respond to repeated voyage evidence rather than speculative UI.

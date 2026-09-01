@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { DesktopAppStore } from '../src/app-store.js';
+import { seedStarterRecipes, STARTER_RECIPES } from '../src/starter-recipes.js';
 
 test('desktop settings and JSON recipes survive application-store restarts', async (context) => {
   const directory = await mkdtemp(join(tmpdir(), 'nostrarium-app-store-'));
@@ -83,4 +84,50 @@ test('the application store accepts bounded JSON but rejects ambiguous or unsafe
   store.close();
   store.close();
   assert.throws(() => store.settings(), /store is closed/u);
+});
+
+test('starter recipes seed once without overwriting navigator revisions', () => {
+  const store = new DesktopAppStore({ file: ':memory:', now: () => 10 });
+  try {
+    assert.deepEqual(seedStarterRecipes(store), {
+      seeded: STARTER_RECIPES.map(({ id }) => id),
+      updated: [],
+    });
+    assert.equal(store.recipes().length, STARTER_RECIPES.length);
+    store.saveRecipe({
+      id: 'profile-descent', name: 'My revised descent',
+      definition: { steps: [{ checkpoint: 'Navigator-owned revision.' }] },
+      originVoyageId: 'user-voyage',
+    });
+    assert.deepEqual(seedStarterRecipes(store), { seeded: [], updated: [] });
+    assert.equal(store.recipe('profile-descent').name, 'My revised descent');
+    assert.equal(store.recipe('profile-descent').revision, 2);
+  } finally {
+    store.close();
+  }
+});
+
+test('starter recipe upgrades replace only older application-owned seeds', () => {
+  const store = new DesktopAppStore({ file: ':memory:', now: () => 20 });
+  try {
+    const current = STARTER_RECIPES.find(({ id }) => id === 'mention-frequency');
+    const legacy = structuredClone(current);
+    delete legacy.definition.starterRecipe;
+    legacy.definition.steps.at(-1).parameters = {
+      by: [{ field: 'mentionCount', direction: 'desc' }], limit: 1000,
+    };
+    store.saveRecipe({ ...legacy, originVoyageId: null });
+
+    assert.deepEqual(seedStarterRecipes(store), {
+      seeded: ['profile-descent', 'relay-confessional'],
+      updated: ['mention-frequency'],
+    });
+    assert.deepEqual(
+      store.recipe('mention-frequency').definition.steps.at(-1).parameters,
+      { by: [{ field: 'mentionCount', direction: 'descending' }] },
+    );
+    assert.equal(store.recipe('mention-frequency').revision, 2);
+  } finally {
+    store.close();
+  }
 });

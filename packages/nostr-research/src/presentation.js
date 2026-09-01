@@ -36,9 +36,6 @@ export function showResearchValue(memory, value, options = {}) {
   }
   else if (value?.type === 'typed-collection') shown = showTypedCollection(memory, value, settings);
   else if (value?.type === 'research-relation') shown = showRelation(memory, value, settings);
-  else if (value?.type === 'notebook-membership') {
-    shown = showCollection(memory, memory.asCollection(value), settings);
-  }
   else if (isCorpusSummary(value)) shown = showCorpus(value);
   else if (isSubject(value?.subject)) {
     shown = showSubject(memory, value.subject, settings, value.decodedReference);
@@ -402,45 +399,6 @@ export function presentHandleList(handles, options = {}) {
   }, settings.sizeLimit);
 }
 
-export function validateNotebookMembershipPresentationOptions(options = {}) {
-  membershipOptions(options);
-}
-
-export function presentNotebookMembership(membership, options = {}) {
-  const settings = membershipOptions(options);
-  const members = membership.members ?? [];
-  const offset = Math.min(settings.offset, members.length);
-  const preview = members.slice(offset, offset + settings.previewLimit).map((member) => {
-    const reasons = member.reasons ?? [];
-    const reasonOffset = Math.min(settings.reasonOffset, reasons.length);
-    const shownReasons = reasons.slice(reasonOffset, reasonOffset + settings.reasonLimit);
-    return {
-      subject: { type: member.type, id: member.id },
-      reasonCount: reasons.length,
-      reasons: structuredClone(shownReasons),
-      reasonOffset,
-      omittedReasonsBefore: reasonOffset,
-      omittedReasonsAfter: Math.max(0, reasons.length - reasonOffset - shownReasons.length),
-    };
-  });
-  return enforceSize({
-    type: 'notebook-membership',
-    id: membership.id,
-    name: membership.name,
-    createdAt: membership.createdAt,
-    ...(membership.updatedAt ? { updatedAt: membership.updatedAt } : {}),
-    count: members.length,
-    preview,
-    offset,
-    limit: settings.previewLimit,
-    nextOffset: offset + preview.length,
-    omittedBefore: offset,
-    omittedAfter: Math.max(0, members.length - offset - preview.length),
-    omitted: Math.max(0, members.length - preview.length),
-    sizeBounded: false,
-  }, settings.sizeLimit);
-}
-
 export function presentSessionStatus(memory, status, options = {}) {
   const settings = listOptions(options);
   const state = memory.describe();
@@ -453,7 +411,6 @@ export function presentSessionStatus(memory, status, options = {}) {
       pressure: buffer.capacity === 0 ? 0 : buffer.eventCount / buffer.capacity,
     },
     archive: structuredClone(state.archive),
-    notebook: structuredClone(state.notebook),
     configuration: structuredClone(status.configuration),
     activeOperationCount: status.activeOperationCount,
     handleCount: status.handleCount,
@@ -624,10 +581,6 @@ function showTypedCollection(memory, collection, settings) {
     provenance: provenanceSummary(resolved.items.slice(0, limit)),
     corpus: {
       ...corpusState(memory),
-      subjectEffects: {
-        available: false,
-        statement: 'This derived summary does not create parallel notebook membership; inspect or show its source result for current evidence resolution.',
-      },
     },
   };
   if (settings.mode === 'summary') {
@@ -1277,17 +1230,9 @@ function uniqueObjects(values) {
 }
 
 function corpusEffects(memory, items) {
-  const keys = new Set(items.map(({ subject: item }) => `${item.type}:${item.id}`));
-  let retained = 0;
-  for (const summary of memory.listMemberships()) {
-    const set = memory.getMembership(summary.name);
-    retained += set.members.filter((member) => keys.has(`${member.type}:${member.id}`)).length;
-  }
   return {
     ...corpusState(memory),
     evidenceResolution: resolutionCounts(memory, items),
-    namedMemberships: retained,
-    statement: 'Notebook membership preserves subject identity and reasons, not evicted canonical evidence.',
   };
 }
 
@@ -1350,27 +1295,6 @@ function listOptions(options) {
   return {
     limit: boundedInteger(options.limit, DEFAULT_PREVIEW_LIMIT, MAX_PREVIEW_LIMIT, 'limit'),
     sizeLimit: boundedInteger(options.sizeLimit, DEFAULT_SIZE_LIMIT, MAX_SIZE_LIMIT, 'sizeLimit', 1000),
-  };
-}
-
-function membershipOptions(options) {
-  assertOptions(options, [
-    'offset', 'previewLimit', 'reasonOffset', 'reasonLimit', 'sizeLimit',
-  ]);
-  return {
-    offset: boundedInteger(options.offset, 0, Number.MAX_SAFE_INTEGER, 'offset', 0),
-    previewLimit: boundedInteger(
-      options.previewLimit, DEFAULT_PREVIEW_LIMIT, MAX_PREVIEW_LIMIT, 'previewLimit',
-    ),
-    reasonOffset: boundedInteger(
-      options.reasonOffset, 0, Number.MAX_SAFE_INTEGER, 'reasonOffset', 0,
-    ),
-    reasonLimit: boundedInteger(
-      options.reasonLimit, DEFAULT_PREVIEW_LIMIT, MAX_PREVIEW_LIMIT, 'reasonLimit',
-    ),
-    sizeLimit: boundedInteger(
-      options.sizeLimit, DEFAULT_SIZE_LIMIT, MAX_SIZE_LIMIT, 'sizeLimit', 1000,
-    ),
   };
 }
 
@@ -1692,7 +1616,6 @@ function compactPreviewForSize(value, observation) {
       omittedProvenance: copy.omittedProvenance ?? 0,
     };
   }
-  delete copy.notebookEntry;
   delete copy.reasonSummary;
   delete copy.relays;
   if (observation === 'details') {

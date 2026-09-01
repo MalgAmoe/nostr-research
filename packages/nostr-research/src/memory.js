@@ -1,6 +1,6 @@
 import { SUBJECT_COLLECTION_KINDS } from './operations.js';
 import { RESEARCH_CONSTRAINTS } from './configuration.js';
-import { NOTEBOOK_JUDGMENTS, NOTEBOOK_KINDS, QUERY_LIMIT } from './contract-facts.js';
+import { QUERY_LIMIT } from './contract-facts.js';
 import { compareCodePoints, foldCase } from './deterministic-text.js';
 import {
   collectionPipelineSchema as engineCollectionPipelineSchema,
@@ -27,9 +27,7 @@ const MAX_QUERY_LIMIT = QUERY_LIMIT.maximum;
 const MEMORY_CAPACITY = RESEARCH_CONSTRAINTS.memory.capacity;
 const MAX_OBSERVATIONS_PER_EVENT =
   RESEARCH_CONSTRAINTS.memory.observationsPerEvent.maximum;
-const NOTEBOOK_CAPACITY = RESEARCH_CONSTRAINTS.notebook.capacity;
 const SUBJECT_TYPES = new Set(['event', 'account', 'address', 'tag']);
-const NOTEBOOK_SUBJECT_TYPES = new Set(['event', 'account', 'address', 'tag']);
 const NAVIGATION_RELATIONSHIP_TYPE_SET = new Set(NAVIGATION_RELATIONSHIP_TYPES);
 const MEMORY_TRANSACTION = Symbol.for('nostr-research.memory-plan-attempt');
 
@@ -38,7 +36,7 @@ export function createInMemoryResearchMemory(options = {}) {
   assertPlainObject(options, 'In-memory research memory options');
   rejectUnknownKeys(
     options,
-    new Set(['capacity', 'archiveCapacity', 'notebookCapacity']),
+    new Set(['capacity', 'archiveCapacity']),
     'in-memory research memory option',
   );
   const capacity = options.capacity;
@@ -58,16 +56,7 @@ export function createInMemoryResearchMemory(options = {}) {
       + `${MEMORY_CAPACITY.minimum} to ${MEMORY_CAPACITY.maximum}.`,
     );
   }
-  const notebookCapacity = options.notebookCapacity ?? NOTEBOOK_CAPACITY.default;
-  if (!Number.isSafeInteger(notebookCapacity)
-      || notebookCapacity < NOTEBOOK_CAPACITY.minimum
-      || notebookCapacity > NOTEBOOK_CAPACITY.maximum) {
-    throw new ResearchMemoryError(
-      `Research notebook capacity must be an integer from `
-      + `${NOTEBOOK_CAPACITY.minimum} to ${NOTEBOOK_CAPACITY.maximum}.`,
-    );
-  }
-  return new InMemoryResearchMemory(capacity, archiveCapacity, notebookCapacity);
+  return new InMemoryResearchMemory(capacity, archiveCapacity);
 }
 
 /** The private indexed owner for canonical records and every derived index. */
@@ -163,21 +152,14 @@ class IndexedObservationBuffer {
 export class InMemoryResearchMemory {
   #capacity;
   #archiveCapacity;
-  #notebookCapacity;
   #closed = false;
   #buffer = new IndexedObservationBuffer();
   #archive = new Map();
   #archivedCanonical = new IndexedObservationBuffer();
   #nextObservationId = 1;
   #evictions = 0;
-  #notebookMemberships = new Map();
-  #notebookEntries = new Map();
 
-  constructor(
-    capacity,
-    archiveCapacity = capacity,
-    notebookCapacity = NOTEBOOK_CAPACITY.default,
-  ) {
+  constructor(capacity, archiveCapacity = capacity) {
     if (!Number.isSafeInteger(capacity)
         || capacity < MEMORY_CAPACITY.minimum || capacity > MEMORY_CAPACITY.maximum) {
       throw new ResearchMemoryError(
@@ -195,15 +177,6 @@ export class InMemoryResearchMemory {
       );
     }
     this.#archiveCapacity = archiveCapacity;
-    if (!Number.isSafeInteger(notebookCapacity)
-        || notebookCapacity < NOTEBOOK_CAPACITY.minimum
-        || notebookCapacity > NOTEBOOK_CAPACITY.maximum) {
-      throw new ResearchMemoryError(
-        `Research notebook capacity must be an integer from `
-        + `${NOTEBOOK_CAPACITY.minimum} to ${NOTEBOOK_CAPACITY.maximum}.`,
-      );
-    }
-    this.#notebookCapacity = notebookCapacity;
   }
 
   #assertOpen() {
@@ -217,8 +190,6 @@ export class InMemoryResearchMemory {
       archive: cloneMap(this.#archive),
       nextObservationId: this.#nextObservationId,
       evictions: this.#evictions,
-      notebookMemberships: cloneMap(this.#notebookMemberships),
-      notebookEntries: cloneMap(this.#notebookEntries),
     };
     try {
       return await operation();
@@ -229,8 +200,6 @@ export class InMemoryResearchMemory {
       this.#rebuildArchivedCanonical();
       this.#nextObservationId = snapshot.nextObservationId;
       this.#evictions = snapshot.evictions;
-      this.#notebookMemberships = snapshot.notebookMemberships;
-      this.#notebookEntries = snapshot.notebookEntries;
       throw error;
     }
   }
@@ -376,15 +345,6 @@ export class InMemoryResearchMemory {
     return validateCollectionOperation(stages, inputKind, itemKind);
   }
 
-  validateNotebookMembership(name, options = {}, collectionKind = undefined) {
-    this.#assertOpen();
-    normalizeMembershipName(name);
-    assertPlainObject(options, 'Notebook membership options');
-    rejectUnknownKeys(options, new Set(['reason', 'attribution']), 'notebook membership option');
-    if (options.reason !== undefined) normalizeReason(options.reason);
-    if (collectionKind !== undefined) validateNotebookCollectionKind(collectionKind);
-  }
-
   validatePreservation(options, collectionKind = undefined) {
     this.#assertOpen();
     assertPlainObject(options, 'Evidence preservation options');
@@ -413,14 +373,6 @@ export class InMemoryResearchMemory {
 
   asCollection(value) {
     this.#assertOpen();
-    if (value?.type === 'notebook-membership') {
-      const membership = this.getMembership(value.name);
-      return resultCollection(membership.members.map((item) => ({
-        subject: subject(item.type, item.id),
-        reasons: item.reasons,
-        provenance: [],
-      })), { operation: 'notebook-membership', name: membership.name });
-    }
     if (value?.type === 'result-collection') {
       assertResultCollection(value);
       return resultCollection(value.items.map((item) => this.#resolveCollectionItem(item)),
@@ -986,223 +938,6 @@ export class InMemoryResearchMemory {
     };
   }
 
-  remember(reference, value) {
-    this.#assertOpen();
-    const item = normalizeSubject(reference);
-    const entry = normalizeNotebookEntry(value);
-    const key = memberKey(item);
-    const existing = this.#notebookEntries.get(key);
-    if (!existing && this.#notebookEntries.size >= this.#notebookCapacity) {
-      throw new ResearchMemoryError(
-        `Research notebook entry capacity ${this.#notebookCapacity} has been reached.`,
-        'CAPACITY_EXCEEDED',
-      );
-    }
-    const now = new Date().toISOString();
-    const stored = {
-      subject: item,
-      kind: entry.kind,
-      reason: entry.reason,
-      attribution: entry.attribution,
-      sourceReferences: entry.sourceReferences,
-      labels: entry.labels,
-      note: entry.note,
-      ...(entry.judgment === undefined ? {} : { judgment: entry.judgment }),
-      ...(entry.strength === undefined ? {} : { strength: entry.strength }),
-      ...(entry.summary === undefined ? {} : { summary: entry.summary }),
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    };
-    this.#notebookEntries.set(key, stored);
-    return cloneJson(stored);
-  }
-
-  getNotebookEntry(reference) {
-    this.#assertOpen();
-    const item = normalizeSubject(reference);
-    return cloneJson(this.#notebookEntries.get(memberKey(item)) ?? null);
-  }
-
-  notebook(query = {}) {
-    this.#assertOpen();
-    const normalized = normalizeNotebookQuery(query);
-    const items = [...this.#notebookEntries.values()]
-      .filter((entry) => normalized.labels.every(
-        (label) => entry.labels.includes(label),
-      ))
-      .filter((entry) => normalized.judgments.length === 0
-        || normalized.judgments.includes(entry.judgment))
-      .sort((left, right) => (
-        compareCodePoints(right.updatedAt, left.updatedAt)
-        || compareCodePoints(memberKey(left.subject), memberKey(right.subject))
-      ))
-      .slice(0, normalized.limit)
-      .map((entry) => ({
-        subject: entry.subject,
-        role: 'discovery',
-        reasons: [{ type: 'notebook-entry', entry }],
-        provenance: entry.sourceReferences,
-      }));
-    return resultCollection(items, {
-      operation: 'notebook-query',
-      labels: normalized.labels,
-      judgments: normalized.judgments,
-      limit: normalized.limit,
-    });
-  }
-
-  forget(reference) {
-    this.#assertOpen();
-    const item = normalizeSubject(reference);
-    return { subject: item, removed: this.#notebookEntries.delete(memberKey(item)) };
-  }
-
-  #createMembership(name, entries, options = {}) {
-    this.#assertOpen();
-    const members = new Map();
-    for (const entry of entries) {
-      if (options.signal?.aborted) {
-        throw new ResearchMemoryError('Populated set creation was interrupted.');
-      }
-      const member = normalizeMember(entry.member);
-      const key = memberKey(member);
-      const found = members.get(key) ?? { ...member, reasons: [] };
-      for (const reason of entry.reasons) {
-        const normalized = normalizeReason(reason);
-        if (!found.reasons.some((item) => stableJson(item) === stableJson(normalized))) {
-          found.reasons.push(normalized);
-        }
-      }
-      members.set(key, found);
-    }
-    const normalizedName = normalizeMembershipName(name);
-    if (!this.#notebookMemberships.has(normalizedName)
-        && this.#notebookMemberships.size >= this.#notebookCapacity) {
-      throw new ResearchMemoryError(
-        `Research notebook membership capacity ${this.#notebookCapacity} has been reached.`,
-        'CAPACITY_EXCEEDED',
-      );
-    }
-    const record = {
-      id: normalizedName, name: normalizedName, createdAt: new Date().toISOString(),
-      members: [...members.values()]
-        .sort((a, b) => compareCodePoints(memberKey(a), memberKey(b))),
-    };
-    this.#notebookMemberships.set(record.name, cloneJson(record));
-    const summary = this.#membershipSummary(record, 10);
-    return {
-      type: 'notebook-membership',
-      id: summary.id, name: summary.name, createdAt: summary.createdAt,
-      memberCount: summary.memberCount, reasonCount: summary.reasonCount,
-      preview: summary.preview,
-    };
-  }
-
-  #membershipSummary(
-    set,
-    previewLimit = RESEARCH_CONSTRAINTS.presentation.previewLimit.default,
-  ) {
-    const counts = Object.fromEntries([...NOTEBOOK_SUBJECT_TYPES].map((type) => [type, 0]));
-    for (const member of set.members) counts[member.type] += 1;
-    return {
-      id: set.id, name: set.name, createdAt: set.createdAt,
-      memberCount: set.members.length,
-      reasonCount: set.members.reduce((total, item) => total + item.reasons.length, 0),
-      counts, preview: set.members.slice(0, previewLimit).map(({ type, id }) => ({ type, id })),
-    };
-  }
-
-  getMembership(name) {
-    this.#assertOpen();
-    const normalizedName = normalizeMembershipName(name);
-    const set = this.#notebookMemberships.get(normalizedName);
-    if (!set) {
-      throw new ResearchMemoryError(
-        `No notebook membership found for name ${normalizedName}.`,
-        'UNKNOWN_MEMBERSHIP',
-      );
-    }
-    return cloneJson(set);
-  }
-
-  listMemberships() {
-    this.#assertOpen();
-    return [...this.#notebookMemberships.values()]
-      .sort((a, b) => compareCodePoints(a.name, b.name) || compareCodePoints(a.id, b.id))
-      .map((set) => this.#membershipSummary(set));
-  }
-
-  replaceMembership(name, collection, options = {}) {
-    const normalizedName = normalizeMembershipName(name);
-    const previous = this.getMembership(normalizedName);
-    collection = this.asCollection(collection);
-    validateNotebookCollectionKind(collection.kind);
-    assertPlainObject(options, 'Notebook membership replacement options');
-    rejectUnknownKeys(options, new Set(['name', 'reason', 'attribution']), 'notebook membership replacement options');
-    const membershipContext = options.reason ? normalizeReason(options.reason) : undefined;
-    const attribution = normalizeMembershipAttribution(options.attribution);
-    const entries = collection.items
-      .filter((item) => NOTEBOOK_SUBJECT_TYPES.has(item.subject.type))
-      .map((item) => ({
-        member: item.subject,
-        reasons: (item.reasons.length ? item.reasons : [{ type: 'remembered-result' }])
-          .map((reason) => ({
-            ...reason, ...(membershipContext ? { membershipContext } : {}),
-            operation: collection.context.operation, attribution,
-            sourceReferences: membershipProvenance(item),
-          })),
-      }));
-    const members = new Map();
-    for (const entry of entries) {
-      const member = normalizeMember(entry.member);
-      const key = memberKey(member);
-      const found = members.get(key) ?? { ...member, reasons: [] };
-      for (const reason of entry.reasons.map(normalizeReason)) {
-        if (!found.reasons.some((item) => stableJson(item) === stableJson(reason))) {
-          found.reasons.push(reason);
-        }
-      }
-      members.set(key, found);
-    }
-    const replacement = {
-      id: previous.id,
-      name: previous.name,
-      createdAt: previous.createdAt,
-      updatedAt: new Date().toISOString(),
-      members: [...members.values()]
-        .sort((a, b) => compareCodePoints(memberKey(a), memberKey(b))),
-    };
-    this.#notebookMemberships.set(previous.name, cloneJson(replacement));
-    return this.#membershipSummary(replacement, 10);
-  }
-
-  deleteMembership(name) {
-    const normalizedName = normalizeMembershipName(name);
-    const membership = this.getMembership(normalizedName);
-    this.#notebookMemberships.delete(membership.name);
-    return { name: membership.name, deleted: true };
-  }
-
-  rememberMembership(collection, name, options = {}) {
-    collection = this.asCollection(collection);
-    validateNotebookCollectionKind(collection.kind);
-    assertPlainObject(options, 'Notebook membership options');
-    rejectUnknownKeys(options, new Set(['reason', 'attribution', 'signal']), 'notebook membership options');
-    const membershipContext = options.reason ? normalizeReason(options.reason) : undefined;
-    const attribution = normalizeMembershipAttribution(options.attribution);
-    return this.#createMembership(name, collection.items
-      .filter((item) => NOTEBOOK_SUBJECT_TYPES.has(item.subject.type))
-      .map((item) => ({
-        member: item.subject,
-        reasons: (item.reasons.length ? item.reasons : [{ type: 'remembered-result' }])
-          .map((reason) => ({
-            ...reason, ...(membershipContext ? { membershipContext } : {}),
-            operation: collection.context.operation, attribution,
-            sourceReferences: membershipProvenance(item),
-          })),
-      })), { signal: options.signal });
-  }
-
   project(value, options = {}) {
     this.#assertOpen();
     const mode = options.mode ?? 'compact';
@@ -1269,8 +1004,6 @@ export class InMemoryResearchMemory {
       } else projection = reference;
       return {
         ...projection,
-        ...(this.#notebookEntries.has(memberKey(reference))
-          ? { notebookEntry: cloneJson(this.#notebookEntries.get(memberKey(reference))) } : {}),
         role: item.role ?? 'discovery',
         reasons: cloneJson(item.reasons), provenance: cloneJson(item.provenance),
       };
@@ -1315,11 +1048,6 @@ export class InMemoryResearchMemory {
         remainingCapacity: this.#archiveCapacity - this.#archive.size,
         levels: countedArchiveLevels(this.#archive.values()),
       },
-      notebook: {
-        entryCount: this.#notebookEntries.size,
-        membershipCount: this.#notebookMemberships.size,
-        capacity: this.#notebookCapacity,
-      },
     };
   }
 
@@ -1328,8 +1056,6 @@ export class InMemoryResearchMemory {
     this.#buffer.clear();
     this.#archive.clear();
     this.#archivedCanonical.clear();
-    this.#notebookMemberships.clear();
-    this.#notebookEntries.clear();
     this.#nextObservationId = 1; this.#evictions = 0;
   }
 
@@ -1811,14 +1537,6 @@ function excerpt(content, maximum) {
   return singleLine.length <= maximum ? singleLine : `${singleLine.slice(0, maximum - 1)}…`;
 }
 
-const TRANSFORM_KINDS = new Set(SUBJECT_COLLECTION_KINDS);
-function validateNotebookCollectionKind(kind) {
-  if (!TRANSFORM_KINDS.has(kind)) {
-    throw new ResearchMemoryError(
-      `Notebook membership requires a subject collection; ${kind} collections contain no stable subjects.`,
-    );
-  }
-}
 function typedCollection(kind, items, context, itemKind = kind) {
   return {
     type: 'typed-collection', kind, itemKind,
@@ -1845,153 +1563,12 @@ function rejectUnknownKeys(value, allowed, label) {
   }
 }
 
-function normalizeMembershipName(name) {
-  if (typeof name !== 'string' || name.trim().length === 0) {
-    throw new ResearchMemoryError('Notebook membership name must be a non-empty string.');
-  }
-  return name.trim();
-}
-
-function normalizeMembershipAttribution(attribution = 'caller') {
-  if (typeof attribution !== 'string' || attribution.trim().length === 0) {
-    throw new ResearchMemoryError('Notebook membership attribution must be a non-empty string.');
-  }
-  return attribution.trim();
-}
-
-function normalizeMember(member) {
-  if (!member || typeof member !== 'object' || Array.isArray(member)) {
-    throw new ResearchMemoryError('Notebook membership member must be an object.');
-  }
-  if (!NOTEBOOK_SUBJECT_TYPES.has(member.type)) {
-    throw new ResearchMemoryError('Notebook membership member has an unsupported subject type.');
-  }
-  if (typeof member.id !== 'string' || member.id.length === 0
-      || (['event', 'account'].includes(member.type) && !EVENT_ID.test(member.id))
-      || (member.type === 'address' && !parseAddress(member.id))) {
-    throw new ResearchMemoryError(
-      'Notebook membership member ID must be a stable canonical subject ID.',
-    );
-  }
-  return { type: member.type, id: member.id };
-}
-
 function normalizeReason(reason) {
-  assertPlainObject(reason, 'Membership reason');
+  assertPlainObject(reason, 'Reason');
   if (typeof reason.type !== 'string' || reason.type.trim().length === 0) {
-    throw new ResearchMemoryError('Membership reason type must be a non-empty string.');
+    throw new ResearchMemoryError('Reason type must be a non-empty string.');
   }
   return cloneJson(reason);
-}
-
-function normalizeNotebookEntry(value) {
-  assertPlainObject(value, 'Notebook entry');
-  rejectUnknownKeys(
-    value,
-    new Set(['kind', 'labels', 'note', 'judgment', 'strength', 'reason', 'attribution',
-      'sourceReferences', 'summary']),
-    'notebook entry',
-  );
-  const kind = value.kind ?? (value.judgment === undefined ? 'note' : 'judgment');
-  if (!NOTEBOOK_KINDS.includes(kind)) {
-    throw new ResearchMemoryError('Notebook entry kind is invalid.');
-  }
-  if (typeof value.reason !== 'string' || value.reason.trim().length === 0) {
-    throw new ResearchMemoryError('Notebook entry reason must be a non-empty string.');
-  }
-  if (typeof value.attribution !== 'string' || value.attribution.trim().length === 0) {
-    throw new ResearchMemoryError('Notebook entry attribution must be a non-empty string.');
-  }
-  const sourceReferences = value.sourceReferences ?? [];
-  if (!Array.isArray(sourceReferences)) {
-    throw new ResearchMemoryError('Notebook sourceReferences must be an array.');
-  }
-  if (sourceReferences.length > RESEARCH_CONSTRAINTS.notebook.sourceReferences.maximum) {
-    throw new ResearchMemoryError(
-      `Notebook sourceReferences are limited to `
-      + `${RESEARCH_CONSTRAINTS.notebook.sourceReferences.maximum} stable subjects.`,
-    );
-  }
-  const normalizedReferences = sourceReferences.map(normalizeSubject);
-  if (value.summary !== undefined
-      && stableJson(value.summary).length > RESEARCH_CONSTRAINTS.notebook.summaryLength.maximum) {
-    throw new ResearchMemoryError(
-      `Notebook summaries are limited to `
-      + `${RESEARCH_CONSTRAINTS.notebook.summaryLength.maximum} serialized characters.`,
-    );
-  }
-  const labels = value.labels === undefined ? [] : normalizeStringList(value.labels, 'labels', false);
-  const uniqueLabels = [...new Set((labels ?? []).map((label) => label.trim()))]
-    .sort(compareCodePoints);
-  if (uniqueLabels.some((label) => label.length === 0)) {
-    throw new ResearchMemoryError('Notebook labels must be non-empty strings.');
-  }
-  const note = value.note ?? '';
-  if (typeof note !== 'string') throw new ResearchMemoryError('Notebook note must be a string.');
-  const judgment = value.judgment;
-  if (judgment !== undefined
-      && !NOTEBOOK_JUDGMENTS.includes(judgment)) {
-    throw new ResearchMemoryError(
-      'Notebook judgment must be interested, uninterested, uncertain, or anchor.',
-    );
-  }
-  const strength = value.strength;
-  if (strength !== undefined
-      && (typeof strength !== 'number' || !Number.isFinite(strength)
-        || strength < 0 || strength > 1)) {
-    throw new ResearchMemoryError('Notebook strength must be a number from 0 to 1.');
-  }
-  if (uniqueLabels.length === 0 && note.trim().length === 0 && judgment === undefined
-      && value.summary === undefined) {
-    throw new ResearchMemoryError(
-      'A notebook entry requires a label, note, judgment, or bounded summary.',
-    );
-  }
-  return {
-    kind,
-    reason: value.reason.trim(),
-    attribution: value.attribution.trim(),
-    sourceReferences: normalizedReferences,
-    labels: uniqueLabels,
-    note,
-    ...(judgment === undefined ? {} : { judgment }),
-    ...(strength === undefined ? {} : { strength }),
-    ...(value.summary === undefined ? {} : { summary: cloneJson(value.summary) }),
-  };
-}
-
-function normalizeNotebookQuery(query) {
-  assertPlainObject(query, 'Notebook query');
-  rejectUnknownKeys(query, new Set(['labels', 'judgments', 'limit']), 'notebook query');
-  const labels = query.labels === undefined ? [] : normalizeStringList(
-    query.labels, 'labels', false,
-  );
-  const judgments = query.judgments === undefined ? [] : normalizeStringList(
-    query.judgments, 'judgments', false,
-  );
-  if (judgments.some(
-    (judgment) => !NOTEBOOK_JUDGMENTS.includes(judgment),
-  )) {
-    throw new ResearchMemoryError(
-      'Notebook judgments must be interested, uninterested, uncertain, or anchor.',
-    );
-  }
-  return {
-    labels: [...new Set((labels ?? []).map((label) => label.trim()))].sort(compareCodePoints),
-    judgments: [...new Set(judgments ?? [])].sort(compareCodePoints),
-    limit: normalizeLimit(query.limit),
-  };
-}
-
-function membershipProvenance(item) {
-  if (item.subject.type === 'event' && item.provenance.length > 0) {
-    return [{ type: 'stored-event-observations', eventId: item.subject.id }];
-  }
-  const metadataEventId = item.record?.metadataEvent?.id;
-  if (item.subject.type === 'account' && metadataEventId && item.provenance.length > 0) {
-    return [{ type: 'stored-event-observations', eventId: metadataEventId }];
-  }
-  return item.provenance;
 }
 
 function memberKey(member) {
