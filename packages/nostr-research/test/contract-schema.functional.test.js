@@ -132,6 +132,24 @@ test('factual schemas construct commands accepted through the public session sea
   });
   assert.equal(selected.ok, true);
 
+  const bounded = await session.execute({
+    commandId: 'bounded-limit', command: 'limit', input: 'events',
+    parameters: { limit: 1 }, resultId: 'bounded',
+  });
+  assert.deepEqual(bounded.result.bounds, {
+    inputCount: 2, outputCount: 1, omittedCount: 1, truncated: true,
+  });
+
+  const collectionFilterSchema = await session.execute({
+    commandId: 'collection-filter-schema', command: 'schema', input: 'events',
+    parameters: { operation: 'filter' },
+  });
+  assert.deepEqual(
+    collectionFilterSchema.result.operation.parameters.where,
+    contracts.filter.where.variants.collection,
+  );
+  assert.equal('variants' in collectionFilterSchema.result.operation.parameters.where, false);
+
   const rememberSchema = await session.execute({
     commandId: 'remember-schema', command: 'schema', input: 'events',
     parameters: { operation: 'remember' },
@@ -165,6 +183,14 @@ test('factual schemas construct commands accepted through the public session sea
     commandId: 'relate', command: 'relate', input: 'events', resultId: 'rows',
   });
   assert.equal(related.ok, true);
+  const relationFilterSchema = await session.execute({
+    commandId: 'relation-filter-schema', command: 'schema', input: 'rows',
+    parameters: { operation: 'filter' },
+  });
+  assert.deepEqual(
+    relationFilterSchema.result.operation.parameters.where,
+    contracts.filter.where.variants.relation,
+  );
   const renamed = await session.execute({
     commandId: 'renamed-author', command: 'project', input: 'rows',
     parameters: { fields: [{ field: 'event.author', name: 'candidate' }] },
@@ -246,6 +272,12 @@ test('factual schemas construct commands accepted through the public session sea
   const authorSchema = await session.execute({
     commandId: 'author-schema', command: 'schema', input: 'author-counts',
   });
+  assert.equal(
+    authorSchema.result.observations.show.parameters.offset,
+    'non-negative integer',
+  );
+  assert.equal('explain' in authorSchema.result.observations, false);
+  assert.match(authorSchema.result.handleSemantics.membership, /positions remain fixed/u);
   assert.deepEqual(
     authorSchema.result.structure.fields.find(({ name }) => name === 'author').lineage,
     ['event.author'],
@@ -268,6 +300,13 @@ test('factual schemas construct commands accepted through the public session sea
     resultId: 'authors',
   });
   assert.equal(authors.ok, true);
+  const authorsSchema = await session.execute({
+    commandId: 'authors-schema', command: 'schema', input: 'authors',
+  });
+  assert.equal(
+    authorsSchema.result.observations.explain.parameters.subject.startsWith('subject object'),
+    true,
+  );
 
   const derivedAuthors = await session.execute({
     commandId: 'derived-authors', command: 'derive', input: 'author-counts',

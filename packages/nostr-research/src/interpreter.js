@@ -691,12 +691,23 @@ function presentResult(
         ? externalPresentation(result, operation, memory) : {}),
     };
   }
+  const bounds = localOperationBounds(result);
   return isExternalOperation(operation, parameters)
     ? {
         handle: metadata,
         ...externalPresentation(result, operation, memory),
       }
-    : { handle: metadata };
+    : {
+        handle: metadata,
+        ...(bounds === undefined ? {} : { bounds }),
+      };
+}
+
+function localOperationBounds(result) {
+  const value = result?.collection ?? result;
+  return value?.context?.cardinality === undefined
+    ? undefined
+    : cloneJson(value.context.cardinality);
 }
 
 function externalPresentation(result, operation, memory) {
@@ -800,13 +811,21 @@ function contextualHandleSchema(memory, id, entry, selectedOperation, configurat
     const operation = entry.descriptor.resultKind === 'hydration-report' ? 'hydrate' : 'acquire';
     structure.reportFacts = operationSchema().operationFacts[operation].resultFacts;
   }
-    const operations = contextualResearchOperationSchema({
-      descriptor: entry.descriptor,
-      structure,
-      value,
-      configuration,
+  const operations = contextualResearchOperationSchema({
+    descriptor: entry.descriptor,
+    structure,
+    value,
+    configuration,
   });
   const compatibleOperations = Object.keys(operations);
+  const observations = contextualObservationSchema(entry, configuration);
+  const handleSemantics = {
+    membership: 'Subject or row membership and positions remain fixed for the lifetime of this handle.',
+    evidenceResolution: 'Current evidence may resolve, change source, or become unavailable as buffer and archive state changes.',
+    ordering: entry.descriptor.resultKind === 'acquisition-report'
+      ? 'First-acceptance order from concurrent relay arrivals; stable in this handle but not reproducible across acquisitions.'
+      : 'The producing operation’s output order; stable in this handle until explicit replacement.',
+  };
   if (selectedOperation !== undefined) {
     const contextual = operations[selectedOperation];
     if (!contextual) {
@@ -817,13 +836,20 @@ function contextualHandleSchema(memory, id, entry, selectedOperation, configurat
       );
     }
     const global = operationSchema();
+    const parameters = contextualParameterContracts(
+      selectedOperation,
+      global.parameterContracts[selectedOperation] ?? {},
+      entry.descriptor.kind,
+    );
     return {
       type: 'handle-operation-schema',
       handle,
       structure: { kind: structure.kind, count: structure.count },
+      observations,
+      handleSemantics,
       operation: {
         name: selectedOperation,
-        parameters: global.parameterContracts[selectedOperation] ?? {},
+        parameters,
         ...(global.operationFacts[selectedOperation] ?? {}),
         ...contextual,
       },
@@ -834,6 +860,31 @@ function contextualHandleSchema(memory, id, entry, selectedOperation, configurat
     handle,
     structure,
     compatibleOperations,
+    observations,
+    handleSemantics,
+  };
+}
+
+function contextualParameterContracts(operation, contracts, inputKind) {
+  const selected = cloneJson(contracts);
+  if (operation !== 'filter' || !selected.where?.variants) return selected;
+  const variant = inputKind === 'relation' ? 'relation' : 'collection';
+  selected.where = cloneJson(selected.where.variants[variant]);
+  return selected;
+}
+
+function contextualObservationSchema(entry, configuration) {
+  const global = sessionSchema(configuration).commands.observation;
+  const report = ['relay-information-report', 'relay-count-report'].includes(
+    entry.descriptor.resultKind,
+  );
+  const show = cloneJson(global.show);
+  if (report) show.parameters.mode = show.parameters.mode.filter((mode) => mode !== 'explain');
+  return {
+    show,
+    ...(['subjects', 'events', 'accounts', 'addresses', 'relationships'].includes(
+      entry.descriptor.kind,
+    ) ? { explain: cloneJson(global.explain) } : {}),
   };
 }
 
@@ -982,12 +1033,18 @@ function collectionValue(value) {
 }
 
 function projectionOptions(parameters, allowMode = false) {
-  const allowed = new Set([
+  const accepted = [
     ...(allowMode ? ['mode', 'offset'] : []),
     'previewLimit', 'excerptLimit', 'includeEvidence', 'sizeLimit',
-  ]);
+  ];
+  const allowed = new Set(accepted);
   const unknown = Object.keys(parameters).find((key) => !allowed.has(key));
-  if (unknown) throw protocolError('INVALID_COMMAND', `Unknown projection parameter: ${unknown}.`);
+  if (unknown) {
+    throw protocolError(
+      'INVALID_COMMAND',
+      `Unknown projection parameter: ${unknown}. Valid parameters: ${accepted.join(', ')}.`,
+    );
+  }
   try {
     validateResearchPresentationOptions(parameters);
   } catch (error) {

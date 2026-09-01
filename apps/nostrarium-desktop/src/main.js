@@ -9,16 +9,33 @@ import {
 } from 'electron';
 import { EncryptedCredentialStore } from './credential-store.js';
 import { createDesktopRuntime } from './runtime.js';
+import { runVoyageMode } from './voyage-mode.js';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
+const voyageMode = process.argv.includes('--voyage');
 let window;
 let runtime;
 const authPrompts = new Map();
 
-void app.whenReady().then(start).catch((error) => {
+void app.whenReady().then(voyageMode ? startVoyage : start).catch((error) => {
   console.error(error);
   app.quit();
 });
+
+async function startVoyage() {
+  const credentials = new EncryptedCredentialStore({
+    file: join(app.getPath('userData'), 'credentials.enc'),
+    safeStorage,
+  });
+  try {
+    await runVoyageMode({
+      credentials,
+      args: process.argv.slice(process.argv.indexOf('--voyage') + 1),
+    });
+  } finally {
+    app.quit();
+  }
+}
 
 async function start() {
   const credentials = new EncryptedCredentialStore({
@@ -50,6 +67,9 @@ async function start() {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   handle('nostrarium:state', () => runtime.state());
+  handle('nostrarium:command-record', ({ commandId }) => runtime.commandRecord(
+    string(commandId, 'commandId'),
+  ));
   handle('nostrarium:providers', () => runtime.providers());
   handle('nostrarium:reset-session', () => runtime.resetSession());
   handle('nostrarium:logout', ({ providerId }) => runtime.logout(string(providerId, 'providerId')));
@@ -83,6 +103,7 @@ app.on('before-quit', () => {
 });
 
 app.on('window-all-closed', async () => {
+  if (voyageMode) return;
   await runtime?.close().catch(() => {});
   app.quit();
 });

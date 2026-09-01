@@ -177,12 +177,36 @@ test('focused contracts compose visible commands without repeating observed cons
   ]);
   assert.equal((await controller.execute(aggregateDraft)).response.ok, true);
 
+  const collectionFilter = arrangeCommand(await focused('notes', 'filter'));
+  assert.throws(
+    () => composeCommand(collectionFilter, {
+      parameters: { where: { field: 'kind', equals: '0' } },
+    }),
+    /allowed fields: "subject.type", "subject.id"/,
+  );
+  assert.throws(
+    () => composeCommand(collectionFilter, {
+      parameters: { where: { field: 'subject.id', op: 'eq', value: 'event-id' } },
+    }),
+    /unknown field: op/,
+  );
+
+  const scanContract = arrangeCommand(await focused('rows', 'scan'));
+  assert.throws(
+    () => composeCommand(scanContract, {
+      parameters: {
+        fields: ['event.text'], terms: ['privacy'], matchMode: 'exact',
+      },
+    }),
+    /does not accept "exact"; allowed values: "substring", "word", "phrase"/,
+  );
+
   const continuation = arrangeCommand(await focused('notes', 'continue'));
   assert.throws(
     () => composeCommand(continuation, {
       parameters: { relationship: 'authored-events', source: 'relays' },
     }),
-    /relationship must use a value exposed by its focused contract/,
+    /relationship does not accept "authored-events"; allowed values:/,
   );
   const continuationDraft = composeCommand(continuation, {
     parameters: { relationship: 'replies', source: 'local' },
@@ -200,7 +224,7 @@ test('focused contracts compose visible commands without repeating observed cons
     () => composeCommand(scan, {
       parameters: { fields: ['event.content'], terms: ['music'] },
     }),
-    /fields must use a value exposed by its focused contract/,
+    /fields does not accept "event.content"; allowed values:/,
   );
   const scanDraft = composeCommand(scan, {
     parameters: { fields: ['event.text'], terms: ['music'] },
@@ -209,6 +233,19 @@ test('focused contracts compose visible commands without repeating observed cons
   const scanned = await controller.execute(scanDraft);
   assert.equal(scanned.response.ok, true);
   assert.equal(scanned.response.result.handle.count, 1);
+
+  const project = arrangeCommand(await focused('rows', 'project'));
+  const projectDraft = composeCommand(project, {
+    parameters: {
+      fields: [{ field: 'event.author', name: 'candidate' }],
+      limit: 10,
+    },
+    resultId: 'projected',
+  });
+  assert.deepEqual(projectDraft.parameters.fields, [
+    { field: 'event.author', name: 'candidate' },
+  ]);
+  assert.equal((await controller.execute(projectDraft)).response.ok, true);
 
   const globalSchema = await controller.execute({ command: 'schema', parameters: {} });
   assert.throws(

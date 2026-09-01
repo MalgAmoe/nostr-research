@@ -15,19 +15,28 @@ const elements = Object.fromEntries([
 let providers = [];
 let state = null;
 let activeLoginRequest = null;
+let stepNumber = 0;
+let pendingNarration = null;
+let streamingMessage = null;
+const steps = new Map();
+const evidenceCards = new Map();
 
 api.onEvent((event) => {
+  if (event.type === 'message-delta') appendAssistantDelta(event.delta);
   if (event.type === 'message' && event.message.role === 'assistant') {
     const text = event.message.text || event.message.error;
-    if (text) addMessage('assistant', text);
+    if (text) {
+      finishAssistantMessage(text);
+      attachNarration(text);
+    }
   }
   if (event.type === 'agent_start') setBusy(true);
   if (event.type === 'agent_end') {
     setBusy(false);
     void refreshState();
   }
-  if (event.type === 'tool-start') addActivity(event.args);
-  if (event.type === 'tool-end') showToolResult(event);
+  if (event.type === 'tool-start') startStep(event);
+  if (event.type === 'tool-end') finishStep(event);
   if (event.type === 'runtime-state') applyState(event.state);
   if (event.type === 'session-reset') clearVoyage();
   if (event.type === 'auth-notice') showAuthNotice(event.event);
@@ -149,26 +158,314 @@ function addMessage(role, text) {
   node.textContent = text;
   elements.messages.append(node);
   node.scrollIntoView({ block: 'end' });
+  return node;
 }
 
-function addActivity(command) {
-  const node = document.createElement('div');
-  node.className = 'activity-item';
+function appendAssistantDelta(delta) {
+  if (typeof delta !== 'string' || !delta) return;
+  if (!streamingMessage) {
+    streamingMessage = addMessage('assistant', '');
+    streamingMessage.classList.add('streaming');
+  }
+  streamingMessage.textContent += delta;
+  streamingMessage.scrollIntoView({ block: 'end' });
+}
+
+function finishAssistantMessage(text) {
+  if (!streamingMessage) {
+    addMessage('assistant', text);
+    return;
+  }
+  streamingMessage.textContent = text;
+  streamingMessage.classList.remove('streaming');
+  streamingMessage.scrollIntoView({ block: 'end' });
+  streamingMessage = null;
+}
+
+function startStep(event) {
+  removeEmptyState(elements.activity);
+  const request = event.args ?? {};
+  const node = document.createElement('article');
+  node.className = 'voyage-step running';
+
+  const heading = document.createElement('div');
+  heading.className = 'step-heading';
+  const ordinal = document.createElement('span');
+  ordinal.className = 'step-number';
+  ordinal.textContent = String(++stepNumber).padStart(2, '0');
   const title = document.createElement('strong');
-  title.textContent = command.command ?? 'research';
-  const detail = document.createElement('span');
-  detail.textContent = ` ${command.input ? `from ${command.input}` : ''}${command.resultId ? ` → ${command.resultId}` : ''}`;
-  node.append(title, detail);
-  elements.activity.prepend(node);
+  title.textContent = request.intent?.trim() || 'Unstated research question';
+  const status = document.createElement('span');
+  status.className = 'step-status';
+  status.textContent = 'running';
+  heading.append(ordinal, title, status);
+
+  const operation = document.createElement('p');
+  operation.className = 'step-operation';
+  operation.textContent = describeCommand(request, event.toolName);
+  const result = document.createElement('div');
+  result.className = 'step-result muted';
+  result.textContent = 'Waiting for the research engine…';
+  const narration = document.createElement('div');
+  narration.className = 'step-narration';
+
+  node.append(heading, operation, result, narration);
+  elements.activity.append(node);
+  node.scrollIntoView({ block: 'end' });
+  steps.set(event.toolCallId, { node, request, status, result, narration });
 }
 
-function showToolResult(event) {
+function finishStep(event) {
+  const step = steps.get(event.toolCallId);
+  if (!step) return;
   const details = event.result?.details;
   const outcome = details?.response ? details : null;
-  elements['evidence-kind'].textContent = outcome?.receipt?.handle?.kind
-    ?? outcome?.command?.command
-    ?? (event.isError ? 'Command error' : 'Research result');
-  elements.evidence.textContent = JSON.stringify(outcome ?? event.result, null, 2);
+  step.node.classList.remove('running');
+  step.node.classList.toggle('failed', event.isError || outcome?.response?.ok === false);
+  step.status.textContent = event.isError || outcome?.response?.ok === false ? 'failed' : 'complete';
+  step.result.className = 'step-result';
+  step.result.replaceChildren(...resultFacts(outcome, event));
+
+  step.node.append(lazyRawDetails(outcome, event));
+
+  if (outcome) retainEvidence(outcome, stepNumberFor(step.node));
+  pendingNarration = step;
+  step.node.scrollIntoView({ block: 'end' });
+}
+
+function lazyRawDetails(outcome, event) {
+  const raw = document.createElement('details');
+  raw.className = 'step-raw';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Raw command and response';
+  const pre = document.createElement('pre');
+  pre.textContent = 'Open to load the retained controller record.';
+  let loaded = false;
+  raw.addEventListener('toggle', async () => {
+    if (!raw.open || loaded) return;
+    loaded = true;
+    const commandId = outcome?.receipt?.commandId;
+    if (!commandId) {
+      pre.textContent = JSON.stringify(event.result, null, 2);
+      return;
+    }
+    pre.textContent = 'Loading retained command record…';
+    try {
+      const record = await api.commandRecord(commandId);
+      pre.textContent = JSON.stringify({ intent: outcome.intent, ...record }, null, 2);
+    } catch (error) {
+      pre.textContent = `Unable to load the retained command record: ${error?.message ?? error}`;
+    }
+  });
+  raw.append(summary, pre);
+  return raw;
+}
+
+function attachNarration(text) {
+  if (!pendingNarration) return;
+  const label = document.createElement('p');
+  label.className = 'narration-label';
+  label.textContent = 'Agent observation and decision';
+  const body = document.createElement('p');
+  body.textContent = text;
+  pendingNarration.narration.replaceChildren(label, body);
+  pendingNarration = null;
+}
+
+function resultFacts(outcome, event) {
+  if (!outcome) return [fact('Result', event.isError ? 'Tool execution failed' : 'No structured outcome')];
+  const receipt = outcome.receipt ?? {};
+  const response = outcome.response ?? {};
+  const result = response.result ?? {};
+  const nodes = [];
+  if (receipt.handle) {
+    nodes.push(fact(
+      'Result',
+      `${receipt.handle.id} · ${receipt.handle.kind} · ${receipt.handle.count} ${countUnit(result)}`,
+    ));
+  } else if (response.ok) {
+    nodes.push(fact('Result', `${outcome.command.command} completed`));
+  }
+  const completeness = completenessText(result, receipt);
+  if (completeness) nodes.push(fact('Completeness', completeness));
+  const resolution = resolutionText(result);
+  if (resolution) nodes.push(fact('Evidence', resolution));
+  if (receipt.warnings?.length) nodes.push(fact('Warnings', receipt.warnings.join(' '), 'warning'));
+  if (receipt.error) nodes.push(fact('Error', `${receipt.error.code}: ${receipt.error.message}`, 'error'));
+  return nodes.length ? nodes : [fact('Result', 'Command completed; no compact result facts declared.')];
+}
+
+function fact(label, value, className = '') {
+  const node = document.createElement('p');
+  node.className = `result-fact ${className}`.trim();
+  const key = document.createElement('span');
+  key.textContent = `${label}: `;
+  const content = document.createTextNode(value);
+  node.append(key, content);
+  return node;
+}
+
+function countUnit(result) {
+  return result.summary?.countUnit ?? (result.handle?.kind === 'relations' ? 'rows' : 'items');
+}
+
+function completenessText(result, receipt) {
+  const external = result.external ?? {};
+  const completeness = external.completeness ?? result.completeness ?? result.summary?.completeness ?? {};
+  const bounds = receipt.external?.boundsReached ?? completeness.boundsReached ?? result.bounds?.boundsReached;
+  const parts = [
+    receipt.external?.status ? `attempt ${receipt.external.status}` : null,
+    completeness.attemptStatus ? `attempt ${completeness.attemptStatus}` : null,
+    completeness.exhaustive === false || result.exhaustive === false ? 'not exhaustive' : null,
+    result.sizeBounded ? 'presentation size-bounded' : null,
+    Array.isArray(bounds) && bounds.length ? `bounds: ${bounds.join(', ')}` : null,
+    Number.isInteger(result.omitted) && result.omitted ? `${result.omitted} omitted` : null,
+  ].filter(Boolean);
+  return [...new Set(parts)].join(' · ');
+}
+
+function resolutionText(result) {
+  const resolution = result.summary?.evidenceResolution
+    ?? result.coverage?.evidenceResolution
+    ?? result.evidenceResolution;
+  if (!resolution || typeof resolution !== 'object') return null;
+  return Object.entries(resolution)
+    .filter(([, value]) => Number.isFinite(value))
+    .map(([key, value]) => `${key} ${value}`)
+    .join(' · ');
+}
+
+function describeCommand(request, toolName) {
+  const directCommands = {
+    nostrarium_acquire: 'acquire',
+    nostrarium_show: 'show',
+    nostrarium_inspect: 'inspect',
+    nostrarium_explain: 'explain',
+    nostrarium_handles: request.action,
+  };
+  const command = request.command ?? request.operation ?? directCommands[toolName] ?? 'research';
+  const source = request.input ? ` from ${request.input}` : '';
+  const destination = request.resultId ? ` into ${request.resultId}` : '';
+  const focus = command === 'schema' && request.parameters?.operation
+    ? ` for ${request.parameters.operation}` : '';
+  return `${humanize(command)}${focus}${source}${destination}`;
+}
+
+function humanize(value) {
+  return String(value).replaceAll('-', ' ').replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function stepNumberFor(node) {
+  return node.querySelector('.step-number')?.textContent ?? '?';
+}
+
+function retainEvidence(outcome, sourceStep) {
+  const result = outcome.response?.result;
+  if (!result || !Array.isArray(result.preview)) return;
+  const items = result.preview.slice(0, 8);
+  for (const rawItem of items) {
+    const item = rawItem?.preview && typeof rawItem.preview === 'object' ? rawItem.preview : rawItem;
+    const card = evidenceCard(item, outcome.command.input, sourceStep);
+    if (!card) continue;
+    evidenceCards.set(card.key, card);
+  }
+  renderEvidence();
+}
+
+function evidenceCard(item, sourceHandle, sourceStep) {
+  if (!item || typeof item !== 'object') return null;
+  if (item.type === 'account') {
+    return {
+      key: `account:${item.publicKey ?? item.id}`,
+      type: 'account',
+      id: item.publicKey ?? item.id,
+      title: item.displayName ?? item.name ?? shortId(item.publicKey ?? item.id),
+      text: item.descriptionExcerpt,
+      meta: evidenceMeta(item),
+      sourceHandle,
+      sourceStep,
+    };
+  }
+  if (item.type === 'event' && item.kind === 0 && item.author?.publicKey) {
+    return {
+      key: `account:${item.author.publicKey}`,
+      type: 'account',
+      id: item.author.publicKey,
+      title: item.author.displayName ?? item.author.name ?? shortId(item.author.publicKey),
+      text: item.author.descriptionExcerpt,
+      meta: evidenceMeta(item),
+      sourceHandle,
+      sourceStep,
+    };
+  }
+  if (item.type === 'event') {
+    return {
+      key: `event:${item.id}`,
+      type: item.kind === 1 ? 'note' : `event · kind ${item.kind}`,
+      id: item.id,
+      title: item.author?.displayName ?? item.author?.name ?? shortId(item.author?.publicKey),
+      text: item.contentExcerpt,
+      meta: evidenceMeta(item),
+      sourceHandle,
+      sourceStep,
+    };
+  }
+  return null;
+}
+
+function evidenceMeta(item) {
+  return [
+    item.resolutionSource,
+    item.resolved === false ? 'unresolved' : null,
+    Number.isInteger(item.relayCount) ? `${item.relayCount} relays` : null,
+    Number.isInteger(item.createdAt) ? new Date(item.createdAt * 1000).toLocaleString() : null,
+  ].filter(Boolean).join(' · ');
+}
+
+function renderEvidence() {
+  removeEmptyState(elements.evidence);
+  const cards = [...evidenceCards.values()].slice(-60);
+  elements.evidence.replaceChildren(...cards.map(renderEvidenceCard));
+  elements['evidence-kind'].textContent = `${cards.length} stable ${cards.length === 1 ? 'object' : 'objects'}`;
+}
+
+function renderEvidenceCard(card) {
+  const node = document.createElement('article');
+  node.className = 'evidence-card';
+  const heading = document.createElement('div');
+  heading.className = 'evidence-heading';
+  const type = document.createElement('span');
+  type.className = 'evidence-type';
+  type.textContent = card.type;
+  const source = document.createElement('span');
+  source.className = 'muted';
+  source.textContent = `step ${card.sourceStep}`;
+  heading.append(type, source);
+  const title = document.createElement('strong');
+  title.textContent = card.title || 'Unnamed subject';
+  const id = document.createElement('code');
+  id.textContent = card.id;
+  node.append(heading, title, id);
+  if (card.text !== undefined) {
+    const excerpt = document.createElement('p');
+    excerpt.textContent = card.text || '(empty content)';
+    node.append(excerpt);
+  }
+  if (card.meta) {
+    const meta = document.createElement('small');
+    meta.textContent = card.meta;
+    node.append(meta);
+  }
+  return node;
+}
+
+function shortId(value) {
+  return typeof value === 'string' && value.length > 14
+    ? `${value.slice(0, 7)}…${value.slice(-5)}` : value;
+}
+
+function removeEmptyState(node) {
+  node.querySelector('.empty-state')?.remove();
 }
 
 function showAuthNotice(event) {
@@ -206,9 +503,21 @@ function hideAuthPrompt() {
 
 function clearVoyage() {
   elements.messages.replaceChildren();
-  elements.activity.replaceChildren();
-  elements.evidence.textContent = 'The agent\'s bounded research results will appear here.';
-  elements['evidence-kind'].textContent = 'Nothing selected';
+  elements.activity.replaceChildren(emptyState('The narrated research path will appear here.'));
+  elements.evidence.replaceChildren(emptyState('Notes and accounts shown during the voyage will remain here.'));
+  elements['evidence-kind'].textContent = 'No notes or accounts yet';
+  stepNumber = 0;
+  pendingNarration = null;
+  streamingMessage = null;
+  steps.clear();
+  evidenceCards.clear();
+}
+
+function emptyState(text) {
+  const node = document.createElement('p');
+  node.className = 'empty-state';
+  node.textContent = text;
+  return node;
 }
 
 function selectedProvider() {

@@ -259,10 +259,13 @@ function validateParameter(parameter, value) {
   const { name, contract } = parameter;
   if (Array.isArray(parameter.choices)) {
     const values = Array.isArray(value) ? value : [value];
-    const unknown = values.find((item) => !parameter.choices.includes(item));
+    const unknown = values.find((item) => (
+      typeof item === 'string' && !parameter.choices.includes(item)
+    ));
     if (unknown !== undefined) {
       throw new TypeError(
-        `${name} must use a value exposed by its focused contract: ${JSON.stringify(unknown)}.`,
+        `${name} does not accept ${JSON.stringify(unknown)}; allowed values: `
+        + `${parameter.choices.map((choice) => JSON.stringify(choice)).join(', ')}.`,
       );
     }
   }
@@ -272,7 +275,100 @@ function validateParameter(parameter, value) {
   }
   if (!isPlainObject(contract)) return;
   validateTypedValue(name, value, contract);
+  validatePredicateContract(name, value, contract);
+  validateItemAlternatives(name, value, contract.items, parameter.choices);
   validateItemContract(name, value, contract.item);
+}
+
+function validatePredicateContract(name, value, contract) {
+  if (contract.type === 'object' && isPlainObject(contract.exactlyOne)) {
+    validatePredicateLeaf(name, value, contract);
+  }
+  if (contract.type === 'recursive predicate') {
+    validateRecursivePredicate(name, value, contract);
+  }
+}
+
+function validateRecursivePredicate(name, value, contract) {
+  if (!isPlainObject(value)) throw new TypeError(`${name} must be a predicate object.`);
+  const compositions = Object.keys(contract.compositions ?? {}).filter((key) => (
+    Object.hasOwn(value, key)
+  ));
+  if (compositions.length > 1) {
+    throw new TypeError(`${name} must use one predicate composition.`);
+  }
+  if (compositions.length === 0) {
+    validatePredicateLeaf(name, value, contract.leaf ?? {});
+    return;
+  }
+  const composition = compositions[0];
+  rejectUnknownKeys(value, [composition], name);
+  if (composition === 'not') {
+    validateRecursivePredicate(`${name}.not`, value.not, contract);
+    return;
+  }
+  if (!Array.isArray(value[composition]) || value[composition].length === 0) {
+    throw new TypeError(`${name}.${composition} must be a non-empty predicate array.`);
+  }
+  value[composition].forEach((part, index) => (
+    validateRecursivePredicate(`${name}.${composition}[${index}]`, part, contract)
+  ));
+}
+
+function validatePredicateLeaf(name, value, contract) {
+  if (!isPlainObject(value)) throw new TypeError(`${name} must be a predicate object.`);
+  const operators = Object.keys(contract.exactlyOne ?? {});
+  const required = Array.isArray(contract.required) ? contract.required : [];
+  const allowed = [...required, ...operators];
+  rejectUnknownKeys(value, allowed, name);
+  for (const field of required) {
+    if (!Object.hasOwn(value, field)) throw new TypeError(`${name} is missing required field: ${field}.`);
+  }
+  if (Array.isArray(contract.fields) && !contract.fields.includes(value.field)) {
+    throw new TypeError(
+      `${name}.field does not accept ${JSON.stringify(value.field)}; allowed fields: `
+      + `${contract.fields.map((field) => JSON.stringify(field)).join(', ')}.`,
+    );
+  }
+  const supplied = operators.filter((operator) => Object.hasOwn(value, operator));
+  if (supplied.length !== 1) {
+    throw new TypeError(`${name} requires exactly one operator: ${operators.join(', ')}.`);
+  }
+}
+
+function validateItemAlternatives(name, value, alternatives, choices) {
+  if (!Array.isArray(value) || !Array.isArray(alternatives)) return;
+  const acceptsString = alternatives.some((item) => typeof item === 'string');
+  const objectShape = alternatives.find((item) => isPlainObject(item));
+  for (const [index, entry] of value.entries()) {
+    if (typeof entry === 'string' && acceptsString) {
+      if (entry.trim().length === 0) {
+        throw new TypeError(`${name}[${index}] must be a non-empty string.`);
+      }
+      if (Array.isArray(choices) && !choices.includes(entry)) {
+        throw new TypeError(
+          `${name}[${index}] must use a field exposed by its focused contract.`,
+        );
+      }
+      continue;
+    }
+    if (isPlainObject(entry) && objectShape) {
+      const required = Object.keys(objectShape);
+      rejectUnknownKeys(entry, required, `${name}[${index}]`);
+      for (const field of required) {
+        if (typeof entry[field] !== 'string' || entry[field].trim().length === 0) {
+          throw new TypeError(`${name}[${index}].${field} must be a non-empty string.`);
+        }
+      }
+      if (Array.isArray(choices) && !choices.includes(entry.field)) {
+        throw new TypeError(
+          `${name}[${index}].field must use a field exposed by its focused contract.`,
+        );
+      }
+      continue;
+    }
+    throw new TypeError(`${name}[${index}] does not match an advertised item shape.`);
+  }
 }
 
 function validateDescribedValue(name, value, contract) {
@@ -290,6 +386,9 @@ function validateDescribedValue(name, value, contract) {
 }
 
 function validateTypedValue(name, value, contract) {
+  if (contract.type === 'object' && !isPlainObject(value)) {
+    throw new TypeError(`${name} must be an object.`);
+  }
   if (contract.type === 'integer') {
     if (!Number.isInteger(value)) throw new TypeError(`${name} must be an integer.`);
     if (Number.isInteger(contract.minimum) && value < contract.minimum) {

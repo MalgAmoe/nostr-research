@@ -90,6 +90,15 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   assert.equal(invalidProjection.error.code, 'INVALID_COMMAND');
   assert.match(invalidProjection.error.message, /previewLimit must be an integer from 1 to 20/);
   assert.equal(invalidProjection.sessionRevision, 1);
+  const unknownProjection = await session.execute({
+    commandId: 'invalid-projection-name', command: 'show', input: 'finding',
+    parameters: { limit: 10 },
+  });
+  assert.equal(unknownProjection.ok, false);
+  assert.match(
+    unknownProjection.error.message,
+    /Valid parameters: mode, offset, previewLimit, excerptLimit, includeEvidence, sizeLimit/u,
+  );
 
   for (const mode of ['summary', 'coverage', 'details', 'explain']) {
     const observed = await session.execute({

@@ -61,18 +61,22 @@
         <aside class="right-column">
           <section class="panel activity-panel">
             <header>
-              <p class="eyebrow">Movement</p>
-              <span class="muted">Visible commands</span>
+              <p class="eyebrow">Voyage</p>
+              <span class="muted">Question → evidence → decision</span>
             </header>
-            <div id="activity" class="activity"></div>
+            <div id="activity" class="activity ledger" aria-live="polite">
+              <p class="empty-state">The narrated research path will appear here.</p>
+            </div>
           </section>
 
           <section class="panel evidence-panel">
             <header>
-              <p class="eyebrow">Evidence</p>
-              <span id="evidence-kind" class="muted">Nothing selected</span>
+              <p class="eyebrow">Evidence carried forward</p>
+              <span id="evidence-kind" class="muted">No notes or accounts yet</span>
             </header>
-            <pre id="evidence" class="evidence">The agent's bounded research results will appear here.</pre>
+            <div id="evidence" class="evidence evidence-cards">
+              <p class="empty-state">Notes and accounts shown during the voyage will remain here.</p>
+            </div>
           </section>
         </aside>
       </section>

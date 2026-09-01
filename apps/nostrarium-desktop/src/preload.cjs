@@ -11,6 +11,10 @@ function subscribe(channel, callback) {
 
 contextBridge.exposeInMainWorld('nostrarium', Object.freeze({
   state: () => ipcRenderer.invoke('nostrarium:state'),
+  commandRecord: (commandId) => ipcRenderer.invoke(
+    'nostrarium:command-record',
+    { commandId },
+  ),
   resetSession: () => ipcRenderer.invoke('nostrarium:reset-session'),
   providers: () => ipcRenderer.invoke('nostrarium:providers'),
   login: (providerId, method) => ipcRenderer.invoke(
