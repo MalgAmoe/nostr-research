@@ -77,9 +77,10 @@ anticipate.
 
 Electron's main process owns one local SQLite application store at
 `nostrarium.sqlite3` inside the application-data directory. The sandboxed
-renderer never opens the database. Its narrow bridge currently exposes typed
-settings and versioned JSON recipe records. Recipe definitions are available
-to the agent through the separate memory tool but are never executed by it.
+renderer never opens the database or receives a persistence bridge. Typed
+settings remain internal to the main process, while recipe definitions are
+available to the agent through the separate memory tool and are never executed
+by it.
 
 The store seeds `relayDefaults`, and both the windowed runtime and headless
 voyage mode use that application setting when constructing a new research

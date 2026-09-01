@@ -93,13 +93,6 @@ async function start() {
   handle('nostrarium:prompt', ({ message }) => runtime.prompt(string(message, 'message')));
   handle('nostrarium:steer', ({ message }) => runtime.steer(string(message, 'message')));
   handle('nostrarium:abort', () => runtime.abort());
-  handle('nostrarium:settings', () => appStore.settings());
-  handle('nostrarium:set-setting', ({ key, value }) => setAppSetting(appStore, key, value));
-  handle('nostrarium:delete-setting', ({ key }) => appStore.deleteSetting(key));
-  handle('nostrarium:recipes', () => appStore.recipes());
-  handle('nostrarium:recipe', ({ id }) => appStore.recipe(id));
-  handle('nostrarium:save-recipe', ({ recipe }) => appStore.saveRecipe(recipe));
-  handle('nostrarium:delete-recipe', ({ id }) => appStore.deleteRecipe(id));
   handle('nostrarium:login', ({ providerId, method }) => runtime.login(
     string(providerId, 'providerId'),
     string(method, 'method'),
@@ -146,13 +139,6 @@ function configuredRelays(store) {
   return normalizeSessionConfiguration({
     relays: store.setting('relayDefaults')?.value ?? DEFAULT_RELAYS,
   }).relays;
-}
-
-function setAppSetting(store, key, value) {
-  const normalized = key === 'relayDefaults'
-    ? normalizeSessionConfiguration({ relays: value }).relays
-    : value;
-  return store.setSetting(key, normalized);
 }
 
 function handle(channel, action) {

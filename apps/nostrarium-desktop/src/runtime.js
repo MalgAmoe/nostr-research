@@ -179,7 +179,7 @@ export function createDesktopRuntime({
       request: (command) => session.execute(command),
       transcript: { maxEntries: 1000, maxBytes: 2_000_000 },
     });
-    return { memory, session, controller };
+    return { controller };
   }
 
   async function executeResearchCommand(intent, command) {
