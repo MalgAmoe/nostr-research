@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `packages/nostr-research/src/protocol-relationships.js` lacks a trailing token boundary. A valid Bech32 prefix followed by characters outside the regex class—such as `nostr:<valid-npub>b` or uppercase text—is decoded as a valid inline reference, creating a false subject from malformed reference-looking content. Update recognition to reject the entire attached token and extend the public-boundary functional scenario to protect this false-match case.

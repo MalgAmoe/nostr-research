@@ -9,9 +9,9 @@ directs the voyage, inspects evidence, and owns the conclusions.
 ```text
 packages/nostr-research/    UI-independent research library and JSONL session
 packages/nostrarium-controller/  Neutral controller with Node and browser transports
+packages/nostrarium-schema-composer/  Factual contract-to-command compiler
 apps/nostrarium-desktop/    Local agent-operated application tracer
-experiments/                Completed disposable interface and composition trials
-workflow/                   Worker/reviewer task generator
+experiments/                Archived interface and composition trials
 ```
 
 ## Run a research session
@@ -36,8 +36,11 @@ The [controller reference](./packages/nostrarium-controller/README.md)
 documents the neutral caller-side session controller and its Node JSONL and
 browser Worker transports.
 
-Disposable interpretations live under [`experiments/`](./experiments/).
-Stable engine and controller packages do not depend on them.
+Completed disposable interpretations live under [`experiments/`](./experiments/).
+They are retained as evidence but are not npm workspaces, dependencies, or part
+of routine verification. The schema composer was promoted into
+[`packages/nostrarium-schema-composer/`](./packages/nostrarium-schema-composer/)
+after the desktop agent repeatedly needed its factual contract compiler.
 
 The desktop-agent feasibility decision and first implementation milestone are
 in

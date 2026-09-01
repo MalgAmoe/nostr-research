@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `packages/nostrarium-controller/src/node.js:199-219` can leave `close()` pending forever after a spawn failure. The failed branch waits only for `exit`, but Node may emit `error` followed by `close` without emitting `exit` when spawning fails—for example, with an invalid explicit working directory. Make closure settle for spawn failures and other terminal child states, while retaining bounded diagnostics and idempotency. Add this case to the existing transport-failure workflow test.

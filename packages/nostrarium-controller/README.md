@@ -95,7 +95,7 @@ replay; neither layer retries or replays commands automatically.
 
 Interpretations over the controller deliberately live outside this package.
 The current schema-backed example is
-[`@nostrarium/schema-composer`](../../experiments/schema-composer/README.md).
+[`@nostrarium/schema-composer`](../nostrarium-schema-composer/README.md).
 It is one disposable composer among potentially many.
 
 ## Browser Worker transport

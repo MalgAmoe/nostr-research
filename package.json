@@ -4,13 +4,12 @@
   "private": true,
   "workspaces": [
     "apps/*",
-    "packages/*",
-    "experiments/*"
+    "packages/*"
   ],
   "scripts": {
     "test": "npm test --workspaces",
     "check": "npm run check --workspaces",
-    "browser:smoke": "node workflow/browser-smoke/run.mjs",
+    "browser:smoke": "node packages/nostr-research/browser-smoke/run.mjs",
     "research-session": "node packages/nostr-research/bin/nostr-research-session.js"
   },
   "devDependencies": {

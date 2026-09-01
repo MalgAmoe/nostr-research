@@ -44,7 +44,7 @@ stable vocabulary is available before the first command.
 
 `nostrarium_action` handles collection and relation transformations. It obtains
 the current focused contract internally, validates navigator-supplied values
-with the experimental schema composer, and executes exactly one ordinary
+with the factual schema composer, and executes exactly one ordinary
 research command. The local contract lookup consumes no model turn, performs
 no research movement, and remains recorded in the bounded controller
 transcript. The result exposes the compiled command and validation basis.

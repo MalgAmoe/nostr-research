@@ -1,3 +1,0 @@
-PASS
-
-The previous bounded-report finding is resolved. Transport diagnostics and malformed matching-response evidence are capped with explicit omission metadata, and public-boundary tests cover oversized errors and nested payloads. The implementation satisfies the task’s operation, attribution, session defaults, handle lifecycle, presentation, schema, memory-isolation, and adapter requirements. Supplied validation passed all 27 functional tests plus browser Worker smoke verification.

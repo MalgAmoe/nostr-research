@@ -1,11 +1,12 @@
 # Experiments
 
-This directory is Nostrarium's open-ended interpretation layer.
+This directory archives Nostrarium's completed open-ended interpretation phase.
 
-Experiments may arrange the stable engine and controller into systems,
-composers, vessels, tools, interfaces, or combinations that do not yet have a
-name. They are built seriously and tested against real research, but they are
-not expected to converge on one canonical design.
+These experiments arranged the stable engine and controller into systems,
+composers, vessels, tools, interfaces, and combinations that did not converge
+on one canonical design. Their code and documentation remain useful evidence,
+but they are no longer npm workspaces and are not installed, tested, or
+maintained as part of the active application.
 
 Rules:
 
@@ -17,10 +18,8 @@ Rules:
 - reusable code is promoted only after repeated evidence, not to rescue a
   prototype.
 
-Current experiments:
+Archived experiments:
 
-- [`schema-composer/`](./schema-composer/): one factual schema-backed command
-  and observation composer;
 - [`darkroom-composer/`](./darkroom-composer/): fixed Ground and paired A/B
   exposures;
 - [`nostrarium-atlas/`](./nostrarium-atlas/): a live-only content-first
@@ -50,3 +49,7 @@ Current experiments:
 Superseded experimental implementations are removed once their findings are
 distilled. Historical voyage evidence belongs under
 [`docs/voyages/`](../docs/voyages/), not here.
+
+The factual schema composer was promoted to
+[`packages/nostrarium-schema-composer/`](../packages/nostrarium-schema-composer/)
+because it became part of the desktop agent's ordinary command path.

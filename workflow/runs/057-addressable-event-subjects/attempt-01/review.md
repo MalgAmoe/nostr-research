@@ -1,3 +1,0 @@
-PASS
-
-All acceptance criteria are materially satisfied. The implementation integrates canonical address subjects into existing memory, collection, relation, notebook, archive, presentation, schema, and acquisition paths without introducing parallel APIs or hidden networking. Current-event resolution reuses established timestamp and lowest-ID tie-breaking, and the public-boundary tests appropriately cover the stable behavior. Supplied validation passes all 21 functional tests.

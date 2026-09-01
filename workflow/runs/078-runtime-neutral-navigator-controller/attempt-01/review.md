@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `synchronize()` stores only `list.response.result.preview` in `state().handleCatalog`, discarding the response’s `count` and `omitted` fields. Since `list` defaults to five entries, sessions with more handles appear to have a complete five-item catalog. Preserve the successful `list` result’s boundedness metadata so catalog incompleteness remains visible, and add a public-boundary scenario covering an omitted catalog.

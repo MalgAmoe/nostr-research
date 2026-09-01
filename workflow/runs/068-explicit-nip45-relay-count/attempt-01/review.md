@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. The `relay-count-report` is not fully bounded. In `src/relay-count.js`, connection errors store unrestricted `error.message` text, while `retainMalformedPayload()` retains arbitrary `count` and `approximate` values, including deeply nested or oversized objects. This violates the bounded-report and bounded-diagnostics requirements and can make direct, plan, or handle results arbitrarily large. Bound transport diagnostics and malformed matching-response evidence at ingestion, with explicit truncation/omission metadata. Extend the public-boundary fixture to verify those bounds.

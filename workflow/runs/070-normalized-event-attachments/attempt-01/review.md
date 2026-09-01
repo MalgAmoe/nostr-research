@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. `packages/nostr-research/src/event-content.js` applies `picture-kind`/`video-kind` evidence only to attachments already created before content URLs are processed. Consequently, a dedicated picture/video event whose usable media URL appears only in content is classified solely as inferred (`url-extension`/`known-host`) and omits the dedicated-kind source. Make dedicated-kind interpretation independent of processing order so supported URLs retain both dedicated intent and inference provenance without presenting inference as declared metadata. Extend the public functional scenario to cover an attachment-bearing picture or video kind; the current test covers only a picture kind with no URL and does not verify this required source path.

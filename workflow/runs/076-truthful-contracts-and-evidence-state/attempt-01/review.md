@@ -1,3 +1,0 @@
-CHANGES_REQUIRED
-
-1. The permanent public-boundary tests do not protect `CAPACITY_EXCEEDED` or `UNRESOLVED_EVIDENCE`. `evidence-archive.functional.test.js` only asserts generic `ResearchMemoryError` throws for those scenarios, while only `UNKNOWN_MEMBERSHIP` checks the session error envelope. Extend the existing session scenario to assert the two required machine-readable codes, as explicitly required by the task’s verification section.
