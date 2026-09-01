@@ -4,10 +4,9 @@ The local agent-operated Nostrarium application. It embeds Pi's agent runtime,
 the Nostrarium controller, and one in-process research session. Users do not
 install or run Pi separately.
 
-This first slice is deliberately narrow. It provides one encrypted OpenAI
-Codex login, the complete Nostrarium command interface, a persistent in-process
-voyage, human intervention, and bounded evidence presentation before wider
-interface work begins.
+It provides encrypted OpenAI Codex login, the complete Nostrarium command
+interface, a persistent in-process voyage, human intervention, and bounded
+evidence presentation.
 
 ```sh
 npm run dev --workspace @nostrarium/desktop
@@ -64,8 +63,8 @@ model turns between heterogeneous ordinary commands such as observation and
 lifecycle steps. Combined model and renderer projections are bounded; opening
 the raw batch disclosure loads each complete retained controller record lazily.
 
-`nostrarium_attention` is a bounded, process-local caller-side experiment for
-temporary voyage orientation. It is a small key/value JSON workspace whose
+`nostrarium_attention` is a bounded, process-local workspace for temporary
+voyage orientation. It is a small key/value JSON store whose
 organization belongs entirely to the navigator: the application does not name
 Ground, focus, questions, candidates, or any other research concept. It executes
 no research command, copies no evidence, records no conclusion by its own
@@ -73,8 +72,7 @@ authority, and is cleared by session reset. Temporary hypotheses stored there
 do not become canonical evidence. The current workspace is included
 in factual context checkpoints. It should be used selectively when temporary
 working state must survive several steps, not as a mirror of every handle,
-command, fact, or conclusion. Recurring structures may inform a later design;
-none are part of the interface yet.
+command, fact, or conclusion.
 
 `nostrarium_recipes` exposes cross-run recipe memory through four operations:
 list, get, save, and delete. Recipes are bounded JSON objects owned by the
@@ -91,10 +89,9 @@ may receive factual corrections on a later version; a navigator-edited recipe
 is never overwritten.
 
 The adapter does not replace this command surface with task-specific tools.
-Caller-side recipes or command arrangements may later produce visible ordinary
-commands, but the navigator must always retain access to the complete
-interface and may combine operations in ways those conveniences did not
-anticipate.
+Recipes may guide visible ordinary commands, but the navigator always retains
+access to the complete interface and may combine operations in ways those
+recipes did not anticipate.
 
 ## Application persistence
 
@@ -118,7 +115,7 @@ never enter SQLite.
 ## Retained runtime seams
 
 The main process and preload boundary intentionally retain two operations that
-the first renderer does not yet display:
+the current renderer does not display:
 
 - `logout(providerId)` removes stored provider access and clears a selected
   model from that provider. It is the future account-management boundary.

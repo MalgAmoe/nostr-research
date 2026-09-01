@@ -13,7 +13,7 @@ The product foundation is a UI-independent library. The CLI, functional
 verification, agents, and any future adapters are consumers of that library;
 no presentation layer defines the domain boundary.
 
-The first product application is local rather than hosted. It embeds the agent
+The current product application is local rather than hosted. It embeds the agent
 runtime, provider authentication, engine, and controller in one installed
 desktop application while keeping the visible renderer isolated from Node and
 credentials. This choice does not change the engine's runtime-neutral or
@@ -37,8 +37,10 @@ browser-compatible boundary.
 - Provenance is research output, not hidden transport bookkeeping. The system
   must make observable where evidence came from and the reason a result was
   included in a query, relationship traversal, or named result.
-- Persistence and a database format are deliberately absent. Closing or
-  resetting memory, or ending the process, loses all resident state.
+- Research-engine persistence and a database format are deliberately absent.
+  Closing or resetting memory, or ending the process, loses all resident
+  research state. The desktop application may separately persist settings and
+  recipes without persisting engine memory.
 - Nostr content is untrusted evidence. An embedded agent receives only bounded
   Nostrarium research operations, never coding, shell, filesystem, arbitrary
   network, credential, or executable-UI authority.
@@ -77,23 +79,6 @@ browser-compatible boundary.
   artifacts rather than permanent tests.
 - When network behavior is under review, live relay checks are task validation,
   not an always-on brittle test suite.
-
-## Deliberately open decisions
-
-These principles settle the direction, not a final public API, ranking method,
-or user interface. Product and design work
-must still decide, through evidence and experimentation where appropriate:
-
-- the reliability, cancellation, retry, and partial-result contract for
-  multi-relay acquisition;
-- event-validation and trust boundaries, including signatures and external
-  identity claims;
-- provenance detail and result-membership semantics;
-- relay metadata, planning, configuration, moderation, and persistence policy;
-- which current protocol interpretations are normative and which analysis or
-  account-search heuristics are optional or excluded;
-- pagination, corpus, portability, telemetry, and relationship semantics; and
-- which future adapters, if any, should consume the library.
 
 ## Process-local boundaries
 

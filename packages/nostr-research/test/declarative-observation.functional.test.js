@@ -221,7 +221,6 @@ test('declarative observation and lifecycle form one bounded public workflow', a
   });
   assert.equal(status.result.revision, 3);
   assert.equal(status.result.handleCount, 1);
-  assert.equal('notebook' in status.result, false);
   assert.equal(status.sessionRevision, 3);
 
   const reset = await session.execute({

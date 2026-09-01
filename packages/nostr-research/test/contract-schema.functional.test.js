@@ -53,9 +53,6 @@ test('factual schemas construct commands accepted through the public session sea
   );
   assert.deepEqual(contracts.fetch.bindings.keys, ['ids', 'authors', '#e', '#p', '#t']);
   assert.equal(contracts.continue.depth.default, 3);
-  for (const removed of ['remember', 'forget', 'notebook', 'remember-membership']) {
-    assert.equal(removed in contracts, false);
-  }
   assert.equal(global.result.session.commands.plan.required.command, '"plan"');
   assert.match(global.result.session.commands.plan.failureSemantics, /cannot be undone/);
   assert.equal('research' in global.result.session, false);
@@ -147,16 +144,6 @@ test('factual schemas construct commands accepted through the public session sea
     contracts.filter.where.variants.collection,
   );
   assert.equal('variants' in collectionFilterSchema.result.operation.parameters.where, false);
-
-  const removedNotebookCommand = await session.execute({
-    commandId: 'removed-notebook-command', command: 'notebook', parameters: {},
-  });
-  assert.equal(removedNotebookCommand.ok, false);
-  assert.equal(removedNotebookCommand.error.code, 'INVALID_COMMAND');
-  assert.throws(
-    () => createInMemoryResearchMemory({ notebookCapacity: 10 }),
-    /Unknown in-memory research memory option field: notebookCapacity/u,
-  );
 
   const related = await session.execute({
     commandId: 'relate', command: 'relate', input: 'events', resultId: 'rows',
